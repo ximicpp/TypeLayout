@@ -1,12 +1,25 @@
-// typelayout.hpp
-// Compile-time layout signature generator using C++26 static reflection (P2996)
+// Boost.TypeLayout
 //
-// Constraints: IEEE 754 floats
-// Platform info: Encoded in signature header (architecture + endianness)
-// Guarantees: identical signature => identical memory layout on same platform
+// Compile-time memory layout signature generator using C++26 static reflection (P2996)
+//
+// Copyright (c) 2024-2026 TypeLayout Development Team
+// Distributed under the Boost Software License, Version 1.0.
+// (See accompanying file LICENSE_1_0.txt or copy at
+// http://www.boost.org/LICENSE_1_0.txt)
+//
+// Constraints:
+//   - IEEE 754 floating-point required
+//   - Platform info encoded in signature header (architecture + endianness)
+//
+// Guarantees:
+//   - Identical signature => Identical memory layout on same platform
+//
+// Requirements:
+//   - C++26 with P2996 static reflection support
+//   - Tested with Bloomberg Clang P2996 fork
 
-#ifndef TYPELAYOUT_HPP
-#define TYPELAYOUT_HPP
+#ifndef BOOST_TYPELAYOUT_TYPELAYOUT_HPP
+#define BOOST_TYPELAYOUT_TYPELAYOUT_HPP
 
 // Platform detection
 #if defined(_MSC_VER)
@@ -53,6 +66,7 @@
 #include <limits>
 #include <memory>
 
+namespace boost {
 namespace typelayout {
 
     // Type size/alignment requirements (fixed-width types are portable)
@@ -894,9 +908,11 @@ namespace typelayout {
     }
 
 } // namespace typelayout
+} // namespace boost
 
 // Smart pointer specializations
 
+namespace boost {
 namespace typelayout {
 
     // std::unique_ptr - treat as pointer
@@ -936,11 +952,13 @@ namespace typelayout {
     };
 
 } // namespace typelayout
+} // namespace boost
 
 // Boost.Interprocess offset_ptr specialization (if header included)
 
 #ifdef BOOST_INTERPROCESS_OFFSET_PTR_HPP
 
+namespace boost {
 namespace typelayout {
 
     template <typename T, typename DifferenceType, typename OffsetType, std::size_t Alignment>
@@ -955,11 +973,13 @@ namespace typelayout {
     };
 
 } // namespace typelayout
+} // namespace boost
 
 #endif // BOOST_INTERPROCESS_OFFSET_PTR_HPP
 
 // Portability checking
 
+namespace boost {
 namespace typelayout {
 
     // Forward declarations
@@ -1210,11 +1230,12 @@ namespace typelayout {
     concept LayoutHashCompatible = hashes_match<T, U>();
 
 } // namespace typelayout
+} // namespace boost
 
 /// Bind type to expected signature - fails at compile time if layout differs
 /// The signature includes architecture prefix (e.g., [64-le])
 #define TYPELAYOUT_BIND(Type, ExpectedSig) \
-    static_assert(::typelayout::get_layout_signature<Type>() == ExpectedSig, \
+    static_assert(::boost::typelayout::get_layout_signature<Type>() == ExpectedSig, \
                   "Layout mismatch for " #Type)
 
-#endif // TYPELAYOUT_HPP
+#endif // BOOST_TYPELAYOUT_TYPELAYOUT_HPP

@@ -1,77 +1,204 @@
-# TypeLayout
+# Boost.TypeLayout
 
-Compile-time type layout signature generator using C++26 static reflection (P2996).
+[![Boost License](https://img.shields.io/badge/License-Boost%201.0-blue.svg)](https://www.boost.org/LICENSE_1_0.txt)
+[![C++ Standard](https://img.shields.io/badge/C%2B%2B-26-blue.svg)](https://en.cppreference.com/w/cpp/26)
+[![Header Only](https://img.shields.io/badge/Header-only-green.svg)]()
 
-**Core guarantee: Same signature = Same layout**
+> **C++26 Compile-Time Memory Layout Analysis using Static Reflection (P2996)**
 
-## Requirements
+## Overview
 
-- [Bloomberg Clang P2996](https://github.com/bloomberg/clang-p2996)
-- 64-bit little-endian (x86-64/ARM64)
+Boost.TypeLayout is a header-only C++26 library that provides compile-time memory layout analysis and verification using static reflection (P2996). It generates human-readable signatures that uniquely identify type memory layouts, enabling robust binary interface verification and ABI compatibility checking.
 
-## Usage
+### Key Features
+
+| Feature | Description |
+|---------|-------------|
+| **Layout Signatures** | Automatic compile-time generation of portable layout descriptions |
+| **Platform Detection** | Architecture and endianness encoded in signatures |
+| **Portability Analysis** | Identify non-portable types at compile time |
+| **Dual-Hash Verification** | FNV-1a + DJB2 for ~2^128 collision resistance |
+| **C++20 Concepts** | `Portable`, `LayoutCompatible`, `LayoutMatch` constraints |
+| **Zero Runtime Cost** | All analysis happens at compile time |
+
+## Quick Start
 
 ```cpp
-#include <typelayout.hpp>
+#include <boost/typelayout.hpp>
+using namespace boost::typelayout;
 
 struct Point { int32_t x, y; };
 
-// Bind to expected signature - compilation fails if layout differs
-TYPELAYOUT_BIND(Point, "struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}");
+// Automatic signature generation
+constexpr auto sig = get_layout_signature<Point>();
+// Result: "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}"
 
-// Check compatibility
-static_assert(signatures_match<Point, Vec2>());  // Same layout as another type
+// Compile-time layout verification
+TYPELAYOUT_BIND(Point, "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}");
 
-// Template constraint
+// Portability checking
+static_assert(is_portable<Point>());
+
+// Template constraints using concepts
 template<typename T>
-    requires LayoutMatch<T, "struct[s:8,a:4]{...}">
-void send(const T& data);
+    requires LayoutMatch<T, "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}">
+void process_point(const T& p) { /* ... */ }
 ```
 
-## API
+## Requirements
 
-### Signature Functions
+### Compiler
 
-| Macro/Function | Description |
-|----------------|-------------|
-| `TYPELAYOUT_BIND(T, Sig)` | Bind type to signature |
-| `get_layout_signature<T>()` | Get type's layout signature |
-| `get_layout_signature_cstr<T>()` | Get signature as C-string (runtime) |
-| `signatures_match<T, U>()` | Check if two types have same layout |
-| `is_portable<T>()` | Check for platform-dependent members |
-| `is_platform_dependent_v<T>` | Check if type is platform-dependent |
+Currently requires a C++26 compiler with P2996 static reflection support:
 
-### Hash Functions (for runtime/protocol use)
+- **[Bloomberg's Clang P2996 fork](https://github.com/bloomberg/clang-p2996)** (recommended)
 
-| Function | Description |
-|----------|-------------|
-| `get_layout_hash<T>()` | Get 64-bit FNV-1a hash of layout signature |
-| `hashes_match<T, U>()` | Check if two types have same layout hash |
-
-```cpp
-// Compile-time hash for protocol headers
-constexpr uint64_t MESSAGE_HASH = get_layout_hash<Message>();
-
-// Runtime validation
-if (received_hash != MESSAGE_HASH) { /* layout mismatch */ }
+```bash
+clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ your_code.cpp
 ```
 
-### Concepts
+### Platform
 
-| Concept | Description |
-|---------|-------------|
-| `LayoutMatch<T, Sig>` | Layout matches signature |
-| `LayoutCompatible<T, U>` | Identical layout |
-| `LayoutHashMatch<T, Hash>` | Layout hash matches expected value |
-| `LayoutHashCompatible<T, U>` | Identical layout hash |
-| `Portable<T>` | No platform-dependent members |
+- 64-bit or 32-bit architecture (auto-detected)
+- Little-endian or big-endian (auto-detected)
+- IEEE 754 floating-point required
 
-## Build
+## Building
+
+### Using CMake
+
+```bash
+mkdir build && cd build
+cmake .. -DCMAKE_CXX_COMPILER=/path/to/p2996-clang++
+cmake --build .
+
+# Run tests
+./test_all_types
+
+# Run examples
+./demo
+```
+
+### Using build script
 
 ```bash
 ./build_and_run.sh
 ```
 
+## API Reference
+
+### Core Functions
+
+| Function | Description |
+|----------|-------------|
+| `get_layout_signature<T>()` | Get compile-time layout signature with architecture prefix |
+| `get_layout_hash<T>()` | Get 64-bit FNV-1a hash of layout signature |
+| `get_layout_verification<T>()` | Get dual-hash verification (FNV-1a + DJB2 + length) |
+| `signatures_match<T1, T2>()` | Check if two types have identical layout signatures |
+| `is_portable<T>()` | Check if type is portable across platforms |
+| `has_bitfields<T>()` | Check if type contains bit-fields |
+
+### Concepts
+
+| Concept | Description |
+|---------|-------------|
+| `Portable<T>` | Type contains no platform-dependent members |
+| `LayoutCompatible<T, U>` | Two types have identical memory layouts |
+| `LayoutMatch<T, Sig>` | Type layout matches expected signature string |
+| `LayoutHashMatch<T, Hash>` | Type layout hash matches expected value |
+
+### Macros
+
+```cpp
+TYPELAYOUT_BIND(Type, ExpectedSig)  // Static assert layout matches
+```
+
+## Use Cases
+
+### Binary Protocol Verification
+
+```cpp
+struct NetworkHeader {
+    uint32_t magic;
+    uint32_t version;
+    uint64_t timestamp;
+};
+
+// Verify ABI compatibility at compile time
+TYPELAYOUT_BIND(NetworkHeader, 
+    "[64-le]struct[s:16,a:8]{@0[magic]:u32[s:4,a:4],@4[version]:u32[s:4,a:4],@8[timestamp]:u64[s:8,a:8]}");
+```
+
+### Cross-Platform Serialization
+
+```cpp
+template<typename T>
+    requires Portable<T>
+void safe_binary_write(std::ostream& os, const T& obj) {
+    os.write(reinterpret_cast<const char*>(&obj), sizeof(T));
+}
+```
+
+### Shared Memory Verification
+
+```cpp
+template<typename T>
+    requires LayoutHashMatch<T, EXPECTED_HASH>
+T* map_shared_memory(const char* name) {
+    // Safe to map - layout verified at compile time
+    return static_cast<T*>(shm_open_and_map(name));
+}
+```
+
+## Project Structure
+
+```
+typelayout/
+├── include/boost/
+│   ├── typelayout.hpp           # Convenience header
+│   └── typelayout/
+│       └── typelayout.hpp       # Main implementation
+├── test/
+│   └── test_all_types.cpp       # Comprehensive tests
+├── example/
+│   └── demo.cpp                 # Usage examples
+├── doc/
+│   ├── api_reference.md
+│   ├── quickstart.md
+│   └── technical_overview.md
+├── meta/
+│   └── libraries.json           # Boost metadata
+├── build.jam                    # B2 build file
+├── CMakeLists.txt               # CMake build file
+├── LICENSE                      # Boost Software License
+└── README.md
+```
+
+## Documentation
+
+- [Quick Start Guide](doc/quickstart.md) - Tutorial and examples
+- [API Reference](doc/api_reference.md) - Complete API documentation  
+- [Technical Overview](doc/technical_overview.md) - Implementation details
+
+## Contributing
+
+Contributions are welcome! Please ensure:
+
+1. Code compiles with Bloomberg Clang P2996 fork
+2. All static_assert tests pass
+3. Follow existing code style
+4. Add tests for new features
+
 ## License
 
-MIT
+Distributed under the [Boost Software License, Version 1.0](LICENSE).
+
+## Related Work
+
+- [P2996 - Reflection for C++26](https://wg21.link/P2996)
+- [Boost.PFR](https://github.com/boostorg/pfr) - Basic reflection for user-defined types
+- [Bloomberg Clang P2996](https://github.com/bloomberg/clang-p2996) - Reference implementation
+
+---
+
+**Repository**: https://github.com/ximicpp/TypeLayout

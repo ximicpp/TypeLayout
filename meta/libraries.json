@@ -1,0 +1,17 @@
+{
+    "key": "typelayout",
+    "name": "TypeLayout",
+    "authors": [
+        "TypeLayout Development Team"
+    ],
+    "maintainers": [
+        "TypeLayout Development Team"
+    ],
+    "description": "Compile-time memory layout analysis and verification using C++26 static reflection (P2996).",
+    "category": [
+        "Data",
+        "Metaprogramming"
+    ],
+    "std": ["proposal"],
+    "cxxstd": "26"
+}

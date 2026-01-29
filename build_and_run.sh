@@ -83,8 +83,11 @@ run_demo() {
     return 1
 }
 
-echo -e "${CYAN}=== Running Demos ===${NC}\n"
-run_demo typelayout_demo
-run_demo typelayout_xoffset_demo 2>/dev/null || true
+echo -e "${CYAN}=== Running Tests ===${NC}\n"
+if run_demo test_all_types; then
+    echo -e "${GREEN}[OK] All static_assert tests passed (compilation success)${NC}\n"
+fi
 
+echo -e "${CYAN}=== Running Demos ===${NC}\n"
+run_demo demo
 echo -e "\n${GREEN}[OK] All demos completed${NC}"

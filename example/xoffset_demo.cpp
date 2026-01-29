@@ -4,9 +4,9 @@
 // Include xoffsetdatastructure first (includes Boost headers)
 // This enables the conditional offset_ptr specialization in typelayout.hpp
 #include "../../xoffsetdatastructure2.hpp"
-#include "../include/typelayout.hpp"
+#include <boost/typelayout/typelayout.hpp>
 
-using namespace typelayout;
+using namespace boost::typelayout;
 using namespace XOffsetDatastructure2;
 
 // Optional: User-provided specializations for cleaner container signatures

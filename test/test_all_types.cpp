@@ -2,9 +2,9 @@
 // Compile success = all tests pass (static_assert based)
 
 #include <cstdint>
-#include "../include/typelayout.hpp"
+#include <boost/typelayout/typelayout.hpp>
 
-using namespace typelayout;
+using namespace boost::typelayout;
 
 //=============================================================================
 // 1. Primitive Types

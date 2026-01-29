@@ -8,7 +8,7 @@
 // Build:
 //   clang++ -std=c++26 -freflection -I../include typelayout_tool.cpp -o typelayout-tool
 
-#include <typelayout.hpp>
+#include <boost/typelayout/typelayout.hpp>
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -17,7 +17,7 @@
 #include <array>
 #include <tuple>
 
-using namespace typelayout;
+using namespace boost::typelayout;
 
 // ============================================================================
 // User-defined types (modify this section)

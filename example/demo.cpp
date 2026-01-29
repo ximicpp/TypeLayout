@@ -2,9 +2,9 @@
 
 #include <iostream>
 #include <cstdint>
-#include "../include/typelayout.hpp"
+#include <boost/typelayout/typelayout.hpp>
 
-using namespace typelayout;
+using namespace boost::typelayout;
 
 // Data structures
 struct Point { int32_t x, y; };

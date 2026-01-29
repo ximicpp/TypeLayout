@@ -1,8 +1,15 @@
-cmake_minimum_required(VERSION 3.20)
+# Boost.TypeLayout
+#
+# Copyright (c) 2024-2026 TypeLayout Development Team
+# Distributed under the Boost Software License, Version 1.0.
+# (See accompanying file LICENSE_1_0.txt or copy at
+# http://www.boost.org/LICENSE_1_0.txt)
 
-project(typelayout
+cmake_minimum_required(VERSION 3.16)
+
+project(boost_typelayout
     VERSION 1.0.0
-    DESCRIPTION "C++26 Compile-Time Type Layout Signature Generator"
+    DESCRIPTION "Boost.TypeLayout - C++26 Compile-Time Memory Layout Analysis"
     LANGUAGES CXX
 )
 
@@ -37,68 +44,46 @@ endif()
 
 # Header-only library
 add_library(typelayout INTERFACE)
+add_library(Boost::typelayout ALIAS typelayout)
+
 target_include_directories(typelayout INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
 
-# Demo executable
-add_executable(typelayout_demo demo/demo.cpp)
-target_link_libraries(typelayout_demo PRIVATE typelayout)
+# Build options
+option(BOOST_TYPELAYOUT_BUILD_TESTS "Build test suite" ON)
+option(BOOST_TYPELAYOUT_BUILD_EXAMPLES "Build examples" ON)
+option(BOOST_TYPELAYOUT_BUILD_TOOLS "Build tools" ON)
 
 # Test executable (compile-time static_assert tests)
-add_executable(typelayout_test test/test_all_types.cpp)
-target_link_libraries(typelayout_test PRIVATE typelayout)
+if(BOOST_TYPELAYOUT_BUILD_TESTS)
+    add_executable(test_all_types test/test_all_types.cpp)
+    target_link_libraries(test_all_types PRIVATE typelayout)
+    message(STATUS "  Tests: Enabled")
+else()
+    message(STATUS "  Tests: Disabled")
+endif()
 
-# XOffsetDatastructure verification demo (requires Boost)
-option(TYPELAYOUT_BUILD_XOFFSET_DEMO "Build XOffsetDatastructure verification demo" ON)
-if(TYPELAYOUT_BUILD_XOFFSET_DEMO)
-    # Use local Boost from external directory
-    set(LOCAL_BOOST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../external/boost")
-    if(EXISTS "${LOCAL_BOOST_PATH}")
-        # Boost include directories (same as main project)
-        set(BOOST_INCLUDE_DIRS
-            ${LOCAL_BOOST_PATH}
-            ${LOCAL_BOOST_PATH}/libs/any/include
-            ${LOCAL_BOOST_PATH}/libs/container/include
-            ${LOCAL_BOOST_PATH}/libs/interprocess/include
-            ${LOCAL_BOOST_PATH}/libs/type_index/include
-            ${LOCAL_BOOST_PATH}/libs/core/include
-            ${LOCAL_BOOST_PATH}/libs/config/include
-            ${LOCAL_BOOST_PATH}/libs/throw_exception/include
-            ${LOCAL_BOOST_PATH}/libs/assert/include
-            ${LOCAL_BOOST_PATH}/libs/static_assert/include
-            ${LOCAL_BOOST_PATH}/libs/container_hash/include
-            ${LOCAL_BOOST_PATH}/libs/pfr/include
-            ${LOCAL_BOOST_PATH}/libs/move/include
-            ${LOCAL_BOOST_PATH}/libs/type_traits/include
-            ${LOCAL_BOOST_PATH}/libs/winapi/include
-            ${LOCAL_BOOST_PATH}/libs/intrusive/include
-            ${LOCAL_BOOST_PATH}/libs/predef/include
-        )
-        
-        add_executable(typelayout_xoffset_demo demo/xoffset_demo.cpp)
-        target_link_libraries(typelayout_xoffset_demo PRIVATE typelayout)
-        target_include_directories(typelayout_xoffset_demo PRIVATE 
-            ${CMAKE_CURRENT_SOURCE_DIR}/..
-            ${BOOST_INCLUDE_DIRS}
-        )
-        message(STATUS "  XOffset Demo: Enabled (using local Boost)")
-    else()
-        # Fallback to system Boost
-        find_package(Boost 1.74 QUIET)
-        if(Boost_FOUND)
-            add_executable(typelayout_xoffset_demo demo/xoffset_demo.cpp)
-            target_link_libraries(typelayout_xoffset_demo PRIVATE typelayout)
-            target_include_directories(typelayout_xoffset_demo PRIVATE 
-                ${CMAKE_CURRENT_SOURCE_DIR}/..
-                ${Boost_INCLUDE_DIRS}
-            )
-            message(STATUS "  XOffset Demo: Enabled (Boost ${Boost_VERSION} found)")
-        else()
-            message(STATUS "  XOffset Demo: Disabled (Boost not found)")
-        endif()
-    endif()
+# Examples
+if(BOOST_TYPELAYOUT_BUILD_EXAMPLES)
+    # Basic demo
+    add_executable(demo example/demo.cpp)
+    target_link_libraries(demo PRIVATE typelayout)
+    
+    message(STATUS "  Examples: Enabled")
+else()
+    message(STATUS "  Examples: Disabled")
+endif()
+
+# Tools
+if(BOOST_TYPELAYOUT_BUILD_TOOLS)
+    add_executable(typelayout-tool tools/typelayout_tool.cpp)
+    target_link_libraries(typelayout-tool PRIVATE typelayout)
+    
+    message(STATUS "  Tools: Enabled")
+else()
+    message(STATUS "  Tools: Disabled")
 endif()
 
 # Installation rules
@@ -114,16 +99,39 @@ install(DIRECTORY include/
 
 install(EXPORT typelayoutTargets
     FILE typelayoutTargets.cmake
-    NAMESPACE typelayout::
+    NAMESPACE Boost::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/typelayout
+)
+
+# Package configuration
+include(CMakePackageConfigHelpers)
+
+configure_package_config_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/typelayoutConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/typelayoutConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/typelayout
+)
+
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/typelayoutConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/typelayoutConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/typelayoutConfigVersion.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/typelayout
 )
 
 # Print configuration summary
 message(STATUS "")
-message(STATUS "=== TypeLayout Configuration ===")
+message(STATUS "=== Boost.TypeLayout Configuration ===")
+message(STATUS "  Project: ${PROJECT_NAME} v${PROJECT_VERSION}")
+message(STATUS "  Description: ${PROJECT_DESCRIPTION}")
 message(STATUS "  C++ Compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
 message(STATUS "  C++ Compiler Path: ${CMAKE_CXX_COMPILER}")
 message(STATUS "  C++ Standard: C++${CMAKE_CXX_STANDARD}")
 message(STATUS "  Build Type: ${CMAKE_BUILD_TYPE}")
-message(STATUS "  CXX Flags: ${CMAKE_CXX_FLAGS}")
+message(STATUS "  Install Prefix: ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "")
