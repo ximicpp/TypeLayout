@@ -1,0 +1,17 @@
+# Build directory
+build/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+
+# Compiled binaries
+*.o
+*.a
+*.so
+*.dylib
