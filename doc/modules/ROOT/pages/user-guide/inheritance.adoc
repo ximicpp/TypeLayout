@@ -1,0 +1,316 @@
+= Inheritance
+:navtitle: Inheritance
+
+Boost.TypeLayout supports analyzing classes with inheritance hierarchies, capturing base class layouts in the signature.
+
+== Basic Inheritance
+
+When a class inherits from a base class, the base class members appear first in the signature:
+
+[source,cpp]
+----
+struct Base {
+    int x;
+};
+
+struct Derived : Base {
+    int y;
+};
+----
+
+The `Derived` signature includes the base class:
+
+[source]
+----
+[64-le]struct[s:8,a:4]{<Base>:struct[s:4,a:4]{@0[x]:i32[s:4,a:4]},@4[y]:i32[s:4,a:4]}
+----
+
+Note the `<Base>:` prefix indicating inherited members.
+
+== Signature Format for Inheritance
+
+The general format for inherited members:
+
+[source]
+----
+{<BaseName>:BASE_LAYOUT,@OFFSET[member]:MEMBER_TYPE,...}
+----
+
+Where:
+
+* `<BaseName>` - Name of the base class in angle brackets
+* `BASE_LAYOUT` - Full layout of the base class
+* Following members - Derived class's own members
+
+== Multiple Inheritance
+
+Multiple inheritance includes all base classes:
+
+[source,cpp]
+----
+struct Base1 {
+    int a;
+};
+
+struct Base2 {
+    int b;
+};
+
+struct MultiDerived : Base1, Base2 {
+    int c;
+};
+----
+
+Signature:
+[source]
+----
+[64-le]struct[s:12,a:4]{<Base1>:struct[s:4,a:4]{@0[a]:i32[s:4,a:4]},<Base2>:struct[s:4,a:4]{@0[b]:i32[s:4,a:4]},@8[c]:i32[s:4,a:4]}
+----
+
+Base classes appear in declaration order.
+
+== Empty Base Optimization (EBO)
+
+The {cpp} standard allows empty base class optimization. Consider:
+
+[source,cpp]
+----
+struct Empty {};
+
+struct WithEmpty : Empty {
+    int value;
+};
+----
+
+With EBO applied:
+[source]
+----
+[64-le]struct[s:4,a:4]{<Empty>:struct[s:1,a:1]{},@0[value]:i32[s:4,a:4]}
+----
+
+The `Empty` base has size 1 (required by standard for standalone objects) but doesn't consume space in derived class due to EBO.
+
+== Diamond Inheritance
+
+Diamond inheritance patterns work correctly:
+
+[source,cpp]
+----
+struct Base {
+    int x;
+};
+
+struct Left : Base {
+    int l;
+};
+
+struct Right : Base {
+    int r;
+};
+
+struct Diamond : Left, Right {
+    int d;
+};
+----
+
+Without virtual inheritance, `Base` appears twice:
+[source]
+----
+[64-le]struct[s:20,a:4]{<Left>:struct[s:8,a:4]{<Base>:struct[s:4,a:4]{@0[x]:i32[s:4,a:4]},@4[l]:i32[s:4,a:4]},<Right>:struct[s:8,a:4]{<Base>:struct[s:4,a:4]{@0[x]:i32[s:4,a:4]},@4[r]:i32[s:4,a:4]},@16[d]:i32[s:4,a:4]}
+----
+
+== Virtual Inheritance
+
+Virtual inheritance changes the layout significantly:
+
+[source,cpp]
+----
+struct VBase {
+    int x;
+};
+
+struct VLeft : virtual VBase {
+    int l;
+};
+----
+
+WARNING: Types with virtual inheritance may have platform-specific layouts due to vptr placement. These types are marked as non-portable.
+
+[source,cpp]
+----
+static_assert(!boost::typelayout::is_portable<VLeft>());
+----
+
+== Protected and Private Inheritance
+
+Access specifiers don't affect layout:
+
+[source,cpp]
+----
+struct Base { int x; };
+
+struct PublicDerived : public Base { int y; };
+struct ProtectedDerived : protected Base { int y; };
+struct PrivateDerived : private Base { int y; };
+----
+
+All three have identical layouts.
+
+== Base Class Offsets
+
+You can see base class positioning through member offsets:
+
+[source,cpp]
+----
+struct Base1 { int a; };
+struct Base2 { double b; };
+
+struct Multi : Base1, Base2 {
+    char c;
+};
+----
+
+Signature shows `Base2` is positioned after `Base1`:
+[source]
+----
+[64-le]struct[s:24,a:8]{<Base1>:struct[s:4,a:4]{@0[a]:i32[s:4,a:4]},<Base2>:struct[s:8,a:8]{@0[b]:f64[s:8,a:8]},@16[c]:char[s:1,a:1]}
+----
+
+Note: `Base2` starts at offset 8 (due to alignment) even though `Base1` only occupies 4 bytes.
+
+== Comparing Inherited Layouts
+
+When comparing layouts, base class structure is included:
+
+[source,cpp]
+----
+struct Base { int x; };
+
+struct DerivedA : Base { int y; };
+
+struct Standalone {
+    int x;
+    int y;
+};
+----
+
+These have different signatures because `DerivedA` includes base class annotation:
+
+[source,cpp]
+----
+static_assert(!boost::typelayout::signatures_match<DerivedA, Standalone>());
+----
+
+Even though the actual memory layout might be identical, the type structure differs.
+
+== Inheritance and Portability
+
+A derived class is portable only if:
+
+1. All base classes are portable
+2. All derived class members are portable
+3. No virtual inheritance is used
+
+[source,cpp]
+----
+struct PortableBase {
+    std::int32_t x;
+};
+
+struct PortableDerived : PortableBase {
+    std::int32_t y;
+};
+
+struct NonPortableBase {
+    long x;  // Non-portable
+};
+
+struct NonPortableDerived : NonPortableBase {
+    std::int32_t y;  // Even this is portable
+};
+
+static_assert(boost::typelayout::is_portable<PortableDerived>());
+static_assert(!boost::typelayout::is_portable<NonPortableDerived>());
+----
+
+== Abstract Classes
+
+Abstract classes can be analyzed (for their data layout):
+
+[source,cpp]
+----
+struct AbstractBase {
+    int x;
+    virtual void method() = 0;
+};
+
+struct Concrete : AbstractBase {
+    int y;
+    void method() override {}
+};
+----
+
+NOTE: Classes with virtual functions contain a vptr and are non-portable. The vptr is typically at offset 0 but this is implementation-defined.
+
+== CRTP Pattern
+
+The Curiously Recurring Template Pattern works normally:
+
+[source,cpp]
+----
+template<typename Derived>
+struct CRTPBase {
+    int base_value;
+};
+
+struct MyCRTP : CRTPBase<MyCRTP> {
+    int derived_value;
+};
+----
+
+Signature:
+[source]
+----
+[64-le]struct[s:8,a:4]{<CRTPBase<MyCRTP>>:struct[s:4,a:4]{@0[base_value]:i32[s:4,a:4]},@4[derived_value]:i32[s:4,a:4]}
+----
+
+The template instantiation name appears in the signature.
+
+== Best Practices
+
+=== Prefer Composition
+
+For layout-critical code, composition is often clearer than inheritance:
+
+[source,cpp]
+----
+// Inheritance - base class structure embedded in signature
+struct InheritedMessage : Header {
+    Payload data;
+};
+
+// Composition - explicit member
+struct ComposedMessage {
+    Header header;
+    Payload data;
+};
+----
+
+=== Document Base Class Requirements
+
+[source,cpp]
+----
+// If you need specific base class layout
+struct NetworkPacket : PacketHeader {
+    std::uint8_t payload[256];
+};
+
+TYPELAYOUT_BIND(NetworkPacket, 
+    "[64-le]struct[s:264,a:4]{<PacketHeader>:struct[s:8,a:4]{...},@8[payload]:array<256>[s:256,a:1]{u8[s:1,a:1]}}");
+----
+
+== See Also
+
+* xref:layout-signatures.adoc[Layout Signatures] - Signature format
+* xref:portability.adoc[Portability] - Portability considerations
+* xref:type-support.adoc[Type Support] - Supported types

@@ -1,0 +1,266 @@
+= Signature Format Design
+:navtitle: Signature Format
+
+This document explains the design decisions behind the layout signature format.
+
+== Design Requirements
+
+The signature format was designed to satisfy:
+
+1. **Human readability** - Developers should understand signatures without tools
+2. **Completeness** - Capture all relevant layout information
+3. **Uniqueness** - Different layouts must produce different signatures
+4. **Compactness** - Keep signatures reasonably short
+5. **Constexpr compatibility** - Work at compile time
+
+== Format Evolution
+
+=== Early Designs Considered
+
+==== Binary Format
+
+[source]
+----
+0x08 0x04 0x02 0x00 0x00 0x00 0x04 0x04 ...
+----
+
+*Rejected because:*
+
+* Not human readable
+* Difficult to debug
+* Poor version control diffs
+
+==== JSON-like Format
+
+[source,json]
+----
+{"type":"struct","size":8,"members":[{"name":"x","type":"int","offset":0}]}
+----
+
+*Rejected because:*
+
+* Verbose for simple types
+* Complex parsing at compile time
+* Quotes and commas add noise
+
+==== XML-like Format
+
+[source,xml]
+----
+<struct size="8"><member name="x" type="int" offset="0"/></struct>
+----
+
+*Rejected because:*
+
+* Very verbose
+* Difficult compile-time parsing
+* Angle brackets conflict with templates
+
+=== Chosen Format
+
+[source]
+----
+[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}
+----
+
+*Advantages:*
+
+* Compact yet readable
+* Clear visual hierarchy
+* Easy to parse
+* No quoting needed for most content
+
+== Format Components
+
+=== Architecture Prefix
+
+[source]
+----
+[BITS-ENDIAN]
+----
+
+We include architecture in every signature because:
+
+* Same struct can have different layouts on different platforms
+* Makes cross-platform issues immediately visible
+* Signatures are self-documenting about their assumptions
+
+Alternative considered: Omit architecture for "normalized" signatures
+
+*Rejected because:*
+
+* Loses important information
+* Would require separate "platform-aware" and "platform-agnostic" modes
+* Could hide real cross-platform issues
+
+=== Size and Alignment
+
+[source]
+----
+[s:SIZE,a:ALIGN]
+----
+
+We use abbreviated keys because:
+
+* `s:` is clearer than just numbers
+* `size:` would be too verbose
+* Consistent pattern throughout
+
+=== Member Format
+
+[source]
+----
+@OFFSET[NAME]:TYPE
+----
+
+Design decisions:
+
+* `@` prefix makes offsets visually distinct
+* Square brackets for names (like array subscript notation)
+* Colon separates name from type (familiar from type annotations)
+
+=== Nested Types
+
+Nested types are expanded inline:
+
+[source]
+----
+@0[inner]:struct[s:4,a:4]{@0[value]:i32[s:4,a:4]}
+----
+
+Alternative considered: Reference nested types by name
+
+[source]
+----
+@0[inner]:Inner
+// Inner defined elsewhere
+----
+
+*Rejected because:*
+
+* Requires symbol table
+* Order-dependent parsing
+* Loses self-containment property
+
+== Type Identifiers
+
+=== Short Identifiers
+
+[cols="1,1,2"]
+|===
+| Identifier | Type | Rationale
+
+| `i32`
+| `int`
+| Common convention (Rust, WGSL)
+
+| `f64`
+| `double`
+| Size in name is unambiguous
+
+| `ptr`
+| `T*`
+| All pointers have same layout
+
+| `long`
+| `long`
+| No better short name for platform-dependent type
+|===
+
+=== Platform-Dependent Type Names
+
+We keep original type names for platform-dependent types:
+
+* `long` instead of `i32` or `i64`
+* `wchar` instead of `u16` or `u32`
+* `ldouble` instead of `f64` or `f80`
+
+This makes non-portability visible in signatures.
+
+== Bit-field Notation
+
+[source]
+----
+@BYTE[name]:TYPE:BIT_OFFSET:BIT_WIDTH
+----
+
+We include both byte offset and bit offset because:
+
+* Byte offset shows storage unit location
+* Bit offset shows position within unit
+* Both are needed to fully describe layout
+
+Alternative considered: Single bit offset from struct start
+
+*Rejected because:*
+
+* Storage unit boundaries are significant
+* Harder to correlate with source code
+
+== Array Notation
+
+[source]
+----
+array<COUNT>[s:SIZE,a:ALIGN]{ELEMENT_TYPE}
+----
+
+Design decisions:
+
+* `array<N>` mirrors {cpp} template syntax
+* Count in angle brackets (like `std::array`)
+* Element type in braces (contains full signature)
+
+== Inheritance Notation
+
+[source]
+----
+<BASE_NAME>:BASE_SIGNATURE
+----
+
+Angle brackets distinguish base classes from members:
+
+* `<Base>` - inherited from Base
+* `[member]` - member named "member"
+
+This prevents confusion when a member has the same name as a base class.
+
+== Format Versioning
+
+The format currently has no explicit version number because:
+
+* Format changes would require coordinated updates everywhere
+* Signatures are compared as strings - any change makes old signatures invalid
+* Better to be conservative about format changes
+
+If format changes are needed, we would likely:
+
+* Add version prefix: `v2:[64-le]struct...`
+* Provide migration tools
+* Support both formats during transition
+
+== Parsing Considerations
+
+The format was designed for easy parsing:
+
+* Fixed structure (prefix, then type signature)
+* Delimiters chosen to avoid conflicts (no nested brackets of same type)
+* No escaping needed for identifiers
+* Numbers are always decimal
+
+Compile-time parsing is straightforward:
+
+[source,cpp]
+----
+constexpr bool parse_signature(std::string_view sig) {
+    // 1. Parse architecture prefix [XX-XX]
+    // 2. Parse type kind (struct/union/array/fundamental)
+    // 3. Parse size/alignment [s:N,a:N]
+    // 4. Parse members if present {...}
+    // Recursive descent works well
+}
+----
+
+== See Also
+
+* xref:index.adoc[Design Rationale Overview]
+* xref:compile-time.adoc[Compile-Time Design]

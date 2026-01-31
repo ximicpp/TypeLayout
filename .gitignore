@@ -29,3 +29,8 @@ Makefile
 
 # Old library structure (migrated to root)
 libs/typelayout/
+
+# Node.js / Antora build
+node_modules/
+package-lock.json
+doc/build/

@@ -1,0 +1,87 @@
+= Configuration
+:navtitle: Configuration
+
+Configuration options and platform support for Boost.TypeLayout.
+
+== Compiler Requirements
+
+Boost.TypeLayout requires a compiler with {cpp26} and P2996 static reflection support.
+
+=== Supported Compilers
+
+|===
+| Compiler | Version | Status
+
+| Clang (P2996 branch)
+| 19.0+
+| ✅ Fully supported
+
+| GCC
+| -
+| ⏳ Waiting for P2996 support
+
+| MSVC
+| -
+| ⏳ Waiting for P2996 support
+|===
+
+== Configuration Topics
+
+xref:compiler-options.adoc[Compiler Options]::
+Required and optional compiler flags for building with Boost.TypeLayout.
+
+xref:platform-support.adoc[Platform Support]::
+Platform-specific considerations and portability information.
+
+== Quick Setup
+
+=== CMake Configuration
+
+[source,cmake]
+----
+cmake_minimum_required(VERSION 3.20)
+project(my_project)
+
+# Require C++26
+set(CMAKE_CXX_STANDARD 26)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Add reflection flag for Clang
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_compile_options(-freflection)
+endif()
+
+# Find Boost.TypeLayout
+find_package(boost_typelayout CONFIG REQUIRED)
+
+add_executable(my_app main.cpp)
+target_link_libraries(my_app boost_typelayout)
+----
+
+=== Manual Compilation
+
+[source,bash]
+----
+# Using Clang with P2996 support
+clang++ -std=c++26 -freflection -I/path/to/boost/typelayout main.cpp -o my_app
+----
+
+== Feature Detection
+
+Use feature test macros to check for required capabilities:
+
+[source,cpp]
+----
+#if !defined(__cpp_reflection)
+    #error "C++26 reflection (P2996) is required"
+#endif
+
+#if !defined(__cpp_constexpr) || __cpp_constexpr < 202211L
+    #error "Full constexpr support is required"
+#endif
+----
+
+== See Also
+
+* xref:../quickstart.adoc[Quick Start Guide]
+* xref:../design/reflection-usage.adoc[P2996 Reflection Usage]

@@ -1,0 +1,41 @@
+* xref:index.adoc[Home]
+* xref:overview.adoc[Overview]
+* xref:quickstart.adoc[Quick Start]
+
+.User Guide
+* xref:user-guide/index.adoc[Introduction]
+* xref:user-guide/layout-signatures.adoc[Layout Signatures]
+* xref:user-guide/type-support.adoc[Type Support]
+* xref:user-guide/portability.adoc[Portability]
+* xref:user-guide/concepts.adoc[Concepts]
+* xref:user-guide/hash-verification.adoc[Hash Verification]
+* xref:user-guide/inheritance.adoc[Inheritance]
+* xref:user-guide/bitfields.adoc[Bit-fields]
+
+.API Reference
+* xref:reference/index.adoc[Overview]
+* xref:reference/core-functions.adoc[Core Functions]
+* xref:reference/concepts.adoc[Concepts]
+* xref:reference/macros.adoc[Macros]
+* xref:reference/utility-classes.adoc[Utility Classes]
+* xref:reference/type-signatures.adoc[Type Signatures]
+
+.Design Rationale
+* xref:design/index.adoc[Overview]
+* xref:design/signature-format.adoc[Signature Format]
+* xref:design/hash-algorithms.adoc[Hash Algorithms]
+* xref:design/portability-strategy.adoc[Portability Strategy]
+* xref:design/compile-time.adoc[Compile-Time Design]
+* xref:design/reflection-usage.adoc[P2996 Reflection]
+
+.Configuration
+* xref:config/index.adoc[Overview]
+* xref:config/compiler-options.adoc[Compiler Options]
+* xref:config/platform-support.adoc[Platform Support]
+
+.Examples
+* xref:examples/index.adoc[Overview]
+* xref:examples/basic-usage.adoc[Basic Usage]
+* xref:examples/network-protocol.adoc[Network Protocol]
+* xref:examples/shared-memory.adoc[Shared Memory]
+* xref:examples/serialization.adoc[Serialization]

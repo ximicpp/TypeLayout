@@ -1,0 +1,193 @@
+= Design Rationale
+:navtitle: Overview
+
+This section explains the design decisions behind Boost.TypeLayout.
+
+== Design Goals
+
+The library was designed with the following goals in mind:
+
+[cols="1,2"]
+|===
+| Goal | Description
+
+| **Compile-time first**
+| All operations should be usable in `constexpr` contexts with zero runtime overhead
+
+| **Human-readable**
+| Layout signatures should be understandable without tools
+
+| **Platform-aware**
+| Clearly identify platform-dependent aspects of type layouts
+
+| **Verification**
+| Enable both compile-time and runtime layout verification
+
+| **Integration**
+| Work well with existing {cpp} idioms and patterns
+|===
+
+== Design Principles
+
+=== Zero Runtime Overhead
+
+Everything is computed at compile time:
+
+[source,cpp]
+----
+// All these are constexpr - no runtime computation
+constexpr auto sig = get_layout_signature<MyType>();
+constexpr auto hash = get_layout_hash<MyType>();
+constexpr bool portable = is_portable<MyType>();
+----
+
+=== Self-Documenting Signatures
+
+Signatures include:
+
+* Platform information (`[64-le]`)
+* Type category (`struct`, `union`, `array`)
+* Size and alignment (`[s:8,a:4]`)
+* Member names and offsets (`@0[x]:`)
+* Nested type details (recursively expanded)
+
+=== Fail-Fast Verification
+
+Layout mismatches are detected at compile time:
+
+[source,cpp]
+----
+// Compilation fails if layout doesn't match
+TYPELAYOUT_BIND(MyType, "expected signature");
+----
+
+== Document Structure
+
+[cols="1,2"]
+|===
+| Document | Content
+
+| xref:signature-format.adoc[Signature Format]
+| Why we chose this particular signature format
+
+| xref:hash-algorithms.adoc[Hash Algorithms]
+| Selection and implementation of hash functions
+
+| xref:portability-strategy.adoc[Portability Strategy]
+| How we detect and handle platform differences
+
+| xref:compile-time.adoc[Compile-Time Design]
+| Techniques for `constexpr` implementation
+
+| xref:reflection-usage.adoc[P2996 Reflection]
+| How we use C++26 static reflection
+|===
+
+== Key Decisions Summary
+
+=== Signature Format
+
+We chose a human-readable text format because:
+
+* Easier to debug than binary formats
+* Self-documenting in error messages
+* Version control friendly
+* Can be embedded in source code
+
+See xref:signature-format.adoc[Signature Format] for details.
+
+=== Hash Algorithm Selection
+
+We use FNV-1a and DJB2 because:
+
+* Both work well in `constexpr` context
+* Fast computation
+* Good distribution for string data
+* Independent algorithms (for dual verification)
+
+See xref:hash-algorithms.adoc[Hash Algorithms] for details.
+
+=== Portability Detection
+
+We explicitly track platform-dependent types because:
+
+* Allows compile-time enforcement
+* Documents platform requirements
+* Enables safer cross-platform code
+
+See xref:portability-strategy.adoc[Portability Strategy] for details.
+
+== Comparison with Alternatives
+
+=== vs. Manual offsetof/sizeof
+
+[cols="1,1"]
+|===
+| Manual | Boost.TypeLayout
+
+| Requires manual maintenance
+| Automatically generated
+
+| Easy to forget updates
+| Compiler-enforced
+
+| Partial information
+| Complete layout capture
+|===
+
+=== vs. Binary Serialization Libraries
+
+[cols="1,1"]
+|===
+| Serialization Libraries | Boost.TypeLayout
+
+| Runtime overhead
+| Zero runtime overhead
+
+| Requires schema definition
+| Works with existing types
+
+| Format conversion
+| Native memory layout
+|===
+
+=== vs. Compiler Extensions
+
+[cols="1,1"]
+|===
+| Compiler Extensions | Boost.TypeLayout
+
+| Compiler-specific
+| Standard {cpp} (with P2996)
+
+| Different syntax per compiler
+| Consistent API
+
+| May change between versions
+| Stable interface
+|===
+
+== Future Considerations
+
+=== Standard Reflection
+
+When P2996 is standardized, the library will:
+
+* Continue working without changes
+* Benefit from compiler optimizations
+* Potentially expand capabilities
+
+=== Extended Type Support
+
+Future versions may add:
+
+* Virtual function table analysis
+* Template parameter capture
+* Packed struct detection
+* Custom alignment attributes
+
+== See Also
+
+* xref:signature-format.adoc[Signature Format]
+* xref:hash-algorithms.adoc[Hash Algorithms]
+* xref:portability-strategy.adoc[Portability Strategy]

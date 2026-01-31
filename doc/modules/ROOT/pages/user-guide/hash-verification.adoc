@@ -1,0 +1,369 @@
+= Hash Verification
+:navtitle: Hash Verification
+
+Boost.TypeLayout provides hash-based layout verification for efficient runtime and compile-time checks.
+
+== Why Hash Verification?
+
+While full layout signatures provide complete information, they can be:
+
+* Long strings (hundreds of characters for complex types)
+* Expensive to compare at runtime
+* Cumbersome to embed in protocols or file formats
+
+Hash verification solves these problems by condensing the signature into a fixed-size value.
+
+== Available Hash Functions
+
+=== Layout Hash (64-bit)
+
+The primary hash function produces a 64-bit value:
+
+[source,cpp]
+----
+template<typename T>
+constexpr std::uint64_t get_layout_hash();
+----
+
+This uses FNV-1a algorithm for good distribution and collision resistance.
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+
+struct Point {
+    int x;
+    int y;
+};
+
+constexpr auto hash = boost::typelayout::get_layout_hash<Point>();
+// hash is a 64-bit value like 0x1234567890ABCDEF
+----
+
+=== Layout Verification (Dual Hash)
+
+For critical applications, use dual-hash verification:
+
+[source,cpp]
+----
+template<typename T>
+constexpr LayoutVerification get_layout_verification();
+
+struct LayoutVerification {
+    std::uint64_t fnv1a_hash;  // FNV-1a hash
+    std::uint64_t djb2_hash;   // DJB2 hash
+};
+----
+
+Using two independent hash algorithms virtually eliminates collision probability.
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+
+struct NetworkPacket {
+    std::uint32_t type;
+    std::uint32_t length;
+    std::uint64_t timestamp;
+};
+
+constexpr auto verification = 
+    boost::typelayout::get_layout_verification<NetworkPacket>();
+
+// verification.fnv1a_hash = 0x...
+// verification.djb2_hash = 0x...
+----
+
+== Compile-Time Verification
+
+=== Using Static Assert
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+
+struct Message {
+    std::uint32_t id;
+    std::uint32_t flags;
+};
+
+// Known hash from reference platform
+constexpr std::uint64_t EXPECTED_HASH = 0x1234567890ABCDEF;
+
+static_assert(
+    boost::typelayout::get_layout_hash<Message>() == EXPECTED_HASH,
+    "Message layout has changed!"
+);
+----
+
+=== Using LayoutHashMatch Concept
+
+[source,cpp]
+----
+template<typename T>
+    requires boost::typelayout::LayoutHashMatch<T, 0x1234567890ABCDEF>
+void process_message(const T& msg) {
+    // Layout guaranteed to match
+}
+----
+
+=== Using TYPELAYOUT_BIND Macro
+
+The macro provides both signature and hash verification:
+
+[source,cpp]
+----
+struct Point {
+    int x;
+    int y;
+};
+
+// Bind to expected signature (hash is computed automatically)
+TYPELAYOUT_BIND(Point, 
+    "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}");
+----
+
+== Runtime Verification
+
+=== Simple Hash Check
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+#include <fstream>
+
+struct FileHeader {
+    char magic[4];
+    std::uint64_t layout_hash;
+    std::uint32_t version;
+};
+
+template<typename T>
+bool verify_file(const std::string& path) {
+    std::ifstream file(path, std::ios::binary);
+    FileHeader header;
+    file.read(reinterpret_cast<char*>(&header), sizeof(header));
+    
+    constexpr auto expected_hash = boost::typelayout::get_layout_hash<T>();
+    return header.layout_hash == expected_hash;
+}
+----
+
+=== Dual Hash Check
+
+[source,cpp]
+----
+struct DataFileHeader {
+    char magic[8];
+    std::uint64_t fnv1a_hash;
+    std::uint64_t djb2_hash;
+    std::uint32_t record_count;
+};
+
+template<typename T>
+bool verify_with_dual_hash(const DataFileHeader& header) {
+    constexpr auto verification = 
+        boost::typelayout::get_layout_verification<T>();
+    
+    return header.fnv1a_hash == verification.fnv1a_hash &&
+           header.djb2_hash == verification.djb2_hash;
+}
+----
+
+== Hash Algorithms
+
+=== FNV-1a
+
+FNV-1a (Fowler-Noll-Vo) is a non-cryptographic hash with:
+
+* Excellent distribution
+* Fast computation
+* Simple implementation
+
+[source,cpp]
+----
+// FNV-1a implementation (for reference)
+constexpr std::uint64_t FNV_OFFSET = 14695981039346656037ULL;
+constexpr std::uint64_t FNV_PRIME = 1099511628211ULL;
+
+constexpr std::uint64_t fnv1a_hash(std::string_view str) {
+    std::uint64_t hash = FNV_OFFSET;
+    for (char c : str) {
+        hash ^= static_cast<std::uint64_t>(c);
+        hash *= FNV_PRIME;
+    }
+    return hash;
+}
+----
+
+=== DJB2
+
+DJB2 (Dan Bernstein's hash) provides:
+
+* Independent algorithm from FNV-1a
+* Good distribution for strings
+* Fast computation
+
+[source,cpp]
+----
+// DJB2 implementation (for reference)
+constexpr std::uint64_t djb2_hash(std::string_view str) {
+    std::uint64_t hash = 5381;
+    for (char c : str) {
+        hash = ((hash << 5) + hash) + static_cast<std::uint64_t>(c);
+    }
+    return hash;
+}
+----
+
+== Collision Probability
+
+=== Single Hash (64-bit)
+
+With a 64-bit hash:
+
+* Collision probability for 2 types: ~5.4 × 10^-20^
+* Birthday paradox threshold: ~4 billion types for 50% collision chance
+
+This is sufficient for most applications.
+
+=== Dual Hash (128-bit effective)
+
+With dual hash verification:
+
+* Collision probability: ~10^-38^ per pair
+* Virtually impossible to have accidental collision
+
+Recommended for:
+
+* Financial systems
+* Medical devices
+* Safety-critical applications
+
+== Protocol Integration
+
+=== Network Protocol Header
+
+[source,cpp]
+----
+// Protocol definition
+struct ProtocolHeader {
+    std::uint32_t magic;        // Protocol identifier
+    std::uint16_t version;      // Protocol version
+    std::uint16_t message_type; // Message type ID
+    std::uint64_t layout_hash;  // Payload layout hash
+    std::uint32_t payload_size; // Payload size in bytes
+};
+
+template<typename T>
+ProtocolHeader make_header(std::uint16_t msg_type) {
+    return {
+        .magic = 0x54594C59,  // "TYLY"
+        .version = 1,
+        .message_type = msg_type,
+        .layout_hash = boost::typelayout::get_layout_hash<T>(),
+        .payload_size = sizeof(T)
+    };
+}
+----
+
+=== File Format Header
+
+[source,cpp]
+----
+struct DataFileHeader {
+    char magic[8];              // "TYPELYT\0"
+    std::uint32_t version;      // File format version
+    std::uint64_t fnv1a_hash;   // Layout verification (FNV-1a)
+    std::uint64_t djb2_hash;    // Layout verification (DJB2)
+    std::uint64_t record_count; // Number of records
+    std::uint64_t timestamp;    // Creation timestamp
+};
+
+template<typename T>
+void write_data_file(const std::vector<T>& records, std::ostream& out) {
+    constexpr auto verification = 
+        boost::typelayout::get_layout_verification<T>();
+    
+    DataFileHeader header{
+        .magic = "TYPELYT",
+        .version = 1,
+        .fnv1a_hash = verification.fnv1a_hash,
+        .djb2_hash = verification.djb2_hash,
+        .record_count = records.size(),
+        .timestamp = std::time(nullptr)
+    };
+    
+    out.write(reinterpret_cast<const char*>(&header), sizeof(header));
+    out.write(reinterpret_cast<const char*>(records.data()), 
+              records.size() * sizeof(T));
+}
+----
+
+== Hash Caching
+
+Hashes are computed at compile time and have zero runtime overhead:
+
+[source,cpp]
+----
+// Hash is computed at compile time
+constexpr auto hash = boost::typelayout::get_layout_hash<MyType>();
+
+// Can be used in constexpr context
+constexpr bool matches = (hash == EXPECTED_HASH);
+
+// Or at runtime with no computation
+if (header.layout_hash == hash) {
+    // Zero-cost comparison
+}
+----
+
+== Error Handling
+
+=== Compile-Time Errors
+
+[source,cpp]
+----
+struct Message {
+    std::uint32_t id;
+    std::uint32_t flags;
+};
+
+// If layout changes, compilation fails
+TYPELAYOUT_BIND(Message, 
+    "[64-le]struct[s:8,a:4]{@0[id]:u32[s:4,a:4],@4[flags]:u32[s:4,a:4]}");
+
+// Or with hash
+static_assert(
+    boost::typelayout::get_layout_hash<Message>() == 0x1234567890ABCDEF,
+    "Message layout mismatch - update protocol!"
+);
+----
+
+=== Runtime Errors
+
+[source,cpp]
+----
+#include <stdexcept>
+
+template<typename T>
+T read_record(std::istream& in, std::uint64_t expected_hash) {
+    constexpr auto current_hash = boost::typelayout::get_layout_hash<T>();
+    
+    if (expected_hash != current_hash) {
+        throw std::runtime_error(
+            "Layout mismatch: file was created with different struct layout"
+        );
+    }
+    
+    T record;
+    in.read(reinterpret_cast<char*>(&record), sizeof(T));
+    return record;
+}
+----
+
+== See Also
+
+* xref:layout-signatures.adoc[Layout Signatures] - Full signature format
+* xref:concepts.adoc[Concepts] - LayoutHashMatch concept
+* xref:portability.adoc[Portability] - Platform considerations

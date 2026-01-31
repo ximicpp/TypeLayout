@@ -1,0 +1,424 @@
+= P2996 Reflection Usage
+:navtitle: P2996 Reflection
+
+This document explains how Boost.TypeLayout leverages P2996 static reflection for type introspection.
+
+== P2996 Overview
+
+P2996 is the {cpp26} proposal for static (compile-time) reflection.
+It allows programs to inspect type information during compilation.
+
+=== Key Features Used
+
+|===
+| Feature | Purpose in TypeLayout
+
+| `^T` (reflect operator)
+| Get meta-info object for type T
+
+| `nonstatic_data_members_of()`
+| List all non-static data members
+
+| `offset_of(member)`
+| Get byte offset of member
+
+| `size_of(type)`
+| Get size of type
+
+| `bit_offset_of(member)`
+| Get bit offset for bit-fields
+
+| `bit_size_of(member)`
+| Get bit width for bit-fields
+
+| `identifier_of(member)`
+| Get member name as string
+
+| `type_of(member)`
+| Get meta-info for member's type
+
+| `[:info:]` (splice)
+| Convert meta-info back to type
+|===
+
+== Type Reflection Basics
+
+=== Getting Type Information
+
+[source,cpp]
+----
+template<typename T>
+constexpr auto analyze_type() {
+    // Reflect on T to get meta-info
+    constexpr auto info = ^T;
+    
+    // Query properties
+    constexpr auto size = size_of(info);
+    constexpr auto align = alignment_of(info);
+    
+    return std::pair{size, align};
+}
+
+static_assert(analyze_type<int>() == std::pair{4, 4});
+----
+
+=== Iterating Members
+
+[source,cpp]
+----
+template<typename T>
+constexpr std::size_t count_members() {
+    std::size_t count = 0;
+    template for (constexpr auto member : nonstatic_data_members_of(^T)) {
+        ++count;
+    }
+    return count;
+}
+
+struct Point { int x; int y; };
+static_assert(count_members<Point>() == 2);
+----
+
+== Member Analysis
+
+=== Getting Member Properties
+
+For each member, we can extract:
+
+[source,cpp]
+----
+template<typename T>
+constexpr void analyze_members() {
+    template for (constexpr auto member : nonstatic_data_members_of(^T)) {
+        // Member name
+        constexpr auto name = identifier_of(member);
+        
+        // Byte offset from struct start
+        constexpr auto offset = offset_of(member);
+        
+        // Member's type information
+        constexpr auto member_type = type_of(member);
+        
+        // Size of the member
+        constexpr auto member_size = size_of(member_type);
+    }
+}
+----
+
+=== Detecting Bit-fields
+
+Bit-fields require special handling:
+
+[source,cpp]
+----
+template<typename T>
+constexpr auto get_bitfield_info() {
+    template for (constexpr auto member : nonstatic_data_members_of(^T)) {
+        constexpr auto bit_offset = bit_offset_of(member);
+        constexpr auto bit_size = bit_size_of(member);
+        constexpr auto type_size = size_of(type_of(member));
+        
+        // Regular member: bit_size == type_size * 8
+        // Bit-field: bit_size < type_size * 8
+        constexpr bool is_bitfield = (bit_size != type_size * 8);
+    }
+}
+
+struct Flags {
+    unsigned a : 3;  // bit_offset=0, bit_size=3
+    unsigned b : 5;  // bit_offset=3, bit_size=5
+};
+----
+
+=== Type Splicing
+
+To work with a member's type as a type:
+
+[source,cpp]
+----
+template<typename T>
+constexpr auto recursive_signature() {
+    CompileString result;
+    
+    template for (constexpr auto member : nonstatic_data_members_of(^T)) {
+        constexpr auto member_type_info = type_of(member);
+        
+        // Splice meta-info back to a type
+        using MemberType = [:member_type_info:];
+        
+        // Now we can use MemberType as a regular type
+        result = result + get_type_signature<MemberType>();
+    }
+    
+    return result;
+}
+----
+
+== Implementation Patterns
+
+=== Pattern 1: Signature Building
+
+[source,cpp]
+----
+template<typename T>
+constexpr auto build_member_list() {
+    CompileString result;
+    bool first = true;
+    
+    template for (constexpr auto member : nonstatic_data_members_of(^T)) {
+        // Add comma separator
+        if (!first) {
+            result = result + ","_cs;
+        }
+        first = false;
+        
+        // Add member signature: @offset[name]:type
+        result = result + "@"_cs;
+        result = result + to_string<offset_of(member)>();
+        result = result + "["_cs;
+        result = result + identifier_of(member);
+        result = result + "]:"_cs;
+        
+        using MemberType = [:type_of(member):];
+        result = result + type_code<MemberType>();
+    }
+    
+    return result;
+}
+----
+
+=== Pattern 2: Portability Check
+
+[source,cpp]
+----
+template<typename T>
+constexpr bool check_portable_members() {
+    template for (constexpr auto member : nonstatic_data_members_of(^T)) {
+        using MemberType = [:type_of(member):];
+        
+        // Check if this member is portable
+        if (!is_portable_type<MemberType>()) {
+            return false;
+        }
+    }
+    return true;
+}
+----
+
+=== Pattern 3: Recursive Analysis
+
+[source,cpp]
+----
+template<typename T>
+constexpr std::size_t max_nesting_depth() {
+    std::size_t max_depth = 0;
+    
+    template for (constexpr auto member : nonstatic_data_members_of(^T)) {
+        using MemberType = [:type_of(member):];
+        
+        if constexpr (std::is_class_v<MemberType>) {
+            // Recurse into nested struct
+            std::size_t depth = 1 + max_nesting_depth<MemberType>();
+            if (depth > max_depth) {
+                max_depth = depth;
+            }
+        }
+    }
+    
+    return max_depth;
+}
+----
+
+== Handling Edge Cases
+
+=== Empty Structs
+
+[source,cpp]
+----
+struct Empty {};
+
+template<typename T>
+constexpr auto handle_empty() {
+    constexpr auto members = nonstatic_data_members_of(^T);
+    
+    if constexpr (members.size() == 0) {
+        // Empty struct - special handling
+        return "empty"_cs;
+    } else {
+        // Has members - normal processing
+        return build_member_list<T>();
+    }
+}
+----
+
+=== Inheritance
+
+[source,cpp]
+----
+struct Base { int x; };
+struct Derived : Base { int y; };
+
+// nonstatic_data_members_of includes inherited members
+// Derived has: x (inherited), y (own)
+----
+
+=== Access Specifiers
+
+P2996 can access private members during reflection:
+
+[source,cpp]
+----
+class Private {
+    int secret;  // private member
+public:
+    int visible;
+};
+
+// Both members are visible to reflection
+// nonstatic_data_members_of(^Private) returns both
+----
+
+== Current Limitations
+
+=== Standard Library Support
+
+Current P2996 implementations may not fully support reflection on standard library types.
+
+Workaround in TypeLayout:
+[source,cpp]
+----
+template<typename T>
+constexpr auto safe_reflect() {
+    if constexpr (/* T is std:: type */) {
+        // Use type traits instead of reflection
+        return fallback_analysis<T>();
+    } else {
+        // Use full reflection
+        return reflect_type<T>();
+    }
+}
+----
+
+=== Template Detection
+
+Detecting if a type is a template instantiation:
+
+[source,cpp]
+----
+// P2996 provides template_arguments_of() for this
+constexpr auto args = template_arguments_of(^std::vector<int>);
+// args contains: int
+----
+
+=== Virtual Functions
+
+Virtual function tables are implementation-defined:
+
+[source,cpp]
+----
+struct Virtual {
+    virtual void foo();  // May add vtable pointer
+    int data;
+};
+
+// Layout includes vtable pointer, but its position is
+// implementation-defined (usually first or last)
+----
+
+== Compiler Support
+
+=== EDG/Clang P2996 Branch
+
+Boost.TypeLayout is developed against the EDG-based Clang P2996 branch:
+
+[source,bash]
+----
+# Build Clang with P2996 support
+git clone -b p2996 https://github.com/bloomberg/clang-p2996
+----
+
+Required compiler flags:
+[source,bash]
+----
+-std=c++26 -freflection
+----
+
+=== Feature Detection
+
+[source,cpp]
+----
+#if defined(__cpp_reflection)
+    // P2996 reflection available
+    #include <meta>
+#else
+    #error "C++26 reflection (P2996) required"
+#endif
+----
+
+== Best Practices
+
+=== 1. Cache Reflection Results
+
+[source,cpp]
+----
+template<typename T>
+struct TypeInfo {
+    static constexpr auto members = nonstatic_data_members_of(^T);
+    static constexpr auto size = size_of(^T);
+    static constexpr auto align = alignment_of(^T);
+};
+
+// Use cached values
+constexpr auto sz = TypeInfo<Point>::size;
+----
+
+=== 2. Use Concepts for Constraints
+
+[source,cpp]
+----
+template<typename T>
+concept Reflectable = requires {
+    { nonstatic_data_members_of(^T) };
+};
+
+template<Reflectable T>
+constexpr auto analyze() { /* ... */ }
+----
+
+=== 3. Handle Incomplete Types
+
+[source,cpp]
+----
+template<typename T>
+constexpr auto safe_size() {
+    if constexpr (requires { size_of(^T); }) {
+        return size_of(^T);
+    } else {
+        return 0;  // Incomplete type
+    }
+}
+----
+
+== Future Directions
+
+=== P2996 Evolution
+
+The reflection proposal continues to evolve:
+
+* Additional query functions
+* Better template support
+* Improved constexpr capabilities
+
+=== TypeLayout Roadmap
+
+Future versions may leverage:
+
+* Reflection on functions for ABI analysis
+* Namespace reflection for module boundaries
+* Attribute reflection for custom annotations
+
+== See Also
+
+* link:https://wg21.link/P2996[P2996 Proposal]
+* xref:compile-time.adoc[Compile-Time Design]
+* xref:../reference/concepts.adoc[Concepts Reference]

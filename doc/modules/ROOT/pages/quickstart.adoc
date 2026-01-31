@@ -1,0 +1,152 @@
+= Quick Start
+:navtitle: Quick Start
+
+Get up and running with Boost.TypeLayout in 5 minutes.
+
+== Prerequisites
+
+=== Compiler
+
+You need a {cpp26} compiler with P2996 static reflection support. Currently, only the Bloomberg Clang P2996 fork provides this:
+
+* https://github.com/bloomberg/clang-p2996[Bloomberg Clang P2996 Fork]
+
+=== Build Command
+
+[source,bash]
+----
+clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ your_code.cpp
+----
+
+== Installation
+
+Boost.TypeLayout is header-only. Simply add the include directory to your project:
+
+[source,bash]
+----
+# Clone the repository
+git clone https://github.com/ximicpp/TypeLayout.git
+
+# Add to your include path
+-I/path/to/TypeLayout/include
+----
+
+Or with CMake:
+
+[source,cmake]
+----
+add_subdirectory(TypeLayout)
+target_link_libraries(your_target PRIVATE Boost::typelayout)
+----
+
+== Basic Usage
+
+=== Step 1: Include the Header
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+using namespace boost::typelayout;
+----
+
+=== Step 2: Generate a Layout Signature
+
+[source,cpp]
+----
+struct Point {
+    int32_t x;
+    int32_t y;
+};
+
+// Get the layout signature at compile time
+constexpr auto sig = get_layout_signature<Point>();
+
+// Print it at runtime (for debugging)
+#include <iostream>
+int main() {
+    std::cout << sig.c_str() << std::endl;
+    // Output: [64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}
+}
+----
+
+=== Step 3: Bind a Type to Its Signature
+
+[source,cpp]
+----
+// This static_assert will fail if the layout ever changes
+TYPELAYOUT_BIND(Point, "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}");
+----
+
+=== Step 4: Check Portability
+
+[source,cpp]
+----
+// Check if a type is portable across platforms
+static_assert(is_portable<Point>());  // OK
+
+struct BadStruct {
+    wchar_t name[16];  // Platform-dependent!
+};
+static_assert(!is_portable<BadStruct>());  // wchar_t is not portable
+----
+
+=== Step 5: Use Concepts for Template Constraints
+
+[source,cpp]
+----
+// Only accept types with a specific layout
+template<typename T>
+    requires LayoutMatch<T, "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}">
+void process_point(const T& p) {
+    // Safe to assume specific memory layout
+}
+
+// Only accept portable types
+template<Portable T>
+void safe_serialize(const T& obj) {
+    // Can safely binary serialize
+}
+----
+
+== Complete Example
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+#include <iostream>
+#include <cstdint>
+
+using namespace boost::typelayout;
+
+// Define a network message
+struct NetworkMessage {
+    uint32_t magic;
+    uint32_t version;
+    uint64_t timestamp;
+    char payload[64];
+};
+
+// Bind to expected layout - compilation fails if layout differs
+TYPELAYOUT_BIND(NetworkMessage,
+    "[64-le]struct[s:80,a:8]{@0[magic]:u32[s:4,a:4],@4[version]:u32[s:4,a:4],@8[timestamp]:u64[s:8,a:8],@16[payload]:bytes[s:64,a:1]}");
+
+// Verify portability
+static_assert(is_portable<NetworkMessage>(), "NetworkMessage must be portable");
+
+// Get hash for runtime verification
+constexpr uint64_t MESSAGE_HASH = get_layout_hash<NetworkMessage>();
+
+int main() {
+    std::cout << "Layout: " << get_layout_signature_cstr<NetworkMessage>() << std::endl;
+    std::cout << "Hash: 0x" << std::hex << MESSAGE_HASH << std::endl;
+    std::cout << "Size: " << sizeof(NetworkMessage) << " bytes" << std::endl;
+    return 0;
+}
+----
+
+== What's Next?
+
+* xref:user-guide/index.adoc[User Guide] - Learn all features in depth
+* xref:user-guide/layout-signatures.adoc[Layout Signatures] - Understand signature format
+* xref:user-guide/portability.adoc[Portability] - Cross-platform considerations
+* xref:reference/index.adoc[API Reference] - Complete API documentation

@@ -1,0 +1,291 @@
+= Portability Strategy
+:navtitle: Portability Strategy
+
+This document explains how Boost.TypeLayout detects and handles platform-dependent types.
+
+== The Problem
+
+{cpp} has several types with platform-dependent sizes:
+
+[cols="1,2,2"]
+|===
+| Type | Windows x64 | Linux x64
+
+| `long`
+| 4 bytes
+| 8 bytes
+
+| `wchar_t`
+| 2 bytes
+| 4 bytes
+
+| `long double`
+| 8 bytes
+| 16 bytes
+
+| `void*`
+| 8 bytes
+| 8 bytes (but 4 on 32-bit)
+|===
+
+This causes subtle bugs when:
+
+* Sharing binary data between platforms
+* Memory-mapping files across systems
+* Network protocols with raw struct transmission
+
+== Design Goals
+
+1. **Identify non-portable types** at compile time
+2. **Document** platform dependencies in signatures
+3. **Enable enforcement** via concepts and constraints
+4. **Support mixed** portable and non-portable code
+
+== Classification Strategy
+
+=== Portable Types
+
+Types with guaranteed sizes across platforms:
+
+* `std::int8_t`, `std::int16_t`, `std::int32_t`, `std::int64_t`
+* `std::uint8_t`, `std::uint16_t`, `std::uint32_t`, `std::uint64_t`
+* `float` (IEEE 754), `double` (IEEE 754)
+* `char`, `signed char`, `unsigned char`
+* `char8_t`, `char16_t`, `char32_t`
+* `bool`
+
+=== Non-Portable Types
+
+Types with platform-dependent sizes:
+
+* `long`, `unsigned long` - 4 or 8 bytes
+* `wchar_t` - 2 or 4 bytes
+* `long double` - 8, 12, or 16 bytes
+* Pointers - 4 or 8 bytes
+* `size_t`, `ptrdiff_t` - 4 or 8 bytes
+
+=== Borderline Cases
+
+`int` is technically implementation-defined but:
+
+* 4 bytes on all major platforms (32-bit and 64-bit)
+* Changing would break massive amounts of code
+* We treat it as portable (maps to `i32`)
+
+== Implementation Approach
+
+=== Type Trait
+
+[source,cpp]
+----
+template<typename T>
+constexpr bool is_portable_fundamental() {
+    if constexpr (std::same_as<T, long> || 
+                  std::same_as<T, unsigned long> ||
+                  std::same_as<T, wchar_t> ||
+                  std::same_as<T, long double>) {
+        return false;
+    }
+    if constexpr (std::is_pointer_v<T>) {
+        return false;
+    }
+    // ... other checks
+    return true;
+}
+----
+
+=== Recursive Checking
+
+For compound types, we check all members:
+
+[source,cpp]
+----
+template<typename T>
+constexpr bool is_portable() {
+    if constexpr (std::is_fundamental_v<T>) {
+        return is_portable_fundamental<T>();
+    } else if constexpr (std::is_class_v<T>) {
+        return []<auto... Ms>(std::meta::info... members) {
+            return (is_portable<[:type_of(Ms):]>() && ...);
+        }(nonstatic_data_members_of(^T)...);
+    }
+    // ... other cases
+}
+----
+
+=== Signature Marking
+
+Non-portable types keep their original names in signatures:
+
+[source]
+----
+@0[value]:long[s:8,a:8]    // Non-portable: "long"
+@0[value]:i64[s:8,a:8]     // Portable: "i64"
+----
+
+This makes non-portability visible in the signature itself.
+
+== Design Decisions
+
+=== Why Not Warn Instead of Track?
+
+We track portability as a queryable property rather than emitting warnings because:
+
+* Warnings can be ignored
+* Many use cases legitimately need non-portable types
+* Querying allows flexible enforcement policies
+
+=== Why Keep Platform-Dependent Names?
+
+Alternative: Map `long` to `i32` or `i64` based on platform
+
+[source]
+----
+// Alternative: Hide platform differences
+@0[value]:i64[s:8,a:8]  // "long" on Linux
+@0[value]:i32[s:4,a:4]  // "long" on Windows
+----
+
+*Rejected because:*
+
+* Signatures would differ between platforms
+* Can't tell if type is portable from signature
+* Loses information about original intent
+
+=== Why Include Pointers?
+
+Pointers are non-portable because:
+
+* Size changes between 32-bit and 64-bit
+* Storing pointers in files/network is almost always wrong
+* Makes pointer usage in data structures visible
+
+== Usage Patterns
+
+=== Compile-Time Enforcement
+
+[source,cpp]
+----
+template<boost::typelayout::Portable T>
+void serialize(const T& data);
+
+struct Good { std::int32_t x; };
+struct Bad { long x; };
+
+serialize(Good{});  // OK
+serialize(Bad{});   // Compile error
+----
+
+=== Documentation
+
+[source,cpp]
+----
+// Document that this struct intentionally uses non-portable types
+struct PlatformConfig {
+    long buffer_size;      // Platform-dependent for API compatibility
+    size_t memory_limit;   // Platform-dependent for memory APIs
+};
+
+// Not marked as Portable - intentional
+static_assert(!boost::typelayout::is_portable<PlatformConfig>());
+----
+
+=== Mixed Structures
+
+[source,cpp]
+----
+struct MixedData {
+    std::int32_t portable_id;    // Portable
+    long platform_handle;         // Non-portable
+};
+
+// Entire struct is non-portable due to one member
+static_assert(!boost::typelayout::is_portable<MixedData>());
+----
+
+== Platform Detection
+
+We detect the current platform to generate correct signatures:
+
+[source,cpp]
+----
+constexpr const char* get_arch_prefix() {
+    constexpr bool is_64bit = sizeof(void*) == 8;
+    constexpr bool is_little_endian = /* ... */;
+    
+    if constexpr (is_64bit && is_little_endian) {
+        return "[64-le]";
+    } else if constexpr (is_64bit && !is_little_endian) {
+        return "[64-be]";
+    } else if constexpr (!is_64bit && is_little_endian) {
+        return "[32-le]";
+    } else {
+        return "[32-be]";
+    }
+}
+----
+
+== Limitations
+
+=== ABI Differences
+
+We don't detect:
+
+* Struct packing differences between compilers
+* Calling convention differences
+* Vtable layout differences
+
+These require platform-specific knowledge beyond type introspection.
+
+=== Alignment Variations
+
+Some types have platform-dependent alignment:
+
+* `double` - 4-byte alignment on some 32-bit, 8-byte on 64-bit
+* We capture actual alignment but don't flag as "non-portable"
+
+=== Enum Underlying Types
+
+Enums without explicit underlying type may vary:
+
+[source,cpp]
+----
+enum Color { Red, Green, Blue };  // Size is implementation-defined
+enum class Status : std::uint8_t { OK, Error };  // Portable
+----
+
+== Recommendations
+
+=== For Portable Code
+
+1. Use fixed-width integers: `std::int32_t`, `std::uint64_t`
+2. Use `char16_t`/`char32_t` instead of `wchar_t`
+3. Use `double` instead of `long double`
+4. Use indices instead of pointers in serialized data
+
+=== For Platform-Specific Code
+
+1. Document why non-portable types are needed
+2. Use static_assert to verify expected sizes
+3. Consider providing portable alternatives
+
+[source,cpp]
+----
+struct PlatformBuffer {
+    void* data;
+    size_t size;
+    
+    // Portable representation for serialization
+    static constexpr auto portable_signature = 
+        "[64-le]struct[s:16,a:8]{...}";
+};
+
+// Verify we match expected platform layout
+static_assert(sizeof(PlatformBuffer) == 16);
+static_assert(alignof(PlatformBuffer) == 8);
+----
+
+== See Also
+
+* xref:index.adoc[Design Rationale Overview]
+* xref:../user-guide/portability.adoc[Portability User Guide]

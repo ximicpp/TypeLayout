@@ -1,0 +1,299 @@
+= Portability
+:navtitle: Portability
+
+One of the key features of Boost.TypeLayout is detecting and handling platform-dependent types that may have different memory layouts across systems.
+
+== The Portability Problem
+
+Consider this seemingly simple struct:
+
+[source,cpp]
+----
+struct Message {
+    long id;
+    double value;
+};
+----
+
+This struct has different layouts on different platforms:
+
+[cols="1,2"]
+|===
+| Platform | Size
+
+| Windows x64
+| 16 bytes (`long` = 4 bytes)
+
+| Linux x64
+| 16 bytes (`long` = 8 bytes)
+|===
+
+While the total size happens to be the same (due to padding), the member layout differs:
+
+* Windows: `@0[id]:long[s:4,a:4], @8[value]:f64[s:8,a:8]`
+* Linux: `@0[id]:long[s:8,a:8], @8[value]:f64[s:8,a:8]`
+
+== Platform-Dependent Types
+
+The following types have platform-dependent sizes:
+
+[cols="1,2"]
+|===
+| Type | Variation
+
+| `long` / `unsigned long`
+| 4 bytes (Windows LLP64) vs 8 bytes (Linux LP64)
+
+| `wchar_t`
+| 2 bytes (Windows) vs 4 bytes (Linux/macOS)
+
+| `long double`
+| 8 bytes (MSVC) vs 16 bytes (GCC/Clang x64) vs 12 bytes (x87)
+
+| Pointers
+| 4 bytes (32-bit) vs 8 bytes (64-bit)
+|===
+
+== Checking Portability
+
+Use `is_portable<T>()` to check if a type is portable:
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+
+struct PortableData {
+    std::int32_t x;
+    std::int32_t y;
+    float z;
+};
+
+struct NonPortableData {
+    long id;            // Platform-dependent!
+    std::int32_t value;
+};
+
+// Compile-time checks
+static_assert(boost::typelayout::is_portable<PortableData>());
+static_assert(!boost::typelayout::is_portable<NonPortableData>());
+----
+
+== The Portable Concept
+
+Use the `Portable` concept to constrain templates:
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+
+template<boost::typelayout::Portable T>
+void serialize_to_network(const T& data, std::span<std::byte> buffer) {
+    // Only works with portable types
+    std::memcpy(buffer.data(), &data, sizeof(T));
+}
+
+struct NetworkPacket {
+    std::uint32_t sequence;
+    std::uint16_t length;
+    std::uint16_t flags;
+};
+
+struct BadPacket {
+    unsigned long sequence;  // Non-portable!
+    std::uint16_t length;
+};
+
+NetworkPacket pkt;
+serialize_to_network(pkt, buffer);  // OK
+
+BadPacket bad;
+serialize_to_network(bad, buffer);  // Compile error!
+----
+
+== Writing Portable Code
+
+=== Use Fixed-Width Integer Types
+
+[source,cpp]
+----
+// BAD: Platform-dependent
+struct BadMessage {
+    long id;
+    int count;
+};
+
+// GOOD: Portable
+struct GoodMessage {
+    std::int64_t id;
+    std::int32_t count;
+};
+----
+
+=== Avoid wchar_t in Data Structures
+
+[source,cpp]
+----
+// BAD: wchar_t is 2 bytes on Windows, 4 bytes on Linux
+struct BadString {
+    wchar_t buffer[32];
+};
+
+// GOOD: Use char16_t or char32_t explicitly
+struct GoodString {
+    char16_t buffer[32];  // Always 2 bytes per character
+};
+----
+
+=== Use Explicit Padding
+
+[source,cpp]
+----
+// Layout may vary due to padding
+struct Implicit {
+    char a;
+    int b;
+};
+
+// Explicit padding for documentation
+struct Explicit {
+    char a;
+    char _padding[3];  // Make padding explicit
+    std::int32_t b;
+};
+----
+
+=== Consider Alignment
+
+[source,cpp]
+----
+// Use alignas for explicit alignment control
+struct alignas(8) Aligned {
+    std::int32_t x;
+    std::int32_t y;
+};
+----
+
+== Verifying Cross-Platform Compatibility
+
+Use layout signatures to verify compatibility at compile time:
+
+[source,cpp]
+----
+// In your portable header
+struct NetworkMessage {
+    std::uint32_t type;
+    std::uint32_t length;
+    std::uint64_t timestamp;
+};
+
+// This signature was generated on the reference platform
+#define NETWORK_MESSAGE_SIGNATURE \
+    "[64-le]struct[s:16,a:8]{@0[type]:u32[s:4,a:4],@4[length]:u32[s:4,a:4],@8[timestamp]:u64[s:8,a:8]}"
+
+// Verify at compile time
+TYPELAYOUT_BIND(NetworkMessage, NETWORK_MESSAGE_SIGNATURE);
+----
+
+If the layout differs on any platform, you'll get a compile-time error.
+
+== Runtime Portability Checks
+
+For runtime scenarios (e.g., loading data from files):
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+#include <fstream>
+
+struct DataHeader {
+    char magic[4];
+    char layout_hash[16];  // Stored as hex string
+    std::uint32_t version;
+};
+
+template<typename T>
+bool verify_file_layout(std::istream& file) {
+    DataHeader header;
+    file.read(reinterpret_cast<char*>(&header), sizeof(header));
+    
+    // Convert stored hash to uint64_t
+    auto stored_hash = hex_to_uint64(header.layout_hash);
+    
+    // Compare with current platform's layout hash
+    constexpr auto current_hash = boost::typelayout::get_layout_hash<T>();
+    
+    return stored_hash == current_hash;
+}
+----
+
+== Portability Checking for Nested Types
+
+Portability checking is recursive - a struct is only portable if all its members are portable:
+
+[source,cpp]
+----
+struct Inner {
+    long value;  // Non-portable
+};
+
+struct Outer {
+    std::int32_t x;
+    Inner inner;  // Contains non-portable member
+};
+
+static_assert(!boost::typelayout::is_portable<Inner>());
+static_assert(!boost::typelayout::is_portable<Outer>());  // Also non-portable
+----
+
+== Pointers and Portability
+
+Pointers are always platform-dependent (32-bit vs 64-bit), so any struct containing pointers is non-portable:
+
+[source,cpp]
+----
+struct WithPointer {
+    std::int32_t* data;  // 4 or 8 bytes depending on platform
+};
+
+static_assert(!boost::typelayout::is_portable<WithPointer>());
+----
+
+If you need portable data structures with references to other data, consider using indices or offsets instead:
+
+[source,cpp]
+----
+struct PortableWithReference {
+    std::uint32_t data_offset;  // Offset instead of pointer
+    std::uint32_t data_count;
+};
+
+static_assert(boost::typelayout::is_portable<PortableWithReference>());
+----
+
+== Best Practices Summary
+
+[cols="1,2"]
+|===
+| Do | Don't
+
+| Use `std::int32_t`, `std::uint64_t`, etc.
+| Use `int`, `long`, `unsigned long`
+
+| Use `char16_t`, `char32_t`
+| Use `wchar_t`
+
+| Use `float`, `double`
+| Use `long double`
+
+| Use indices/offsets for cross-platform data
+| Use pointers in serialized structures
+
+| Use `TYPELAYOUT_BIND` for verification
+| Assume layouts are identical across platforms
+|===
+
+== See Also
+
+* xref:type-support.adoc[Type Support] - Complete type list
+* xref:hash-verification.adoc[Hash Verification] - Runtime verification
+* xref:concepts.adoc[Concepts] - Using the `Portable` concept

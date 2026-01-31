@@ -1,0 +1,455 @@
+= Core Functions
+:navtitle: Core Functions
+
+Detailed reference for the core functions in Boost.TypeLayout.
+
+[#get_layout_signature]
+== get_layout_signature
+
+Generates a complete layout signature for a type.
+
+=== Synopsis
+
+[source,cpp]
+----
+namespace boost::typelayout {
+
+template<typename T>
+constexpr auto get_layout_signature();
+
+}
+----
+
+=== Template Parameters
+
+`T`::
+The type to analyze. Must be a complete type.
+
+=== Return Value
+
+Returns a `CompileString<N>` containing the layout signature, where `N` is determined at compile time based on the signature length.
+
+=== Complexity
+
+Compile-time only. No runtime overhead.
+
+=== Example
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+#include <iostream>
+
+struct Point {
+    int x;
+    int y;
+};
+
+int main() {
+    constexpr auto sig = boost::typelayout::get_layout_signature<Point>();
+    std::cout << sig << '\n';
+    // Output: [64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}
+    
+    // Compile-time usage
+    static_assert(sig == 
+        "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}");
+}
+----
+
+=== See Also
+
+* xref:../user-guide/layout-signatures.adoc[Layout Signatures] - Signature format details
+
+'''
+
+[#get_layout_hash]
+== get_layout_hash
+
+Computes a 64-bit hash of the layout signature.
+
+=== Synopsis
+
+[source,cpp]
+----
+namespace boost::typelayout {
+
+template<typename T>
+constexpr std::uint64_t get_layout_hash();
+
+}
+----
+
+=== Template Parameters
+
+`T`::
+The type to analyze. Must be a complete type.
+
+=== Return Value
+
+Returns a `std::uint64_t` hash value computed using the FNV-1a algorithm.
+
+=== Complexity
+
+Compile-time only. No runtime overhead.
+
+=== Notes
+
+* The hash is computed from the full layout signature string
+* Uses FNV-1a (Fowler-Noll-Vo) 64-bit hash algorithm
+* Same signature always produces same hash
+* Different signatures may (rarely) produce same hash (collision)
+
+=== Example
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+
+struct Message {
+    std::uint32_t id;
+    std::uint32_t flags;
+};
+
+// Store hash as constant
+constexpr std::uint64_t MESSAGE_HASH = 
+    boost::typelayout::get_layout_hash<Message>();
+
+// Use in static_assert
+static_assert(
+    boost::typelayout::get_layout_hash<Message>() == MESSAGE_HASH,
+    "Message layout has changed!"
+);
+
+// Use in constexpr context
+constexpr bool check_hash() {
+    return boost::typelayout::get_layout_hash<Message>() == MESSAGE_HASH;
+}
+----
+
+=== See Also
+
+* <<get_layout_verification>> - Dual-hash for higher confidence
+* xref:../user-guide/hash-verification.adoc[Hash Verification] - Usage guide
+
+'''
+
+[#get_layout_verification]
+== get_layout_verification
+
+Computes dual-hash verification for a type's layout.
+
+=== Synopsis
+
+[source,cpp]
+----
+namespace boost::typelayout {
+
+struct LayoutVerification {
+    std::uint64_t fnv1a_hash;
+    std::uint64_t djb2_hash;
+    
+    constexpr bool operator==(const LayoutVerification&) const = default;
+};
+
+template<typename T>
+constexpr LayoutVerification get_layout_verification();
+
+}
+----
+
+=== Template Parameters
+
+`T`::
+The type to analyze. Must be a complete type.
+
+=== Return Value
+
+Returns a `LayoutVerification` struct containing two independent hash values:
+
+* `fnv1a_hash` - FNV-1a 64-bit hash
+* `djb2_hash` - DJB2 64-bit hash
+
+=== Complexity
+
+Compile-time only. No runtime overhead.
+
+=== Notes
+
+Using two independent hash algorithms virtually eliminates false positives:
+
+* Single hash collision probability: ~5.4 × 10^-20^
+* Dual hash collision probability: ~10^-38^
+
+=== Example
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+
+struct CriticalData {
+    std::uint64_t timestamp;
+    std::uint32_t value;
+    std::uint32_t checksum;
+};
+
+constexpr auto verification = 
+    boost::typelayout::get_layout_verification<CriticalData>();
+
+// Verify both hashes
+static_assert(verification.fnv1a_hash == 0x1234567890ABCDEF);
+static_assert(verification.djb2_hash == 0xFEDCBA0987654321);
+
+// Compare verification objects
+constexpr auto other_verification = 
+    boost::typelayout::get_layout_verification<CriticalData>();
+static_assert(verification == other_verification);
+----
+
+=== See Also
+
+* <<get_layout_hash>> - Single hash for simpler use cases
+* xref:../user-guide/hash-verification.adoc[Hash Verification] - Usage guide
+
+'''
+
+[#signatures_match]
+== signatures_match
+
+Checks if two types have identical memory layouts.
+
+=== Synopsis
+
+[source,cpp]
+----
+namespace boost::typelayout {
+
+template<typename T1, typename T2>
+constexpr bool signatures_match();
+
+}
+----
+
+=== Template Parameters
+
+`T1`::
+First type to compare. Must be a complete type.
+
+`T2`::
+Second type to compare. Must be a complete type.
+
+=== Return Value
+
+Returns `true` if both types have identical layout signatures, `false` otherwise.
+
+=== Complexity
+
+Compile-time only. No runtime overhead.
+
+=== Notes
+
+* Compares full layout signatures, including member names
+* Types with same memory layout but different member names do not match
+* Useful for detecting layout-compatible types
+
+=== Example
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+
+struct Point2D {
+    float x;
+    float y;
+};
+
+struct Vector2D {
+    float dx;
+    float dy;
+};
+
+struct Complex {
+    float real;
+    float imag;
+};
+
+// Different member names = different signatures
+static_assert(!boost::typelayout::signatures_match<Point2D, Vector2D>());
+static_assert(!boost::typelayout::signatures_match<Point2D, Complex>());
+
+// Same type always matches
+static_assert(boost::typelayout::signatures_match<Point2D, Point2D>());
+
+// Use in template constraints
+template<typename T, typename U>
+    requires boost::typelayout::signatures_match<T, U>()
+void safe_copy(const T& src, U& dst) {
+    std::memcpy(&dst, &src, sizeof(T));
+}
+----
+
+=== See Also
+
+* xref:concepts.adoc#LayoutCompatible[LayoutCompatible] - Concept wrapper
+
+'''
+
+[#is_portable]
+== is_portable
+
+Checks if a type is free from platform-dependent members.
+
+=== Synopsis
+
+[source,cpp]
+----
+namespace boost::typelayout {
+
+template<typename T>
+constexpr bool is_portable();
+
+}
+----
+
+=== Template Parameters
+
+`T`::
+The type to analyze. Must be a complete type.
+
+=== Return Value
+
+Returns `true` if the type contains no platform-dependent members, `false` otherwise.
+
+=== Complexity
+
+Compile-time only. No runtime overhead.
+
+=== Platform-Dependent Types
+
+The following types are considered non-portable:
+
+* `long` / `unsigned long` - Size varies (4 or 8 bytes)
+* `wchar_t` - Size varies (2 or 4 bytes)
+* `long double` - Size varies (8, 12, or 16 bytes)
+* Pointers - Size varies (4 or 8 bytes)
+* Any type containing the above
+
+=== Notes
+
+* Checking is recursive - nested types are examined
+* A type is portable only if all its members are portable
+* Base classes are included in the check
+
+=== Example
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+
+struct PortableMessage {
+    std::int32_t id;
+    std::int32_t type;
+    std::uint64_t timestamp;
+};
+
+struct NonPortableMessage {
+    long id;            // Platform-dependent!
+    int type;
+    unsigned long timestamp;  // Platform-dependent!
+};
+
+static_assert(boost::typelayout::is_portable<PortableMessage>());
+static_assert(!boost::typelayout::is_portable<NonPortableMessage>());
+
+// Recursive checking
+struct Outer {
+    PortableMessage msg;    // Portable member
+    std::int32_t extra;
+};
+static_assert(boost::typelayout::is_portable<Outer>());
+
+struct BadOuter {
+    NonPortableMessage msg; // Non-portable member!
+    std::int32_t extra;
+};
+static_assert(!boost::typelayout::is_portable<BadOuter>());
+----
+
+=== See Also
+
+* xref:concepts.adoc#Portable[Portable] - Concept wrapper
+* xref:../user-guide/portability.adoc[Portability] - Usage guide
+
+'''
+
+[#has_bitfields]
+== has_bitfields
+
+Checks if a type contains bit-field members.
+
+=== Synopsis
+
+[source,cpp]
+----
+namespace boost::typelayout {
+
+template<typename T>
+constexpr bool has_bitfields();
+
+}
+----
+
+=== Template Parameters
+
+`T`::
+The type to analyze. Must be a complete type.
+
+=== Return Value
+
+Returns `true` if the type contains any bit-field members, `false` otherwise.
+
+=== Complexity
+
+Compile-time only. No runtime overhead.
+
+=== Notes
+
+* Only named bit-fields are considered
+* Unnamed bit-fields (padding) are not counted
+* Check is recursive for nested types
+
+=== Example
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+
+struct Flags {
+    unsigned int enabled : 1;
+    unsigned int mode : 3;
+    unsigned int priority : 4;
+};
+
+struct Regular {
+    unsigned int flags;
+    unsigned int mode;
+};
+
+static_assert(boost::typelayout::has_bitfields<Flags>());
+static_assert(!boost::typelayout::has_bitfields<Regular>());
+
+// Use to detect potentially non-portable types
+template<typename T>
+void serialize(const T& data) {
+    if constexpr (boost::typelayout::has_bitfields<T>()) {
+        // Special handling for bit-fields
+        serialize_bitfields(data);
+    } else {
+        // Regular serialization
+        serialize_regular(data);
+    }
+}
+----
+
+=== See Also
+
+* xref:../user-guide/bitfields.adoc[Bit-fields] - Usage guide

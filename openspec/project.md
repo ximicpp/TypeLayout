@@ -1,0 +1,222 @@
+# Project Context
+
+## Purpose
+Boost.TypeLayout 是一个 C++26 header-only 库，使用 P2996 静态反射提供编译时内存布局分析和验证。它生成人类可读的布局签名 (Layout Signature) 来唯一标识类型的内存布局，支持健壮的二进制接口验证和 ABI 兼容性检查。
+
+**核心保证**: `Identical signature ⟺ Identical memory layout`（相同签名等价于相同内存布局）
+
+## Tech Stack
+- **语言**: C++26
+- **反射**: P2996 静态反射 (`<experimental/meta>`)
+- **编译器**: Bloomberg Clang P2996 fork（目前唯一支持 P2996 的编译器）
+- **构建系统**: CMake, B2 (Boost.Build)
+- **库类型**: Header-only
+- **编译选项**: `-std=c++26 -freflection -freflection-latest -stdlib=libc++`
+
+## Project Structure
+```
+TypeLayout/
+├── include/boost/
+│   ├── typelayout.hpp                 # 便捷头文件
+│   └── typelayout/
+│       └── typelayout.hpp             # 主实现（~1240行）
+├── test/
+│   └── test_all_types.cpp             # 全面的编译时测试
+├── example/
+│   └── demo.cpp                       # 使用示例
+├── doc/
+│   ├── api_reference.md
+│   ├── quickstart.md
+│   └── technical_overview.md          # 技术演讲大纲
+├── meta/
+│   └── libraries.json                 # Boost 元数据
+├── build.jam                          # B2 构建文件
+├── CMakeLists.txt                     # CMake 构建文件
+└── README.md
+```
+
+## Project Conventions
+
+### Code Style
+- 遵循 Boost 库代码风格
+- 使用 `boost::typelayout` 命名空间
+- 所有核心功能使用 `consteval` 实现编译时计算
+- 优先使用 C++20 Concepts 进行类型约束
+- 使用 `[[nodiscard]]` 标记返回值重要的函数
+
+### Architecture Patterns
+- **Header-only 设计**: 所有实现在头文件中
+- **编译时计算优先**: 零运行时开销
+- **静态反射**: 使用 P2996 API 进行类型分析
+- **递归类型签名**: 支持嵌套结构体和继承层次
+- **双哈希验证**: FNV-1a + DJB2 提供 ~2^128 抗碰撞性
+
+### Testing Strategy
+- **编译时测试**: 使用 `static_assert` 进行编译时测试（编译成功=测试通过）
+- **类型覆盖**: 测试覆盖所有基本类型、复合类型、继承、位域等
+- **跨平台验证**: 架构前缀 `[64-le]`/`[32-be]` 区分平台
+
+### Git Workflow
+- main 分支为稳定分支
+- feature/* 分支用于新功能开发
+- 提交信息使用描述性语言
+
+## Core Components
+
+### 1. 布局签名格式 (Layout Signature Format)
+签名格式设计为人类可读、机器可比较：
+```
+[ARCH]type[s:SIZE,a:ALIGN]{@OFFSET[name]:type_sig,...}
+```
+
+**示例**:
+```cpp
+struct Point { int32_t x, y; };
+// 签名: "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}"
+```
+
+**组成部分**:
+- `[64-le]` - 架构前缀（64位小端序）
+- `struct[s:8,a:4]` - 类型类别、大小8字节、对齐4
+- `@0[x]` - 偏移0、字段名"x"
+- `:i32[s:4,a:4]` - 类型签名（含大小/对齐）
+
+### 2. 支持的类型签名
+| 类型 | 签名格式 | 示例 |
+|------|----------|------|
+| 定宽整数 | `i8/u8/i16/u16/i32/u32/i64/u64` | `i32[s:4,a:4]` |
+| 浮点数 | `f32/f64/f80` | `f64[s:8,a:8]` |
+| 字符 | `char/char8/char16/char32/wchar` | `char[s:1,a:1]` |
+| 布尔 | `bool` | `bool[s:1,a:1]` |
+| 指针 | `ptr/fnptr/ref/rref/memptr` | `ptr[s:8,a:8]` |
+| 字符数组 | `bytes` | `bytes[s:16,a:1]` |
+| 普通数组 | `array<element,N>` | `array[s:16,a:4]<i32[s:4,a:4],4>` |
+| 枚举 | `enum<underlying>` | `enum[s:1,a:1]<u8[s:1,a:1]>` |
+| 联合体 | `union` | `union[s:4,a:4]` |
+| 结构体 | `struct{...}` | `struct[s:8,a:4]{...}` |
+| 继承类 | `class[...,inherited]{...}` | 包含 `@0[base]:...` |
+| 多态类 | `class[...,polymorphic]{...}` | 包含虚表指针 |
+| 位域 | `bits<width,type>` | `@4.2[flags]:bits<3,u8[s:1,a:1]>` |
+| 智能指针 | `unique_ptr/shared_ptr/weak_ptr` | `shared_ptr[s:16,a:8]` |
+
+### 3. 核心 API
+| 函数 | 说明 |
+|------|------|
+| `get_layout_signature<T>()` | 获取带架构前缀的编译时布局签名 |
+| `get_layout_hash<T>()` | 获取64位 FNV-1a 哈希 |
+| `get_layout_verification<T>()` | 获取双哈希验证（FNV-1a + DJB2 + 长度） |
+| `signatures_match<T1, T2>()` | 检查两个类型是否有相同布局签名 |
+| `is_portable<T>()` | 检查类型是否跨平台可移植 |
+| `has_bitfields<T>()` | 检查类型是否包含位域 |
+
+### 4. C++20 Concepts
+| Concept | 说明 |
+|---------|------|
+| `Portable<T>` | 类型不包含平台相关成员 |
+| `LayoutCompatible<T, U>` | 两个类型有相同内存布局 |
+| `LayoutMatch<T, Sig>` | 类型布局匹配预期签名字符串 |
+| `LayoutHashMatch<T, Hash>` | 类型布局哈希匹配预期值 |
+
+### 5. 关键宏
+```cpp
+TYPELAYOUT_BIND(Type, ExpectedSig)  // 静态断言布局匹配
+```
+
+## Domain Context
+
+### 核心概念
+- **Layout Signature (布局签名)**: 类型内存布局的完整字符串表示
+- **Portability (可移植性)**: 类型是否跨平台兼容（无平台相关成员）
+- **ABI Compatibility (ABI兼容性)**: 二进制级别的接口兼容
+- **Static Reflection (静态反射)**: C++26 编译时反射提案 P2996
+
+### 平台相关类型
+以下类型在不同平台有不同大小，被标记为非可移植：
+- `wchar_t`: Windows 2字节 vs Linux 4字节
+- `long` / `unsigned long`: Windows LLP64 4字节 vs Linux LP64 8字节
+- `long double`: 8/12/16字节取决于平台
+
+### 位域处理
+位域被标记为非可移植，因为：
+- 位域布局是实现定义的（C++11 §9.6）
+- 不同编译器可能有不同的打包策略
+- 签名格式: `@byte.bit[name]:bits<width,type>`
+
+### P2996 反射 API
+本库使用的关键反射 API：
+- `std::meta::nonstatic_data_members_of(^^T)` - 枚举所有成员
+- `std::meta::identifier_of(member)` - 获取成员名称
+- `std::meta::offset_of(member).bytes` - 获取编译器验证的偏移
+- `std::meta::type_of(member)` - 获取成员类型
+- `std::meta::bases_of(^^T)` - 获取基类列表
+- `std::meta::is_bit_field(member)` - 检测位域
+- `std::meta::bit_size_of(member)` - 获取位域宽度
+- `[:type:]` - 拼接语法用于实例化类型
+
+## Important Constraints
+- 需要支持 P2996 的编译器（目前仅 Bloomberg Clang fork）
+- 必须是 header-only 以符合 Boost 库要求
+- 所有分析必须在编译时完成（零运行时开销）
+- 需要支持 IEEE 754 浮点数
+- 指针大小编码在签名中（4或8字节）
+
+## Use Cases
+
+### 1. 二进制协议验证
+```cpp
+struct NetworkHeader { uint32_t magic; uint64_t timestamp; };
+TYPELAYOUT_BIND(NetworkHeader, "[64-le]struct[s:16,a:8]{...}");
+```
+
+### 2. 跨平台序列化
+```cpp
+template<Portable T>
+void safe_binary_write(std::ostream& os, const T& obj) {
+    os.write(reinterpret_cast<const char*>(&obj), sizeof(T));
+}
+```
+
+### 3. 共享内存验证
+```cpp
+template<LayoutHashMatch<T, EXPECTED_HASH> T>
+T* map_shared_memory(const char* name) { ... }
+```
+
+### 4. 模板约束
+```cpp
+template<typename T>
+    requires LayoutMatch<T, "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}">
+void process_point(const T& p) { ... }
+```
+
+## External Dependencies
+- **Bloomberg Clang P2996**: 唯一支持 P2996 的编译器实现
+- **Boost License**: 使用 Boost Software License 1.0
+- **可选**: Boost.Interprocess（提供 `offset_ptr` 特化）
+
+## Implementation Details
+
+### CompileString<N> 模板
+编译时字符串操作的核心：
+- `consteval` 构造函数
+- `operator+` 连接
+- `operator==` 比较
+- `from_number()` 数字转字符串
+
+### 递归签名生成
+使用折叠表达式和索引序列生成所有字段签名：
+```cpp
+template<typename T, std::size_t... Indices>
+consteval auto concatenate_field_signatures(std::index_sequence<Indices...>) noexcept {
+    return (build_field_with_comma<T, Indices, (Indices == 0)>() + ...);
+}
+```
+
+### 双哈希验证
+```cpp
+struct LayoutVerification {
+    uint64_t fnv1a;   // FNV-1a 64位哈希
+    uint64_t djb2;    // DJB2 64位哈希（独立算法）
+    uint32_t length;  // 签名长度
+};
+```

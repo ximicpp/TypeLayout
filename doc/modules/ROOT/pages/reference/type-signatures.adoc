@@ -1,0 +1,485 @@
+= Type Signatures
+:navtitle: Type Signatures
+
+Complete reference for the layout signature format used by Boost.TypeLayout.
+
+== Signature Grammar
+
+The following EBNF grammar defines the layout signature format:
+
+[source,ebnf]
+----
+signature     = arch-prefix, type-sig ;
+
+arch-prefix   = "[", bits, "-", endian, "]" ;
+bits          = "32" | "64" ;
+endian        = "le" | "be" ;
+
+type-sig      = fundamental-sig | struct-sig | union-sig | array-sig ;
+
+fundamental-sig = type-id, "[", size-align, "]" ;
+size-align    = "s:", number, ",a:", number ;
+
+struct-sig    = "struct", "[", size-align, "]", "{", member-list, "}" ;
+union-sig     = "union", "[", size-align, "]", "{", member-list, "}" ;
+member-list   = [ member, { ",", member } ] ;
+member        = base-member | field-member | bitfield-member ;
+
+base-member   = "<", identifier, ">:", type-sig ;
+field-member  = "@", offset, "[", identifier, "]:", type-sig ;
+bitfield-member = "@", offset, "[", identifier, "]:", type-id, ":", bit-offset, ":", bit-width ;
+
+array-sig     = "array<", count, ">", "[", size-align, "]", "{", type-sig, "}" ;
+
+type-id       = fundamental-type | "struct" | "union" | "array" ;
+fundamental-type = "i8" | "i16" | "i32" | "i64" 
+                 | "u8" | "u16" | "u32" | "u64"
+                 | "f32" | "f64"
+                 | "bool" | "char" | "schar" | "uchar"
+                 | "wchar" | "char8" | "char16" | "char32"
+                 | "ptr" | "nullptr"
+                 | "long" | "ulong" | "ldouble"
+                 | "byte" ;
+
+offset        = number ;
+bit-offset    = number ;
+bit-width     = number ;
+count         = number ;
+number        = digit, { digit } ;
+identifier    = letter, { letter | digit | "_" } ;
+----
+
+== Architecture Prefix
+
+Every signature starts with an architecture descriptor:
+
+[cols="1,2,3"]
+|===
+| Format | Description | Example Platforms
+
+| `[32-le]`
+| 32-bit, little-endian
+| x86
+
+| `[32-be]`
+| 32-bit, big-endian
+| PowerPC (32-bit)
+
+| `[64-le]`
+| 64-bit, little-endian
+| x86-64, ARM64
+
+| `[64-be]`
+| 64-bit, big-endian
+| PowerPC64, SPARC64
+|===
+
+== Fundamental Type Identifiers
+
+=== Integer Types
+
+[cols="1,1,1,2"]
+|===
+| ID | Size | Alignment | C++ Type
+
+| `i8`
+| 1
+| 1
+| `std::int8_t`
+
+| `i16`
+| 2
+| 2
+| `std::int16_t`, `short`
+
+| `i32`
+| 4
+| 4
+| `std::int32_t`, `int`
+
+| `i64`
+| 8
+| 8
+| `std::int64_t`, `long long`
+
+| `u8`
+| 1
+| 1
+| `std::uint8_t`
+
+| `u16`
+| 2
+| 2
+| `std::uint16_t`, `unsigned short`
+
+| `u32`
+| 4
+| 4
+| `std::uint32_t`, `unsigned int`
+
+| `u64`
+| 8
+| 8
+| `std::uint64_t`, `unsigned long long`
+|===
+
+=== Platform-Dependent Integer Types
+
+[cols="1,2,2"]
+|===
+| ID | C++ Type | Size Variation
+
+| `long`
+| `long`
+| 4 (Windows) or 8 (Unix)
+
+| `ulong`
+| `unsigned long`
+| 4 (Windows) or 8 (Unix)
+|===
+
+=== Floating-Point Types
+
+[cols="1,1,1,2"]
+|===
+| ID | Size | Alignment | C++ Type
+
+| `f32`
+| 4
+| 4
+| `float`
+
+| `f64`
+| 8
+| 8
+| `double`
+
+| `ldouble`
+| varies
+| varies
+| `long double` (8, 12, or 16 bytes)
+|===
+
+=== Character Types
+
+[cols="1,1,1,2"]
+|===
+| ID | Size | Alignment | C++ Type
+
+| `char`
+| 1
+| 1
+| `char`
+
+| `schar`
+| 1
+| 1
+| `signed char`
+
+| `uchar`
+| 1
+| 1
+| `unsigned char`
+
+| `wchar`
+| varies
+| varies
+| `wchar_t` (2 or 4 bytes)
+
+| `char8`
+| 1
+| 1
+| `char8_t`
+
+| `char16`
+| 2
+| 2
+| `char16_t`
+
+| `char32`
+| 4
+| 4
+| `char32_t`
+|===
+
+=== Other Types
+
+[cols="1,1,1,2"]
+|===
+| ID | Size | Alignment | C++ Type
+
+| `bool`
+| 1
+| 1
+| `bool`
+
+| `byte`
+| 1
+| 1
+| `std::byte`
+
+| `ptr`
+| 4 or 8
+| 4 or 8
+| Any pointer type
+
+| `nullptr`
+| 4 or 8
+| 4 or 8
+| `std::nullptr_t`
+|===
+
+== Struct Signatures
+
+=== Format
+
+[source]
+----
+[arch]struct[s:SIZE,a:ALIGN]{MEMBERS}
+----
+
+=== Components
+
+* `SIZE` - Total size in bytes (including padding)
+* `ALIGN` - Alignment requirement in bytes
+* `MEMBERS` - Comma-separated list of members
+
+=== Member Format
+
+[source]
+----
+@OFFSET[name]:TYPE_SIGNATURE
+----
+
+* `OFFSET` - Byte offset from start of struct
+* `name` - Member name (identifier)
+* `TYPE_SIGNATURE` - Complete signature of member type
+
+=== Example
+
+[source,cpp]
+----
+struct Example {
+    char a;      // offset 0
+    int b;       // offset 4 (3 bytes padding)
+    double c;    // offset 8
+};
+----
+
+Signature:
+[source]
+----
+[64-le]struct[s:16,a:8]{@0[a]:char[s:1,a:1],@4[b]:i32[s:4,a:4],@8[c]:f64[s:8,a:8]}
+----
+
+== Union Signatures
+
+=== Format
+
+[source]
+----
+[arch]union[s:SIZE,a:ALIGN]{MEMBERS}
+----
+
+All members have offset `@0` since they share storage.
+
+=== Example
+
+[source,cpp]
+----
+union Data {
+    int i;
+    double d;
+    char c[8];
+};
+----
+
+Signature:
+[source]
+----
+[64-le]union[s:8,a:8]{@0[i]:i32[s:4,a:4],@0[d]:f64[s:8,a:8],@0[c]:array<8>[s:8,a:1]{char[s:1,a:1]}}
+----
+
+== Array Signatures
+
+=== Format
+
+[source]
+----
+[arch]array<COUNT>[s:SIZE,a:ALIGN]{ELEMENT_TYPE}
+----
+
+* `COUNT` - Number of elements
+* `SIZE` - Total array size (COUNT × element size)
+* `ALIGN` - Same as element alignment
+* `ELEMENT_TYPE` - Signature of element type
+
+=== Example
+
+[source,cpp]
+----
+int arr[10];
+----
+
+Signature:
+[source]
+----
+[64-le]array<10>[s:40,a:4]{i32[s:4,a:4]}
+----
+
+=== Multi-dimensional Arrays
+
+[source,cpp]
+----
+int matrix[3][4];
+----
+
+Signature:
+[source]
+----
+[64-le]array<3>[s:48,a:4]{array<4>[s:16,a:4]{i32[s:4,a:4]}}
+----
+
+== Inheritance
+
+=== Base Class Format
+
+[source]
+----
+<BaseName>:BASE_SIGNATURE
+----
+
+Base classes appear before derived class members.
+
+=== Example
+
+[source,cpp]
+----
+struct Base { int x; };
+struct Derived : Base { int y; };
+----
+
+Signature for `Derived`:
+[source]
+----
+[64-le]struct[s:8,a:4]{<Base>:struct[s:4,a:4]{@0[x]:i32[s:4,a:4]},@4[y]:i32[s:4,a:4]}
+----
+
+== Bit-fields
+
+=== Format
+
+[source]
+----
+@BYTE_OFFSET[name]:TYPE:BIT_OFFSET:BIT_WIDTH
+----
+
+* `BYTE_OFFSET` - Starting byte of storage unit
+* `TYPE` - Underlying type (e.g., `u32`, `i16`)
+* `BIT_OFFSET` - Bit position within storage unit (0 = LSB)
+* `BIT_WIDTH` - Number of bits
+
+=== Example
+
+[source,cpp]
+----
+struct Flags {
+    unsigned int a : 4;
+    unsigned int b : 4;
+    unsigned int c : 8;
+};
+----
+
+Signature:
+[source]
+----
+[64-le]struct[s:4,a:4]{@0[a]:u32:0:4,@0[b]:u32:4:4,@0[c]:u32:8:8}
+----
+
+== Empty Types
+
+Empty structs have size 1 per {cpp} standard:
+
+[source,cpp]
+----
+struct Empty {};
+----
+
+Signature:
+[source]
+----
+[64-le]struct[s:1,a:1]{}
+----
+
+== Signature Examples
+
+=== Simple Struct
+
+[source,cpp]
+----
+struct Point {
+    int x;
+    int y;
+};
+----
+
+[source]
+----
+[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}
+----
+
+=== Struct with Padding
+
+[source,cpp]
+----
+struct Padded {
+    char a;
+    double b;
+    char c;
+};
+----
+
+[source]
+----
+[64-le]struct[s:24,a:8]{@0[a]:char[s:1,a:1],@8[b]:f64[s:8,a:8],@16[c]:char[s:1,a:1]}
+----
+
+=== Nested Structs
+
+[source,cpp]
+----
+struct Inner { int value; };
+struct Outer {
+    Inner a;
+    Inner b;
+};
+----
+
+[source]
+----
+[64-le]struct[s:8,a:4]{@0[a]:struct[s:4,a:4]{@0[value]:i32[s:4,a:4]},@4[b]:struct[s:4,a:4]{@0[value]:i32[s:4,a:4]}}
+----
+
+=== Complex Example
+
+[source,cpp]
+----
+struct Complex {
+    std::uint16_t version;
+    std::uint16_t flags;
+    std::uint32_t length;
+    char name[32];
+    double values[4];
+};
+----
+
+[source]
+----
+[64-le]struct[s:72,a:8]{@0[version]:u16[s:2,a:2],@2[flags]:u16[s:2,a:2],@4[length]:u32[s:4,a:4],@8[name]:array<32>[s:32,a:1]{char[s:1,a:1]},@40[values]:array<4>[s:32,a:8]{f64[s:8,a:8]}}
+----
+
+== See Also
+
+* xref:../user-guide/layout-signatures.adoc[Layout Signatures] - User guide
+* xref:../user-guide/type-support.adoc[Type Support] - Supported types
+* xref:../user-guide/bitfields.adoc[Bit-fields] - Bit-field handling

@@ -1,0 +1,328 @@
+= Compile-Time Design
+:navtitle: Compile-Time Design
+
+This document explains the techniques used to implement Boost.TypeLayout entirely at compile time.
+
+== Design Requirements
+
+All library functionality must be usable in `constexpr` contexts:
+
+[source,cpp]
+----
+// These must all be valid
+constexpr auto sig = get_layout_signature<MyType>();
+constexpr auto hash = get_layout_hash<MyType>();
+constexpr bool portable = is_portable<MyType>();
+
+static_assert(sig == "...");
+static_assert(hash == 0x12345678);
+----
+
+== Key Techniques
+
+=== CompileString: Compile-Time String Container
+
+Standard `std::string` is not `constexpr` (before {cpp23}), so we use a custom container:
+
+[source,cpp]
+----
+template<std::size_t N>
+struct CompileString {
+    char data_[N + 1]{};
+    
+    constexpr CompileString() = default;
+    
+    constexpr CompileString(const char (&str)[N + 1]) {
+        for (std::size_t i = 0; i <= N; ++i) {
+            data_[i] = str[i];
+        }
+    }
+    
+    static constexpr std::size_t size() noexcept { return N; }
+    
+    constexpr operator std::string_view() const noexcept {
+        return {data_, N};
+    }
+};
+----
+
+Key properties:
+
+* Size is part of the type (template parameter)
+* No dynamic allocation
+* Implicitly convertible to `string_view`
+
+=== String Concatenation
+
+To build signatures, we need compile-time concatenation:
+
+[source,cpp]
+----
+template<std::size_t N, std::size_t M>
+constexpr auto operator+(const CompileString<N>& a, 
+                         const CompileString<M>& b) 
+    -> CompileString<N + M> 
+{
+    CompileString<N + M> result;
+    for (std::size_t i = 0; i < N; ++i) {
+        result.data_[i] = a.data_[i];
+    }
+    for (std::size_t i = 0; i < M; ++i) {
+        result.data_[N + i] = b.data_[i];
+    }
+    result.data_[N + M] = '\0';
+    return result;
+}
+----
+
+=== Number to String Conversion
+
+Converting integers to strings at compile time:
+
+[source,cpp]
+----
+template<std::size_t N>
+constexpr auto to_string() -> CompileString</* computed length */> {
+    // Count digits
+    constexpr std::size_t len = []() {
+        if constexpr (N == 0) return 1;
+        std::size_t n = N, count = 0;
+        while (n > 0) { ++count; n /= 10; }
+        return count;
+    }();
+    
+    CompileString<len> result;
+    std::size_t n = N;
+    for (std::size_t i = len; i > 0; --i) {
+        result.data_[i - 1] = '0' + (n % 10);
+        n /= 10;
+    }
+    return result;
+}
+----
+
+== Signature Generation
+
+=== Two-Pass Strategy
+
+Signature generation requires knowing the total length before creating the string:
+
+**Pass 1**: Calculate signature length
+[source,cpp]
+----
+template<typename T>
+constexpr std::size_t signature_length() {
+    std::size_t len = 0;
+    len += 7;  // "[64-le]"
+    len += 6;  // "struct"
+    // ... etc
+    return len;
+}
+----
+
+**Pass 2**: Build signature string
+[source,cpp]
+----
+template<typename T, std::size_t N = signature_length<T>()>
+constexpr auto get_layout_signature() -> CompileString<N> {
+    // Build signature knowing exact length
+}
+----
+
+=== Recursive Type Handling
+
+For nested types, we use recursive templates:
+
+[source,cpp]
+----
+template<typename T>
+constexpr auto type_signature() {
+    if constexpr (std::is_fundamental_v<T>) {
+        return fundamental_signature<T>();
+    } else if constexpr (std::is_class_v<T>) {
+        return struct_signature<T>();
+    } else if constexpr (std::is_array_v<T>) {
+        return array_signature<T>();
+    }
+    // ... etc
+}
+----
+
+== Reflection Integration
+
+=== P2996 Reflection Basics
+
+We use P2996 static reflection to introspect types:
+
+[source,cpp]
+----
+// Get meta-info for type
+constexpr auto type_info = ^MyStruct;
+
+// Get members
+constexpr auto members = nonstatic_data_members_of(type_info);
+
+// For each member
+template for (constexpr auto member : members) {
+    constexpr auto name = identifier_of(member);
+    constexpr auto offset = offset_of(member);
+    constexpr auto member_type = type_of(member);
+    // ...
+}
+----
+
+=== Member Iteration
+
+P2996 provides `template for` for compile-time iteration:
+
+[source,cpp]
+----
+template<typename T>
+constexpr auto generate_member_signatures() {
+    CompileString result;
+    bool first = true;
+    
+    template for (constexpr auto member : nonstatic_data_members_of(^T)) {
+        if (!first) {
+            result = result + ","_cs;
+        }
+        first = false;
+        
+        result = result + member_signature<member>();
+    }
+    
+    return result;
+}
+----
+
+=== Type Splicing
+
+To get back a type from meta-info:
+
+[source,cpp]
+----
+constexpr auto member_type_info = type_of(member);
+using MemberType = [:member_type_info:];  // Splice back to type
+
+constexpr auto sig = type_signature<MemberType>();
+----
+
+== Challenges and Solutions
+
+=== Challenge: Variable-Length Output
+
+**Problem**: Signature length depends on type complexity
+
+**Solution**: Two-pass approach with length computation first
+
+=== Challenge: Recursive Types
+
+**Problem**: Types can contain themselves (via pointers)
+
+**Solution**: Pointers are represented as `ptr` without recursing
+
+[source,cpp]
+----
+template<typename T>
+constexpr auto type_signature() {
+    if constexpr (std::is_pointer_v<T>) {
+        return "ptr"_cs;  // Don't recurse into pointed-to type
+    }
+    // ...
+}
+----
+
+=== Challenge: Bit-field Detection
+
+**Problem**: Standard {cpp} has no way to detect bit-fields
+
+**Solution**: P2996 provides `bit_offset_of` and `bit_size_of`
+
+[source,cpp]
+----
+template<auto Member>
+constexpr bool is_bitfield() {
+    return bit_size_of(Member) != 8 * size_of(type_of(Member));
+}
+----
+
+=== Challenge: Template Instantiation Depth
+
+**Problem**: Deep nesting can hit compiler limits
+
+**Solution**: 
+
+* Limit recursion depth
+* Use iterative algorithms where possible
+* Rely on compiler improvements
+
+== Performance Considerations
+
+=== Compile-Time Cost
+
+Signature generation adds compile time:
+
+* Simple struct: ~1ms
+* Complex nested struct: ~10-50ms
+* Very deep nesting: ~100ms+
+
+Mitigations:
+
+* Cache results in `constexpr` variables
+* Use hash-based verification for large types
+
+=== Code Generation
+
+The library generates no runtime code:
+
+* All functions are `constexpr`
+* Results are computed during compilation
+* Final binary contains only constant data
+
+=== Binary Size
+
+Signatures are embedded as string constants:
+
+* Each unique signature adds to binary size
+* Signatures can be hundreds of bytes for complex types
+* Use hashes to reduce embedded string size
+
+== Testing Compile-Time Code
+
+=== Static Assertions
+
+[source,cpp]
+----
+static_assert(get_layout_signature<int>() == "[64-le]i32[s:4,a:4]");
+static_assert(get_layout_hash<int>() == 0x1234...);
+static_assert(is_portable<Point>());
+----
+
+=== Constexpr Function Tests
+
+[source,cpp]
+----
+constexpr bool test_concatenation() {
+    auto a = "Hello"_cs;
+    auto b = " World"_cs;
+    auto c = a + b;
+    return c == "Hello World";
+}
+static_assert(test_concatenation());
+----
+
+=== Runtime Verification
+
+[source,cpp]
+----
+TEST(TypeLayout, SignatureFormat) {
+    auto sig = get_layout_signature<Point>();
+    EXPECT_THAT(sig, StartsWith("[64-le]"));
+    EXPECT_THAT(sig, HasSubstr("struct"));
+}
+----
+
+== See Also
+
+* xref:index.adoc[Design Rationale Overview]
+* xref:reflection-usage.adoc[P2996 Reflection]

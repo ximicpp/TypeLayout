@@ -1,0 +1,160 @@
+= Overview
+:navtitle: Overview
+
+== The Problem: Silent Binary Incompatibility
+
+Binary compatibility bugs are among the most insidious in systems programming. Two programs exchange raw bytes through shared memory or network protocols—both compile successfully, both pass unit tests, yet one reads garbage from the other.
+
+The culprit: *invisible differences in struct layout* caused by:
+
+* Compiler variations
+* Platform differences  
+* Innocent refactoring
+
+=== A Real-World Example
+
+[source,cpp]
+----
+// The problem: same struct, different layout on Windows vs Linux
+struct Record {
+    int32_t id;
+    long    timestamp;  // 4 bytes on Windows (LLP64), 8 bytes on Linux (LP64)!
+    int32_t flags;
+};
+// Windows: sizeof = 12, offsets: id@0, timestamp@4, flags@8
+// Linux:   sizeof = 24, offsets: id@0, timestamp@8, flags@16
+// Cross-platform shared memory = silent data corruption!
+----
+
+=== Why Traditional Solutions Fail
+
+[cols="1,2"]
+|===
+| Approach | Problem
+
+| `static_assert(sizeof(...))` 
+| Only checks size, not internal layout
+
+| `#pragma pack`
+| Non-portable and error-prone
+
+| Runtime checks
+| Catch bugs too late—after deployment
+|===
+
+== The Solution: Compile-Time Layout Contracts
+
+Boost.TypeLayout leverages {cpp26} Static Reflection (P2996) to generate *complete, semantic layout signatures* at compile time.
+
+[source,cpp]
+----
+struct Player { uint64_t id; char name[32]; float health; };
+TYPELAYOUT_BIND(Player, "[64-le]struct[s:48,a:8]{@0[id]:u64[s:8,a:8],@8[name]:bytes[s:32,a:1],@40[health]:f32[s:4,a:4]}");
+----
+
+If the layout ever differs—on any platform, with any compiler—*compilation fails immediately*.
+
+== How It Works
+
+=== 1. Reflection-Based Introspection
+
+The library uses P2996 reflection APIs to inspect types at compile time:
+
+[source,cpp]
+----
+template<typename T>
+consteval auto get_first_field_name() {
+    constexpr auto members = std::meta::nonstatic_data_members_of(^^T);
+    return std::meta::identifier_of(members[0]);
+}
+----
+
+=== 2. Signature Generation
+
+Signatures capture complete layout information:
+
+* Field names and types
+* Byte offsets
+* Size and alignment
+* Platform information (architecture, endianness)
+
+=== 3. Compile-Time Verification
+
+Using `static_assert` and concepts, layout contracts are enforced at compile time with zero runtime cost.
+
+== Key Concepts
+
+=== Layout Signature
+
+A human-readable string that uniquely identifies a type's memory layout:
+
+----
+[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}
+----
+
+Components:
+
+* `[64-le]` - Platform prefix (64-bit, little-endian)
+* `struct[s:8,a:4]` - Type category, size 8 bytes, alignment 4
+* `@0[x]` - Field at offset 0, named "x"
+* `:i32[s:4,a:4]` - Type signature with size/alignment
+
+=== Portability
+
+A type is *portable* if it has the same layout across all platforms. Non-portable types include:
+
+* `wchar_t` - 2 bytes (Windows) vs 4 bytes (Linux)
+* `long` - 4 bytes (Windows LLP64) vs 8 bytes (Linux LP64)
+* `long double` - 8/12/16 bytes depending on platform
+* Bit-fields - Layout is implementation-defined
+
+=== Hash Verification
+
+For runtime validation (e.g., protocol headers), the library provides:
+
+* 64-bit FNV-1a hash
+* Dual-hash verification (FNV-1a + DJB2) with ~2^128 collision resistance
+
+== Use Cases
+
+=== Binary Protocol Verification
+
+[source,cpp]
+----
+struct NetworkHeader {
+    uint32_t magic;
+    uint32_t version;
+    uint64_t timestamp;
+};
+TYPELAYOUT_BIND(NetworkHeader, 
+    "[64-le]struct[s:16,a:8]{@0[magic]:u32[s:4,a:4],@4[version]:u32[s:4,a:4],@8[timestamp]:u64[s:8,a:8]}");
+----
+
+=== Cross-Platform Serialization
+
+[source,cpp]
+----
+template<typename T>
+    requires Portable<T>
+void safe_binary_write(std::ostream& os, const T& obj) {
+    os.write(reinterpret_cast<const char*>(&obj), sizeof(T));
+}
+----
+
+=== Shared Memory Verification
+
+[source,cpp]
+----
+template<typename T>
+    requires LayoutHashMatch<T, EXPECTED_HASH>
+T* map_shared_memory(const char* name) {
+    // Safe to map - layout verified at compile time
+    return static_cast<T*>(shm_open_and_map(name));
+}
+----
+
+== Next Steps
+
+* xref:quickstart.adoc[Quick Start] - Get started in 5 minutes
+* xref:user-guide/layout-signatures.adoc[Layout Signatures] - Deep dive into signatures
+* xref:reference/index.adoc[API Reference] - Complete API documentation

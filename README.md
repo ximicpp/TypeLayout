@@ -162,10 +162,12 @@ typelayout/
 │   └── test_all_types.cpp       # Comprehensive tests
 ├── example/
 │   └── demo.cpp                 # Usage examples
-├── doc/
-│   ├── api_reference.md
-│   ├── quickstart.md
-│   └── technical_overview.md
+├── doc/                         # Antora documentation
+│   ├── antora.yml               # Antora component config
+│   ├── antora-playbook.yml      # Antora site config
+│   ├── build-docs.sh            # Build script (Linux/macOS)
+│   ├── build-docs.cmd           # Build script (Windows)
+│   └── modules/ROOT/pages/      # Documentation source
 ├── meta/
 │   └── libraries.json           # Boost metadata
 ├── build.jam                    # B2 build file
@@ -176,9 +178,26 @@ typelayout/
 
 ## Documentation
 
-- [Quick Start Guide](doc/quickstart.md) - Tutorial and examples
-- [API Reference](doc/api_reference.md) - Complete API documentation  
-- [Technical Overview](doc/technical_overview.md) - Implementation details
+Full documentation is built using [Antora](https://antora.org/) following Boost library standards.
+
+### Building Documentation
+
+```bash
+# Linux/macOS
+cd doc
+./build-docs.sh serve
+
+# Windows
+cd doc
+build-docs.cmd serve
+```
+
+### Documentation Contents
+
+- **User Guide** - Layout signatures, type support, portability, concepts
+- **API Reference** - Core functions, concepts, macros, utility classes
+- **Design Rationale** - Signature format, hash algorithms, compile-time design
+- **Examples** - Network protocols, shared memory, serialization
 
 ## Contributing
 

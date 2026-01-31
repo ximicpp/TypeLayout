@@ -1,0 +1,328 @@
+= Basic Usage Examples
+:navtitle: Basic Usage
+
+Fundamental Boost.TypeLayout operations with complete, runnable examples.
+
+== Example 1: Type Signature Generation
+
+Generate and display the layout signature for various types.
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+#include <iostream>
+#include <cstdint>
+
+using namespace boost::typelayout;
+
+// Simple struct
+struct Point2D {
+    float x;
+    float y;
+};
+
+// Struct with padding
+struct PaddedStruct {
+    char   a;
+    int    b;
+    double c;
+};
+
+// Nested struct
+struct Rectangle {
+    Point2D top_left;
+    Point2D bottom_right;
+};
+
+int main() {
+    std::cout << "=== Type Signatures ===\n\n";
+    
+    // Fundamental types
+    std::cout << "int:      " << get_layout_signature<int>() << "\n";
+    std::cout << "double:   " << get_layout_signature<double>() << "\n";
+    std::cout << "int64_t:  " << get_layout_signature<std::int64_t>() << "\n\n";
+    
+    // User types
+    std::cout << "Point2D:       " << get_layout_signature<Point2D>() << "\n";
+    std::cout << "PaddedStruct:  " << get_layout_signature<PaddedStruct>() << "\n";
+    std::cout << "Rectangle:     " << get_layout_signature<Rectangle>() << "\n";
+}
+----
+
+Expected output:
+[source,text]
+----
+=== Type Signatures ===
+
+int:      [64-le]i32[s:4,a:4]
+double:   [64-le]f64[s:8,a:8]
+int64_t:  [64-le]i64[s:8,a:8]
+
+Point2D:       [64-le]struct[s:8,a:4]{@0[x]:f32,@4[y]:f32}
+PaddedStruct:  [64-le]struct[s:16,a:8]{@0[a]:i8,@4[b]:i32,@8[c]:f64}
+Rectangle:     [64-le]struct[s:16,a:4]{@0[top_left]:struct{...},@8[bottom_right]:struct{...}}
+----
+
+== Example 2: Hash-Based Verification
+
+Use layout hashes for compile-time and runtime verification.
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+#include <iostream>
+#include <cassert>
+#include <cstdint>
+
+using namespace boost::typelayout;
+
+struct ConfigData {
+    std::uint32_t version;
+    std::uint32_t flags;
+    std::int64_t  timestamp;
+};
+
+// Store expected hash as a constant
+constexpr auto CONFIG_LAYOUT_HASH = get_layout_hash<ConfigData>();
+
+// Simulate receiving hash from external source
+std::uint64_t get_remote_layout_hash() {
+    // In real code, this would come from a network peer or file
+    return CONFIG_LAYOUT_HASH;  // Matching for demo
+}
+
+int main() {
+    std::cout << "=== Hash Verification ===\n\n";
+    
+    // Display hash
+    std::cout << "ConfigData hash: 0x" 
+              << std::hex << CONFIG_LAYOUT_HASH << std::dec << "\n\n";
+    
+    // Compile-time verification
+    static_assert(get_layout_hash<ConfigData>() == CONFIG_LAYOUT_HASH,
+        "ConfigData layout has changed!");
+    std::cout << "Compile-time check: PASSED\n";
+    
+    // Runtime verification
+    auto remote_hash = get_remote_layout_hash();
+    if (remote_hash == CONFIG_LAYOUT_HASH) {
+        std::cout << "Runtime check: PASSED - Layouts match\n";
+    } else {
+        std::cout << "Runtime check: FAILED - Layout mismatch!\n";
+        return 1;
+    }
+    
+    return 0;
+}
+----
+
+== Example 3: Portability Checking
+
+Verify types are portable across platforms.
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+#include <iostream>
+#include <cstdint>
+
+using namespace boost::typelayout;
+
+// Portable: uses fixed-width types
+struct NetworkMessage {
+    std::uint32_t message_id;
+    std::uint16_t payload_length;
+    std::uint8_t  flags;
+    std::uint8_t  reserved;
+};
+
+// Portable: only portable members
+struct Coordinates {
+    float latitude;
+    float longitude;
+    float altitude;
+};
+
+// Not portable: contains platform-dependent types
+struct SystemInfo {
+    long          uptime;      // Size varies
+    void*         handle;      // Pointer
+    std::size_t   memory;      // Size varies
+};
+
+// Mixed: some portable, some not
+struct MixedData {
+    std::int32_t  id;          // Portable
+    long          counter;     // Not portable!
+};
+
+int main() {
+    std::cout << "=== Portability Check ===\n\n";
+    
+    std::cout << "NetworkMessage: " 
+              << (is_portable<NetworkMessage>() ? "PORTABLE" : "NOT PORTABLE") << "\n";
+    
+    std::cout << "Coordinates:    " 
+              << (is_portable<Coordinates>() ? "PORTABLE" : "NOT PORTABLE") << "\n";
+    
+    std::cout << "SystemInfo:     " 
+              << (is_portable<SystemInfo>() ? "PORTABLE" : "NOT PORTABLE") << "\n";
+    
+    std::cout << "MixedData:      " 
+              << (is_portable<MixedData>() ? "PORTABLE" : "NOT PORTABLE") << "\n";
+    
+    // Compile-time enforcement
+    static_assert(is_portable<NetworkMessage>(), 
+        "NetworkMessage must be portable for network transmission");
+    
+    std::cout << "\nCompile-time assertions passed!\n";
+    
+    return 0;
+}
+----
+
+Expected output:
+[source,text]
+----
+=== Portability Check ===
+
+NetworkMessage: PORTABLE
+Coordinates:    PORTABLE
+SystemInfo:     NOT PORTABLE
+MixedData:      NOT PORTABLE
+
+Compile-time assertions passed!
+----
+
+== Example 4: Template Constraints
+
+Use concepts to constrain template parameters.
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+#include <iostream>
+#include <span>
+#include <cstdint>
+
+using namespace boost::typelayout;
+
+// Only accept types with known layout
+template<LayoutReflectable T>
+void print_layout_info(const char* name) {
+    std::cout << name << ":\n";
+    std::cout << "  Size:      " << sizeof(T) << " bytes\n";
+    std::cout << "  Alignment: " << alignof(T) << " bytes\n";
+    std::cout << "  Signature: " << get_layout_signature<T>() << "\n";
+    std::cout << "  Portable:  " << (is_portable<T>() ? "yes" : "no") << "\n\n";
+}
+
+// Only accept portable types for serialization
+template<PortableType T>
+std::span<const std::byte> to_bytes(const T& value) {
+    return std::as_bytes(std::span(&value, 1));
+}
+
+// Combining constraints
+template<typename T>
+    requires LayoutReflectable<T> && PortableType<T>
+void safe_serialize(const T& value, std::ostream& out) {
+    auto bytes = to_bytes(value);
+    out.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+}
+
+struct PortableData {
+    std::int32_t a;
+    std::int64_t b;
+};
+
+struct NonPortableData {
+    long value;
+};
+
+int main() {
+    std::cout << "=== Template Constraints ===\n\n";
+    
+    // Works with any reflectable type
+    print_layout_info<PortableData>("PortableData");
+    print_layout_info<NonPortableData>("NonPortableData");
+    
+    // Only works with portable types
+    PortableData pd{42, 100};
+    auto bytes = to_bytes(pd);
+    std::cout << "Serialized " << bytes.size() << " bytes\n";
+    
+    // This would fail to compile:
+    // NonPortableData npd{42};
+    // auto bad_bytes = to_bytes(npd);  // Error: constraint not satisfied
+    
+    return 0;
+}
+----
+
+== Example 5: Arrays and Nested Types
+
+Working with complex type hierarchies.
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+#include <iostream>
+#include <array>
+#include <cstdint>
+
+using namespace boost::typelayout;
+
+struct Vector3 {
+    float x, y, z;
+};
+
+struct Transform {
+    Vector3 position;
+    Vector3 rotation;
+    Vector3 scale;
+};
+
+struct Mesh {
+    std::uint32_t vertex_count;
+    std::uint32_t index_count;
+    Transform transform;
+};
+
+struct Scene {
+    std::uint32_t object_count;
+    std::array<Mesh, 4> objects;
+};
+
+int main() {
+    std::cout << "=== Nested Types ===\n\n";
+    
+    std::cout << "Vector3 (" << sizeof(Vector3) << " bytes):\n";
+    std::cout << "  " << get_layout_signature<Vector3>() << "\n\n";
+    
+    std::cout << "Transform (" << sizeof(Transform) << " bytes):\n";
+    std::cout << "  " << get_layout_signature<Transform>() << "\n\n";
+    
+    std::cout << "Mesh (" << sizeof(Mesh) << " bytes):\n";
+    std::cout << "  " << get_layout_signature<Mesh>() << "\n\n";
+    
+    std::cout << "Scene (" << sizeof(Scene) << " bytes):\n";
+    std::cout << "  " << get_layout_signature<Scene>() << "\n\n";
+    
+    // Verify all are portable
+    static_assert(is_portable<Vector3>());
+    static_assert(is_portable<Transform>());
+    static_assert(is_portable<Mesh>());
+    static_assert(is_portable<Scene>());
+    
+    std::cout << "All types are portable!\n";
+    
+    return 0;
+}
+----
+
+== See Also
+
+* xref:network-protocol.adoc[Network Protocol Example]
+* xref:shared-memory.adoc[Shared Memory Example]
+* xref:../user-guide/index.adoc[User Guide]

@@ -1,0 +1,323 @@
+= Utility Classes
+:navtitle: Utility Classes
+
+Reference documentation for the utility classes provided by Boost.TypeLayout.
+
+[#CompileString]
+== CompileString
+
+A compile-time string container used for layout signatures.
+
+=== Synopsis
+
+[source,cpp]
+----
+namespace boost::typelayout {
+
+template<std::size_t N>
+struct CompileString {
+    // Member types
+    using value_type = char;
+    using size_type = std::size_t;
+    
+    // Data
+    char data_[N + 1]{};  // Null-terminated
+    
+    // Constructors
+    constexpr CompileString() = default;
+    constexpr CompileString(const char (&str)[N + 1]);
+    
+    // Capacity
+    static constexpr std::size_t size() noexcept;
+    static constexpr std::size_t length() noexcept;
+    static constexpr bool empty() noexcept;
+    
+    // Element access
+    constexpr char operator[](std::size_t pos) const;
+    constexpr const char* data() const noexcept;
+    constexpr const char* c_str() const noexcept;
+    
+    // Conversion
+    constexpr operator std::string_view() const noexcept;
+    
+    // Comparison
+    template<std::size_t M>
+    constexpr bool operator==(const CompileString<M>& other) const;
+    constexpr bool operator==(std::string_view sv) const;
+    constexpr bool operator==(const char* str) const;
+    
+    // Concatenation
+    template<std::size_t M>
+    constexpr auto operator+(const CompileString<M>& other) const
+        -> CompileString<N + M>;
+    
+    // Iteration
+    constexpr const char* begin() const noexcept;
+    constexpr const char* end() const noexcept;
+};
+
+// Deduction guide
+template<std::size_t N>
+CompileString(const char (&)[N]) -> CompileString<N - 1>;
+
+// Literal operator
+template<CompileString S>
+constexpr auto operator""_cs();
+
+}
+----
+
+=== Template Parameters
+
+`N`::
+The length of the string (excluding null terminator).
+
+=== Member Functions
+
+==== Constructors
+
+[source,cpp]
+----
+constexpr CompileString() = default;
+----
+Default constructor. Creates an empty string.
+
+[source,cpp]
+----
+constexpr CompileString(const char (&str)[N + 1]);
+----
+Constructs from a string literal.
+
+==== Capacity
+
+[source,cpp]
+----
+static constexpr std::size_t size() noexcept;
+static constexpr std::size_t length() noexcept;
+----
+Returns `N` (the string length).
+
+[source,cpp]
+----
+static constexpr bool empty() noexcept;
+----
+Returns `N == 0`.
+
+==== Element Access
+
+[source,cpp]
+----
+constexpr char operator[](std::size_t pos) const;
+----
+Returns the character at position `pos`. No bounds checking.
+
+[source,cpp]
+----
+constexpr const char* data() const noexcept;
+constexpr const char* c_str() const noexcept;
+----
+Returns pointer to the underlying character array.
+
+==== Comparison
+
+[source,cpp]
+----
+template<std::size_t M>
+constexpr bool operator==(const CompileString<M>& other) const;
+----
+Compares with another `CompileString`. Returns `true` if contents are equal.
+
+[source,cpp]
+----
+constexpr bool operator==(std::string_view sv) const;
+constexpr bool operator==(const char* str) const;
+----
+Compares with runtime strings.
+
+==== Concatenation
+
+[source,cpp]
+----
+template<std::size_t M>
+constexpr auto operator+(const CompileString<M>& other) const
+    -> CompileString<N + M>;
+----
+Concatenates two compile-time strings.
+
+=== Example
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+#include <iostream>
+
+using namespace boost::typelayout;
+
+int main() {
+    // Create from literal
+    constexpr CompileString str1{"Hello"};
+    constexpr CompileString str2{" World"};
+    
+    // Concatenate
+    constexpr auto str3 = str1 + str2;
+    static_assert(str3 == "Hello World");
+    
+    // Use as string_view
+    std::cout << std::string_view(str3) << '\n';
+    
+    // Compare with signature
+    constexpr auto sig = get_layout_signature<int>();
+    static_assert(sig.size() > 0);
+}
+----
+
+=== Literal Operator
+
+The `_cs` literal suffix creates a compile-time string from a string literal:
+
+[source,cpp]
+----
+using namespace boost::typelayout::literals;
+
+constexpr auto sig = "[64-le]struct[s:8,a:4]{...}"_cs;
+
+// Use in concepts
+template<typename T>
+    requires LayoutMatch<T, "[64-le]struct[s:8,a:4]{...}"_cs>
+void process(const T&);
+----
+
+=== See Also
+
+* xref:core-functions.adoc#get_layout_signature[get_layout_signature] - Returns `CompileString`
+
+'''
+
+[#LayoutVerification]
+== LayoutVerification
+
+Holds dual-hash verification data for a type's layout.
+
+=== Synopsis
+
+[source,cpp]
+----
+namespace boost::typelayout {
+
+struct LayoutVerification {
+    std::uint64_t fnv1a_hash;
+    std::uint64_t djb2_hash;
+    
+    constexpr bool operator==(const LayoutVerification&) const = default;
+    constexpr bool operator!=(const LayoutVerification&) const = default;
+};
+
+}
+----
+
+=== Members
+
+`fnv1a_hash`::
+64-bit hash computed using the FNV-1a algorithm.
+
+`djb2_hash`::
+64-bit hash computed using the DJB2 algorithm.
+
+=== Member Functions
+
+==== Comparison
+
+[source,cpp]
+----
+constexpr bool operator==(const LayoutVerification&) const = default;
+constexpr bool operator!=(const LayoutVerification&) const = default;
+----
+Compares both hash values. Two `LayoutVerification` objects are equal only if both hashes match.
+
+=== Example
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+
+struct Message {
+    std::uint32_t id;
+    std::uint32_t type;
+};
+
+// Get verification data
+constexpr auto verification = 
+    boost::typelayout::get_layout_verification<Message>();
+
+// Store individual hashes
+constexpr auto fnv1a = verification.fnv1a_hash;
+constexpr auto djb2 = verification.djb2_hash;
+
+// Compare verification objects
+constexpr auto verification2 = 
+    boost::typelayout::get_layout_verification<Message>();
+static_assert(verification == verification2);
+
+// Use in runtime verification
+struct FileHeader {
+    std::uint64_t fnv1a_hash;
+    std::uint64_t djb2_hash;
+};
+
+bool verify_file_layout(const FileHeader& header) {
+    constexpr auto expected = 
+        boost::typelayout::get_layout_verification<Message>();
+    
+    return header.fnv1a_hash == expected.fnv1a_hash &&
+           header.djb2_hash == expected.djb2_hash;
+}
+----
+
+=== Use Cases
+
+==== File Format Headers
+
+[source,cpp]
+----
+struct DataFileHeader {
+    char magic[8];
+    boost::typelayout::LayoutVerification layout;
+    std::uint64_t record_count;
+};
+
+template<typename T>
+void write_header(std::ostream& out, std::uint64_t count) {
+    DataFileHeader header{
+        .magic = "MYDATA\0",
+        .layout = boost::typelayout::get_layout_verification<T>(),
+        .record_count = count
+    };
+    out.write(reinterpret_cast<const char*>(&header), sizeof(header));
+}
+----
+
+==== Protocol Versioning
+
+[source,cpp]
+----
+// Store known layouts for protocol versions
+constexpr boost::typelayout::LayoutVerification PROTOCOL_LAYOUTS[] = {
+    {0x1111111111111111, 0x2222222222222222},  // v1
+    {0x3333333333333333, 0x4444444444444444},  // v2
+    {0x5555555555555555, 0x6666666666666666},  // v3
+};
+
+int detect_protocol_version(const LayoutVerification& received) {
+    for (int v = 0; v < 3; ++v) {
+        if (received == PROTOCOL_LAYOUTS[v]) {
+            return v + 1;
+        }
+    }
+    return -1;  // Unknown version
+}
+----
+
+=== See Also
+
+* xref:core-functions.adoc#get_layout_verification[get_layout_verification] - Returns `LayoutVerification`
+* xref:../user-guide/hash-verification.adoc[Hash Verification] - Usage guide

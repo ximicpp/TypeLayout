@@ -1,0 +1,323 @@
+= Bit-fields
+:navtitle: Bit-fields
+
+Boost.TypeLayout provides special handling for {cpp} bit-fields, capturing their layout in a platform-aware manner.
+
+== Bit-field Basics
+
+Bit-fields are struct members that occupy a specified number of bits:
+
+[source,cpp]
+----
+struct Flags {
+    unsigned int enabled : 1;
+    unsigned int mode : 3;
+    unsigned int priority : 4;
+};
+----
+
+== Signature Format
+
+Bit-fields use a special notation in signatures:
+
+[source]
+----
+@BYTE_OFFSET[name]:TYPE:BIT_OFFSET:WIDTH
+----
+
+Where:
+
+* `BYTE_OFFSET` - Starting byte offset of the storage unit
+* `name` - Member name
+* `TYPE` - Underlying storage type
+* `BIT_OFFSET` - Bit position within the storage unit
+* `WIDTH` - Number of bits
+
+Example signature for `Flags`:
+[source]
+----
+[64-le]struct[s:4,a:4]{@0[enabled]:u32:0:1,@0[mode]:u32:1:3,@0[priority]:u32:4:4}
+----
+
+== Detecting Bit-fields
+
+Use `has_bitfields<T>()` to check if a type contains bit-fields:
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+
+struct WithBitfields {
+    unsigned int flags : 8;
+    unsigned int value : 24;
+};
+
+struct NoBitfields {
+    unsigned int flags;
+    unsigned int value;
+};
+
+static_assert(boost::typelayout::has_bitfields<WithBitfields>());
+static_assert(!boost::typelayout::has_bitfields<NoBitfields>());
+----
+
+== Bit-field Packing
+
+Bit-fields are packed according to platform ABI rules:
+
+[source,cpp]
+----
+struct Packed {
+    unsigned int a : 4;   // Bits 0-3
+    unsigned int b : 4;   // Bits 4-7
+    unsigned int c : 8;   // Bits 8-15
+    unsigned int d : 16;  // Bits 16-31
+};
+// Total: 4 bytes (one 32-bit storage unit)
+----
+
+Signature:
+[source]
+----
+[64-le]struct[s:4,a:4]{@0[a]:u32:0:4,@0[b]:u32:4:4,@0[c]:u32:8:8,@0[d]:u32:16:16}
+----
+
+== Storage Unit Boundaries
+
+When a bit-field doesn't fit in the current storage unit, a new one is started:
+
+[source,cpp]
+----
+struct CrossBoundary {
+    unsigned int a : 30;  // Bits 0-29 of first unit
+    unsigned int b : 10;  // Doesn't fit! New storage unit
+};
+// Total: 8 bytes (two 32-bit storage units)
+----
+
+Signature:
+[source]
+----
+[64-le]struct[s:8,a:4]{@0[a]:u32:0:30,@4[b]:u32:0:10}
+----
+
+Note `b` starts at byte offset 4 with bit offset 0.
+
+== Zero-Width Bit-fields
+
+Zero-width bit-fields force alignment to the next storage unit:
+
+[source,cpp]
+----
+struct WithZeroWidth {
+    unsigned int a : 8;
+    unsigned int : 0;     // Force next boundary
+    unsigned int b : 8;   // Starts new storage unit
+};
+----
+
+Signature:
+[source]
+----
+[64-le]struct[s:8,a:4]{@0[a]:u32:0:8,@4[b]:u32:0:8}
+----
+
+== Unnamed Bit-fields
+
+Unnamed bit-fields (padding) are not included in signatures:
+
+[source,cpp]
+----
+struct WithPadding {
+    unsigned int a : 8;
+    unsigned int : 8;     // Unnamed padding
+    unsigned int b : 8;
+};
+----
+
+Signature shows only named members:
+[source]
+----
+[64-le]struct[s:4,a:4]{@0[a]:u32:0:8,@0[b]:u32:16:8}
+----
+
+== Mixed Members
+
+Bit-fields can be mixed with regular members:
+
+[source,cpp]
+----
+struct Mixed {
+    int regular;          // Regular member
+    unsigned int flag : 1;
+    unsigned int mode : 3;
+    double value;         // Regular member
+};
+----
+
+Signature:
+[source]
+----
+[64-le]struct[s:24,a:8]{@0[regular]:i32[s:4,a:4],@4[flag]:u32:0:1,@4[mode]:u32:1:3,@8[value]:f64[s:8,a:8]}
+----
+
+== Portability Concerns
+
+Bit-field layout is highly platform-dependent:
+
+=== Bit Order
+
+* Little-endian: Bits numbered from LSB (bit 0) to MSB
+* Big-endian: May number from MSB to LSB
+
+=== Packing Rules
+
+* MSVC: May pack differently than GCC/Clang
+* Different ABIs have different rules
+
+=== Type Mixing
+
+[source,cpp]
+----
+struct TypeMix {
+    char a : 4;
+    int b : 4;    // May start new storage unit on some platforms
+};
+----
+
+=== Recommendation
+
+For portable code, avoid bit-fields in data structures that cross platform boundaries:
+
+[source,cpp]
+----
+// Non-portable: bit-field layout varies
+struct BadPacket {
+    unsigned int type : 4;
+    unsigned int flags : 4;
+    unsigned int length : 24;
+};
+
+// Portable: use explicit byte packing
+struct GoodPacket {
+    std::uint8_t type_and_flags;  // type in bits 0-3, flags in 4-7
+    std::uint8_t length[3];       // 24-bit length, big-endian
+    
+    unsigned type() const { return type_and_flags & 0x0F; }
+    unsigned flags() const { return type_and_flags >> 4; }
+};
+----
+
+== Bit-field Types
+
+Different underlying types affect packing:
+
+[source,cpp]
+----
+struct CharBits {
+    unsigned char a : 4;
+    unsigned char b : 4;
+};
+// Size: 1 byte
+
+struct IntBits {
+    unsigned int a : 4;
+    unsigned int b : 4;
+};
+// Size: 4 bytes (int-sized storage unit)
+----
+
+== Signed Bit-fields
+
+Signed bit-fields are represented with their signed type:
+
+[source,cpp]
+----
+struct SignedBits {
+    int value : 8;      // Signed, 8 bits
+    unsigned int flags : 8;  // Unsigned, 8 bits
+};
+----
+
+Signature:
+[source]
+----
+[64-le]struct[s:4,a:4]{@0[value]:i32:0:8,@0[flags]:u32:8:8}
+----
+
+== Bit-field Constraints
+
+The library correctly handles:
+
+* Bit-fields up to the size of their type
+* Multiple storage units
+* Alignment of storage units
+* Platform-specific packing rules
+
+== Query Functions
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+
+struct Flags {
+    unsigned int a : 4;
+    unsigned int b : 4;
+};
+
+// Check if type has bit-fields
+static_assert(boost::typelayout::has_bitfields<Flags>());
+
+// Types with bit-fields are still portable if underlying types are portable
+static_assert(boost::typelayout::is_portable<Flags>());
+----
+
+NOTE: A type with bit-fields can still be portable if:
+
+1. Underlying types are portable
+2. Layout is consistent across target platforms
+3. You verify with `TYPELAYOUT_BIND`
+
+== Verifying Bit-field Layout
+
+Use `TYPELAYOUT_BIND` to verify bit-field layout at compile time:
+
+[source,cpp]
+----
+struct ProtocolFlags {
+    unsigned int version : 4;
+    unsigned int type : 4;
+    unsigned int flags : 8;
+    unsigned int length : 16;
+};
+
+TYPELAYOUT_BIND(ProtocolFlags, 
+    "[64-le]struct[s:4,a:4]{@0[version]:u32:0:4,@0[type]:u32:4:4,@0[flags]:u32:8:8,@0[length]:u32:16:16}");
+----
+
+This ensures the bit-field layout matches expectations on every platform you compile for.
+
+== Best Practices
+
+[cols="1,2"]
+|===
+| Do | Don't
+
+| Use fixed-width types as underlying type
+| Mix different underlying types in sequence
+
+| Verify layout with `TYPELAYOUT_BIND`
+| Assume same layout across platforms
+
+| Document expected bit positions
+| Use bit-fields for cross-platform data exchange
+
+| Consider manual bit manipulation for portability
+| Rely on compiler-specific packing
+|===
+
+== See Also
+
+* xref:layout-signatures.adoc[Layout Signatures] - Signature format
+* xref:portability.adoc[Portability] - Platform considerations
+* xref:type-support.adoc[Type Support] - Supported types

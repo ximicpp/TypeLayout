@@ -1,0 +1,77 @@
+= User Guide
+:navtitle: Introduction
+
+Welcome to the Boost.TypeLayout User Guide. This guide covers all features of the library in depth.
+
+== What You'll Learn
+
+This guide is organized into the following sections:
+
+[cols="1,2"]
+|===
+| Section | Description
+
+| xref:layout-signatures.adoc[Layout Signatures]
+| Understanding the signature format and how it captures type layouts
+
+| xref:type-support.adoc[Type Support]
+| Complete list of supported types and their signature formats
+
+| xref:portability.adoc[Portability]
+| Cross-platform considerations and portability checking
+
+| xref:concepts.adoc[Concepts]
+| Using {cpp} concepts for template constraints
+
+| xref:hash-verification.adoc[Hash Verification]
+| Hash-based layout verification for runtime checks
+
+| xref:inheritance.adoc[Inheritance]
+| How inheritance hierarchies are represented
+
+| xref:bitfields.adoc[Bit-fields]
+| Special handling of bit-field members
+|===
+
+== Prerequisites
+
+Before diving into the details, make sure you have:
+
+* A {cpp26} compiler with P2996 support (Bloomberg Clang P2996 fork)
+* Basic understanding of {cpp} templates and concepts
+* Familiarity with memory layout concepts (size, alignment, padding)
+
+== Quick Reference
+
+=== Core Functions
+
+[source,cpp]
+----
+get_layout_signature<T>()      // Get layout signature
+get_layout_hash<T>()           // Get 64-bit hash
+get_layout_verification<T>()   // Get dual-hash verification
+signatures_match<T1, T2>()     // Compare layouts
+is_portable<T>()               // Check portability
+has_bitfields<T>()             // Check for bit-fields
+----
+
+=== Concepts
+
+[source,cpp]
+----
+Portable<T>                    // Type is portable
+LayoutCompatible<T, U>         // Types have same layout
+LayoutMatch<T, Sig>            // Layout matches signature
+LayoutHashMatch<T, Hash>       // Layout hash matches value
+----
+
+=== Macros
+
+[source,cpp]
+----
+TYPELAYOUT_BIND(Type, Sig)     // Bind type to expected signature
+----
+
+== Next Steps
+
+Start with xref:layout-signatures.adoc[Layout Signatures] to understand the core concept of the library.

@@ -1,0 +1,145 @@
+= API Reference
+:navtitle: Overview
+
+Complete reference documentation for the Boost.TypeLayout API.
+
+== Headers
+
+The library provides a single header for convenience:
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+----
+
+== Namespace
+
+All public symbols are in the `boost::typelayout` namespace:
+
+[source,cpp]
+----
+namespace boost::typelayout {
+    // Core functions
+    template<typename T> constexpr auto get_layout_signature();
+    template<typename T> constexpr std::uint64_t get_layout_hash();
+    template<typename T> constexpr LayoutVerification get_layout_verification();
+    template<typename T1, typename T2> constexpr bool signatures_match();
+    template<typename T> constexpr bool is_portable();
+    template<typename T> constexpr bool has_bitfields();
+    
+    // Concepts
+    template<typename T> concept Portable;
+    template<typename T, typename U> concept LayoutCompatible;
+    template<typename T, CompileString Sig> concept LayoutMatch;
+    template<typename T, std::uint64_t Hash> concept LayoutHashMatch;
+    
+    // Utility classes
+    template<std::size_t N> struct CompileString;
+    struct LayoutVerification;
+}
+----
+
+== Quick Reference
+
+=== Core Functions
+
+[cols="2,3"]
+|===
+| Function | Description
+
+| xref:core-functions.adoc#get_layout_signature[`get_layout_signature<T>()`]
+| Returns the complete layout signature as a compile-time string
+
+| xref:core-functions.adoc#get_layout_hash[`get_layout_hash<T>()`]
+| Returns a 64-bit FNV-1a hash of the layout signature
+
+| xref:core-functions.adoc#get_layout_verification[`get_layout_verification<T>()`]
+| Returns dual-hash verification (FNV-1a + DJB2)
+
+| xref:core-functions.adoc#signatures_match[`signatures_match<T1, T2>()`]
+| Checks if two types have identical layouts
+
+| xref:core-functions.adoc#is_portable[`is_portable<T>()`]
+| Checks if type is free from platform-dependent members
+
+| xref:core-functions.adoc#has_bitfields[`has_bitfields<T>()`]
+| Checks if type contains bit-field members
+|===
+
+=== Concepts
+
+[cols="2,3"]
+|===
+| Concept | Description
+
+| xref:concepts.adoc#Portable[`Portable<T>`]
+| Satisfied when `is_portable<T>()` returns `true`
+
+| xref:concepts.adoc#LayoutCompatible[`LayoutCompatible<T, U>`]
+| Satisfied when `signatures_match<T, U>()` returns `true`
+
+| xref:concepts.adoc#LayoutMatch[`LayoutMatch<T, Sig>`]
+| Satisfied when layout matches the given signature
+
+| xref:concepts.adoc#LayoutHashMatch[`LayoutHashMatch<T, Hash>`]
+| Satisfied when layout hash matches the given value
+|===
+
+=== Macros
+
+[cols="2,3"]
+|===
+| Macro | Description
+
+| xref:macros.adoc#TYPELAYOUT_BIND[`TYPELAYOUT_BIND(Type, Sig)`]
+| Binds a type to an expected signature with compile-time verification
+|===
+
+=== Utility Classes
+
+[cols="2,3"]
+|===
+| Class | Description
+
+| xref:utility-classes.adoc#CompileString[`CompileString<N>`]
+| Compile-time string container for signatures
+
+| xref:utility-classes.adoc#LayoutVerification[`LayoutVerification`]
+| Holds dual-hash verification data
+|===
+
+== Requirements
+
+=== Compiler Support
+
+* {cpp26} with P2996 static reflection support
+* Currently requires Bloomberg Clang P2996 fork
+
+=== Type Requirements
+
+For a type `T` to be analyzed:
+
+* `T` must be a complete type
+* `T` may be a fundamental type, class, struct, union, or array
+* `T` should not have virtual functions (unsupported)
+* `T` should not have virtual base classes (non-portable)
+
+== Error Handling
+
+All functions are `constexpr` and `noexcept`. Errors are detected at compile time:
+
+* Invalid types cause compilation failure
+* Layout mismatches with `TYPELAYOUT_BIND` cause `static_assert` failure
+* Concept constraint violations produce clear error messages
+
+== Thread Safety
+
+All functions are pure and have no side effects. They can be called from any thread without synchronization.
+
+== See Also
+
+* xref:core-functions.adoc[Core Functions] - Detailed function reference
+* xref:concepts.adoc[Concepts] - Concept reference
+* xref:macros.adoc[Macros] - Macro reference
+* xref:utility-classes.adoc[Utility Classes] - Utility class reference
+* xref:type-signatures.adoc[Type Signatures] - Signature format reference
