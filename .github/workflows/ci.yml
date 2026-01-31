@@ -1,112 +1,191 @@
+# Continuous Integration Workflow for Boost.TypeLayout
+#
+# Builds and tests the library using the P2996-enabled Clang container.
+#
+# Copyright (c) 2024-2026 TypeLayout Development Team
+# Distributed under the Boost Software License, Version 1.0.
+
 name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches:
+      - main
+      - develop
+      - 'feature/**'
+    paths-ignore:
+      - '**.md'
+      - 'doc/**'
+      - '.github/docker/**'
+
   pull_request:
-    branches: [ main, develop ]
+    branches:
+      - main
+      - develop
+    paths-ignore:
+      - '**.md'
+      - 'doc/**'
+
+  # Allow manual trigger
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  P2996_IMAGE: ${{ github.repository_owner }}/typelayout-p2996:latest
 
 jobs:
-  # Note: This workflow is currently disabled because GitHub Actions
-  # does not support Bloomberg's Clang P2996 fork out of the box.
-  # 
-  # To enable CI, we would need to:
-  # 1. Build Bloomberg Clang in the CI environment (time-intensive)
-  # 2. Use a pre-built docker container with the compiler
-  # 3. Wait for official P2996 support in standard Clang
-  #
-  # For now, developers must test locally with Bloomberg Clang.
-
-  placeholder:
+  #==========================================================================
+  # Build and Test (using P2996 Docker container)
+  #==========================================================================
+  build-and-test:
+    name: Build & Test (P2996 Container)
     runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: CI Status
-      run: |
-        echo "✅ Repository structure validated"
-        echo "⚠️  Compilation tests require Bloomberg Clang P2996"
-        echo "🔧 Please test locally with: clang++ -std=c++26 -freflection"
-        echo ""
-        echo "📁 Validating project structure..."
-        
-        # Check required directories
-        test -d "include/boost/typelayout" && echo "✅ include/boost/typelayout/ exists"
-        test -d "libs/typelayout/test" && echo "✅ libs/typelayout/test/ exists"  
-        test -d "libs/typelayout/example" && echo "✅ libs/typelayout/example/ exists"
-        test -d "libs/typelayout/doc" && echo "✅ libs/typelayout/doc/ exists"
-        test -d "libs/typelayout/tools" && echo "✅ libs/typelayout/tools/ exists"
-        
-        # Check required files
-        test -f "include/boost/typelayout/typelayout.hpp" && echo "✅ Main header exists"
-        test -f "README.md" && echo "✅ README.md exists"
-        test -f "LICENSE" && echo "✅ LICENSE exists"
-        test -f "libs/typelayout/test/test_all_types.cpp" && echo "✅ Test suite exists"
-        test -f "libs/typelayout/example/demo.cpp" && echo "✅ Demo example exists"
-        test -f "libs/typelayout/doc/api_reference.md" && echo "✅ API reference exists"
-        test -f "libs/typelayout/doc/quickstart.md" && echo "✅ Quick start guide exists"
-        
-        echo ""
-        echo "🎉 All structure checks passed!"
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/typelayout-p2996:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
-  # This job would run actual compilation tests if Bloomberg Clang were available
-  compile-tests-placeholder:
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Compiler
+        run: |
+          echo "=== Compiler Version ==="
+          clang++ --version
+          echo ""
+          echo "=== CMake Version ==="
+          cmake --version
+
+      - name: Configure with CMake
+        run: |
+          cmake -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_CXX_FLAGS="-std=c++26 -freflection -stdlib=libc++" \
+            -DBUILD_TESTING=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run Compile-Time Tests
+        run: |
+          cmake --build build --target test_all_types
+          echo "Compile-time tests passed!"
+
+      - name: Run Unit Tests
+        run: |
+          cd build
+          ctest --output-on-failure --parallel 4
+
+      - name: Test Summary
+        if: always()
+        run: |
+          echo "=== Test Results ==="
+          cd build
+          ctest --show-only=json-v1 | head -50 || true
+
+  #==========================================================================
+  # Static Analysis
+  #==========================================================================
+  static-analysis:
+    name: Static Analysis
     runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Compilation Test Status
-      run: |
-        echo "🚧 COMPILATION TESTS DISABLED"
-        echo ""
-        echo "Reason: Bloomberg Clang P2996 not available in GitHub Actions"
-        echo ""
-        echo "To test compilation locally:"
-        echo "1. Install Bloomberg Clang from: https://github.com/bloomberg/clang-p2996"
-        echo "2. Run: clang++ -std=c++26 -freflection -I include libs/typelayout/test/test_all_types.cpp"
-        echo "3. Run: clang++ -std=c++26 -freflection -I include libs/typelayout/example/demo.cpp"
-        echo ""
-        echo "Once P2996 is available in standard Clang, this CI will be updated."
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/typelayout-p2996:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
-# Future CI jobs when Bloomberg Clang becomes available:
-#
-# build-and-test:
-#   runs-on: ubuntu-latest
-#   container:
-#     image: ximicpp/bloomberg-clang-p2996:latest  # Custom container with Bloomberg Clang
-#   
-#   steps:
-#   - name: Checkout code
-#     uses: actions/checkout@v4
-#   
-#   - name: Build tests
-#     run: |
-#       clang++ -std=c++26 -freflection -I include \
-#               libs/typelayout/test/test_all_types.cpp -o test_suite
-#   
-#   - name: Run tests
-#     run: ./test_suite
-#   
-#   - name: Build examples
-#     run: |
-#       clang++ -std=c++26 -freflection -I include \
-#               libs/typelayout/example/demo.cpp -o demo
-#       clang++ -std=c++26 -freflection -I include \
-#               libs/typelayout/example/xoffset_demo.cpp -o xoffset_demo
-#   
-#   - name: Run examples
-#     run: |
-#       ./demo
-#       ./xoffset_demo
-#   
-#   - name: Build tools
-#     run: |
-#       clang++ -std=c++26 -freflection -I include \
-#               libs/typelayout/tools/typelayout_tool.cpp -o typelayout-tool
-#   
-#   - name: Test tool
-#     run: |
-#       ./typelayout-tool generate -o signatures.txt
-#       cat signatures.txt
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run clang-tidy
+        run: |
+          # Create compilation database
+          cmake -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_CXX_FLAGS="-std=c++26 -freflection -stdlib=libc++" \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+          # Run clang-tidy on public headers
+          find include -name "*.hpp" | head -10 | while read file; do
+            echo "Checking $file..."
+            clang-tidy "$file" \
+              -p build \
+              --checks='-*,bugprone-*,modernize-*,performance-*,readability-*' \
+              --warnings-as-errors='' \
+              || true
+          done
+
+  #==========================================================================
+  # Documentation Build Check
+  #==========================================================================
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js (for Antora)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Antora
+        run: npm install -g @antora/cli @antora/site-generator
+
+      - name: Build Documentation
+        run: |
+          if [ -f "antora-playbook.yml" ]; then
+            antora antora-playbook.yml
+            echo "Documentation built successfully!"
+          else
+            echo "No antora-playbook.yml found, skipping docs build"
+          fi
+
+  #==========================================================================
+  # Header-Only Verification
+  #==========================================================================
+  header-only-check:
+    name: Header-Only Check
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/typelayout-p2996:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify Single Header Inclusion
+        run: |
+          echo '#include <boost/typelayout.hpp>' > /tmp/test_include.cpp
+          echo 'int main() { return 0; }' >> /tmp/test_include.cpp
+          clang++ -std=c++26 -freflection -stdlib=libc++ \
+            -I./include \
+            -c /tmp/test_include.cpp -o /tmp/test_include.o
+          echo "Single header inclusion works!"
+
+      - name: Check for ODR Violations
+        run: |
+          # Create two translation units including the same header
+          echo '#include <boost/typelayout.hpp>' > /tmp/tu1.cpp
+          echo 'void foo() { auto s = boost::typelayout::get_layout_signature<int>(); }' >> /tmp/tu1.cpp
+          
+          echo '#include <boost/typelayout.hpp>' > /tmp/tu2.cpp
+          echo 'void bar() { auto s = boost::typelayout::get_layout_signature<int>(); }' >> /tmp/tu2.cpp
+          echo 'int main() { return 0; }' >> /tmp/tu2.cpp
+          
+          clang++ -std=c++26 -freflection -stdlib=libc++ -I./include \
+            /tmp/tu1.cpp /tmp/tu2.cpp -o /tmp/odr_test
+          echo "No ODR violations detected!"
