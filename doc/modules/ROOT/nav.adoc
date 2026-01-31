@@ -39,3 +39,6 @@
 * xref:examples/network-protocol.adoc[Network Protocol]
 * xref:examples/shared-memory.adoc[Shared Memory]
 * xref:examples/serialization.adoc[Serialization]
+
+.Contributing
+* xref:CONTRIBUTING.adoc[Documentation Guide]
