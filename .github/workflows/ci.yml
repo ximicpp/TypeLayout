@@ -29,17 +29,47 @@ on:
   # Allow manual trigger
   workflow_dispatch:
 
+  # Triggered when Docker image is built
+  workflow_run:
+    workflows: ["Build Docker Image"]
+    types:
+      - completed
+
 env:
   REGISTRY: ghcr.io
   P2996_IMAGE: ${{ github.repository_owner }}/typelayout-p2996:latest
 
 jobs:
   #==========================================================================
+  # Check if Docker image exists
+  #==========================================================================
+  check-image:
+    name: Check Docker Image
+    runs-on: ubuntu-latest
+    outputs:
+      image_exists: ${{ steps.check.outputs.exists }}
+    steps:
+      - name: Check if P2996 image exists
+        id: check
+        run: |
+          # Try to pull the image manifest (no download, just check)
+          if docker manifest inspect ghcr.io/${{ github.repository_owner }}/typelayout-p2996:latest > /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Docker image exists!"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Docker image not found. Container-based jobs will be skipped."
+            echo "Please run the 'Build Docker Image' workflow first."
+          fi
+
+  #==========================================================================
   # Build and Test (using P2996 Docker container)
   #==========================================================================
   build-and-test:
     name: Build & Test (P2996 Container)
     runs-on: ubuntu-latest
+    needs: check-image
+    if: needs.check-image.outputs.image_exists == 'true'
     container:
       image: ghcr.io/${{ github.repository_owner }}/typelayout-p2996:latest
       credentials:
@@ -93,6 +123,8 @@ jobs:
   static-analysis:
     name: Static Analysis
     runs-on: ubuntu-latest
+    needs: check-image
+    if: needs.check-image.outputs.image_exists == 'true'
     container:
       image: ghcr.io/${{ github.repository_owner }}/typelayout-p2996:latest
       credentials:
@@ -157,6 +189,8 @@ jobs:
   header-only-check:
     name: Header-Only Check
     runs-on: ubuntu-latest
+    needs: check-image
+    if: needs.check-image.outputs.image_exists == 'true'
     container:
       image: ghcr.io/${{ github.repository_owner }}/typelayout-p2996:latest
       credentials:
@@ -189,3 +223,31 @@ jobs:
           clang++ -std=c++26 -freflection -stdlib=libc++ -I./include \
             /tmp/tu1.cpp /tmp/tu2.cpp -o /tmp/odr_test
           echo "No ODR violations detected!"
+
+  #==========================================================================
+  # Summary (always runs)
+  #==========================================================================
+  summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [check-image, docs]
+    if: always()
+    steps:
+      - name: Report Status
+        run: |
+          echo "## CI Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.check-image.outputs.image_exists }}" == "true" ]; then
+            echo "✅ **Docker Image**: Available" >> $GITHUB_STEP_SUMMARY
+            echo "- Build & Test: Will run" >> $GITHUB_STEP_SUMMARY
+            echo "- Static Analysis: Will run" >> $GITHUB_STEP_SUMMARY
+            echo "- Header-Only Check: Will run" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Docker Image**: Not found" >> $GITHUB_STEP_SUMMARY
+            echo "- Container-based jobs skipped" >> $GITHUB_STEP_SUMMARY
+            echo "- Please run 'Build Docker Image' workflow first" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Documentation**: Checked" >> $GITHUB_STEP_SUMMARY
