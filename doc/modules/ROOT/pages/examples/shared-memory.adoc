@@ -405,8 +405,8 @@ struct SharedHeader {
 ----
 // All shared data should use atomics for thread safety
 struct SharedData {
-    std::atomic<std::uint64_t> counter;  // âœ“
-    std::uint64_t unsafe_counter;        // âœ— Race condition!
+    std::atomic<std::uint64_t> counter;  // âœ?
+    std::uint64_t unsafe_counter;        // âœ?Race condition!
 };
 ----
 
@@ -423,6 +423,6 @@ TEST(SharedMemory, LayoutStable) {
 
 == See Also
 
-* xref:network-protocol.adoc[Network Protocol Example]
-* xref:serialization.adoc[Serialization Example]
+* xref:examples/network-protocol.adoc[Network Protocol Example]
+* xref:examples/serialization.adoc[Serialization Example]
 * xref:../user-guide/hash-verification.adoc[Hash Verification Guide]

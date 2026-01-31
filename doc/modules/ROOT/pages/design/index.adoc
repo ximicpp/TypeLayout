@@ -67,19 +67,19 @@ TYPELAYOUT_BIND(MyType, "expected signature");
 |===
 | Document | Content
 
-| xref:signature-format.adoc[Signature Format]
+| xref:design/signature-format.adoc[Signature Format]
 | Why we chose this particular signature format
 
-| xref:hash-algorithms.adoc[Hash Algorithms]
+| xref:design/hash-algorithms.adoc[Hash Algorithms]
 | Selection and implementation of hash functions
 
-| xref:portability-strategy.adoc[Portability Strategy]
+| xref:design/portability-strategy.adoc[Portability Strategy]
 | How we detect and handle platform differences
 
-| xref:compile-time.adoc[Compile-Time Design]
+| xref:design/compile-time.adoc[Compile-Time Design]
 | Techniques for `constexpr` implementation
 
-| xref:reflection-usage.adoc[P2996 Reflection]
+| xref:design/reflection-usage.adoc[P2996 Reflection]
 | How we use C++26 static reflection
 |===
 
@@ -94,7 +94,7 @@ We chose a human-readable text format because:
 * Version control friendly
 * Can be embedded in source code
 
-See xref:signature-format.adoc[Signature Format] for details.
+See xref:design/signature-format.adoc[Signature Format] for details.
 
 === Hash Algorithm Selection
 
@@ -105,7 +105,7 @@ We use FNV-1a and DJB2 because:
 * Good distribution for string data
 * Independent algorithms (for dual verification)
 
-See xref:hash-algorithms.adoc[Hash Algorithms] for details.
+See xref:design/hash-algorithms.adoc[Hash Algorithms] for details.
 
 === Portability Detection
 
@@ -115,7 +115,7 @@ We explicitly track platform-dependent types because:
 * Documents platform requirements
 * Enables safer cross-platform code
 
-See xref:portability-strategy.adoc[Portability Strategy] for details.
+See xref:design/portability-strategy.adoc[Portability Strategy] for details.
 
 == Comparison with Alternatives
 
@@ -188,6 +188,6 @@ Future versions may add:
 
 == See Also
 
-* xref:signature-format.adoc[Signature Format]
-* xref:hash-algorithms.adoc[Hash Algorithms]
-* xref:portability-strategy.adoc[Portability Strategy]
+* xref:design/signature-format.adoc[Signature Format]
+* xref:design/hash-algorithms.adoc[Hash Algorithms]
+* xref:design/portability-strategy.adoc[Portability Strategy]

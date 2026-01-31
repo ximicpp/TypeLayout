@@ -329,6 +329,6 @@ struct Empty {};
 
 == See Also
 
-* xref:layout-signatures.adoc[Layout Signatures] - Signature format details
-* xref:portability.adoc[Portability] - Platform-dependent type handling
-* xref:bitfields.adoc[Bit-fields] - Bit-field support
+* xref:user-guide/layout-signatures.adoc[Layout Signatures] - Signature format details
+* xref:user-guide/portability.adoc[Portability] - Platform-dependent type handling
+* xref:user-guide/bitfields.adoc[Bit-fields] - Bit-field support

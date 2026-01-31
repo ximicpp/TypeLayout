@@ -9,7 +9,7 @@ The general format of a layout signature is:
 
 [source]
 ----
-[ARCH]KIND[s:SIZE,a:ALIGN]\{CONTENT}
+[ARCH]KIND[s:SIZE,a:ALIGN]\{CONTENT\}
 ----
 
 Where:
@@ -17,7 +17,7 @@ Where:
 * `[ARCH]` - Architecture descriptor (e.g., `[64-le]` for 64-bit little-endian)
 * `KIND` - The type category (`struct`, `union`, `array`, or fundamental type)
 * `[s:SIZE,a:ALIGN]` - Size in bytes and alignment requirement
-* `{CONTENT}` - Member or element information
+* `\{CONTENT\}` - Member or element information
 
 == Architecture Descriptor
 
@@ -230,6 +230,6 @@ static_assert(
 
 == See Also
 
-* xref:type-support.adoc[Type Support] - Complete list of supported types
-* xref:portability.adoc[Portability] - Platform-dependent type handling
-* xref:inheritance.adoc[Inheritance] - How base classes are represented
+* xref:user-guide/type-support.adoc[Type Support] - Complete list of supported types
+* xref:user-guide/portability.adoc[Portability] - Platform-dependent type handling
+* xref:user-guide/inheritance.adoc[Inheritance] - How base classes are represented

@@ -5,16 +5,16 @@ Practical examples demonstrating Boost.TypeLayout usage.
 
 == Example Categories
 
-xref:basic-usage.adoc[Basic Usage]::
+xref:examples/basic-usage.adoc[Basic Usage]::
 Fundamental operations: signatures, hashes, and portability checks.
 
-xref:network-protocol.adoc[Network Protocol]::
+xref:examples/network-protocol.adoc[Network Protocol]::
 Using TypeLayout for binary protocol validation.
 
-xref:shared-memory.adoc[Shared Memory]::
+xref:examples/shared-memory.adoc[Shared Memory]::
 IPC with layout-verified shared memory structures.
 
-xref:serialization.adoc[Serialization]::
+xref:examples/serialization.adoc[Serialization]::
 Binary serialization with layout verification.
 
 == Quick Examples
@@ -68,8 +68,8 @@ struct NonPortableConfig {
     long value;  // Size varies by platform
 };
 
-static_assert(is_portable<PortableConfig>());    // âœ“ Passes
-// static_assert(is_portable<NonPortableConfig>()); // âœ— Fails
+static_assert(is_portable<PortableConfig>());    // âœ?Passes
+// static_assert(is_portable<NonPortableConfig>()); // âœ?Fails
 ----
 
 === Constrain Templates

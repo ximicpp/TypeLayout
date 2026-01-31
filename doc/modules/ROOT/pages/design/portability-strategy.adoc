@@ -287,5 +287,5 @@ static_assert(alignof(PlatformBuffer) == 8);
 
 == See Also
 
-* xref:index.adoc[Design Rationale Overview]
+* xref:design/index.adoc[Design Rationale Overview]
 * xref:../user-guide/portability.adoc[Portability User Guide]

@@ -11,25 +11,25 @@ This guide is organized into the following sections:
 |===
 | Section | Description
 
-| xref:layout-signatures.adoc[Layout Signatures]
+| xref:user-guide/layout-signatures.adoc[Layout Signatures]
 | Understanding the signature format and how it captures type layouts
 
-| xref:type-support.adoc[Type Support]
+| xref:user-guide/type-support.adoc[Type Support]
 | Complete list of supported types and their signature formats
 
-| xref:portability.adoc[Portability]
+| xref:user-guide/portability.adoc[Portability]
 | Cross-platform considerations and portability checking
 
-| xref:concepts.adoc[Concepts]
+| xref:user-guide/concepts.adoc[Concepts]
 | Using {cpp} concepts for template constraints
 
-| xref:hash-verification.adoc[Hash Verification]
+| xref:user-guide/hash-verification.adoc[Hash Verification]
 | Hash-based layout verification for runtime checks
 
-| xref:inheritance.adoc[Inheritance]
+| xref:user-guide/inheritance.adoc[Inheritance]
 | How inheritance hierarchies are represented
 
-| xref:bitfields.adoc[Bit-fields]
+| xref:user-guide/bitfields.adoc[Bit-fields]
 | Special handling of bit-field members
 |===
 
@@ -74,4 +74,4 @@ TYPELAYOUT_BIND(Type, Sig)     // Bind type to expected signature
 
 == Next Steps
 
-Start with xref:layout-signatures.adoc[Layout Signatures] to understand the core concept of the library.
+Start with xref:user-guide/layout-signatures.adoc[Layout Signatures] to understand the core concept of the library.

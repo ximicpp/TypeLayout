@@ -189,7 +189,7 @@ void process(const T&);
 
 === See Also
 
-* xref:core-functions.adoc#get_layout_signature[get_layout_signature] - Returns `CompileString`
+* xref:reference/core-functions.adoc#get_layout_signature[get_layout_signature] - Returns `CompileString`
 
 '''
 
@@ -319,5 +319,5 @@ int detect_protocol_version(const LayoutVerification& received) {
 
 === See Also
 
-* xref:core-functions.adoc#get_layout_verification[get_layout_verification] - Returns `LayoutVerification`
+* xref:reference/core-functions.adoc#get_layout_verification[get_layout_verification] - Returns `LayoutVerification`
 * xref:../user-guide/hash-verification.adoc[Hash Verification] - Usage guide

@@ -364,6 +364,6 @@ T read_record(std::istream& in, std::uint64_t expected_hash) {
 
 == See Also
 
-* xref:layout-signatures.adoc[Layout Signatures] - Full signature format
-* xref:concepts.adoc[Concepts] - LayoutHashMatch concept
-* xref:portability.adoc[Portability] - Platform considerations
+* xref:user-guide/layout-signatures.adoc[Layout Signatures] - Full signature format
+* xref:user-guide/concepts.adoc[Concepts] - LayoutHashMatch concept
+* xref:user-guide/portability.adoc[Portability] - Platform considerations

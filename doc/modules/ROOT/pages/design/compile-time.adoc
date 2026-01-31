@@ -324,5 +324,5 @@ TEST(TypeLayout, SignatureFormat) {
 
 == See Also
 
-* xref:index.adoc[Design Rationale Overview]
-* xref:reflection-usage.adoc[P2996 Reflection]
+* xref:design/index.adoc[Design Rationale Overview]
+* xref:design/reflection-usage.adoc[P2996 Reflection]

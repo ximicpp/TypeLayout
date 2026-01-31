@@ -52,7 +52,7 @@ NonPortableData npd;
 
 === See Also
 
-* xref:core-functions.adoc#is_portable[is_portable] - Underlying function
+* xref:reference/core-functions.adoc#is_portable[is_portable] - Underlying function
 
 '''
 
@@ -109,7 +109,7 @@ Layout compatibility requires:
 
 === See Also
 
-* xref:core-functions.adoc#signatures_match[signatures_match] - Underlying function
+* xref:reference/core-functions.adoc#signatures_match[signatures_match] - Underlying function
 
 '''
 
@@ -167,8 +167,8 @@ NotPoint np;
 
 === See Also
 
-* xref:core-functions.adoc#get_layout_signature[get_layout_signature] - Underlying function
-* xref:utility-classes.adoc#CompileString[CompileString] - Compile-time string type
+* xref:reference/core-functions.adoc#get_layout_signature[get_layout_signature] - Underlying function
+* xref:reference/utility-classes.adoc#CompileString[CompileString] - Compile-time string type
 
 '''
 
@@ -226,5 +226,5 @@ static_assert(boost::typelayout::LayoutHashMatch<Message, PROTOCOL_V1_HASH>);
 
 === See Also
 
-* xref:core-functions.adoc#get_layout_hash[get_layout_hash] - Underlying function
-* xref:core-functions.adoc#get_layout_verification[get_layout_verification] - Dual-hash alternative
+* xref:reference/core-functions.adoc#get_layout_hash[get_layout_hash] - Underlying function
+* xref:reference/core-functions.adoc#get_layout_verification[get_layout_verification] - Dual-hash alternative

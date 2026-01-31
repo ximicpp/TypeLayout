@@ -235,7 +235,7 @@ Every signature starts with an architecture descriptor:
 
 [source]
 ----
-[arch]struct[s:SIZE,a:ALIGN]{MEMBERS}
+[arch]struct[s:SIZE,a:ALIGN]\{MEMBERS\}
 ----
 
 === Components
@@ -278,7 +278,7 @@ Signature:
 
 [source]
 ----
-[arch]union[s:SIZE,a:ALIGN]{MEMBERS}
+[arch]union[s:SIZE,a:ALIGN]\{MEMBERS\}
 ----
 
 All members have offset `@0` since they share storage.

@@ -311,13 +311,13 @@ struct ProtocolRegistry {
 
 [source,cpp]
 ----
-// ‚úÖ Good
+// ‚ú?Good
 struct GoodMessage {
     std::uint32_t id;
     std::int64_t value;
 };
 
-// ‚ùå Bad
+// ‚ù?Bad
 struct BadMessage {
     int id;        // Size varies
     long value;    // Size varies
@@ -359,6 +359,6 @@ TEST(Protocol, LayoutStability) {
 
 == See Also
 
-* xref:shared-memory.adoc[Shared Memory Example]
-* xref:serialization.adoc[Serialization Example]
+* xref:examples/shared-memory.adoc[Shared Memory Example]
+* xref:examples/serialization.adoc[Serialization Example]
 * xref:../user-guide/portability.adoc[Portability Guide]

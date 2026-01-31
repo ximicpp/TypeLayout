@@ -285,5 +285,5 @@ This ensures:
 
 == See Also
 
-* xref:index.adoc[Design Rationale Overview]
+* xref:design/index.adoc[Design Rationale Overview]
 * xref:../user-guide/hash-verification.adoc[Hash Verification User Guide]

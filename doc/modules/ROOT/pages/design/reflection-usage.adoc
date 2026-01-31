@@ -420,5 +420,5 @@ Future versions may leverage:
 == See Also
 
 * link:https://wg21.link/P2996[P2996 Proposal]
-* xref:compile-time.adoc[Compile-Time Design]
+* xref:design/compile-time.adoc[Compile-Time Design]
 * xref:../reference/concepts.adoc[Concepts Reference]

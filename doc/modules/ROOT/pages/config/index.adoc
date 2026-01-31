@@ -14,23 +14,23 @@ Boost.TypeLayout requires a compiler with {cpp26} and P2996 static reflection su
 
 | Clang (P2996 branch)
 | 19.0+
-| ‚úÖ Fully supported
+| ‚ú?Fully supported
 
 | GCC
 | -
-| ‚è≥ Waiting for P2996 support
+| ‚è?Waiting for P2996 support
 
 | MSVC
 | -
-| ‚è≥ Waiting for P2996 support
+| ‚è?Waiting for P2996 support
 |===
 
 == Configuration Topics
 
-xref:compiler-options.adoc[Compiler Options]::
+xref:config/compiler-options.adoc[Compiler Options]::
 Required and optional compiler flags for building with Boost.TypeLayout.
 
-xref:platform-support.adoc[Platform Support]::
+xref:config/platform-support.adoc[Platform Support]::
 Platform-specific considerations and portability information.
 
 == Quick Setup

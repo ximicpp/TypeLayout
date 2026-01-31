@@ -311,6 +311,6 @@ public:
 
 == See Also
 
-* xref:portability.adoc[Portability] - Portability checking details
-* xref:hash-verification.adoc[Hash Verification] - Hash-based verification
+* xref:user-guide/portability.adoc[Portability] - Portability checking details
+* xref:user-guide/hash-verification.adoc[Hash Verification] - Hash-based verification
 * xref:../reference/concepts.adoc[API Reference: Concepts] - Full concept specifications

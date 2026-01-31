@@ -311,6 +311,6 @@ TYPELAYOUT_BIND(NetworkPacket,
 
 == See Also
 
-* xref:layout-signatures.adoc[Layout Signatures] - Signature format
-* xref:portability.adoc[Portability] - Portability considerations
-* xref:type-support.adoc[Type Support] - Supported types
+* xref:user-guide/layout-signatures.adoc[Layout Signatures] - Signature format
+* xref:user-guide/portability.adoc[Portability] - Portability considerations
+* xref:user-guide/type-support.adoc[Type Support] - Supported types

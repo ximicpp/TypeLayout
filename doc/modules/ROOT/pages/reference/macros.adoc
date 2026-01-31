@@ -189,5 +189,5 @@ TYPELAYOUT_BIND(Container<double>,
 
 === See Also
 
-* xref:core-functions.adoc#get_layout_signature[get_layout_signature] - Generate signatures
+* xref:reference/core-functions.adoc#get_layout_signature[get_layout_signature] - Generate signatures
 * xref:../user-guide/layout-signatures.adoc[Layout Signatures] - Signature format

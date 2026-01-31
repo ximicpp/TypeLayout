@@ -323,6 +323,6 @@ int main() {
 
 == See Also
 
-* xref:network-protocol.adoc[Network Protocol Example]
-* xref:shared-memory.adoc[Shared Memory Example]
+* xref:examples/network-protocol.adoc[Network Protocol Example]
+* xref:examples/shared-memory.adoc[Shared Memory Example]
 * xref:../user-guide/index.adoc[User Guide]

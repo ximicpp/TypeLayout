@@ -318,6 +318,6 @@ This ensures the bit-field layout matches expectations on every platform you com
 
 == See Also
 
-* xref:layout-signatures.adoc[Layout Signatures] - Signature format
-* xref:portability.adoc[Portability] - Platform considerations
-* xref:type-support.adoc[Type Support] - Supported types
+* xref:user-guide/layout-signatures.adoc[Layout Signatures] - Signature format
+* xref:user-guide/portability.adoc[Portability] - Platform considerations
+* xref:user-guide/type-support.adoc[Type Support] - Supported types

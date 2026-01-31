@@ -289,7 +289,7 @@ void safe_copy(const T& src, U& dst) {
 
 === See Also
 
-* xref:concepts.adoc#LayoutCompatible[LayoutCompatible] - Concept wrapper
+* xref:reference/concepts.adoc#LayoutCompatible[LayoutCompatible] - Concept wrapper
 
 '''
 
@@ -376,7 +376,7 @@ static_assert(!boost::typelayout::is_portable<BadOuter>());
 
 === See Also
 
-* xref:concepts.adoc#Portable[Portable] - Concept wrapper
+* xref:reference/concepts.adoc#Portable[Portable] - Concept wrapper
 * xref:../user-guide/portability.adoc[Portability] - Usage guide
 
 '''

@@ -262,5 +262,5 @@ constexpr bool parse_signature(std::string_view sig) {
 
 == See Also
 
-* xref:index.adoc[Design Rationale Overview]
-* xref:compile-time.adoc[Compile-Time Design]
+* xref:design/index.adoc[Design Rationale Overview]
+* xref:design/compile-time.adoc[Compile-Time Design]

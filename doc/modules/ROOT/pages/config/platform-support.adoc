@@ -11,23 +11,23 @@ Platform-specific considerations and cross-platform compatibility for Boost.Type
 | Platform | Status | Notes
 
 | Linux (x86_64)
-| ‚úÖ Fully supported
+| ‚ú?Fully supported
 | Primary development platform
 
 | Linux (ARM64)
-| ‚úÖ Supported
+| ‚ú?Supported
 | Different pointer size/endianness
 
 | macOS (x86_64)
-| ‚úÖ Supported
+| ‚ú?Supported
 | Requires Clang P2996 branch
 
 | macOS (ARM64)
-| ‚úÖ Supported
+| ‚ú?Supported
 | Apple Silicon, little-endian
 
 | Windows (x86_64)
-| ‚è≥ Pending
+| ‚è?Pending
 | Waiting for MSVC P2996 support
 
 | FreeBSD
@@ -154,11 +154,11 @@ static_assert(is_portable<NetworkPacket>(),
 [source,cpp]
 ----
 // Windows LLP64 model
-sizeof(int)       == 4   // ‚úì
-sizeof(long)      == 4   // ‚úì (different from Linux!)
-sizeof(long long) == 8   // ‚úì
-sizeof(size_t)    == 8   // ‚úì
-sizeof(wchar_t)   == 2   // ‚úì (UTF-16)
+sizeof(int)       == 4   // ‚ú?
+sizeof(long)      == 4   // ‚ú?(different from Linux!)
+sizeof(long long) == 8   // ‚ú?
+sizeof(size_t)    == 8   // ‚ú?
+sizeof(wchar_t)   == 2   // ‚ú?(UTF-16)
 ----
 
 === Linux (x86_64)
@@ -166,11 +166,11 @@ sizeof(wchar_t)   == 2   // ‚úì (UTF-16)
 [source,cpp]
 ----
 // Linux LP64 model
-sizeof(int)       == 4   // ‚úì
-sizeof(long)      == 8   // ‚úì (different from Windows!)
-sizeof(long long) == 8   // ‚úì
-sizeof(size_t)    == 8   // ‚úì
-sizeof(wchar_t)   == 4   // ‚úì (UTF-32)
+sizeof(int)       == 4   // ‚ú?
+sizeof(long)      == 8   // ‚ú?(different from Windows!)
+sizeof(long long) == 8   // ‚ú?
+sizeof(size_t)    == 8   // ‚ú?
+sizeof(wchar_t)   == 4   // ‚ú?(UTF-32)
 ----
 
 === macOS (ARM64)
@@ -178,11 +178,11 @@ sizeof(wchar_t)   == 4   // ‚úì (UTF-32)
 [source,cpp]
 ----
 // macOS LP64 model (same as Linux)
-sizeof(int)       == 4   // ‚úì
-sizeof(long)      == 8   // ‚úì
-sizeof(long long) == 8   // ‚úì
-sizeof(size_t)    == 8   // ‚úì
-sizeof(wchar_t)   == 4   // ‚úì
+sizeof(int)       == 4   // ‚ú?
+sizeof(long)      == 8   // ‚ú?
+sizeof(long long) == 8   // ‚ú?
+sizeof(size_t)    == 8   // ‚ú?
+sizeof(wchar_t)   == 4   // ‚ú?
 ----
 
 == Alignment Considerations
@@ -227,13 +227,13 @@ struct Packed {
 
 [source,cpp]
 ----
-// ‚úÖ Good - portable
+// ‚ú?Good - portable
 struct Message {
     std::uint32_t id;
     std::int64_t  timestamp;
 };
 
-// ‚ùå Bad - platform-dependent
+// ‚ù?Bad - platform-dependent
 struct Message {
     unsigned int id;
     long timestamp;
@@ -317,6 +317,6 @@ clang++ --target=aarch64-linux-gnu \
 
 == See Also
 
-* xref:index.adoc[Configuration Overview]
-* xref:compiler-options.adoc[Compiler Options]
+* xref:config/index.adoc[Configuration Overview]
+* xref:config/compiler-options.adoc[Compiler Options]
 * xref:../user-guide/portability.adoc[Portability Guide]

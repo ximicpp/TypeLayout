@@ -216,5 +216,5 @@ error: constexpr evaluation hit maximum step limit
 
 == See Also
 
-* xref:index.adoc[Configuration Overview]
-* xref:platform-support.adoc[Platform Support]
+* xref:config/index.adoc[Configuration Overview]
+* xref:config/platform-support.adoc[Platform Support]

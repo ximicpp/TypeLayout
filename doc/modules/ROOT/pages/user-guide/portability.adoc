@@ -294,6 +294,6 @@ static_assert(boost::typelayout::is_portable<PortableWithReference>());
 
 == See Also
 
-* xref:type-support.adoc[Type Support] - Complete type list
-* xref:hash-verification.adoc[Hash Verification] - Runtime verification
-* xref:concepts.adoc[Concepts] - Using the `Portable` concept
+* xref:user-guide/type-support.adoc[Type Support] - Complete type list
+* xref:user-guide/hash-verification.adoc[Hash Verification] - Runtime verification
+* xref:user-guide/concepts.adoc[Concepts] - Using the `Portable` concept
