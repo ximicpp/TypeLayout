@@ -411,6 +411,33 @@ namespace typelayout {
 } // namespace boost
 
 // =========================================================================
+// std::atomic Specializations (must be in separate section to include <atomic>)
+// =========================================================================
+
+#include <atomic>
+
+namespace boost {
+namespace typelayout {
+
+    // std::atomic<T> - provides explicit signature to avoid reflecting internal
+    // implementation details (which vary between libc++ and libstdc++)
+    template <typename T>
+    struct TypeSignature<std::atomic<T>> {
+        static consteval auto calculate() noexcept {
+            return CompileString{"atomic[s:"} +
+                   CompileString<32>::from_number(sizeof(std::atomic<T>)) +
+                   CompileString{",a:"} +
+                   CompileString<32>::from_number(alignof(std::atomic<T>)) +
+                   CompileString{"]<"} +
+                   TypeSignature<T>::calculate() +
+                   CompileString{">"};
+        }
+    };
+
+} // namespace typelayout
+} // namespace boost
+
+// =========================================================================
 // Boost.Interprocess offset_ptr specialization (if header included)
 // =========================================================================
 

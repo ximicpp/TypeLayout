@@ -9,6 +9,7 @@
 #include <print>
 #include <array>
 #include <utility>
+#include <atomic>
 #include <complex>
 #include <span>
 #include <string_view>
@@ -239,6 +240,55 @@ void test_string_view_span() {
 }
 
 // ============================================================================
+// CATEGORY 4: Atomic Types
+// ============================================================================
+
+void test_atomic_types() {
+    std::println("\n=== std::atomic Tests ===");
+    
+    // std::atomic<int>
+    {
+        using T = std::atomic<int>;
+        constexpr auto sig = get_layout_signature_cstr<T>();
+        std::println("std::atomic<int>: {}", sig);
+        std::println("  sizeof: {}, alignof: {}", sizeof(T), alignof(T));
+        std::println("  is_always_lock_free: {}", std::atomic<int>::is_always_lock_free);
+    }
+    
+    // std::atomic<long long>
+    {
+        using T = std::atomic<long long>;
+        constexpr auto sig = get_layout_signature_cstr<T>();
+        std::println("std::atomic<long long>: {}", sig);
+        std::println("  sizeof: {}, alignof: {}", sizeof(T), alignof(T));
+    }
+    
+    // std::atomic<bool>
+    {
+        using T = std::atomic<bool>;
+        constexpr auto sig = get_layout_signature_cstr<T>();
+        std::println("std::atomic<bool>: {}", sig);
+        std::println("  sizeof: {}, alignof: {}", sizeof(T), alignof(T));
+    }
+    
+    // std::atomic<double>
+    {
+        using T = std::atomic<double>;
+        constexpr auto sig = get_layout_signature_cstr<T>();
+        std::println("std::atomic<double>: {}", sig);
+        std::println("  sizeof: {}, alignof: {}", sizeof(T), alignof(T));
+    }
+    
+    // std::atomic<void*>
+    {
+        using T = std::atomic<void*>;
+        constexpr auto sig = get_layout_signature_cstr<T>();
+        std::println("std::atomic<void*>: {}", sig);
+        std::println("  sizeof: {}, alignof: {}", sizeof(T), alignof(T));
+    }
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -262,8 +312,8 @@ int main() {
     test_complex_types();
     test_string_view_span();
     
-    // NOTE: std::atomic tests temporarily disabled - requires _Atomic(T) specialization
-    // This is tracked as a future enhancement
+    // P4: Atomic types
+    test_atomic_types();
     
     std::println("\n===================================================");
     std::println("All extended tests completed!");
