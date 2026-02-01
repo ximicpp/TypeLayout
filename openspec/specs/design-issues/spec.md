@@ -39,15 +39,11 @@ The library SHALL clearly define its core use cases and design decisions SHALL b
 
 ### Medium Priority
 
-| ID | Issue | Affected Use Cases | Status |
-|----|-------|-------------------|--------|
-| M3 | Poor error messages on signature mismatch | All | Open |
+*No open issues*
 
 ### Low Priority
 
-| ID | Issue | Suggested Improvement | Status |
-|----|-------|----------------------|--------|
-| L2 | Dual-hash may be overkill for most cases | Make optional | Open |
+*No open issues*
 
 ## Design Decisions
 
@@ -93,3 +89,26 @@ Signatures do not include a format version prefix.
 - This is expected behavior: library change = code update required
 - If runtime verification (H1) is implemented, versioning would be part of that design
 - Adding version prefix to compile-time-only signatures adds complexity without benefit
+
+### Error Messages on Mismatch (Known Limitation)
+`static_assert` failures show only "Layout mismatch for Type" without signature details.
+
+**Rationale**:
+- This is a C++ language limitation, not a library design issue
+- `static_assert` messages must be string literals; dynamic content is not allowed
+- Cannot include actual vs expected signatures in the error message
+
+**Mitigations**:
+- Documentation guides users to use `get_layout_signature<T>()` to inspect actual signatures
+- Example code and troubleshooting guide help users diagnose mismatches
+- Future: Add `print_signature<T>()` utility for debugging convenience
+
+### Dual-Hash API (Resolved - Correct Design)
+Library provides both single-hash and dual-hash verification APIs.
+
+**Rationale**:
+- Layered choice: `get_layout_hash<T>()` (64-bit) for simple cases, `get_layout_verification<T>()` (128-bit+) for high-security
+- Users choose based on their security requirements
+- Dual-hash is optional, not mandatory
+- No API complexity: simple use cases use simple API
+- Security-sensitive domains (finance, medical) benefit from higher collision resistance
