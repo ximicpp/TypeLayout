@@ -41,7 +41,6 @@ The library SHALL clearly define its core use cases and design decisions SHALL b
 
 | ID | Issue | Affected Use Cases | Status |
 |----|-------|-------------------|--------|
-| M1 | Member names in signatures cause false incompatibility on rename | ABI Upgrade | Open |
 | M2 | TYPELAYOUT_BIND requires platform-specific signature strings | All | Open |
 | M3 | Poor error messages on signature mismatch | All | Open |
 
@@ -61,3 +60,15 @@ The `[64-le]` architecture prefix includes only pointer size and endianness, not
 - Same architecture (e.g., 64-le) across different OS (Windows, Linux, macOS) produces identical signatures
 - This is correct behavior as memory layouts are identical on same-architecture systems
 - The prefix serves as a necessary safety measure to prevent 32-bit vs 64-bit mismatches
+
+### Member Names in Signatures (Resolved)
+Signatures include field names by design, causing mismatches when fields are renamed.
+
+**Rationale**:
+- Field rename vs field swap have identical memory layouts but completely different semantics
+- Example: `{int x; int y;}` renamed to `{int a; int b;}` vs swapped to `{int y; int x;}`
+- Both have same offsets (0, 4) but swapped version reads data incorrectly
+- Including names is a conservative safety measure that prevents silent data corruption
+- Users who confirm only rename (not swap) can use future `get_structural_signature()` API
+
+**Optional Enhancement**: Add `get_structural_signature<T>()` for users who explicitly want layout-only comparison (at their own risk).
