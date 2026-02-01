@@ -47,7 +47,6 @@ The library SHALL clearly define its core use cases and design decisions SHALL b
 
 | ID | Issue | Suggested Improvement | Status |
 |----|-------|----------------------|--------|
-| L1 | No signature format versioning | Add version prefix | Open |
 | L2 | Dual-hash may be overkill for most cases | Make optional | Open |
 
 ## Design Decisions
@@ -83,3 +82,14 @@ TYPELAYOUT_BIND requires full signature strings which can be long.
 - The "cost" of long strings is justified by transparency and debuggability
 
 **Optional Enhancement**: Provide `print_signature<T>()` utility or CLI tool to help generate signatures for copy-paste.
+
+### Signature Format Versioning (Resolved - Not Needed)
+Signatures do not include a format version prefix.
+
+**Rationale**:
+- Signatures are generated at compile-time, not stored persistently
+- When library upgrades change the format, new signatures are generated automatically
+- Users update `TYPELAYOUT_BIND` strings as part of normal upgrade process
+- This is expected behavior: library change = code update required
+- If runtime verification (H1) is implemented, versioning would be part of that design
+- Adding version prefix to compile-time-only signatures adds complexity without benefit
