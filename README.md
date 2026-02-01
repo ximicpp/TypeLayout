@@ -1,6 +1,7 @@
 # Boost.TypeLayout
 
 [![CI](https://github.com/ximicpp/TypeLayout/actions/workflows/ci.yml/badge.svg)](https://github.com/ximicpp/TypeLayout/actions/workflows/ci.yml)
+[![Docker Build](https://github.com/ximicpp/TypeLayout/actions/workflows/docker-build.yml/badge.svg)](https://github.com/ximicpp/TypeLayout/actions/workflows/docker-build.yml)
 [![Boost License](https://img.shields.io/badge/License-Boost%201.0-blue.svg)](https://www.boost.org/LICENSE_1_0.txt)
 [![C++ Standard](https://img.shields.io/badge/C%2B%2B-26-blue.svg)](https://en.cppreference.com/w/cpp/26)
 [![Header Only](https://img.shields.io/badge/Header-only-green.svg)]()
@@ -85,6 +86,29 @@ cmake --build .
 ```bash
 ./build_and_run.sh
 ```
+
+### Using Docker (Recommended for CI/Development)
+
+A pre-built Docker image with Bloomberg Clang P2996 is available:
+
+```bash
+# Pull the P2996 development image
+docker pull ghcr.io/ximicpp/typelayout-p2996:latest
+
+# Run tests in container
+docker run --rm -v $(pwd):/workspace -w /workspace \
+    ghcr.io/ximicpp/typelayout-p2996:latest \
+    bash -c "cmake -B build -G Ninja && cmake --build build && ctest --test-dir build"
+
+# Interactive development
+docker run -it --rm -v $(pwd):/workspace -w /workspace \
+    ghcr.io/ximicpp/typelayout-p2996:latest
+```
+
+The Docker image includes:
+- Bloomberg Clang P2996 fork with `-freflection` support
+- CMake, Ninja build system
+- libc++ standard library
 
 ## API Reference
 
