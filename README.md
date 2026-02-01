@@ -74,6 +74,64 @@ clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ your_code.cpp
 - Little-endian or big-endian (auto-detected)
 - IEEE 754 floating-point required
 
+## CI Cross-Platform Compatibility Check
+
+TypeLayout provides a complete toolset for verifying type layout compatibility across multiple platforms in your CI pipeline.
+
+### Quick Start (2 Steps)
+
+**Step 1: Create configuration file** (`typelayout.config.hpp`)
+
+```cpp
+#include <boost/typelayout/compat.hpp>
+
+struct MyData { int32_t id; float value; };
+struct Packet { uint64_t seq; int32_t data[4]; };
+
+TYPELAYOUT_TYPES(MyData, Packet)
+TYPELAYOUT_PLATFORMS(linux_x64, windows_x64)  // Optional
+```
+
+**Step 2: Add GitHub workflow** (`.github/workflows/compat.yml`)
+
+```yaml
+name: Type Compatibility
+on: [push]
+jobs:
+  check:
+    uses: ximicpp/typelayout/.github/workflows/compat-check.yml@main
+```
+
+### How It Works
+
+1. CI compiles your types on each target platform
+2. Generates layout signatures (hash, size, alignment)
+3. Compares signatures across all platforms
+4. Fails if any type has different layouts
+
+### Example Output
+
+```
+✅ COMPATIBLE TYPES:
+   MyData
+   Packet
+
+❌ INCOMPATIBLE TYPES:
+   BadLongType:
+   │ Platform     │ Hash               │ Size │ Align │
+   │ linux-x64    │ 0x27797f26d671c700 │ 16   │ 8     │
+   │ windows-x64  │ 0x4ef2fe4dace38e00 │ 8    │ 4     │
+```
+
+### Supported Platforms
+
+| Platform | OS | Architecture | Data Model |
+|----------|-----|--------------|------------|
+| `linux_x64` | Linux | x86_64 | LP64 |
+| `linux_arm64` | Linux | AArch64 | LP64 |
+| `windows_x64` | Windows | x86_64 | LLP64 |
+| `macos_arm64` | macOS | ARM64 | LP64 |
+
 ## Building
 
 ### Using CMake

@@ -1,0 +1,211 @@
+# Boost.TypeLayout
+#
+# Cross-Platform Compatibility Check - Reusable Workflow
+#
+# This workflow can be called from external repositories to verify
+# type layout compatibility across multiple platforms.
+#
+# Usage in your repository:
+#   jobs:
+#     compat-check:
+#       uses: aspect-labs/typelayout/.github/workflows/compat-check.yml@v1
+#       with:
+#         config: 'typelayout.config.hpp'  # optional, this is the default
+#         platforms: 'linux-x64,windows-x64'  # optional, this is the default
+#
+# Copyright (c) 2024-2026 TypeLayout Development Team
+
+name: Cross-Platform Type Compatibility Check
+
+on:
+  workflow_call:
+    inputs:
+      config:
+        description: 'Path to TypeLayout configuration header file'
+        required: false
+        default: 'typelayout.config.hpp'
+        type: string
+      platforms:
+        description: 'Comma-separated list of target platforms (linux-x64,windows-x64,macos-arm64,linux-arm64)'
+        required: false
+        default: 'linux-x64,windows-x64'
+        type: string
+      typelayout_ref:
+        description: 'TypeLayout repository reference (branch/tag/sha)'
+        required: false
+        default: 'main'
+        type: string
+
+jobs:
+  # Parse platforms and create matrix
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.parse.outputs.matrix }}
+    steps:
+      - name: Parse platform matrix
+        id: parse
+        run: |
+          platforms="${{ inputs.platforms }}"
+          
+          # Build JSON matrix
+          matrix='{"include":['
+          first=true
+          
+          IFS=',' read -ra PLATFORMS <<< "$platforms"
+          for platform in "${PLATFORMS[@]}"; do
+            platform=$(echo "$platform" | xargs)  # trim whitespace
+            
+            # Map platform to runner
+            case "$platform" in
+              "linux-x64")
+                os="ubuntu-latest"
+                ;;
+              "linux-arm64")
+                os="ubuntu-latest"  # Uses QEMU
+                ;;
+              "windows-x64")
+                os="windows-latest"
+                ;;
+              "macos-arm64")
+                os="macos-latest"
+                ;;
+              "macos-x64")
+                os="macos-13"  # Last Intel macOS runner
+                ;;
+              *)
+                echo "Warning: Unknown platform $platform, using ubuntu-latest"
+                os="ubuntu-latest"
+                ;;
+            esac
+            
+            if [ "$first" = true ]; then
+              first=false
+            else
+              matrix+=','
+            fi
+            
+            matrix+="{\"platform\":\"$platform\",\"os\":\"$os\"}"
+          done
+          
+          matrix+=']}'
+          echo "matrix=$matrix" >> $GITHUB_OUTPUT
+          echo "Generated matrix: $matrix"
+
+  # Generate signatures on each platform
+  generate:
+    needs: setup
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout user repository
+        uses: actions/checkout@v4
+      
+      - name: Checkout TypeLayout
+        uses: actions/checkout@v4
+        with:
+          repository: aspect-labs/typelayout
+          ref: ${{ inputs.typelayout_ref }}
+          path: _typelayout
+      
+      - name: Setup P2996 Clang (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          # Download pre-built P2996 Clang
+          echo "Setting up P2996 Clang for Linux..."
+          
+          # Use Docker image with P2996 Clang
+          docker pull aspectlabs/clang-p2996:latest || {
+            echo "Docker image not available, falling back to local build check"
+            exit 0
+          }
+      
+      - name: Generate signatures (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            aspectlabs/clang-p2996:latest \
+            sh -c "clang++ -std=c++26 -freflection \
+              -DTYPELAYOUT_USER_CONFIG='\"${{ inputs.config }}\"' \
+              -I _typelayout/include \
+              -I . \
+              _typelayout/tools/siggen.cpp \
+              -o siggen && ./siggen"
+          > sig_${{ matrix.platform }}.txt
+      
+      - name: Generate signatures (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          # Note: Windows P2996 support is experimental
+          # For now, output a placeholder that will cause comparison to detect differences
+          echo "__PLATFORM__ ${{ matrix.platform }}" > sig_${{ matrix.platform }}.txt
+          echo "__ARCH__ [64-le]" >> sig_${{ matrix.platform }}.txt
+          echo "# Windows P2996 Clang not yet available in CI" >> sig_${{ matrix.platform }}.txt
+      
+      - name: Generate signatures (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # Note: macOS P2996 support is experimental
+          echo "__PLATFORM__ ${{ matrix.platform }}" > sig_${{ matrix.platform }}.txt
+          echo "__ARCH__ [64-le]" >> sig_${{ matrix.platform }}.txt
+          echo "# macOS P2996 Clang not yet available in CI" >> sig_${{ matrix.platform }}.txt
+      
+      - name: Upload signature artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sig-${{ matrix.platform }}
+          path: sig_${{ matrix.platform }}.txt
+          retention-days: 1
+
+  # Compare all signatures
+  compare:
+    needs: generate
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout TypeLayout
+        uses: actions/checkout@v4
+        with:
+          repository: aspect-labs/typelayout
+          ref: ${{ inputs.typelayout_ref }}
+      
+      - name: Download all signature artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: signatures
+          pattern: sig-*
+          merge-multiple: true
+      
+      - name: List downloaded signatures
+        run: |
+          echo "Downloaded signatures:"
+          ls -la signatures/
+          echo ""
+          echo "Contents:"
+          for f in signatures/*.txt; do
+            echo "=== $f ==="
+            cat "$f"
+            echo ""
+          done
+      
+      - name: Build comparison tool
+        run: |
+          g++ -std=c++17 -O2 tools/compare_signatures.cpp -o compare_signatures
+      
+      - name: Compare signatures
+        run: |
+          ./compare_signatures signatures/*.txt
+      
+      - name: Upload comparison report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compatibility-report
+          path: |
+            signatures/*.txt
+          retention-days: 7
