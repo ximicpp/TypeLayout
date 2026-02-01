@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 
-### Requirement: Serialization Safety Check API
+### Requirement: Serialization Safety Check
 The library SHALL provide serialization safety checking as a **utility feature** built on top of the core layout signature functionality.
 
 **Positioning**: This is a utility/application layer feature, not core functionality.
