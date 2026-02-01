@@ -13,6 +13,7 @@
 #include <boost/typelayout/detail/config.hpp>
 #include <boost/typelayout/detail/compile_string.hpp>
 #include <boost/typelayout/detail/type_signature.hpp>
+#include <boost/typelayout/detail/serialization_signature.hpp>
 #include <boost/typelayout/detail/hash.hpp>
 
 namespace boost {

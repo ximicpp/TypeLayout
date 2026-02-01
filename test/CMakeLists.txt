@@ -38,6 +38,10 @@ target_compile_options(test_signature_comprehensive PRIVATE ${TYPELAYOUT_CXX_FLA
 add_executable(test_anonymous_member test_anonymous_member.cpp)
 target_compile_options(test_anonymous_member PRIVATE ${TYPELAYOUT_CXX_FLAGS})
 
+# Serialization signature tests (Layer 2 - no Boost.Test dependency)
+add_executable(test_serialization_signature test_serialization_signature.cpp)
+target_compile_options(test_serialization_signature PRIVATE ${TYPELAYOUT_CXX_FLAGS})
+
 # Unit tests with Boost.Test
 add_typelayout_test(test_primitives)
 add_typelayout_test(test_structs)

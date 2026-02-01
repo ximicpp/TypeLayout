@@ -238,6 +238,67 @@ TypeLayout provides comprehensive layout signature support for virtually all C++
 | `is_portable<T>()` | *(deprecated)* Use `is_trivially_serializable<T>()` instead |
 | `has_bitfields<T>()` | Check if type contains bit-fields |
 
+### Layer 2: Serialization Compatibility (New)
+
+For cross-process or cross-machine data transfer, TypeLayout provides **Layered Signatures**:
+
+| Layer | Purpose | API |
+|-------|---------|-----|
+| **Layer 1: Layout** | Identical memory layout (size, alignment, offsets) | `get_layout_signature<T>()` |
+| **Layer 2: Serialization** | Safe for `memcpy` across platform set | `serialization_signature<T, P>()` |
+
+#### Serialization API
+
+| Function | Description |
+|----------|-------------|
+| `is_serializable_v<T, P>` | Check if type is memcpy-safe for platform set P |
+| `serialization_blocker_v<T, P>` | Get reason why type is not serializable |
+| `serialization_signature<T, P>()` | Get serialization signature string |
+| `check_serialization_compatible<T, U, P>()` | Check if T and U can be safely transmitted |
+
+#### Platform Sets
+
+```cpp
+// Predefined platform sets
+PlatformSet::x64_le()    // 64-bit little-endian (strict)
+PlatformSet::x86_le()    // 32-bit little-endian (strict)
+PlatformSet::arm64_le()  // ARM64 little-endian (strict)
+PlatformSet::current()   // Current build platform (permissive)
+```
+
+#### Serialization Blocker Reasons
+
+| Blocker | Meaning |
+|---------|---------|
+| `None` | Type is serializable |
+| `NotTriviallyCopyable` | Type has non-trivial copy |
+| `HasPointer` | Contains pointer member |
+| `HasReference` | Contains reference member |
+| `IsPolymorphic` | Has virtual functions |
+| `HasPlatformDependentSize` | Uses `long` or similar |
+| `PlatformMismatch` | Build platform doesn't match target |
+
+#### Example
+
+```cpp
+#include <boost/typelayout/signature.hpp>
+using namespace boost::typelayout;
+
+struct Message {
+    int32_t id;
+    float data[8];
+};
+
+// Check for 64-bit little-endian targets
+constexpr auto platform = PlatformSet::x64_le();
+static_assert(is_serializable_v<Message, platform>, "Must be serializable");
+
+// Get diagnostic signature
+constexpr auto sig = serialization_signature<Message, platform>();
+// Result: "[64-le]serial" for valid types
+// Result: "[64-le]!serial:ptr" for types with pointers
+```
+
 ### Concepts
 
 | Concept | Description |

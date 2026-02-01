@@ -60,6 +60,23 @@ option(BOOST_TYPELAYOUT_BUILD_TOOLS "Build tools" ON)
 if(BOOST_TYPELAYOUT_BUILD_TESTS)
     add_executable(test_all_types test/test_all_types.cpp)
     target_link_libraries(test_all_types PRIVATE typelayout)
+    
+    # Extended signature tests
+    add_executable(test_signature_extended test/test_signature_extended.cpp)
+    target_link_libraries(test_signature_extended PRIVATE typelayout)
+    
+    # Comprehensive signature tests
+    add_executable(test_signature_comprehensive test/test_signature_comprehensive.cpp)
+    target_link_libraries(test_signature_comprehensive PRIVATE typelayout)
+    
+    # Anonymous member tests
+    add_executable(test_anonymous_member test/test_anonymous_member.cpp)
+    target_link_libraries(test_anonymous_member PRIVATE typelayout)
+    
+    # Serialization signature tests (Layer 2)
+    add_executable(test_serialization_signature test/test_serialization_signature.cpp)
+    target_link_libraries(test_serialization_signature PRIVATE typelayout)
+    
     message(STATUS "  Tests: Enabled")
 else()
     message(STATUS "  Tests: Disabled")
