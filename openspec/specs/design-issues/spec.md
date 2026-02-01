@@ -41,7 +41,6 @@ The library SHALL clearly define its core use cases and design decisions SHALL b
 
 | ID | Issue | Affected Use Cases | Status |
 |----|-------|-------------------|--------|
-| M2 | TYPELAYOUT_BIND requires platform-specific signature strings | All | Open |
 | M3 | Poor error messages on signature mismatch | All | Open |
 
 ### Low Priority
@@ -72,3 +71,15 @@ Signatures include field names by design, causing mismatches when fields are ren
 - Users who confirm only rename (not swap) can use future `get_structural_signature()` API
 
 **Optional Enhancement**: Add `get_structural_signature<T>()` for users who explicitly want layout-only comparison (at their own risk).
+
+### TYPELAYOUT_BIND String Format (Resolved)
+TYPELAYOUT_BIND requires full signature strings which can be long.
+
+**Rationale**:
+- Hash-based binding would not solve cross-platform issues (different platforms = different layouts = different hashes)
+- Full signature strings are self-describing and show exact layout details
+- When mismatches occur, developers can see exactly what differs
+- Hash binding loses readability and debugging value while providing no functional benefit
+- The "cost" of long strings is justified by transparency and debuggability
+
+**Optional Enhancement**: Provide `print_signature<T>()` utility or CLI tool to help generate signatures for copy-paste.
