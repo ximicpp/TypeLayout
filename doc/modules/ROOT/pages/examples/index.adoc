@@ -55,30 +55,32 @@ static_assert(
 );
 ----
 
-=== Check Portability
+=== Check Serializability
 
 [source,cpp]
 ----
-struct PortableConfig {
+struct SerializableConfig {
     std::int32_t  setting_a;
     std::uint64_t setting_b;
 };
 
-struct NonPortableConfig {
-    long value;  // Size varies by platform
+struct NonSerializableConfig {
+    long value;  // Size varies by platform (LLP64 vs LP64)
 };
 
-static_assert(is_portable<PortableConfig>());    // âœ?Passes
-// static_assert(is_portable<NonPortableConfig>()); // âœ?Fails
+constexpr auto platform = PlatformSet::bits64_le();
+
+static_assert(is_serializable_v<SerializableConfig, platform>);    // âœ“ Passes
+// static_assert(is_serializable_v<NonSerializableConfig, platform>); // âœ— Fails
 ----
 
 === Constrain Templates
 
 [source,cpp]
 ----
-template<PortableType T>
+template<Serializable T>
 void send_to_network(const T& data) {
-    // Only accepts types with portable layout
+    // Only accepts types safe for binary serialization
     auto bytes = std::as_bytes(std::span(&data, 1));
     socket.send(bytes);
 }

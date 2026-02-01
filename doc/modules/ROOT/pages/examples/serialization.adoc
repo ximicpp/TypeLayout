@@ -31,8 +31,8 @@ struct FileHeader {
     std::uint64_t data_offset;    // Offset to first record
 };
 
-static_assert(is_portable<FileHeader>(),
-    "FileHeader must be portable for file compatibility");
+static_assert(is_serializable_v<FileHeader, PlatformSet::bits64_le()>,
+    "FileHeader must be serializable for file compatibility");
 ----
 
 === Data Structure
@@ -48,8 +48,8 @@ struct Record {
     std::array<char, 32> name;
 };
 
-static_assert(is_portable<Record>(),
-    "Record must be portable for serialization");
+static_assert(is_serializable_v<Record, PlatformSet::bits64_le()>,
+    "Record must be serializable for binary persistence");
 
 constexpr std::array<char, 4> FILE_MAGIC = {'R', 'E', 'C', 'D'};
 constexpr std::uint32_t FORMAT_VERSION = 1;
@@ -92,13 +92,13 @@ public:
         finalize();
     }
     
-    template<PortableType T>
+    template<Serializable T>
     void write(const T& record) {
         write_raw(record);
         ++record_count_;
     }
     
-    template<PortableType T>
+    template<Serializable T>
     void write_all(std::span<const T> records) {
         for (const auto& r : records) {
             write(r);
@@ -174,7 +174,7 @@ public:
         return header_.record_count; 
     }
     
-    template<PortableType T>
+    template<Serializable T>
     bool read(T& record) {
         if (current_record_ >= header_.record_count) {
             return false;
@@ -185,7 +185,7 @@ public:
         return true;
     }
     
-    template<PortableType T>
+    template<Serializable T>
     std::vector<T> read_all() {
         std::vector<T> records;
         records.reserve(header_.record_count);
@@ -365,7 +365,7 @@ For large files, use memory mapping:
 #include <sys/stat.h>
 #include <fcntl.h>
 
-template<PortableType T>
+template<Serializable T>
 class MappedRecordFile {
     void* mapped_ = nullptr;
     std::size_t size_ = 0;
@@ -426,7 +426,7 @@ public:
 #include <boost/archive/binary_iarchive.hpp>
 
 // Add layout verification to Boost.Serialization
-template<PortableType T>
+template<Serializable T>
 class LayoutVerifiedArchive {
     std::ofstream file_;
     
@@ -445,7 +445,7 @@ public:
     }
 };
 
-template<PortableType T>
+template<Serializable T>
 class LayoutVerifiedInputArchive {
     std::ifstream file_;
     

@@ -1,14 +1,13 @@
 // Boost.TypeLayout
 //
-// Test Serialization Signature - Layer 2 serialization compatibility tests
+// Test Serialization Status - Layer 2 serialization compatibility tests
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE_1_0.txt or copy at
 // http://www.boost.org/LICENSE_1_0.txt)
 
-#include <boost/typelayout/detail/serialization_traits.hpp>
-#include <boost/typelayout/detail/serialization_signature.hpp>
+#include <boost/typelayout/typelayout_util.hpp>  // Complete utility layer
 #include <type_traits>
 #include <cstdint>
 #include <string>
@@ -77,6 +76,40 @@ struct WithString {
     std::string name;
 };
 
+// Struct with bit-fields - NOT serializable (implementation-defined layout)
+struct WithBitFields {
+    uint32_t header;
+    uint8_t flags : 4;
+    uint8_t type : 4;
+};
+
+// Nested struct with bit-fields - NOT serializable
+struct NestedWithBitFields {
+    int32_t id;
+    WithBitFields data;
+};
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+// Helper to check if a substring exists in c_str
+consteval bool contains_substring(const char* str, const char* substr) {
+    if (!str || !substr) return false;
+    const char* p = str;
+    while (*p) {
+        const char* s1 = p;
+        const char* s2 = substr;
+        while (*s1 && *s2 && *s1 == *s2) {
+            s1++;
+            s2++;
+        }
+        if (*s2 == '\0') return true;
+        p++;
+    }
+    return false;
+}
+
 // =============================================================================
 // Basic Serialization Trait Tests
 // =============================================================================
@@ -123,46 +156,51 @@ static_assert(!is_serializable_v<NestedWithPointer, CurrentPlatform>, "NestedWit
 static_assert(!is_serializable_v<WithString, CurrentPlatform>, "WithString should NOT be serializable");
 
 // =============================================================================
+// Bit-field Tests
+// =============================================================================
+
+// Test: Struct with bit-fields should NOT be serializable (implementation-defined layout)
+static_assert(!is_serializable_v<WithBitFields, CurrentPlatform>, "WithBitFields should NOT be serializable");
+static_assert(serialization_blocker_v<WithBitFields, CurrentPlatform> == SerializationBlocker::HasBitField,
+              "WithBitFields blocker should be HasBitField");
+
+// Test: Nested struct with bit-fields should NOT be serializable
+static_assert(!is_serializable_v<NestedWithBitFields, CurrentPlatform>, "NestedWithBitFields should NOT be serializable");
+static_assert(serialization_blocker_v<NestedWithBitFields, CurrentPlatform> == SerializationBlocker::HasBitField,
+              "NestedWithBitFields blocker should be HasBitField");
+
+// Test: Bit-field status string should contain "!serial:bitfield"
+constexpr auto bitfield_sig = serialization_status<WithBitFields, CurrentPlatform>();
+static_assert(contains_substring(bitfield_sig.c_str(), "!serial:bitfield"),
+              "WithBitFields status should contain '!serial:bitfield'");
+
+// =============================================================================
 // Platform-Dependent Type Tests
 // =============================================================================
 
-// Create a strict platform set that rejects long
-constexpr auto StrictPlatform = PlatformSet::x64_le();
+// Use platform set by bitwidth + endianness
+constexpr auto Platform64LE = PlatformSet::bits64_le();
 
-// Test: long should fail with strict platform set
+// Test: is_platform_dependent_size_v detects long
 static_assert(is_platform_dependent_size_v<long>, "long has platform-dependent size");
 static_assert(is_platform_dependent_size_v<unsigned long>, "unsigned long has platform-dependent size");
 
-// Note: We can't directly test StrictPlatform rejection since it may not match
-// current platform. Instead, test the basic trait.
-static_assert(basic_serialization_check<long, StrictPlatform>::value == SerializationBlocker::HasPlatformDependentSize ||
-              basic_serialization_check<long, StrictPlatform>::value == SerializationBlocker::PlatformMismatch,
-              "long should fail with strict platform");
+// Note: long is ALLOWED in serialization checks to not break int64_t on LP64 systems
+// Use is_platform_dependent_size_v for explicit portability warnings
+
+// Test: wchar_t and long double are always rejected
+static_assert(is_serializable_v<wchar_t, Platform64LE> == false, "wchar_t should NOT be serializable");
+static_assert(is_serializable_v<long double, Platform64LE> == false, "long double should NOT be serializable");
+static_assert(serialization_blocker_v<wchar_t, Platform64LE> == SerializationBlocker::HasPlatformDependentSize,
+              "wchar_t blocker should be HasPlatformDependentSize");
 
 // =============================================================================
 // Serialization Signature String Tests
 // =============================================================================
 
-// Test that we can generate signature strings
-constexpr auto simple_sig = serialization_signature<SimpleData, CurrentPlatform>();
-constexpr auto ptr_sig = serialization_signature<WithPointer, CurrentPlatform>();
-
-// Helper to check if a substring exists in c_str
-consteval bool contains_substring(const char* str, const char* substr) {
-    if (!str || !substr) return false;
-    const char* p = str;
-    while (*p) {
-        const char* s1 = p;
-        const char* s2 = substr;
-        while (*s1 && *s2 && *s1 == *s2) {
-            s1++;
-            s2++;
-        }
-        if (*s2 == '\0') return true;
-        p++;
-    }
-    return false;
-}
+// Test that we can generate status strings
+constexpr auto simple_sig = serialization_status<SimpleData, CurrentPlatform>();
+constexpr auto ptr_sig = serialization_status<WithPointer, CurrentPlatform>();
 
 // The simple data should have "[NN-le]serial" format
 static_assert(contains_substring(simple_sig.c_str(), "serial"),

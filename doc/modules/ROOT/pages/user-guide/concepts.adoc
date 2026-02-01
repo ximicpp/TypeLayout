@@ -9,8 +9,8 @@ Boost.TypeLayout provides {cpp20} concepts to constrain templates based on type 
 |===
 | Concept | Description
 
-| `Portable<T>`
-| Type contains no platform-dependent members
+| `Serializable<T>`
+| Type is safe for binary serialization (no platform-dependent or non-serializable members)
 
 | `LayoutCompatible<T, U>`
 | Two types have identical memory layouts
@@ -22,14 +22,14 @@ Boost.TypeLayout provides {cpp20} concepts to constrain templates based on type 
 | Type's layout hash matches the given value
 |===
 
-== Portable
+== Serializable
 
-The `Portable` concept checks if a type is free from platform-dependent members:
+The `Serializable` concept checks if a type is safe for binary serialization, meaning it has no platform-dependent sizes, pointers, bit-fields, or other non-serializable members:
 
 [source,cpp]
 ----
 template<typename T>
-concept Portable = is_portable<T>();
+concept Serializable = is_serializable_v<T, PlatformSet::current()>;
 ----
 
 === Usage
@@ -38,14 +38,14 @@ concept Portable = is_portable<T>();
 ----
 #include <boost/typelayout.hpp>
 
-// Constrain a function to only accept portable types
-template<boost::typelayout::Portable T>
+// Constrain a function to only accept serializable types
+template<boost::typelayout::Serializable T>
 void write_to_file(const T& data, std::ostream& out) {
     out.write(reinterpret_cast<const char*>(&data), sizeof(T));
 }
 
 // Constrain a class template
-template<boost::typelayout::Portable T>
+template<boost::typelayout::Serializable T>
 class NetworkBuffer {
     T data_;
 public:
@@ -59,21 +59,21 @@ public:
 
 [source,cpp]
 ----
-struct PortablePoint {
+struct SerializablePoint {
     std::int32_t x;
     std::int32_t y;
 };
 
-struct NonPortablePoint {
-    long x;  // Platform-dependent!
+struct NonSerializablePoint {
+    long x;  // Platform-dependent size!
     long y;
 };
 
-static_assert(boost::typelayout::Portable<PortablePoint>);
-static_assert(!boost::typelayout::Portable<NonPortablePoint>);
+static_assert(boost::typelayout::Serializable<SerializablePoint>);
+static_assert(!boost::typelayout::Serializable<NonSerializablePoint>);
 
-NetworkBuffer<PortablePoint> buf1;      // OK
-// NetworkBuffer<NonPortablePoint> buf2; // Error: constraint not satisfied
+NetworkBuffer<SerializablePoint> buf1;      // OK
+// NetworkBuffer<NonSerializablePoint> buf2; // Error: constraint not satisfied
 ----
 
 == LayoutCompatible
@@ -229,13 +229,13 @@ Concepts can be combined for complex constraints:
 
 template<typename T>
 concept SerializableMessage = 
-    boost::typelayout::Portable<T> &&
+    boost::typelayout::Serializable<T> &&
     std::is_trivially_copyable_v<T> &&
     (sizeof(T) <= 1024);
 
 template<SerializableMessage T>
 class MessageQueue {
-    // Only accepts portable, trivially copyable types under 1KB
+    // Only accepts serializable, trivially copyable types under 1KB
 };
 ----
 
@@ -246,10 +246,10 @@ When a concept constraint fails, you'll get a clear compile-time error:
 [source,cpp]
 ----
 struct BadType {
-    long value;  // Non-portable
+    long value;  // Non-serializable: platform-dependent size
 };
 
-template<boost::typelayout::Portable T>
+template<boost::typelayout::Serializable T>
 void process(T) {}
 
 process(BadType{});  // Error!
@@ -259,8 +259,8 @@ Error message (example):
 [source]
 ----
 error: constraints not satisfied for 'void process(T) [with T = BadType]'
-note: because 'boost::typelayout::Portable<BadType>' evaluated to false
-note: because 'boost::typelayout::is_portable<BadType>()' evaluated to false
+note: because 'boost::typelayout::Serializable<BadType>' evaluated to false
+note: because 'boost::typelayout::is_serializable_v<BadType, ...>' evaluated to false
 ----
 
 == Defining Custom Concepts
@@ -271,11 +271,10 @@ You can define custom concepts using the library's primitives:
 ----
 #include <boost/typelayout.hpp>
 
-// Type must be portable and have no bit-fields
+// Type must be serializable (no bit-fields, pointers, platform-dependent types)
 template<typename T>
 concept CleanLayout = 
-    boost::typelayout::Portable<T> &&
-    !boost::typelayout::has_bitfields<T>();
+    boost::typelayout::Serializable<T>;
 
 // Type must be compatible with a specific protocol version
 template<typename T>
@@ -297,14 +296,14 @@ concept SameAsPoint =
 class Serializer {
 public:
     template<typename T>
-    void write(const T& value) requires boost::typelayout::Portable<T> {
-        // Write portable type
+    void write(const T& value) requires boost::typelayout::Serializable<T> {
+        // Write serializable type
     }
     
     template<typename T>
-    void write(const T& value) requires (!boost::typelayout::Portable<T>) {
-        // Handle non-portable type differently
-        static_assert(false, "Cannot serialize non-portable types directly");
+    void write(const T& value) requires (!boost::typelayout::Serializable<T>) {
+        // Handle non-serializable type differently
+        static_assert(false, "Cannot serialize non-serializable types directly");
     }
 };
 ----

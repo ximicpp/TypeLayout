@@ -134,11 +134,11 @@ struct VLeft : virtual VBase {
 };
 ----
 
-WARNING: Types with virtual inheritance may have platform-specific layouts due to vptr placement. These types are marked as non-portable.
+WARNING: Types with virtual inheritance may have platform-specific layouts due to vptr placement. These types are marked as non-serializable.
 
 [source,cpp]
 ----
-static_assert(!boost::typelayout::is_portable<VLeft>());
+static_assert(!boost::typelayout::is_serializable_v<VLeft, PlatformSet::current()>);
 ----
 
 == Protected and Private Inheritance
@@ -203,34 +203,34 @@ static_assert(!boost::typelayout::signatures_match<DerivedA, Standalone>());
 
 Even though the actual memory layout might be identical, the type structure differs.
 
-== Inheritance and Portability
+== Inheritance and Serializability
 
-A derived class is portable only if:
+A derived class is serializable only if:
 
-1. All base classes are portable
-2. All derived class members are portable
-3. No virtual inheritance is used
+1. All base classes are serializable
+2. All derived class members are serializable
+3. No virtual inheritance is used (vptr introduces platform-specific layout)
 
 [source,cpp]
 ----
-struct PortableBase {
+struct SerializableBase {
     std::int32_t x;
 };
 
-struct PortableDerived : PortableBase {
+struct SerializableDerived : SerializableBase {
     std::int32_t y;
 };
 
-struct NonPortableBase {
-    long x;  // Non-portable
+struct NonSerializableBase {
+    long x;  // Platform-dependent size
 };
 
-struct NonPortableDerived : NonPortableBase {
-    std::int32_t y;  // Even this is portable
+struct NonSerializableDerived : NonSerializableBase {
+    std::int32_t y;  // Even this member is safe
 };
 
-static_assert(boost::typelayout::is_portable<PortableDerived>());
-static_assert(!boost::typelayout::is_portable<NonPortableDerived>());
+static_assert(boost::typelayout::is_serializable_v<SerializableDerived, PlatformSet::bits64_le()>);
+static_assert(!boost::typelayout::is_serializable_v<NonSerializableDerived, PlatformSet::bits64_le()>);
 ----
 
 == Abstract Classes
@@ -312,5 +312,5 @@ TYPELAYOUT_BIND(NetworkPacket,
 == See Also
 
 * xref:user-guide/layout-signatures.adoc[Layout Signatures] - Signature format
-* xref:user-guide/portability.adoc[Portability] - Portability considerations
+* xref:user-guide/portability.adoc[Serializability] - Serializability considerations
 * xref:user-guide/type-support.adoc[Type Support] - Supported types

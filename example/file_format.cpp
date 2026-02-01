@@ -8,7 +8,7 @@
 // - Verify hash when loading file
 // - Handle format version upgrades
 
-#include <boost/typelayout.hpp>
+#include <boost/typelayout/typelayout_all.hpp>
 #include <cstdint>
 #include <cstring>
 #include <fstream>

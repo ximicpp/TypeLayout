@@ -293,10 +293,10 @@ void safe_copy(const T& src, U& dst) {
 
 '''
 
-[#is_portable]
-== is_portable
+[#is_serializable_v]
+== is_serializable_v
 
-Checks if a type is free from platform-dependent members.
+Checks if a type is safe for binary serialization on a target platform set.
 
 === Synopsis
 
@@ -304,8 +304,8 @@ Checks if a type is free from platform-dependent members.
 ----
 namespace boost::typelayout {
 
-template<typename T>
-constexpr bool is_portable();
+template<typename T, PlatformSet P>
+inline constexpr bool is_serializable_v = /* implementation-defined */;
 
 }
 ----
@@ -315,29 +315,34 @@ constexpr bool is_portable();
 `T`::
 The type to analyze. Must be a complete type.
 
-=== Return Value
+`P`::
+The target platform set to check against.
 
-Returns `true` if the type contains no platform-dependent members, `false` otherwise.
+=== Value
+
+`true` if the type is safe for binary serialization on the target platform(s), `false` otherwise.
 
 === Complexity
 
 Compile-time only. No runtime overhead.
 
-=== Platform-Dependent Types
+=== Non-Serializable Types
 
-The following types are considered non-portable:
+The following types cause a type to be non-serializable:
 
-* `long` / `unsigned long` - Size varies (4 or 8 bytes)
+* `long` / `unsigned long` - Size varies between platforms (4 or 8 bytes)
 * `wchar_t` - Size varies (2 or 4 bytes)
 * `long double` - Size varies (8, 12, or 16 bytes)
-* Pointers - Size varies (4 or 8 bytes)
+* Pointers - Size varies (4 or 8 bytes), not meaningful after serialization
+* Bit-fields - Layout is implementation-defined
 * Any type containing the above
 
 === Notes
 
 * Checking is recursive - nested types are examined
-* A type is portable only if all its members are portable
+* A type is serializable only if all its members are serializable
 * Base classes are included in the check
+* Use `serialization_status<T, P>()` to get diagnostic details
 
 === Example
 
@@ -345,39 +350,44 @@ The following types are considered non-portable:
 ----
 #include <boost/typelayout.hpp>
 
-struct PortableMessage {
+using namespace boost::typelayout;
+
+struct SerializableMessage {
     std::int32_t id;
     std::int32_t type;
     std::uint64_t timestamp;
 };
 
-struct NonPortableMessage {
-    long id;            // Platform-dependent!
+struct NonSerializableMessage {
+    long id;            // Platform-dependent size!
     int type;
-    unsigned long timestamp;  // Platform-dependent!
+    unsigned long timestamp;  // Platform-dependent size!
 };
 
-static_assert(boost::typelayout::is_portable<PortableMessage>());
-static_assert(!boost::typelayout::is_portable<NonPortableMessage>());
+constexpr auto platform = PlatformSet::current();
+
+static_assert(is_serializable_v<SerializableMessage, platform>);
+static_assert(!is_serializable_v<NonSerializableMessage, platform>);
 
 // Recursive checking
 struct Outer {
-    PortableMessage msg;    // Portable member
+    SerializableMessage msg;    // Serializable member
     std::int32_t extra;
 };
-static_assert(boost::typelayout::is_portable<Outer>());
+static_assert(is_serializable_v<Outer, platform>);
 
 struct BadOuter {
-    NonPortableMessage msg; // Non-portable member!
+    NonSerializableMessage msg; // Non-serializable member!
     std::int32_t extra;
 };
-static_assert(!boost::typelayout::is_portable<BadOuter>());
+static_assert(!is_serializable_v<BadOuter, platform>);
 ----
 
 === See Also
 
-* xref:reference/concepts.adoc#Portable[Portable] - Concept wrapper
+* xref:reference/concepts.adoc#Serializable[Serializable] - Concept wrapper
 * xref:../user-guide/portability.adoc[Portability] - Usage guide
+* <<serialization_status>> - Diagnostic function
 
 '''
 

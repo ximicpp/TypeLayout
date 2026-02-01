@@ -14,7 +14,7 @@
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
-#include <boost/typelayout.hpp>
+#include <boost/typelayout/typelayout_all.hpp>
 #include <iostream>
 #include <cstring>
 #include <cstdint>
@@ -99,13 +99,13 @@ struct PlayerStats {
     char name[32];
 };
 
-// Compile-time verification
-static_assert(ZeroCopyTransmittable<PlayerPosition>,
-    "PlayerPosition must be zero-copy transmittable");
-static_assert(ZeroCopyTransmittable<GameEvent>,
-    "GameEvent must be zero-copy transmittable");
-static_assert(ZeroCopyTransmittable<PlayerStats>,
-    "PlayerStats must be zero-copy transmittable");
+// Compile-time verification - types must be serializable for zero-copy
+static_assert(Serializable<PlayerPosition>,
+    "PlayerPosition must be serializable for zero-copy");
+static_assert(Serializable<GameEvent>,
+    "GameEvent must be serializable for zero-copy");
+static_assert(Serializable<PlayerStats>,
+    "PlayerStats must be serializable for zero-copy");
 
 // =============================================================================
 // Simulated Network Buffer
@@ -153,7 +153,7 @@ private:
 
 /// Send a message with zero encoding overhead
 /// The layout hash is computed at compile-time!
-template<ZeroCopyTransmittable T>
+template<Serializable T>
 void send_zero_copy(NetworkBuffer& net, const T& payload) {
     // Create header with compile-time computed hash
     PacketHeader header{
@@ -168,7 +168,7 @@ void send_zero_copy(NetworkBuffer& net, const T& payload) {
 }
 
 /// Receive and verify a message with zero decoding overhead
-template<ZeroCopyTransmittable T>
+template<Serializable T>
 std::expected<const T*, ProtocolError> recv_zero_copy(NetworkBuffer& net) {
     // Check we have enough data for header
     if (net.bytes_available() < sizeof(PacketHeader)) {
@@ -276,8 +276,8 @@ struct PlayerPositionV1 {
     uint64_t timestamp;
 };
 
-static_assert(ZeroCopyTransmittable<PlayerPositionV1>,
-    "PlayerPositionV1 must be zero-copy transmittable");
+static_assert(Serializable<PlayerPositionV1>,
+    "PlayerPositionV1 must be serializable for zero-copy");
 
 void demo_version_mismatch() {
     std::cout << "\n=== Demo: Version Mismatch Detection ===\n\n";

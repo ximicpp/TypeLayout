@@ -21,6 +21,43 @@ This talk covers the problem space, demonstrates the C++26 reflection APIs that 
 
 ---
 
+## Two-Layer Architecture
+
+TypeLayout is organized into two distinct layers to maximize flexibility and clarity:
+
+### Layer 1: Core — Layout Signature Engine
+
+**Header**: `<boost/typelayout.hpp>`
+
+The foundation of the library. Provides pure memory layout analysis without any serialization policy:
+
+- **Signature Generation**: `get_layout_signature<T>()` produces bit-accurate layout descriptions
+- **Hash Functions**: `get_layout_hash<T>()`, `get_layout_verification<T>()` for efficient comparison
+- **Comparison**: `signatures_match<T, U>()` verifies layout identity between types
+- **Concepts**: `LayoutCompatible<T, U>`, `LayoutMatch<T, Sig>`, `LayoutHashMatch<T, Hash>`
+
+**Key Principle**: Layout signatures capture *what the memory looks like*, not *how it should be used*.
+
+### Layer 2: Utility — Serialization Safety Analysis
+
+**Header**: `<boost/typelayout/typelayout_util.hpp>`
+
+Built on top of the core layer, provides practical serialization utilities:
+
+- **Platform Sets**: `PlatformSet` defines target architectures for analysis
+- **Serialization Checking**: `is_serializable_v<T, P>` recursively validates serialization safety
+- **Concepts**: `Serializable<T>`, `ZeroCopyTransmittable<T>` for template constraints
+- **Diagnostics**: `serialization_status<T, P>()` provides human-readable status
+
+**Key Principle**: Serialization is an *application* of layout knowledge, not the core product.
+
+This separation enables:
+- Using just the core for ABI verification without serialization overhead
+- Extending the utility layer with custom policies
+- Clear dependency management (core ← utility)
+
+---
+
 ## Outline
 
 ### 1. The Problem: Silent Binary Incompatibility (8 min)
@@ -113,38 +150,66 @@ TYPELAYOUT_BIND(Point, "struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}")
 
 ---
 
-### 5. Template Constraints with Layout Concepts (8 min)
+### 5. Core Layer: Layout Concepts for Generic Programming (8 min)
 
-- `LayoutMatch<T, Signature>` concept for generic programming
+The core layer provides fundamental concepts for layout-based generic programming:
+
 - `LayoutCompatible<T, U>` — verify two types share identical layout
-- `Portable<T>` — verify no platform-dependent members
-- Use case: compile-time validated IPC message types
+- `LayoutMatch<T, Signature>` — constrain templates to specific layouts
+- `LayoutHashMatch<T, Hash>` — efficient hash-based constraints
+
+Use case: compile-time validated IPC message types
 
 ```cpp
+#include <boost/typelayout.hpp>
+
 template<typename T>
     requires LayoutMatch<T, "struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}">
 void send_point(const T& p) {
     send_raw_bytes(&p, sizeof(T));  // Safe: layout is guaranteed
 }
+
+// Type-punning between layout-compatible types
+template<LayoutCompatible<Point> T>
+Point& as_point(T& other) {
+    return *std::launder(reinterpret_cast<Point*>(&other));
+}
 ```
 
 ---
 
-### 6. Portability Checking (8 min)
+### 6. Utility Layer: Serialization Safety (8 min)
+
+The utility layer builds on core layout analysis to provide serialization validation:
 
 - Hidden dangers of platform-dependent types:
   - `wchar_t`: 2 bytes (Windows) vs 4 bytes (Linux)
   - `long`: 4 bytes (Windows LLP64) vs 8 bytes (Linux LP64)
   - `long double`: 8/12/16 bytes depending on platform
-- `is_portable<T>()` recursively checks all members and base classes
+- `is_serializable_v<T, PlatformSet>` recursively checks all members and base classes
+- `Serializable<T>` and `ZeroCopyTransmittable<T>` concepts for template constraints
 - Detection through nested struct hierarchies and inheritance chains
 
 ```cpp
+#include <boost/typelayout/typelayout_util.hpp>
+
 struct BadMessage {
     int32_t id;
     wchar_t name[16];  // Platform-dependent!
 };
-static_assert(is_portable<BadMessage>());  // FAILS: wchar_t is not portable
+static_assert(!is_serializable_v<BadMessage>);  // FAILS: wchar_t is not serializable
+
+struct GoodMessage {
+    int32_t id;
+    char name[32];  // Fixed-size, platform-independent
+};
+static_assert(is_serializable_v<GoodMessage>);  // OK
+
+// Template constraints
+template<ZeroCopyTransmittable T>
+void broadcast(const T& msg) {
+    send_raw_bytes(&msg, sizeof(T));  // Safe: guaranteed serializable
+}
 ```
 
 ---
@@ -157,6 +222,7 @@ static_assert(is_portable<BadMessage>());  // FAILS: wchar_t is not portable
   - `operator+` for concatenation
   - `operator==` for comparison
 - Recursive signature generation using fold expressions
+- Layer separation: core has no policy dependencies
 - Zero runtime overhead: all work done at compile time
 
 ---
@@ -165,9 +231,33 @@ static_assert(is_portable<BadMessage>());  // FAILS: wchar_t is not portable
 
 - Summary: C++26 reflection enables proof-based binary compatibility
 - TypeLayout provides:
-  - Complete semantic signatures (field names + offsets + types)
+  - **Core Layer**: Complete semantic signatures (field names + offsets + types)
+  - **Utility Layer**: Serialization safety verification
   - Compile-time contract enforcement
-  - Portability verification
   - Zero runtime cost
-- Future work: signature diff tooling, serialization integration
+- Two-layer architecture enables:
+  - Using core for ABI verification without serialization policy
+  - Extending utility layer with custom checks
+  - Clear dependency management
+- Future work: signature diff tooling, custom platform configurations
 - Q&A
+
+---
+
+## Quick Start
+
+```cpp
+// Just layout analysis
+#include <boost/typelayout.hpp>
+using namespace boost::typelayout;
+
+struct Point { int32_t x, y; };
+constexpr auto sig = get_layout_signature<Point>();
+
+// With serialization checking
+#include <boost/typelayout/typelayout_util.hpp>
+static_assert(is_serializable_v<Point>);
+
+// Both layers
+#include <boost/typelayout/typelayout_all.hpp>
+```

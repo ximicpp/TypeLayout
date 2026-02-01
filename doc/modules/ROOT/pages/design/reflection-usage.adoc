@@ -187,17 +187,22 @@ constexpr auto build_member_list() {
 }
 ----
 
-=== Pattern 2: Portability Check
+=== Pattern 2: Serializability Check
 
 [source,cpp]
 ----
-template<typename T>
-constexpr bool check_portable_members() {
+template<typename T, PlatformSet P>
+constexpr bool check_serializable_members() {
     template for (constexpr auto member : nonstatic_data_members_of(^T)) {
+        // Reject bit-fields for serialization
+        if constexpr (std::meta::is_bit_field(member)) {
+            return false;
+        }
+        
         using MemberType = [:type_of(member):];
         
-        // Check if this member is portable
-        if (!is_portable_type<MemberType>()) {
+        // Check if this member is serializable on the target platform
+        if (!is_serializable_v<MemberType, P>) {
             return false;
         }
     }

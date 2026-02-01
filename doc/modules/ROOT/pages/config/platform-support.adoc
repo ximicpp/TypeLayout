@@ -11,23 +11,23 @@ Platform-specific considerations and cross-platform compatibility for Boost.Type
 | Platform | Status | Notes
 
 | Linux (x86_64)
-| ‚ú?Fully supported
+| ÔøΩ?Fully supported
 | Primary development platform
 
 | Linux (ARM64)
-| ‚ú?Supported
+| ÔøΩ?Supported
 | Different pointer size/endianness
 
 | macOS (x86_64)
-| ‚ú?Supported
+| ÔøΩ?Supported
 | Requires Clang P2996 branch
 
 | macOS (ARM64)
-| ‚ú?Supported
+| ÔøΩ?Supported
 | Apple Silicon, little-endian
 
 | Windows (x86_64)
-| ‚è?Pending
+| ÔøΩ?Pending
 | Waiting for MSVC P2996 support
 
 | FreeBSD
@@ -130,7 +130,7 @@ struct NonPortableData {
 };
 ----
 
-=== Checking Portability
+=== Checking Serializability
 
 [source,cpp]
 ----
@@ -142,9 +142,9 @@ struct NetworkPacket {
     std::uint8_t  flags;
 };
 
-// Verify type is cross-platform safe
-static_assert(is_portable<NetworkPacket>(), 
-    "NetworkPacket must be portable for network transmission");
+// Verify type is safe for cross-platform binary serialization
+static_assert(is_serializable_v<NetworkPacket, PlatformSet::bits64_le()>, 
+    "NetworkPacket must be serializable for network transmission");
 ----
 
 == Platform-Specific Behavior
@@ -154,11 +154,11 @@ static_assert(is_portable<NetworkPacket>(),
 [source,cpp]
 ----
 // Windows LLP64 model
-sizeof(int)       == 4   // ‚ú?
-sizeof(long)      == 4   // ‚ú?(different from Linux!)
-sizeof(long long) == 8   // ‚ú?
-sizeof(size_t)    == 8   // ‚ú?
-sizeof(wchar_t)   == 2   // ‚ú?(UTF-16)
+sizeof(int)       == 4   // ÔøΩ?
+sizeof(long)      == 4   // ÔøΩ?(different from Linux!)
+sizeof(long long) == 8   // ÔøΩ?
+sizeof(size_t)    == 8   // ÔøΩ?
+sizeof(wchar_t)   == 2   // ÔøΩ?(UTF-16)
 ----
 
 === Linux (x86_64)
@@ -166,11 +166,11 @@ sizeof(wchar_t)   == 2   // ‚ú?(UTF-16)
 [source,cpp]
 ----
 // Linux LP64 model
-sizeof(int)       == 4   // ‚ú?
-sizeof(long)      == 8   // ‚ú?(different from Windows!)
-sizeof(long long) == 8   // ‚ú?
-sizeof(size_t)    == 8   // ‚ú?
-sizeof(wchar_t)   == 4   // ‚ú?(UTF-32)
+sizeof(int)       == 4   // ÔøΩ?
+sizeof(long)      == 8   // ÔøΩ?(different from Windows!)
+sizeof(long long) == 8   // ÔøΩ?
+sizeof(size_t)    == 8   // ÔøΩ?
+sizeof(wchar_t)   == 4   // ÔøΩ?(UTF-32)
 ----
 
 === macOS (ARM64)
@@ -178,11 +178,11 @@ sizeof(wchar_t)   == 4   // ‚ú?(UTF-32)
 [source,cpp]
 ----
 // macOS LP64 model (same as Linux)
-sizeof(int)       == 4   // ‚ú?
-sizeof(long)      == 8   // ‚ú?
-sizeof(long long) == 8   // ‚ú?
-sizeof(size_t)    == 8   // ‚ú?
-sizeof(wchar_t)   == 4   // ‚ú?
+sizeof(int)       == 4   // ÔøΩ?
+sizeof(long)      == 8   // ÔøΩ?
+sizeof(long long) == 8   // ÔøΩ?
+sizeof(size_t)    == 8   // ÔøΩ?
+sizeof(wchar_t)   == 4   // ÔøΩ?
 ----
 
 == Alignment Considerations
@@ -227,27 +227,27 @@ struct Packed {
 
 [source,cpp]
 ----
-// ‚ú?Good - portable
+// ÔøΩ?Good - portable
 struct Message {
     std::uint32_t id;
     std::int64_t  timestamp;
 };
 
-// ‚ù?Bad - platform-dependent
+// ÔøΩ?Bad - platform-dependent
 struct Message {
     unsigned int id;
     long timestamp;
 };
 ----
 
-=== 2. Verify Portability at Compile Time
+=== 2. Verify Serializability at Compile Time
 
 [source,cpp]
 ----
-template<typename T>
+template<Serializable T>
 void send_over_network(const T& data) {
-    static_assert(is_portable<T>(),
-        "Only portable types can be sent over network");
+    // The Serializable concept ensures the type is safe
+    // for binary transmission across platforms
     // ...
 }
 ----
@@ -319,4 +319,4 @@ clang++ --target=aarch64-linux-gnu \
 
 * xref:config/index.adoc[Configuration Overview]
 * xref:config/compiler-options.adoc[Compiler Options]
-* xref:../user-guide/portability.adoc[Portability Guide]
+* xref:../user-guide/portability.adoc[Serializability Guide]

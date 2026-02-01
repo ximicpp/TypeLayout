@@ -51,7 +51,7 @@ get_layout_signature<T>()      // Get layout signature
 get_layout_hash<T>()           // Get 64-bit hash
 get_layout_verification<T>()   // Get dual-hash verification
 signatures_match<T1, T2>()     // Compare layouts
-is_portable<T>()               // Check portability
+is_serializable_v<T, P>        // Check serializability for platform set P
 has_bitfields<T>()             // Check for bit-fields
 ----
 
@@ -59,7 +59,7 @@ has_bitfields<T>()             // Check for bit-fields
 
 [source,cpp]
 ----
-Portable<T>                    // Type is portable
+Serializable<T>                // Type is safe for binary serialization
 LayoutCompatible<T, U>         // Types have same layout
 LayoutMatch<T, Sig>            // Layout matches signature
 LayoutHashMatch<T, Hash>       // Layout hash matches value

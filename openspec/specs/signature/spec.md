@@ -1,5 +1,11 @@
-## ADDED Requirements
+# signature Specification
 
+> **Layer**: Core (`<boost/typelayout.hpp>`)
+
+## Purpose
+Defines the layout signature generation system - the core capability of Boost.TypeLayout.
+Layout signatures provide bit-accurate, human-readable descriptions of type memory layouts.
+## Requirements
 ### Requirement: Two-Layer Signature Architecture
 The library SHALL provide two distinct signature layers: Layout Compatibility (Layer 1) and Serialization Compatibility (Layer 2).
 
@@ -35,12 +41,12 @@ Serialization compatibility SHALL NOT exist as a universal concept. It SHALL alw
 - **WHEN** checking `is_serializable<T, P>`
 - **THEN** the check SHALL validate T against all platforms in set P
 
-#### Scenario: Same type, different platform sets
-- **GIVEN** a struct using `long` member
-- **WHEN** checking serialization for platform set "Linux x64 only"
-- **THEN** the type MAY be serializable (long = 8 bytes)
-- **WHEN** checking serialization for platform set "Windows x64 + Linux x64"
-- **THEN** the type SHALL NOT be serializable (long = 4 bytes vs 8 bytes)
+#### Scenario: long/unsigned long always rejected
+- **GIVEN** a struct using `long` or `unsigned long` member
+- **WHEN** checking serialization for any platform set
+- **THEN** the type SHALL NOT be serializable
+- **AND** the blocker reason SHALL be "platform" (HasPlatformDependentSize)
+- **RATIONALE** `long` is 4 bytes on Windows (LLP64) but 8 bytes on Linux (LP64), making it unsafe for cross-platform serialization
 
 ### Requirement: Serialization Compatibility Check
 The library SHALL provide compile-time detection of types that are safe for memcpy-based serialization.
@@ -114,20 +120,26 @@ The library SHALL REQUIRE users to specify target platform constraints for seria
 - **THEN** serialization signature generation SHALL fail with platform mismatch error
 
 ### Requirement: Predefined Platform Sets
-The library SHALL provide predefined platform sets for common use cases.
+The library SHALL provide predefined platform sets based on bitwidth and endianness (not microarchitecture).
 
 #### Scenario: Common platform sets
 - **GIVEN** the library's predefined platform sets
 - **THEN** the following SHALL be available:
-  - `PlatformSet::x64_le` - 64-bit little-endian (Linux x64, Windows x64, macOS x64)
-  - `PlatformSet::x86_le` - 32-bit little-endian (legacy 32-bit systems)
-  - `PlatformSet::arm64_le` - ARM 64-bit little-endian (macOS ARM, Linux ARM64)
-  - `PlatformSet::current` - Current build platform only
+  - `PlatformSet::bits64_le()` - 64-bit little-endian (x64, arm64, etc.)
+  - `PlatformSet::bits64_be()` - 64-bit big-endian
+  - `PlatformSet::bits32_le()` - 32-bit little-endian (x86, arm32, etc.)
+  - `PlatformSet::bits32_be()` - 32-bit big-endian
+  - `PlatformSet::current()` - Current build platform
+
+#### Scenario: Platform abstraction rationale
+- **GIVEN** x64 and arm64 on 64-bit little-endian
+- **THEN** they SHALL use the same platform set `bits64_le()`
+- **RATIONALE** Standard C++ types have identical sizes on both architectures
 
 #### Scenario: Custom platform set
 - **GIVEN** user needs a custom platform combination
 - **WHEN** creating a custom `PlatformSet`
-- **THEN** user SHALL be able to specify bitwidth and endianness constraints
+- **THEN** user SHALL be able to specify `BitWidth` (32/64) and `Endianness` (Little/Big)
 
 ### Requirement: is_serializable Trait
 The library SHALL provide a compile-time trait `is_serializable<T>` for checking serialization compatibility.
@@ -159,3 +171,4 @@ The library SHALL provide information about what prevents a type from being seri
 - **GIVEN** a polymorphic class with pointer members
 - **WHEN** querying `serialization_blocker<T>`
 - **THEN** all blocking reasons SHALL be reported (poly, ptr)
+

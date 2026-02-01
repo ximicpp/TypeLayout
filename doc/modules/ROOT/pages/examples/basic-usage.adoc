@@ -116,9 +116,9 @@ int main() {
 }
 ----
 
-== Example 3: Portability Checking
+== Example 3: Serializability Checking
 
-Verify types are portable across platforms.
+Verify types are safe for binary serialization across platforms.
 
 [source,cpp]
 ----
@@ -128,7 +128,7 @@ Verify types are portable across platforms.
 
 using namespace boost::typelayout;
 
-// Portable: uses fixed-width types
+// Serializable: uses fixed-width types
 struct NetworkMessage {
     std::uint32_t message_id;
     std::uint16_t payload_length;
@@ -136,44 +136,46 @@ struct NetworkMessage {
     std::uint8_t  reserved;
 };
 
-// Portable: only portable members
+// Serializable: only fixed-width members
 struct Coordinates {
     float latitude;
     float longitude;
     float altitude;
 };
 
-// Not portable: contains platform-dependent types
+// Not serializable: contains platform-dependent types
 struct SystemInfo {
-    long          uptime;      // Size varies
-    void*         handle;      // Pointer
+    long          uptime;      // Size varies (LLP64 vs LP64)
+    void*         handle;      // Pointer (not serializable)
     std::size_t   memory;      // Size varies
 };
 
-// Mixed: some portable, some not
+// Mixed: some safe, some not
 struct MixedData {
-    std::int32_t  id;          // Portable
-    long          counter;     // Not portable!
+    std::int32_t  id;          // Safe
+    long          counter;     // Not safe!
 };
 
 int main() {
-    std::cout << "=== Portability Check ===\n\n";
+    std::cout << "=== Serializability Check ===\n\n";
+    
+    constexpr auto platform = PlatformSet::bits64_le();
     
     std::cout << "NetworkMessage: " 
-              << (is_portable<NetworkMessage>() ? "PORTABLE" : "NOT PORTABLE") << "\n";
+              << (is_serializable_v<NetworkMessage, platform> ? "SERIALIZABLE" : "NOT SERIALIZABLE") << "\n";
     
     std::cout << "Coordinates:    " 
-              << (is_portable<Coordinates>() ? "PORTABLE" : "NOT PORTABLE") << "\n";
+              << (is_serializable_v<Coordinates, platform> ? "SERIALIZABLE" : "NOT SERIALIZABLE") << "\n";
     
     std::cout << "SystemInfo:     " 
-              << (is_portable<SystemInfo>() ? "PORTABLE" : "NOT PORTABLE") << "\n";
+              << (is_serializable_v<SystemInfo, platform> ? "SERIALIZABLE" : "NOT SERIALIZABLE") << "\n";
     
     std::cout << "MixedData:      " 
-              << (is_portable<MixedData>() ? "PORTABLE" : "NOT PORTABLE") << "\n";
+              << (is_serializable_v<MixedData, platform> ? "SERIALIZABLE" : "NOT SERIALIZABLE") << "\n";
     
     // Compile-time enforcement
-    static_assert(is_portable<NetworkMessage>(), 
-        "NetworkMessage must be portable for network transmission");
+    static_assert(is_serializable_v<NetworkMessage, PlatformSet::bits64_le()>, 
+        "NetworkMessage must be serializable for network transmission");
     
     std::cout << "\nCompile-time assertions passed!\n";
     
@@ -184,12 +186,12 @@ int main() {
 Expected output:
 [source,text]
 ----
-=== Portability Check ===
+=== Serializability Check ===
 
-NetworkMessage: PORTABLE
-Coordinates:    PORTABLE
-SystemInfo:     NOT PORTABLE
-MixedData:      NOT PORTABLE
+NetworkMessage: SERIALIZABLE
+Coordinates:    SERIALIZABLE
+SystemInfo:     NOT SERIALIZABLE
+MixedData:      NOT SERIALIZABLE
 
 Compile-time assertions passed!
 ----
@@ -210,51 +212,52 @@ using namespace boost::typelayout;
 // Only accept types with known layout
 template<LayoutReflectable T>
 void print_layout_info(const char* name) {
+    constexpr auto platform = PlatformSet::bits64_le();
     std::cout << name << ":\n";
-    std::cout << "  Size:      " << sizeof(T) << " bytes\n";
-    std::cout << "  Alignment: " << alignof(T) << " bytes\n";
-    std::cout << "  Signature: " << get_layout_signature<T>() << "\n";
-    std::cout << "  Portable:  " << (is_portable<T>() ? "yes" : "no") << "\n\n";
+    std::cout << "  Size:        " << sizeof(T) << " bytes\n";
+    std::cout << "  Alignment:   " << alignof(T) << " bytes\n";
+    std::cout << "  Signature:   " << get_layout_signature<T>() << "\n";
+    std::cout << "  Serializable: " << (is_serializable_v<T, platform> ? "yes" : "no") << "\n\n";
 }
 
-// Only accept portable types for serialization
-template<PortableType T>
+// Only accept serializable types for binary I/O
+template<Serializable T>
 std::span<const std::byte> to_bytes(const T& value) {
     return std::as_bytes(std::span(&value, 1));
 }
 
 // Combining constraints
 template<typename T>
-    requires LayoutReflectable<T> && PortableType<T>
+    requires LayoutReflectable<T> && Serializable<T>
 void safe_serialize(const T& value, std::ostream& out) {
     auto bytes = to_bytes(value);
     out.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
 }
 
-struct PortableData {
+struct SerializableData {
     std::int32_t a;
     std::int64_t b;
 };
 
-struct NonPortableData {
-    long value;
+struct NonSerializableData {
+    long value;  // Platform-dependent
 };
 
 int main() {
     std::cout << "=== Template Constraints ===\n\n";
     
     // Works with any reflectable type
-    print_layout_info<PortableData>("PortableData");
-    print_layout_info<NonPortableData>("NonPortableData");
+    print_layout_info<SerializableData>("SerializableData");
+    print_layout_info<NonSerializableData>("NonSerializableData");
     
-    // Only works with portable types
-    PortableData pd{42, 100};
-    auto bytes = to_bytes(pd);
+    // Only works with serializable types
+    SerializableData sd{42, 100};
+    auto bytes = to_bytes(sd);
     std::cout << "Serialized " << bytes.size() << " bytes\n";
     
     // This would fail to compile:
-    // NonPortableData npd{42};
-    // auto bad_bytes = to_bytes(npd);  // Error: constraint not satisfied
+    // NonSerializableData nsd{42};
+    // auto bad_bytes = to_bytes(nsd);  // Error: constraint not satisfied
     
     return 0;
 }
@@ -309,13 +312,14 @@ int main() {
     std::cout << "Scene (" << sizeof(Scene) << " bytes):\n";
     std::cout << "  " << get_layout_signature<Scene>() << "\n\n";
     
-    // Verify all are portable
-    static_assert(is_portable<Vector3>());
-    static_assert(is_portable<Transform>());
-    static_assert(is_portable<Mesh>());
-    static_assert(is_portable<Scene>());
+    // Verify all are serializable
+    constexpr auto platform = PlatformSet::bits64_le();
+    static_assert(is_serializable_v<Vector3, platform>);
+    static_assert(is_serializable_v<Transform, platform>);
+    static_assert(is_serializable_v<Mesh, platform>);
+    static_assert(is_serializable_v<Scene, platform>);
     
-    std::cout << "All types are portable!\n";
+    std::cout << "All types are serializable!\n";
     
     return 0;
 }

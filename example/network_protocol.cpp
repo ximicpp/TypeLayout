@@ -8,7 +8,7 @@
 // - Verify hash at runtime before processing
 // - Handle version mismatches gracefully
 
-#include <boost/typelayout.hpp>
+#include <boost/typelayout/typelayout_all.hpp>
 #include <cstdint>
 #include <cstring>
 #include <iostream>

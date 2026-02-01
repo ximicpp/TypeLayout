@@ -12,7 +12,7 @@ All library functionality must be usable in `constexpr` contexts:
 // These must all be valid
 constexpr auto sig = get_layout_signature<MyType>();
 constexpr auto hash = get_layout_hash<MyType>();
-constexpr bool portable = is_portable<MyType>();
+constexpr bool serializable = is_serializable_v<MyType, PlatformSet::bits64_le()>;
 
 static_assert(sig == "...");
 static_assert(hash == 0x12345678);
@@ -295,7 +295,7 @@ Signatures are embedded as string constants:
 ----
 static_assert(get_layout_signature<int>() == "[64-le]i32[s:4,a:4]");
 static_assert(get_layout_hash<int>() == 0x1234...);
-static_assert(is_portable<Point>());
+static_assert(is_serializable_v<Point, PlatformSet::bits64_le()>);
 ----
 
 === Constexpr Function Tests

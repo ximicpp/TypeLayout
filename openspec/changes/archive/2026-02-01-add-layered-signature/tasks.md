@@ -10,12 +10,12 @@
 - [x] 2.3 为不可序列化类型生成带 `!serial:reason` 标记的签名
 - [x] 2.4 递归检查嵌套类型的序列化能力
 
-## 3. 平台约束系统（必须指定）
+## 3. 平台约束系统（简化版）
 - [x] 3.1 设计 `PlatformSet` 结构体（constexpr）
-- [x] 3.2 实现预定义平台集：`x64_le`, `x86_le`, `arm64_le`, `current`
+- [x] 3.2 实现预定义平台集（简化）：`bits64_le`, `bits64_be`, `bits32_le`, `bits32_be`, `current`
 - [x] 3.3 支持字节序约束（little-endian, big-endian）
 - [x] 3.4 支持位宽约束（32-bit, 64-bit）
-- [x] 3.5 检测平台依赖类型（long, unsigned long）
+- [x] 3.5 **始终拒绝 `long`/`unsigned long`**（跨平台 LLP64/LP64 差异）
 - [x] 3.6 验证当前构建平台是否在目标平台集内
 - [x] 3.7 实现平台约束的签名前缀生成 `[64-le]serial`
 

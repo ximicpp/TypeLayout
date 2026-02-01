@@ -96,21 +96,15 @@ constexpr bool is_portable_fundamental() {
 
 === Recursive Checking
 
-For compound types, we check all members:
+For compound types, we check all members recursively using `is_serializable_v`:
 
 [source,cpp]
 ----
-template<typename T>
-constexpr bool is_portable() {
-    if constexpr (std::is_fundamental_v<T>) {
-        return is_portable_fundamental<T>();
-    } else if constexpr (std::is_class_v<T>) {
-        return []<auto... Ms>(std::meta::info... members) {
-            return (is_portable<[:type_of(Ms):]>() && ...);
-        }(nonstatic_data_members_of(^T)...);
-    }
-    // ... other cases
-}
+// Platform set defines target architecture
+constexpr auto platform = PlatformSet::bits64_le();
+
+// Check if type is serializable for the target platform
+static_assert(is_serializable_v<MyData, platform>);
 ----
 
 === Signature Marking
@@ -166,14 +160,14 @@ Pointers are non-portable because:
 
 [source,cpp]
 ----
-template<boost::typelayout::Portable T>
+template<boost::typelayout::Serializable T>
 void serialize(const T& data);
 
 struct Good { std::int32_t x; };
 struct Bad { long x; };
 
 serialize(Good{});  // OK
-serialize(Bad{});   // Compile error
+serialize(Bad{});   // Compile error: long has platform-dependent size
 ----
 
 === Documentation
@@ -186,8 +180,8 @@ struct PlatformConfig {
     size_t memory_limit;   // Platform-dependent for memory APIs
 };
 
-// Not marked as Portable - intentional
-static_assert(!boost::typelayout::is_portable<PlatformConfig>());
+// Not serializable - intentional
+static_assert(!boost::typelayout::is_serializable_v<PlatformConfig, PlatformSet::current()>);
 ----
 
 === Mixed Structures
@@ -195,12 +189,12 @@ static_assert(!boost::typelayout::is_portable<PlatformConfig>());
 [source,cpp]
 ----
 struct MixedData {
-    std::int32_t portable_id;    // Portable
-    long platform_handle;         // Non-portable
+    std::int32_t portable_id;    // Serializable
+    long platform_handle;         // Non-serializable (platform-dependent)
 };
 
-// Entire struct is non-portable due to one member
-static_assert(!boost::typelayout::is_portable<MixedData>());
+// Entire struct is non-serializable due to one member
+static_assert(!boost::typelayout::Serializable<MixedData>);
 ----
 
 == Platform Detection

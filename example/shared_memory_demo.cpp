@@ -14,7 +14,7 @@
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
-#include <boost/typelayout.hpp>
+#include <boost/typelayout/typelayout_all.hpp>
 #include <iostream>
 #include <cstring>
 #include <cstdint>
@@ -39,8 +39,7 @@ struct GameState {
 // Compile-time verification that GameState is safe for shared memory
 static_assert(SharedMemorySafe<GameState>, 
     "GameState must be safe for shared memory");
-static_assert(ZeroCopyTransmittable<GameState>,
-    "GameState must be zero-copy transmittable");
+// Note: SharedMemorySafe already ensures zero-copy safety on current platform
 
 // =============================================================================
 // Shared Memory Region Template

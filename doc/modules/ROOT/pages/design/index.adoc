@@ -38,7 +38,7 @@ Everything is computed at compile time:
 // All these are constexpr - no runtime computation
 constexpr auto sig = get_layout_signature<MyType>();
 constexpr auto hash = get_layout_hash<MyType>();
-constexpr bool portable = is_portable<MyType>();
+constexpr bool serializable = is_serializable_v<MyType, PlatformSet::bits64_le()>;
 ----
 
 === Self-Documenting Signatures

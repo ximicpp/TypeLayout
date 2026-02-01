@@ -48,11 +48,22 @@ ninja install
 
 ### Header-Only Library
 
-Boost.TypeLayout is header-only. Simply include the main header:
+Boost.TypeLayout is header-only. Choose your include based on needs:
 
 ```cpp
+// Core layer only - Layout signatures and verification
 #include <boost/typelayout/typelayout.hpp>
+
+// Utility layer - Adds serialization safety checking (includes core)
+#include <boost/typelayout/typelayout_util.hpp>
+
+// All features (convenience header)
+#include <boost/typelayout/typelayout_all.hpp>
 ```
+
+**Layered Architecture:**
+- **Core Layer**: Layout signature generation, hash computation, `LayoutCompatible`/`LayoutMatch` concepts
+- **Utility Layer**: Serialization safety checking, platform sets, `Serializable`/`ZeroCopyTransmittable` concepts
 
 ### Clone from GitHub
 
@@ -114,9 +125,9 @@ int main() {
     std::cout << "Point layout signature: " 
               << get_layout_signature_cstr<Point>() << std::endl;
     
-    // Check if Point is portable across platforms
-    constexpr bool portable = is_portable<Point>();
-    std::cout << "Point is portable: " << (portable ? "yes" : "no") << std::endl;
+    // Check if Point is serializable across platforms
+    constexpr bool serializable = is_serializable_v<Point, PlatformSet::current()>;
+    std::cout << "Point is serializable: " << (serializable ? "yes" : "no") << std::endl;
     
     // Generate layout hash for quick comparisons
     constexpr uint64_t hash = get_layout_hash<Point>();
@@ -137,7 +148,7 @@ clang++ -std=c++26 -freflection -I include main.cpp -o first_example
 **Expected Output:**
 ```
 Point layout signature: [64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}
-Point is portable: yes
+Point is serializable: yes
 Point layout hash: 0xa1b2c3d4e5f60789
 TypeLayout is working correctly!
 ```
@@ -191,11 +202,11 @@ Signature:
 
 ---
 
-## Portability Checking
+## Serializability Checking
 
-One of TypeLayout's key features is detecting types that may have different layouts across platforms:
+One of TypeLayout's key features is detecting types that may cause issues in binary serialization across platforms:
 
-### Portable Types
+### Serializable Types
 
 ```cpp
 struct GoodForSerialization {
@@ -204,11 +215,11 @@ struct GoodForSerialization {
     char data[16];
 };
 
-static_assert(is_portable<GoodForSerialization>(), 
+static_assert(is_serializable_v<GoodForSerialization, PlatformSet::bits64_le()>, 
               "Safe for cross-platform serialization");
 ```
 
-### Non-Portable Types
+### Non-Serializable Types
 
 ```cpp
 struct ProblematicForSerialization {
@@ -217,15 +228,14 @@ struct ProblematicForSerialization {
     struct { int flag : 1; }; // Bit-field packing varies
 };
 
-static_assert(!is_portable<ProblematicForSerialization>(),
+static_assert(!is_serializable_v<ProblematicForSerialization, PlatformSet::current()>,
               "Will cause issues across platforms");
 ```
 
-### Using Portable Concept
+### Using Serializable Concept
 
 ```cpp
-template<typename T>
-    requires Portable<T>
+template<Serializable T>
 void safe_serialize(const T& obj, std::ostream& out) {
     // Guaranteed to work consistently across platforms
     out.write(reinterpret_cast<const char*>(&obj), sizeof(T));
@@ -324,8 +334,8 @@ struct NetworkMessage {
 } __attribute__((packed));
 
 // Verify consistent layout across all platforms
-static_assert(is_portable<NetworkMessage>(), 
-              "Network message must be portable");
+static_assert(is_serializable_v<NetworkMessage, PlatformSet::bits64_le()>, 
+              "Network message must be serializable");
 TYPELAYOUT_BIND(NetworkMessage, 
     "[64-le]struct[s:12,a:1]{@0[message_type]:u16[s:2,a:1],"
     "@2[payload_length]:u16[s:2,a:1],@4[timestamp]:u64[s:8,a:1]}");
@@ -360,8 +370,8 @@ template<typename T>
 class BinarySerializer {
 public:
     static std::vector<uint8_t> serialize(const T& obj) {
-        if constexpr (is_portable<T>()) {
-            // Direct binary copy for portable types
+        if constexpr (is_serializable_v<T, PlatformSet::current()>) {
+            // Direct binary copy for serializable types
             std::vector<uint8_t> data(sizeof(T));
             std::memcpy(data.data(), &obj, sizeof(T));
             
@@ -429,14 +439,14 @@ std::cout << "Actual signature: " << get_layout_signature_cstr<MyType>() << std:
 ```cpp
 std::cout << "Size: " << sizeof(MyType) << std::endl;
 std::cout << "Alignment: " << alignof(MyType) << std::endl;
-std::cout << "Portable: " << is_portable<MyType>() << std::endl;
+std::cout << "Serializable: " << is_serializable_v<MyType, PlatformSet::current()> << std::endl;
 ```
 
 **Use Static Assertions for Debugging**:
 ```cpp
 static_assert(sizeof(MyType) == 16, "Expected 16 bytes");
 static_assert(alignof(MyType) == 8, "Expected 8-byte alignment");
-static_assert(is_portable<MyType>(), "Should be portable");
+static_assert(is_serializable_v<MyType, PlatformSet::current()>, "Should be serializable");
 ```
 
 ---

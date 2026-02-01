@@ -77,11 +77,11 @@ int main() {
     constexpr auto point_hash = get_layout_hash<Point>();
     std::cout << "Point hash: 0x" << std::hex << point_hash << std::dec << "\n";
     
-    // Test 4: Portability check
-    std::cout << "\nPortability checks:\n";
-    std::cout << "  Point is portable: " << (is_portable<Point>() ? "yes" : "no") << "\n";
-    std::cout << "  NetworkHeader is portable: " << (is_portable<NetworkHeader>() ? "yes" : "no") << "\n";
-    std::cout << "  NonPortable is portable: " << (is_portable<NonPortable>() ? "yes" : "no") << "\n";
+    // Test 4: Serializability check
+    std::cout << "\nSerializability checks:\n";
+    std::cout << "  Point is serializable: " << (is_serializable_v<Point, PlatformSet::current()> ? "yes" : "no") << "\n";
+    std::cout << "  NetworkHeader is serializable: " << (is_serializable_v<NetworkHeader, PlatformSet::current()> ? "yes" : "no") << "\n";
+    std::cout << "  NonPortable is serializable: " << (is_serializable_v<NonPortable, PlatformSet::current()> ? "yes" : "no") << "\n";
     
     // Test 5: Signature matching
     std::cout << "\nSignature matching:\n";
@@ -109,9 +109,9 @@ int main() {
     std::cout << "\nDerived signature: " << derived_sig.c_str() << "\n";
     
     // Test 10: Concepts (compile-time check)
-    static_assert(Portable<Point>, "Point should be portable");
-    static_assert(Portable<NetworkHeader>, "NetworkHeader should be portable");
-    static_assert(!Portable<NonPortable>, "NonPortable should NOT be portable");
+    static_assert(Serializable<Point>, "Point should be serializable");
+    static_assert(Serializable<NetworkHeader>, "NetworkHeader should be serializable");
+    static_assert(!Serializable<NonPortable>, "NonPortable should NOT be serializable");
     static_assert(LayoutCompatible<Point, Point>, "Point should be compatible with itself");
     
     std::cout << "\n=== All tests passed! ===\n";

@@ -84,7 +84,15 @@ endif()
 
 # Examples
 if(BOOST_TYPELAYOUT_BUILD_EXAMPLES)
-    # Basic demo
+    # Core Layer Demo (pure layout reasoning)
+    add_executable(core_demo example/core_demo.cpp)
+    target_link_libraries(core_demo PRIVATE typelayout)
+    
+    # Utility Layer Demo (serialization safety)
+    add_executable(util_demo example/util_demo.cpp)
+    target_link_libraries(util_demo PRIVATE typelayout)
+    
+    # Basic demo (legacy)
     add_executable(demo example/demo.cpp)
     target_link_libraries(demo PRIVATE typelayout)
     

@@ -43,14 +43,16 @@ TBD - created by archiving change add-boost-antora-docs. Update Purpose after ar
   - `get_layout_hash<T>()`
   - `get_layout_verification<T>()`
   - `signatures_match<T1, T2>()`
-  - `is_portable<T>()`
+  - `is_serializable_v<T, PlatformSet>`
+  - `serialization_status<T, PlatformSet>()`
   - `has_bitfields<T>()`
 
 #### Scenario: API 参考包含所有 Concepts
 - **GIVEN** API 参考文档
 - **WHEN** 查看 Concepts 章节
 - **THEN** 应包含以下 Concepts 的完整说明:
-  - `Portable<T>`
+  - `Serializable<T>`
+  - `ZeroCopyTransmittable<T>`
   - `LayoutCompatible<T, U>`
   - `LayoutMatch<T, Sig>`
   - `LayoutHashMatch<T, Hash>`

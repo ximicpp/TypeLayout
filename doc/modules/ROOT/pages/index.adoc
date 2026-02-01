@@ -27,8 +27,8 @@ constexpr auto sig = get_layout_signature<Point>();
 // Compile-time layout verification
 TYPELAYOUT_BIND(Point, "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}");
 
-// Portability checking
-static_assert(is_portable<Point>());
+// Serializability checking
+static_assert(Serializable<Point>);
 
 // Template constraints using concepts
 template<typename T>
@@ -48,14 +48,14 @@ void process_point(const T& p) { /* ... */ }
 | *Platform Detection*
 | Architecture and endianness encoded in signatures
 
-| *Portability Analysis*
-| Identify non-portable types at compile time
+| *Serialization Safety*
+| Identify non-serializable types (platform-dependent, pointers, bit-fields) at compile time
 
 | *Dual-Hash Verification*
 | FNV-1a + DJB2 for ~2^128 collision resistance
 
 | *{cpp} Concepts*
-| `Portable`, `LayoutCompatible`, `LayoutMatch` constraints
+| `Serializable`, `LayoutCompatible`, `LayoutMatch` constraints
 
 | *Zero Runtime Cost*
 | All analysis happens at compile time

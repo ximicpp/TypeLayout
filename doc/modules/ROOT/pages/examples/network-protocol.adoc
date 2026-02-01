@@ -36,9 +36,9 @@ struct MessageHeader {
     std::uint32_t sequence_number;   // Message sequence
 };
 
-// Verify header is portable at compile time
-static_assert(is_portable<MessageHeader>(),
-    "MessageHeader must be portable for network transmission");
+// Verify header is serializable at compile time
+static_assert(Serializable<MessageHeader>,
+    "MessageHeader must be serializable for network transmission");
 
 // Store layout hash for version checking
 constexpr auto HEADER_LAYOUT_HASH = get_layout_hash<MessageHeader>();
@@ -55,7 +55,7 @@ struct AuthRequest {
     std::uint64_t timestamp;
 };
 
-static_assert(is_portable<AuthRequest>());
+static_assert(Serializable<AuthRequest>);
 constexpr auto AUTH_REQUEST_HASH = get_layout_hash<AuthRequest>();
 
 // Authentication response
@@ -65,7 +65,7 @@ struct AuthResponse {
     std::uint64_t expiry_timestamp;
 };
 
-static_assert(is_portable<AuthResponse>());
+static_assert(Serializable<AuthResponse>);
 constexpr auto AUTH_RESPONSE_HASH = get_layout_hash<AuthResponse>();
 
 // Data transfer message
@@ -76,7 +76,7 @@ struct DataMessage {
     std::array<std::uint8_t, 1024> data;
 };
 
-static_assert(is_portable<DataMessage>());
+static_assert(Serializable<DataMessage>);
 constexpr auto DATA_MESSAGE_HASH = get_layout_hash<DataMessage>();
 ----
 
@@ -96,7 +96,7 @@ struct Handshake {
     std::uint64_t capabilities;      // Bitmask of supported features
 };
 
-static_assert(is_portable<Handshake>());
+static_assert(Serializable<Handshake>);
 
 Handshake create_handshake() {
     return Handshake{
@@ -168,14 +168,14 @@ class MockSocket {
     std::vector<std::byte> buffer_;
     
 public:
-    template<PortableType T>
+    template<Serializable T>
     void send(const T& data) {
         auto bytes = std::as_bytes(std::span(&data, 1));
         buffer_.insert(buffer_.end(), bytes.begin(), bytes.end());
         std::cout << "Sent " << sizeof(T) << " bytes\n";
     }
     
-    template<PortableType T>
+    template<Serializable T>
     bool receive(T& data) {
         if (buffer_.size() < sizeof(T)) {
             return false;
@@ -311,13 +311,13 @@ struct ProtocolRegistry {
 
 [source,cpp]
 ----
-// âœ?Good
+// ï¿½?Good
 struct GoodMessage {
     std::uint32_t id;
     std::int64_t value;
 };
 
-// â?Bad
+// ï¿½?Bad
 struct BadMessage {
     int id;        // Size varies
     long value;    // Size varies

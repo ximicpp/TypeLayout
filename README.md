@@ -29,7 +29,7 @@ Boost.TypeLayout is a header-only C++26 library that provides compile-time memor
 | **Portability Analysis** | Identify non-portable types at compile time |
 | **Dual-Hash Verification** | FNV-1a + DJB2 for ~2^128 collision resistance |
 | **Runtime Verification** | Hash values usable for network/file data verification |
-| **C++20 Concepts** | `Portable`, `LayoutCompatible`, `LayoutMatch` constraints |
+| **C++20 Concepts** | `Serializable`, `LayoutCompatible`, `LayoutMatch` constraints |
 | **Zero Runtime Cost** | All analysis happens at compile time |
 
 ## Quick Start
@@ -48,7 +48,7 @@ constexpr auto sig = get_layout_signature<Point>();
 TYPELAYOUT_BIND(Point, "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}");
 
 // Serialization safety checking
-static_assert(is_trivially_serializable<Point>());
+static_assert(Serializable<Point>);
 
 // Template constraints using concepts
 template<typename T>
@@ -234,8 +234,7 @@ TypeLayout provides comprehensive layout signature support for virtually all C++
 | `get_layout_hash<T>()` | Get 64-bit FNV-1a hash of layout signature |
 | `get_layout_verification<T>()` | Get dual-hash verification (FNV-1a + DJB2 + length) |
 | `signatures_match<T1, T2>()` | Check if two types have identical layout signatures |
-| `is_trivially_serializable<T>()` | Check if type can be safely memcpy'd across processes |
-| `is_portable<T>()` | *(deprecated)* Use `is_trivially_serializable<T>()` instead |
+| `is_serializable_v<T, P>` | Check if type can be safely serialized for platform set P |
 | `has_bitfields<T>()` | Check if type contains bit-fields |
 
 ### Layer 2: Serialization Compatibility (New)
@@ -245,7 +244,7 @@ For cross-process or cross-machine data transfer, TypeLayout provides **Layered 
 | Layer | Purpose | API |
 |-------|---------|-----|
 | **Layer 1: Layout** | Identical memory layout (size, alignment, offsets) | `get_layout_signature<T>()` |
-| **Layer 2: Serialization** | Safe for `memcpy` across platform set | `serialization_signature<T, P>()` |
+| **Layer 2: Serialization** | Safe for `memcpy` across platform set | `serialization_status<T, P>()` |
 
 #### Serialization API
 
@@ -253,17 +252,18 @@ For cross-process or cross-machine data transfer, TypeLayout provides **Layered 
 |----------|-------------|
 | `is_serializable_v<T, P>` | Check if type is memcpy-safe for platform set P |
 | `serialization_blocker_v<T, P>` | Get reason why type is not serializable |
-| `serialization_signature<T, P>()` | Get serialization signature string |
+| `serialization_status<T, P>()` | Get serialization status string |
 | `check_serialization_compatible<T, U, P>()` | Check if T and U can be safely transmitted |
 
 #### Platform Sets
 
 ```cpp
-// Predefined platform sets
-PlatformSet::x64_le()    // 64-bit little-endian (strict)
-PlatformSet::x86_le()    // 32-bit little-endian (strict)
-PlatformSet::arm64_le()  // ARM64 little-endian (strict)
-PlatformSet::current()   // Current build platform (permissive)
+// Predefined platform sets (by bitwidth + endianness)
+PlatformSet::bits64_le()  // 64-bit little-endian (x64, arm64, etc.)
+PlatformSet::bits64_be()  // 64-bit big-endian
+PlatformSet::bits32_le()  // 32-bit little-endian (x86, arm32, etc.)
+PlatformSet::bits32_be()  // 32-bit big-endian
+PlatformSet::current()    // Current build platform
 ```
 
 #### Serialization Blocker Reasons
@@ -290,21 +290,24 @@ struct Message {
 };
 
 // Check for 64-bit little-endian targets
-constexpr auto platform = PlatformSet::x64_le();
+constexpr auto platform = PlatformSet::bits64_le();
 static_assert(is_serializable_v<Message, platform>, "Must be serializable");
 
-// Get diagnostic signature
-constexpr auto sig = serialization_signature<Message, platform>();
+// Get diagnostic status
+constexpr auto sig = serialization_status<Message, platform>();
 // Result: "[64-le]serial" for valid types
 // Result: "[64-le]!serial:ptr" for types with pointers
+
+// Note: 'long' is always rejected for cross-platform serialization
+struct BadData { long value; };  // Different sizes on Windows vs Linux!
+static_assert(!is_serializable_v<BadData, platform>, "long is not serializable");
 ```
 
 ### Concepts
 
 | Concept | Description |
 |---------|-------------|
-| `TriviallySerializable<T>` | Type can be safely memcpy'd across process boundaries |
-| `Portable<T>` | *(deprecated)* Use `TriviallySerializable<T>` instead |
+| `Serializable<T>` | Type can be safely serialized for the current platform |
 | `LayoutCompatible<T, U>` | Two types have identical memory layouts |
 | `LayoutMatch<T, Sig>` | Type layout matches expected signature string |
 | `LayoutHashMatch<T, Hash>` | Type layout hash matches expected value |
@@ -337,7 +340,7 @@ TYPELAYOUT_BIND(NetworkHeader,
 
 ```cpp
 template<typename T>
-    requires TriviallySerializable<T>
+    requires Serializable<T>
 void safe_binary_write(std::ostream& os, const T& obj) {
     os.write(reinterpret_cast<const char*>(&obj), sizeof(T));
 }
@@ -374,9 +377,23 @@ bool verify_packet(const PacketHeader& hdr) {
 ```
 typelayout/
 ├── include/boost/
-│   ├── typelayout.hpp           # Convenience header
+│   ├── typelayout.hpp           # Core layer only (recommended)
 │   └── typelayout/
-│       └── typelayout.hpp       # Main implementation
+│       ├── typelayout.hpp       # Core layer facade
+│       ├── typelayout_util.hpp  # Utility layer (serialization)
+│       ├── typelayout_all.hpp   # All features combined
+│       ├── core/                # Layer 1: Layout Signature Engine
+│       │   ├── config.hpp       # Compiler detection
+│       │   ├── compile_string.hpp
+│       │   ├── hash.hpp         # FNV-1a hash
+│       │   ├── signature.hpp    # get_layout_signature<T>()
+│       │   ├── verification.hpp # LayoutVerification
+│       │   └── concepts.hpp     # LayoutCompatible, LayoutMatch
+│       ├── util/                # Layer 2: Serialization Utilities
+│       │   ├── platform_set.hpp # PlatformSet, SerializationBlocker
+│       │   ├── serialization_check.hpp
+│       │   └── concepts.hpp     # Serializable, ZeroCopyTransmittable
+│       └── detail/              # Deprecated compatibility headers
 ├── test/
 │   └── test_all_types.cpp       # Comprehensive tests
 ├── example/

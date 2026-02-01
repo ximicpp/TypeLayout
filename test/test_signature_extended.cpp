@@ -5,7 +5,7 @@
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
-#include <boost/typelayout/signature.hpp>
+#include <boost/typelayout/typelayout.hpp>
 #include <print>
 #include <array>
 #include <utility>

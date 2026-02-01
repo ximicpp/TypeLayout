@@ -1,4 +1,4 @@
-= Overview
+=======
 :navtitle: Overview
 
 == The Problem: Silent Binary Incompatibility
@@ -54,6 +54,47 @@ TYPELAYOUT_BIND(Player, "[64-le]struct[s:48,a:8]{@0[id]:u64[s:8,a:8],@8[name]:by
 
 If the layout ever differs—on any platform, with any compiler—*compilation fails immediately*.
 
+== Two-Layer Architecture
+
+Boost.TypeLayout is organized into two distinct layers:
+
+=== Layer 1: Core — Layout Signature Engine
+
+**Header**: `<boost/typelayout.hpp>`
+
+The foundation of the library. Provides pure memory layout analysis:
+
+* **Signature Generation**: `get_layout_signature<T>()` produces bit-accurate layout descriptions
+* **Hash Functions**: `get_layout_hash<T>()`, `get_layout_verification<T>()` for efficient comparison
+* **Comparison**: `signatures_match<T, U>()` verifies layout identity between types
+* **Concepts**: `LayoutCompatible`, `LayoutMatch`, `LayoutHashMatch`
+
+=== Layer 2: Utility — Serialization Safety Analysis
+
+**Header**: `<boost/typelayout/typelayout_util.hpp>`
+
+Built on top of the core layer, provides practical serialization utilities:
+
+* **Platform Sets**: `PlatformSet` defines target architectures
+* **Serialization Checking**: `is_serializable_v<T, P>` validates serialization safety
+* **Concepts**: `Serializable`, `ZeroCopyTransmittable`
+
+=== Why Two Layers?
+
+[cols="1,2"]
+|===
+| Benefit | Description
+
+| Focused usage
+| Use core for ABI verification without serialization overhead
+
+| Clean dependencies
+| Core has no policy dependencies; utility builds on core
+
+| Extensibility
+| Extend utility layer with custom serialization policies
+|===
+
 == How It Works
 
 === 1. Reflection-Based Introspection
@@ -99,14 +140,15 @@ Components:
 * `@0[x]` - Field at offset 0, named "x"
 * `:i32[s:4,a:4]` - Type signature with size/alignment
 
-=== Portability
+=== Serializability
 
-A type is *portable* if it has the same layout across all platforms. Non-portable types include:
+A type is *serializable* if it is safe for binary persistence/transmission across platforms. Non-serializable types include:
 
 * `wchar_t` - 2 bytes (Windows) vs 4 bytes (Linux)
 * `long` - 4 bytes (Windows LLP64) vs 8 bytes (Linux LP64)
 * `long double` - 8/12/16 bytes depending on platform
-* Bit-fields - Layout is implementation-defined
+* Bit-fields - Bit packing order is implementation-defined
+* Pointers - Not meaningful outside the current process
 
 === Hash Verification
 
@@ -121,6 +163,8 @@ For runtime validation (e.g., protocol headers), the library provides:
 
 [source,cpp]
 ----
+#include <boost/typelayout.hpp>
+
 struct NetworkHeader {
     uint32_t magic;
     uint32_t version;
@@ -134,8 +178,9 @@ TYPELAYOUT_BIND(NetworkHeader,
 
 [source,cpp]
 ----
-template<typename T>
-    requires Portable<T>
+#include <boost/typelayout/typelayout_util.hpp>
+
+template<Serializable T>
 void safe_binary_write(std::ostream& os, const T& obj) {
     os.write(reinterpret_cast<const char*>(&obj), sizeof(T));
 }
@@ -145,6 +190,8 @@ void safe_binary_write(std::ostream& os, const T& obj) {
 
 [source,cpp]
 ----
+#include <boost/typelayout.hpp>
+
 template<typename T>
     requires LayoutHashMatch<T, EXPECTED_HASH>
 T* map_shared_memory(const char* name) {

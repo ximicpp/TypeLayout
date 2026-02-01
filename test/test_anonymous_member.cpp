@@ -1,5 +1,5 @@
 // Test file to verify anonymous member support in TypeLayout signatures
-#include <boost/typelayout.hpp>
+#include <boost/typelayout/typelayout.hpp>
 #include <cstdio>
 #include <optional>
 #include <variant>

@@ -54,41 +54,45 @@ The following types have platform-dependent sizes:
 | 4 bytes (32-bit) vs 8 bytes (64-bit)
 |===
 
-== Checking Portability
+== Checking Serializability
 
-Use `is_portable<T>()` to check if a type is portable:
+Use `is_serializable_v<T, P>` to check if a type is safe for binary serialization on a target platform set:
 
 [source,cpp]
 ----
 #include <boost/typelayout.hpp>
 
-struct PortableData {
+using namespace boost::typelayout;
+
+struct SerializableData {
     std::int32_t x;
     std::int32_t y;
     float z;
 };
 
-struct NonPortableData {
-    long id;            // Platform-dependent!
+struct NonSerializableData {
+    long id;            // Platform-dependent size!
     std::int32_t value;
 };
 
-// Compile-time checks
-static_assert(boost::typelayout::is_portable<PortableData>());
-static_assert(!boost::typelayout::is_portable<NonPortableData>());
+// Compile-time checks using the current platform
+constexpr auto platform = PlatformSet::current();
+
+static_assert(is_serializable_v<SerializableData, platform>);
+static_assert(!is_serializable_v<NonSerializableData, platform>);
 ----
 
-== The Portable Concept
+== The Serializable Concept
 
-Use the `Portable` concept to constrain templates:
+Use the `Serializable` concept to constrain templates:
 
 [source,cpp]
 ----
 #include <boost/typelayout.hpp>
 
-template<boost::typelayout::Portable T>
+template<boost::typelayout::Serializable T>
 void serialize_to_network(const T& data, std::span<std::byte> buffer) {
-    // Only works with portable types
+    // Only works with types safe for binary serialization
     std::memcpy(buffer.data(), &data, sizeof(T));
 }
 
@@ -99,7 +103,7 @@ struct NetworkPacket {
 };
 
 struct BadPacket {
-    unsigned long sequence;  // Non-portable!
+    unsigned long sequence;  // Non-serializable: platform-dependent size!
     std::uint16_t length;
 };
 
@@ -226,28 +230,28 @@ bool verify_file_layout(std::istream& file) {
 }
 ----
 
-== Portability Checking for Nested Types
+== Serializability Checking for Nested Types
 
-Portability checking is recursive - a struct is only portable if all its members are portable:
+Serializability checking is recursive - a struct is only serializable if all its members are serializable:
 
 [source,cpp]
 ----
 struct Inner {
-    long value;  // Non-portable
+    long value;  // Non-serializable: platform-dependent size
 };
 
 struct Outer {
     std::int32_t x;
-    Inner inner;  // Contains non-portable member
+    Inner inner;  // Contains non-serializable member
 };
 
-static_assert(!boost::typelayout::is_portable<Inner>());
-static_assert(!boost::typelayout::is_portable<Outer>());  // Also non-portable
+static_assert(!boost::typelayout::Serializable<Inner>);
+static_assert(!boost::typelayout::Serializable<Outer>);  // Also non-serializable
 ----
 
-== Pointers and Portability
+== Pointers and Serializability
 
-Pointers are always platform-dependent (32-bit vs 64-bit), so any struct containing pointers is non-portable:
+Pointers are always platform-dependent (32-bit vs 64-bit), so any struct containing pointers is non-serializable:
 
 [source,cpp]
 ----
@@ -255,19 +259,19 @@ struct WithPointer {
     std::int32_t* data;  // 4 or 8 bytes depending on platform
 };
 
-static_assert(!boost::typelayout::is_portable<WithPointer>());
+static_assert(!boost::typelayout::Serializable<WithPointer>);
 ----
 
-If you need portable data structures with references to other data, consider using indices or offsets instead:
+If you need serializable data structures with references to other data, consider using indices or offsets instead:
 
 [source,cpp]
 ----
-struct PortableWithReference {
+struct SerializableWithReference {
     std::uint32_t data_offset;  // Offset instead of pointer
     std::uint32_t data_count;
 };
 
-static_assert(boost::typelayout::is_portable<PortableWithReference>());
+static_assert(boost::typelayout::Serializable<SerializableWithReference>);
 ----
 
 == Best Practices Summary
@@ -296,4 +300,4 @@ static_assert(boost::typelayout::is_portable<PortableWithReference>());
 
 * xref:user-guide/type-support.adoc[Type Support] - Complete type list
 * xref:user-guide/hash-verification.adoc[Hash Verification] - Runtime verification
-* xref:user-guide/concepts.adoc[Concepts] - Using the `Portable` concept
+* xref:user-guide/concepts.adoc[Concepts] - Using the `Serializable` concept

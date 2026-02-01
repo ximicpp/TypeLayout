@@ -2,6 +2,9 @@
 //
 // Forward Declarations
 //
+// This file provides forward declarations for all public types and functions
+// in both the Core and Utility layers.
+//
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE_1_0.txt or copy at
@@ -16,71 +19,79 @@
 namespace boost {
 namespace typelayout {
 
-    // =========================================================================
-    // Forward Declarations
-    // =========================================================================
+// =========================================================================
+// Core Layer Forward Declarations
+// =========================================================================
 
-    // Compile-time string template
-    template <std::size_t N>
-    struct CompileString;
+// Compile-time string template
+template <std::size_t N>
+struct CompileString;
 
-    // Type signature generator
-    template <typename T>
-    struct TypeSignature;
+// Type signature generator
+template <typename T>
+struct TypeSignature;
 
-    // Layout verification structure
-    struct LayoutVerification;
+// Layout verification structure
+struct LayoutVerification;
 
-    // Fixed string for NTTP
-    template <std::size_t N>
-    struct fixed_string;
+// Fixed string for NTTP
+template <std::size_t N>
+struct fixed_string;
 
-    // =========================================================================
-    // Function Declarations
-    // =========================================================================
+// =========================================================================
+// Utility Layer Forward Declarations
+// =========================================================================
 
-    // Signature generation
-    template <typename T>
-    [[nodiscard]] consteval auto get_layout_signature() noexcept;
+// Platform configuration
+enum class Endianness : std::uint8_t;
+enum class BitWidth : std::uint8_t;
+struct PlatformSet;
 
-    template <typename T>
-    [[nodiscard]] constexpr const char* get_layout_signature_cstr() noexcept;
+// Serialization blocker reasons
+enum class SerializationBlocker : std::uint8_t;
 
-    // Hash functions
-    template <typename T>
-    [[nodiscard]] consteval std::uint64_t get_layout_hash() noexcept;
+// =========================================================================
+// Core Layer Function Declarations
+// =========================================================================
 
-    template <typename T>
-    [[nodiscard]] consteval LayoutVerification get_layout_verification() noexcept;
+// Signature generation
+template <typename T>
+[[nodiscard]] consteval auto get_layout_signature() noexcept;
 
-    // Comparison functions
-    template <typename T1, typename T2>
-    [[nodiscard]] consteval bool signatures_match() noexcept;
+template <typename T>
+[[nodiscard]] constexpr const char* get_layout_signature_cstr() noexcept;
 
-    template <typename T1, typename T2>
-    [[nodiscard]] consteval bool hashes_match() noexcept;
+// Hash functions
+template <typename T>
+[[nodiscard]] consteval std::uint64_t get_layout_hash() noexcept;
 
-    template <typename T1, typename T2>
-    [[nodiscard]] consteval bool verifications_match() noexcept;
+template <typename T>
+[[nodiscard]] consteval LayoutVerification get_layout_verification() noexcept;
 
-    // Serialization safety checking
-    template <typename T>
-    [[nodiscard]] consteval bool is_trivially_serializable() noexcept;
+// Comparison functions
+template <typename T1, typename T2>
+[[nodiscard]] consteval bool signatures_match() noexcept;
 
-    /// @deprecated Use is_trivially_serializable<T>() instead
-    template <typename T>
-    [[nodiscard]] [[deprecated("Use is_trivially_serializable<T>() instead")]]
-    consteval bool is_portable() noexcept;
+template <typename T1, typename T2>
+[[nodiscard]] consteval bool hashes_match() noexcept;
 
-    template <typename T>
-    [[nodiscard]] consteval bool has_bitfields() noexcept;
+template <typename T1, typename T2>
+[[nodiscard]] consteval bool verifications_match() noexcept;
 
-    // Collision detection
-    template <typename... Types>
-    [[nodiscard]] consteval bool no_hash_collision() noexcept;
+// =========================================================================
+// Utility Layer Function Declarations
+// =========================================================================
 
-    template <typename... Types>
-    [[nodiscard]] consteval bool no_verification_collision() noexcept;
+// Serialization checking
+template <typename T>
+[[nodiscard]] consteval bool has_bitfields() noexcept;
+
+// Collision detection
+template <typename... Types>
+[[nodiscard]] consteval bool no_hash_collision() noexcept;
+
+template <typename... Types>
+[[nodiscard]] consteval bool no_verification_collision() noexcept;
 
 } // namespace typelayout
 } // namespace boost

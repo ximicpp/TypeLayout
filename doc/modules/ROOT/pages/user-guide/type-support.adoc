@@ -247,11 +247,11 @@ struct Rectangle {
 
 == Platform-Dependent Types
 
-Some types have different sizes on different platforms. These are flagged as *non-portable*:
+Some types have different sizes on different platforms. These are flagged as *non-serializable*:
 
 [cols="1,2,2"]
 |===
-| Type | Windows x64 | Linux x64
+| Type | Windows x64 (LLP64) | Linux x64 (LP64)
 
 | `long`
 | 4 bytes
@@ -270,20 +270,20 @@ Some types have different sizes on different platforms. These are flagged as *no
 | 16 bytes
 |===
 
-Use `is_portable<T>()` to check if a type contains platform-dependent members:
+Use `is_serializable_v<T, P>` to check if a type is safe for binary serialization on a target `PlatformSet`:
 
 [source,cpp]
 ----
-struct PortableData {
-    std::int32_t value;  // Portable
+struct SerializableData {
+    std::int32_t value;  // Fixed-width, platform-independent
 };
 
-struct NonPortableData {
-    long value;          // Non-portable!
+struct NonSerializableData {
+    long value;          // Platform-dependent size!
 };
 
-static_assert(boost::typelayout::is_portable<PortableData>());
-static_assert(!boost::typelayout::is_portable<NonPortableData>());
+static_assert(boost::typelayout::is_serializable_v<SerializableData, PlatformSet::bits64_le()>);
+static_assert(!boost::typelayout::is_serializable_v<NonSerializableData, PlatformSet::bits64_le()>);
 ----
 
 == Unsupported Types
@@ -330,5 +330,5 @@ struct Empty {};
 == See Also
 
 * xref:user-guide/layout-signatures.adoc[Layout Signatures] - Signature format details
-* xref:user-guide/portability.adoc[Portability] - Platform-dependent type handling
+* xref:user-guide/portability.adoc[Serializability] - Platform-dependent type handling
 * xref:user-guide/bitfields.adoc[Bit-fields] - Bit-field support

@@ -34,7 +34,7 @@ The library documentation SHALL clearly identify and explain the primary killer 
 
 The library SHALL provide concepts and utilities for zero-copy network transmission:
 
-1. A `ZeroCopyTransmittable` concept that combines `Portable<T>` with `std::is_trivially_copyable_v<T>`
+1. A `ZeroCopyTransmittable` concept that combines `Serializable<T>` with `std::is_trivially_copyable_v<T>` and `std::is_standard_layout_v<T>`
 2. Documentation explaining the pattern for embedding layout hashes in packet headers
 3. Examples demonstrating sender/receiver verification workflow
 

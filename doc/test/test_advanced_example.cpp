@@ -132,10 +132,10 @@ int main() {
     std::cout << "Header: " << header_sig.c_str() << "\n";
     std::cout << "LoginRequest: " << login_sig.c_str() << "\n";
     
-    // Verify portability
-    static_assert(is_portable<protocol_v1::Header>(), "Header must be portable");
-    static_assert(is_portable<protocol_v1::LoginRequest>(), "LoginRequest must be portable");
-    std::cout << "  Both types are portable: YES\n";
+    // Verify serializability
+    static_assert(is_serializable_v<protocol_v1::Header, PlatformSet::bits64_le()>, "Header must be serializable");
+    static_assert(is_serializable_v<protocol_v1::LoginRequest, PlatformSet::bits64_le()>, "LoginRequest must be serializable");
+    std::cout << "  Both types are serializable: YES\n";
     
     // Shared Memory Tests
     std::cout << "\n--- Shared Memory ---\n";
@@ -167,9 +167,9 @@ int main() {
     // Verify bit-field detection
     static_assert(has_bitfields<PackedFlags>(), "PackedFlags should have bitfields");
     static_assert(has_bitfields<IPv4Header>(), "IPv4Header should have bitfields");
-    static_assert(!is_portable<PackedFlags>(), "Bitfield types are NOT portable");
+    static_assert(!is_serializable_v<PackedFlags, PlatformSet::current()>, "Bitfield types are NOT serializable");
     std::cout << "  Bit-field detection: WORKING\n";
-    std::cout << "  Portability check: CORRECT (bitfields are not portable)\n";
+    std::cout << "  Serializability check: CORRECT (bitfields are not serializable)\n";
     
     // Inheritance Tests
     std::cout << "\n--- Inheritance ---\n";
@@ -196,9 +196,9 @@ int main() {
     
     // Concept usage
     std::cout << "\n--- Concept Verification ---\n";
-    static_assert(Portable<protocol_v1::Header>);
+    static_assert(Serializable<protocol_v1::Header>);
     static_assert(LayoutCompatible<protocol_v1::Header, protocol_v1::Header>);
-    std::cout << "  Portable<Header>: YES\n";
+    std::cout << "  Serializable<Header>: YES\n";
     std::cout << "  LayoutCompatible<Header, Header>: YES\n";
     
     std::cout << "\n=== All advanced tests passed! ===\n";

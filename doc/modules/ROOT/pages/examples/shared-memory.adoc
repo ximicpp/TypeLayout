@@ -33,8 +33,8 @@ struct SharedHeader {
     std::uint32_t reserved;          // Padding
 };
 
-static_assert(is_portable<SharedHeader>(),
-    "SharedHeader must be portable across processes");
+static_assert(is_serializable_v<SharedHeader, PlatformSet::current()>,
+    "SharedHeader must be serializable for cross-process communication");
 
 constexpr std::array<char, 8> SHMEM_MAGIC = 
     {'S', 'H', 'M', 'E', 'M', '0', '0', '1'};
@@ -52,8 +52,8 @@ struct SharedData {
     std::array<char, 1024> message;
 };
 
-static_assert(is_portable<SharedData>(),
-    "SharedData must be portable across processes");
+static_assert(is_serializable_v<SharedData, PlatformSet::current()>,
+    "SharedData must be serializable for cross-process communication");
 
 constexpr auto SHARED_DATA_HASH = get_layout_hash<SharedData>();
 ----
@@ -80,7 +80,7 @@ public:
     ~SharedMemoryManager() { close(); }
     
     // Create new shared memory region
-    template<PortableType DataT>
+    template<Serializable DataT>
     DataT* create(const char* name) {
         constexpr std::size_t total_size = sizeof(SharedHeader) + sizeof(DataT);
         
@@ -126,7 +126,7 @@ public:
     }
     
     // Open existing shared memory region
-    template<PortableType DataT>
+    template<Serializable DataT>
     DataT* open(const char* name) {
         // Open existing shared memory
         fd_ = shm_open(name, O_RDWR, 0666);
@@ -348,7 +348,7 @@ class SharedMemoryManager {
     void* view_ = nullptr;
     
 public:
-    template<PortableType DataT>
+    template<Serializable DataT>
     DataT* create(const wchar_t* name) {
         constexpr std::size_t size = sizeof(SharedHeader) + sizeof(DataT);
         
@@ -405,8 +405,8 @@ struct SharedHeader {
 ----
 // All shared data should use atomics for thread safety
 struct SharedData {
-    std::atomic<std::uint64_t> counter;  // âœ?
-    std::uint64_t unsafe_counter;        // âœ?Race condition!
+    std::atomic<std::uint64_t> counter;  // ï¿½?
+    std::uint64_t unsafe_counter;        // ï¿½?Race condition!
 };
 ----
 

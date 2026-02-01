@@ -3,10 +3,10 @@
 
 Reference documentation for the concepts provided by Boost.TypeLayout.
 
-[#Portable]
-== Portable
+[#Serializable]
+== Serializable
 
-Constrains a type to be free from platform-dependent members.
+Constrains a type to be safe for binary serialization (no platform-dependent, pointer, or bit-field members).
 
 === Synopsis
 
@@ -15,14 +15,20 @@ Constrains a type to be free from platform-dependent members.
 namespace boost::typelayout {
 
 template<typename T>
-concept Portable = is_portable<T>();
+concept Serializable = is_serializable_v<T, PlatformSet::current()>;
 
 }
 ----
 
 === Semantic Requirements
 
-A type `T` satisfies `Portable` if and only if `is_portable<T>()` returns `true`.
+A type `T` satisfies `Serializable` if and only if `is_serializable_v<T, PlatformSet::current()>` is `true`.
+
+A type is serializable when it contains no:
+
+* Platform-dependent types (`long`, `unsigned long`, `wchar_t`, `long double`)
+* Pointers (size varies between 32-bit and 64-bit)
+* Bit-fields (layout is implementation-defined)
 
 === Example
 
@@ -30,29 +36,29 @@ A type `T` satisfies `Portable` if and only if `is_portable<T>()` returns `true`
 ----
 #include <boost/typelayout.hpp>
 
-template<boost::typelayout::Portable T>
+template<boost::typelayout::Serializable T>
 void write_to_network(const T& data);
 
-struct PortableData {
+struct SerializableData {
     std::int32_t x;
     std::int32_t y;
 };
 
-struct NonPortableData {
-    long x;  // Platform-dependent
+struct NonSerializableData {
+    long x;  // Platform-dependent size!
     long y;
 };
 
-PortableData pd;
-write_to_network(pd);  // OK
+SerializableData sd;
+write_to_network(sd);  // OK
 
-NonPortableData npd;
-// write_to_network(npd);  // Error: constraint not satisfied
+NonSerializableData nsd;
+// write_to_network(nsd);  // Error: constraint not satisfied
 ----
 
 === See Also
 
-* xref:reference/core-functions.adoc#is_portable[is_portable] - Underlying function
+* xref:reference/core-functions.adoc#is_serializable_v[is_serializable_v] - Underlying variable template
 
 '''
 

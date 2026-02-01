@@ -2,20 +2,39 @@
 
 This document provides a comprehensive reference for all public APIs in Boost.TypeLayout.
 
+## Headers Overview
+
+| Header | Description |
+|--------|-------------|
+| `<boost/typelayout.hpp>` | Core layer only - layout signature generation |
+| `<boost/typelayout/typelayout_util.hpp>` | Utility layer - serialization safety analysis |
+| `<boost/typelayout/typelayout_all.hpp>` | Complete library - both core and utility |
+
 ## Table of Contents
 
-1. [Core Functions](#core-functions)
-2. [Comparison Functions](#comparison-functions)  
-3. [Portability Analysis](#portability-analysis)
-4. [Template Constraints and Concepts](#template-constraints-and-concepts)
-5. [Collision Detection](#collision-detection)
-6. [Utility Classes](#utility-classes)
-7. [Macros](#macros)
-8. [Implementation Details](#implementation-details)
+1. [Core Layer](#core-layer)
+   - [Signature Generation](#signature-generation)
+   - [Hash Functions](#hash-functions)
+   - [Comparison Functions](#comparison-functions)
+   - [Core Concepts](#core-concepts)
+2. [Utility Layer](#utility-layer)
+   - [Platform Set](#platform-set)
+   - [Serialization Analysis](#serialization-analysis)
+   - [Utility Concepts](#utility-concepts)
+3. [Collision Detection](#collision-detection)
+4. [Utility Classes](#utility-classes)
+5. [Macros](#macros)
+6. [Implementation Details](#implementation-details)
 
 ---
 
-## Core Functions
+# Core Layer
+
+**Header**: `<boost/typelayout.hpp>` or `<boost/typelayout/core/*.hpp>`
+
+The core layer provides pure memory layout analysis capabilities without any serialization policy dependencies.
+
+## Signature Generation
 
 ### get_layout_signature<T>()
 
@@ -33,8 +52,10 @@ template <typename T>
 
 **Example**:
 ```cpp
+#include <boost/typelayout.hpp>
+
 struct Point { int32_t x, y; };
-constexpr auto sig = get_layout_signature<Point>();
+constexpr auto sig = boost::typelayout::get_layout_signature<Point>();
 // Result: "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}"
 ```
 
@@ -67,6 +88,8 @@ std::cout << "Layout: " << get_layout_signature_cstr<Point>() << std::endl;
 
 ---
 
+## Hash Functions
+
 ### get_layout_hash<T>()
 
 ```cpp
@@ -97,7 +120,7 @@ static_assert(point_hash == get_layout_hash<Vec2>(), "Must have same layout");
 
 ```cpp
 template <typename T>
-[[nodiscard]] consteval auto get_layout_verification() noexcept;
+[[nodiscard]] consteval LayoutVerification get_layout_verification() noexcept;
 ```
 
 **Description**: Generates dual-hash verification using both FNV-1a and DJB2 algorithms.
@@ -105,13 +128,17 @@ template <typename T>
 **Parameters**:
 - `T`: The type to verify
 
-**Returns**: `std::pair<uint64_t, uint64_t>` containing both hash values
+**Returns**: `LayoutVerification` struct containing:
+- `fnv1a`: FNV-1a 64-bit hash
+- `djb2`: DJB2 64-bit hash
+- `length`: Signature string length
 
 **Example**:
 ```cpp
 constexpr auto verification = get_layout_verification<Point>();
-// verification.first = FNV-1a hash
-// verification.second = DJB2 hash
+// verification.fnv1a = FNV-1a hash
+// verification.djb2 = DJB2 hash
+// verification.length = signature length
 ```
 
 **Notes**: 
@@ -169,7 +196,7 @@ static_assert(hashes_match<Point, Vec2>(), "Hash must match");
 ### verifications_match<T, U>()
 
 ```cpp
-template <typename T, typename U>
+template <typename T, typename U>  
 [[nodiscard]] consteval bool verifications_match() noexcept;
 ```
 
@@ -187,54 +214,56 @@ static_assert(verifications_match<Point, Vec2>(), "Verification must match");
 
 ---
 
-## Portability Analysis
+## Serializability Analysis
 
-### is_portable<T>()
+### is_serializable_v<T, PlatformSet>
 
 ```cpp
-template <typename T>
-[[nodiscard]] consteval bool is_portable() noexcept;
+template <typename T, PlatformSet Platform = PlatformSet::current()>
+inline constexpr bool is_serializable_v;
 ```
 
-**Description**: Determines if a type has consistent layout across platforms.
+**Description**: Determines if a type is safe for binary serialization across platforms.
 
 **Parameters**:
 - `T`: Type to analyze
+- `Platform`: Target platform configuration (default: current platform)
 
-**Returns**: `true` if portable, `false` if contains platform-dependent elements
+**Returns**: `true` if serializable, `false` if contains elements unsafe for serialization
 
-**Non-portable Elements**:
+**Non-serializable Elements**:
 - `long double` (size varies: 8, 12, or 16 bytes)
 - `wchar_t` (size varies: 2 or 4 bytes)
+- `long` / `unsigned long` (size varies: 4 or 8 bytes)
 - Bit-fields (packing is compiler/ABI dependent)
+- Pointers (not meaningful across processes)
 - Unions with non-trivial members
 
 **Example**:
 ```cpp
-struct Portable { int32_t x; float y; };
-struct NonPortable { long double x; wchar_t name[16]; };
+struct SafeType { int32_t x; float y; };
+struct UnsafeType { long double x; wchar_t name[16]; };
 
-static_assert(is_portable<Portable>(), "Should be portable");
-static_assert(!is_portable<NonPortable>(), "Contains platform-dependent types");
+static_assert(is_serializable_v<SafeType, PlatformSet::bits64_le()>, "Should be serializable");
+static_assert(!is_serializable_v<UnsafeType, PlatformSet::current()>, "Contains unsafe types");
 ```
 
 ---
 
 ## Template Constraints and Concepts
 
-### Portable<T>
+### Serializable<T>
 
 ```cpp
 template<typename T>
-concept Portable = is_portable<T>();
+concept Serializable = is_serializable_v<T, PlatformSet::current()>;
 ```
 
-**Description**: Concept for types with consistent cross-platform layouts.
+**Description**: Concept for types safe for binary serialization.
 
 **Example**:
 ```cpp
-template<typename T>
-    requires Portable<T>
+template<Serializable T>
 void serialize(const T& obj) {
     // Safe to serialize across platforms
 }
@@ -324,9 +353,6 @@ template <typename... Types>
 ```
 
 **Description**: Verifies no dual-hash collisions in a type set.
-
-**Parameters**:
-- `Types...`: Variable number of types to check
 
 **Returns**: `true` if all verification pairs are unique
 
@@ -498,16 +524,29 @@ All functions are `noexcept` and `consteval`. Errors result in:
 
 ---
 
+## Deprecated APIs
+
+The following APIs are deprecated and will be removed in a future version:
+
+| Deprecated | Replacement |
+|------------|-------------|
+| `is_portable<T>()` | `is_serializable_v<T>` |
+| `<boost/typelayout/signature.hpp>` | `<boost/typelayout.hpp>` |
+| `<boost/typelayout/portability.hpp>` | `<boost/typelayout/typelayout_util.hpp>` |
+
+---
+
 ## Version History
 
 - **v1.0**: Initial implementation with P2996 reflection
 - **v1.1**: Added dual-hash verification system
 - **v1.2**: Enhanced portability analysis
 - **v1.3**: Boost compliance and standardization
+- **v2.0**: Core/Util architectural split
 
 ## See Also
 
 - [Quick Start Guide](quickstart.md)
-- [Architecture Guide](architecture.md)
+- [Technical Overview](technical_overview.md)
 - [C++26 Reflection Proposal (P2996)](https://wg21.link/P2996)
 - [Boost C++ Libraries](https://www.boost.org/)

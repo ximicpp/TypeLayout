@@ -98,7 +98,7 @@ A type is trivially serializable if and only if:
 
 ## Migration Guide
 
-### From `is_portable` to `is_trivially_serializable`
+### From `is_portable` to `is_serializable_v`
 
 The old `is_portable<T>()` API is deprecated. Update your code:
 
@@ -107,9 +107,12 @@ The old `is_portable<T>()` API is deprecated. Update your code:
 static_assert(is_portable<MyType>());
 void foo(Portable auto const& x);
 
-// New
-static_assert(is_trivially_serializable<MyType>());
-void foo(TriviallySerializable auto const& x);
+// New (with explicit platform)
+static_assert(is_serializable_v<MyType, PlatformSet::bits64_le()>);
+
+// Or use the Serializable concept (defaults to current platform)
+template<Serializable T>
+void foo(const T& x);
 ```
 
 The deprecated aliases still work but will emit compiler warnings.
@@ -128,9 +131,9 @@ The deprecated aliases still work but will emit compiler warnings.
 |----------|-----|
 | Verify struct matches expected layout | `get_layout_signature<T>()` |
 | Check compatibility between two types | `signatures_match<T1, T2>()` |
-| Cross-process IPC/shared memory | `is_trivially_serializable<T>()` |
+| Cross-process IPC/shared memory | `is_serializable_v<T, PlatformSet>` |
 | Zero-copy network transmission | `ZeroCopyTransmittable<T>` concept |
-| Binary file format persistence | `is_trivially_serializable<T>()` |
+| Binary file format persistence | `is_serializable_v<T, PlatformSet>` |
 
 ## Example
 

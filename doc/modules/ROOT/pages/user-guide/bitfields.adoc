@@ -268,15 +268,14 @@ struct Flags {
 // Check if type has bit-fields
 static_assert(boost::typelayout::has_bitfields<Flags>());
 
-// Types with bit-fields are still portable if underlying types are portable
-static_assert(boost::typelayout::is_portable<Flags>());
+// Types with bit-fields are NOT serializable (bit packing is platform-specific)
+static_assert(!boost::typelayout::is_serializable_v<Flags, PlatformSet::current()>);
+
+// The serialization_status indicates the reason
+// Returns: "!serial:bitfield"
 ----
 
-NOTE: A type with bit-fields can still be portable if:
-
-1. Underlying types are portable
-2. Layout is consistent across target platforms
-3. You verify with `TYPELAYOUT_BIND`
+IMPORTANT: Types containing bit-fields are **always non-serializable** in Layer 2 audits, because bit-field packing order and storage unit rules vary across platforms and compilers. Use `TYPELAYOUT_BIND` only to verify the **layout signature** (Layer 1), not serializability.
 
 == Verifying Bit-field Layout
 
@@ -319,5 +318,5 @@ This ensures the bit-field layout matches expectations on every platform you com
 == See Also
 
 * xref:user-guide/layout-signatures.adoc[Layout Signatures] - Signature format
-* xref:user-guide/portability.adoc[Portability] - Platform considerations
+* xref:user-guide/portability.adoc[Serializability] - Serialization considerations
 * xref:user-guide/type-support.adoc[Type Support] - Supported types

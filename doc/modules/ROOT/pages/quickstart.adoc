@@ -39,12 +39,31 @@ add_subdirectory(TypeLayout)
 target_link_libraries(your_target PRIVATE Boost::typelayout)
 ----
 
+== Library Headers
+
+Boost.TypeLayout provides three main headers for different use cases:
+
+[cols="1,2"]
+|===
+| Header | Description
+
+| `<boost/typelayout.hpp>`
+| Core layer only - layout signature generation
+
+| `<boost/typelayout/typelayout_util.hpp>`
+| Utility layer - serialization safety analysis (includes core)
+
+| `<boost/typelayout/typelayout_all.hpp>`
+| Complete library - both core and utility
+|===
+
 == Basic Usage
 
 === Step 1: Include the Header
 
 [source,cpp]
 ----
+// For layout signature analysis only
 #include <boost/typelayout.hpp>
 using namespace boost::typelayout;
 ----
@@ -77,42 +96,80 @@ int main() {
 TYPELAYOUT_BIND(Point, "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}");
 ----
 
-=== Step 4: Check Portability
+=== Step 4: Check Serializability (Utility Layer)
 
 [source,cpp]
 ----
-// Check if a type is portable across platforms
-static_assert(is_portable<Point>());  // OK
+// Include the utility layer for serialization checks
+#include <boost/typelayout/typelayout_util.hpp>
+using namespace boost::typelayout;
+
+// Check if a type is safe for binary serialization
+static_assert(Serializable<Point>);  // OK - uses fixed-width integers
 
 struct BadStruct {
-    wchar_t name[16];  // Platform-dependent!
+    wchar_t name[16];  // Platform-dependent size!
 };
-static_assert(!is_portable<BadStruct>());  // wchar_t is not portable
+static_assert(!Serializable<BadStruct>);  // wchar_t has platform-dependent size
 ----
 
 === Step 5: Use Concepts for Template Constraints
 
 [source,cpp]
 ----
-// Only accept types with a specific layout
+// Core concepts - layout matching
 template<typename T>
     requires LayoutMatch<T, "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}">
 void process_point(const T& p) {
     // Safe to assume specific memory layout
 }
 
-// Only accept portable types
-template<Portable T>
+// Utility concepts - serialization safety
+template<Serializable T>
 void safe_serialize(const T& obj) {
     // Can safely binary serialize
 }
+
+// Zero-copy transmission (serializable + trivially copyable + standard layout)
+template<ZeroCopyTransmittable T>
+void broadcast(const T& msg) {
+    send_raw_bytes(&msg, sizeof(T));
+}
 ----
 
-== Complete Example
+== Complete Example: Core Layer Only
 
 [source,cpp]
 ----
 #include <boost/typelayout.hpp>
+#include <iostream>
+#include <cstdint>
+
+using namespace boost::typelayout;
+
+struct Point { int32_t x, y; };
+struct Vec2 { int32_t x, y; };
+
+// Layout compatibility check
+static_assert(LayoutCompatible<Point, Vec2>, "Must have same layout");
+
+// Hash-based verification
+constexpr uint64_t POINT_HASH = get_layout_hash<Point>();
+static_assert(LayoutHashMatch<Vec2, POINT_HASH>);
+
+int main() {
+    std::cout << "Point layout: " << get_layout_signature_cstr<Point>() << std::endl;
+    std::cout << "Vec2 layout:  " << get_layout_signature_cstr<Vec2>() << std::endl;
+    std::cout << "Hash: 0x" << std::hex << POINT_HASH << std::endl;
+    return 0;
+}
+----
+
+== Complete Example: With Utility Layer
+
+[source,cpp]
+----
+#include <boost/typelayout/typelayout_util.hpp>
 #include <iostream>
 #include <cstdint>
 
@@ -130,8 +187,9 @@ struct NetworkMessage {
 TYPELAYOUT_BIND(NetworkMessage,
     "[64-le]struct[s:80,a:8]{@0[magic]:u32[s:4,a:4],@4[version]:u32[s:4,a:4],@8[timestamp]:u64[s:8,a:8],@16[payload]:bytes[s:64,a:1]}");
 
-// Verify portability
-static_assert(is_portable<NetworkMessage>(), "NetworkMessage must be portable");
+// Verify serializability (utility layer)
+static_assert(Serializable<NetworkMessage>, "NetworkMessage must be serializable");
+static_assert(ZeroCopyTransmittable<NetworkMessage>, "NetworkMessage must be zero-copy safe");
 
 // Get hash for runtime verification
 constexpr uint64_t MESSAGE_HASH = get_layout_hash<NetworkMessage>();
@@ -140,6 +198,7 @@ int main() {
     std::cout << "Layout: " << get_layout_signature_cstr<NetworkMessage>() << std::endl;
     std::cout << "Hash: 0x" << std::hex << MESSAGE_HASH << std::endl;
     std::cout << "Size: " << sizeof(NetworkMessage) << " bytes" << std::endl;
+    std::cout << "Serializable: " << std::boolalpha << is_serializable_v<NetworkMessage> << std::endl;
     return 0;
 }
 ----

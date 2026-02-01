@@ -1,8 +1,9 @@
 // test_all_types.cpp - Comprehensive type coverage tests
 // Compile success = all tests pass (static_assert based)
+// Tests both core and utility layer functionality
 
 #include <cstdint>
-#include <boost/typelayout/typelayout.hpp>
+#include <boost/typelayout/typelayout_all.hpp>  // Complete library (core + util)
 
 using namespace boost::typelayout;
 
@@ -435,17 +436,10 @@ static_assert(!signatures_match<TypeA, TypeD>()); // Different layout
 static_assert(is_platform_dependent_v<wchar_t> == true);
 static_assert(is_platform_dependent_v<long double> == true);
 
-// Windows: long is 4 bytes, different from int64_t
-#if defined(_WIN32) || defined(_WIN64)
-static_assert(is_platform_dependent_v<long> == true);
-static_assert(is_platform_dependent_v<unsigned long> == true);
-static_assert(is_platform_dependent_v<const long> == true);
-static_assert(is_platform_dependent_v<long[4]> == true);
-#else
-// On Linux, long = int64_t, so long is NOT flagged as platform-dependent
-static_assert(is_platform_dependent_v<long> == false);
-static_assert(is_platform_dependent_v<unsigned long> == false);
-#endif
+// is_platform_dependent_size_v specifically checks for long/unsigned long
+// (These have different sizes: 4 bytes on Windows LLP64, 8 bytes on Linux LP64)
+static_assert(is_platform_dependent_size_v<long> == true);
+static_assert(is_platform_dependent_size_v<unsigned long> == true);
 
 // CV-qualified variants for wchar_t and long double
 static_assert(is_platform_dependent_v<volatile wchar_t> == true);
@@ -458,7 +452,7 @@ static_assert(is_platform_dependent_v<long double[4]> == true);
 // Portable types should NOT be detected as platform-dependent
 static_assert(is_platform_dependent_v<int> == false);
 static_assert(is_platform_dependent_v<int32_t> == false);
-static_assert(is_platform_dependent_v<int64_t> == false);
+static_assert(is_platform_dependent_v<int64_t> == false);  // Even on LP64 where int64_t == long
 static_assert(is_platform_dependent_v<double> == false);
 static_assert(is_platform_dependent_v<char> == false);
 static_assert(is_platform_dependent_v<char16_t> == false);
@@ -466,168 +460,176 @@ static_assert(is_platform_dependent_v<char32_t> == false);
 
 
 //=============================================================================
-// 18. Struct Portability Checking
+// 18. Struct Serialization Checking (using is_serializable_v)
 //=============================================================================
 
-// Portable struct - uses only fixed-width types
-struct PortableStruct {
+// Shorthand for current platform serialization check
+template<typename T>
+constexpr bool is_serializable_current = is_serializable_v<T, PlatformSet::current()>;
+
+// Serializable struct - uses only fixed-width types
+struct SerializableStruct {
     int32_t x;
     int64_t y;
     double z;
     char name[16];
 };
-static_assert(is_portable<PortableStruct>() == true);
+static_assert(is_serializable_current<SerializableStruct> == true);
 
-// Non-portable struct - contains wchar_t (always platform-dependent)
-struct NonPortableWithWchar {
+// Non-serializable struct - contains wchar_t (always platform-dependent)
+struct NonSerializableWithWchar {
     int32_t id;
     wchar_t name[16];  // Platform-dependent: 2 bytes on Windows, 4 bytes on Linux
 };
-static_assert(is_portable<NonPortableWithWchar>() == false);
+static_assert(is_serializable_current<NonSerializableWithWchar> == false);
 
-// Non-portable struct - contains long double (always platform-dependent)
-struct NonPortableWithLongDouble {
+// Non-serializable struct - contains long double (always platform-dependent)
+struct NonSerializableWithLongDouble {
     double normal;
     long double extended;  // Platform-dependent: 8/12/16 bytes
 };
-static_assert(is_portable<NonPortableWithLongDouble>() == false);
+static_assert(is_serializable_current<NonSerializableWithLongDouble> == false);
 
-// On Windows, long is platform-dependent
-#if defined(_WIN32) || defined(_WIN64)
-struct NonPortableWithLong {
+// Long is NOT rejected in serialization checks because:
+// 1. On LP64 systems (Linux 64-bit), int64_t is a typedef for long
+// 2. Rejecting long would incorrectly reject int64_t
+// However, is_platform_dependent_size_v<long> can be used for explicit portability warnings
+struct StructWithLong {
     int32_t x;
-    long y;  // Platform-dependent on Windows: 4 bytes (vs 8 bytes on Linux)
+    long y;  // Platform-dependent size, but allowed for int64_t compatibility
 };
-static_assert(is_portable<NonPortableWithLong>() == false);
-#endif
+// Note: long is allowed in serialization to not break int64_t on LP64 systems
+static_assert(is_serializable_current<StructWithLong> == true);
+// But we can still detect it with is_platform_dependent_size_v
+static_assert(is_platform_dependent_size_v<long> == true);
 
-// Empty struct is portable
-static_assert(is_portable<EmptyStruct>() == true);
+// Empty struct is serializable
+static_assert(is_serializable_current<EmptyStruct> == true);
 
-// Nested struct portability
-struct NestedPortable {
-    PortableStruct inner;
+// Nested struct serializability
+struct NestedSerializable {
+    SerializableStruct inner;
     int32_t extra;
 };
-static_assert(is_portable<NestedPortable>() == true);
+static_assert(is_serializable_current<NestedSerializable> == true);
 
-// Nested non-portable struct
-struct NestedNonPortable {
-    NonPortableWithWchar inner;
+// Nested non-serializable struct
+struct NestedNonSerializable {
+    NonSerializableWithWchar inner;
     int32_t extra;
 };
-static_assert(is_portable<NestedNonPortable>() == false);
+static_assert(is_serializable_current<NestedNonSerializable> == false);
 
-// Primitives are portable (except platform-dependent ones)
-static_assert(is_portable<int32_t>() == true);
-static_assert(is_portable<double>() == true);
-static_assert(is_portable<wchar_t>() == false);
-static_assert(is_portable<long double>() == false);
+// Primitives - fixed-width types are serializable
+static_assert(is_serializable_current<int32_t> == true);
+static_assert(is_serializable_current<double> == true);
+static_assert(is_serializable_current<wchar_t> == false);
+static_assert(is_serializable_current<long double> == false);
 
 //=============================================================================
-// 19. Inheritance and Portability
+// 19. Inheritance and Serializability
 //=============================================================================
 
 // Base class with platform-dependent type
-struct NonPortableBase {
+struct NonSerializableBase {
     wchar_t name[8];  // Platform-dependent
 };
 
-// Derived class should inherit non-portability from base
-struct DerivedFromNonPortable : NonPortableBase {
-    int32_t id;  // This field is portable, but base is not
+// Derived class should inherit non-serializability from base
+struct DerivedFromNonSerializable : NonSerializableBase {
+    int32_t id;  // This field is serializable, but base is not
 };
-static_assert(is_portable<DerivedFromNonPortable>() == false);
+static_assert(is_serializable_current<DerivedFromNonSerializable> == false);
 
-// Portable base class
-struct PortableBase {
+// Serializable base class
+struct SerializableBase {
     int32_t value;
 };
 
-// Derived from portable base should be portable
-struct DerivedFromPortable : PortableBase {
+// Derived from serializable base should be serializable
+struct DerivedFromSerializable : SerializableBase {
     int64_t extra;
 };
-static_assert(is_portable<DerivedFromPortable>() == true);
+static_assert(is_serializable_current<DerivedFromSerializable> == true);
 
-// Multiple inheritance - one non-portable base
-struct MultiBaseNonPortable : PortableBase, NonPortableBase {
+// Multiple inheritance - one non-serializable base
+struct MultiBaseNonSerializable : SerializableBase, NonSerializableBase {
     double data;
 };
-static_assert(is_portable<MultiBaseNonPortable>() == false);
+static_assert(is_serializable_current<MultiBaseNonSerializable> == false);
 
 // Deep inheritance chain
 struct Level1 { int32_t a; };
 struct Level2 : Level1 { int64_t b; };
 struct Level3 : Level2 { double c; };
-static_assert(is_portable<Level3>() == true);
+static_assert(is_serializable_current<Level3> == true);
 
-// Deep inheritance with non-portable at root
+// Deep inheritance with non-serializable at root
 struct BadRoot { wchar_t w; };
 struct Level2Bad : BadRoot { int32_t x; };
 struct Level3Bad : Level2Bad { double y; };
-static_assert(is_portable<Level3Bad>() == false);
+static_assert(is_serializable_current<Level3Bad> == false);
 
 //=============================================================================
-// 20. Union Portability Tests
+// 20. Union Serializability Tests
 //=============================================================================
 
-// Union with all portable members
-union PortableUnion {
+// Union with all serializable members
+union SerializableUnion {
     int32_t i;
     float f;
     char c[8];
 };
-static_assert(is_portable<PortableUnion>() == true);
+static_assert(is_serializable_current<SerializableUnion> == true);
 
-// Union with a non-portable member (wchar_t)
-union NonPortableUnion1 {
+// Union with a non-serializable member (wchar_t)
+union NonSerializableUnion1 {
     int32_t i;
     wchar_t w;  // Platform-dependent (2 bytes on Windows, 4 bytes on Linux)
 };
-static_assert(is_portable<NonPortableUnion1>() == false);
+static_assert(is_serializable_current<NonSerializableUnion1> == false);
 
-// Union containing non-portable struct
+// Union containing non-serializable struct
 struct StructWithWchar {
     wchar_t name[16];
 };
 
-union NonPortableUnion2 {
+union NonSerializableUnion2 {
     int32_t id;
     StructWithWchar s;  // Contains wchar_t
 };
-static_assert(is_portable<NonPortableUnion2>() == false);
+static_assert(is_serializable_current<NonSerializableUnion2> == false);
 
 // Empty union (edge case)
 union EmptyUnion {};
-static_assert(is_portable<EmptyUnion>() == true);
+static_assert(is_serializable_current<EmptyUnion> == true);
 
-// Union with portable nested union
-union InnerPortableUnion {
+// Union with serializable nested union
+union InnerSerializableUnion {
     int32_t a;
     double b;
 };
 
-union OuterPortableUnion {
-    InnerPortableUnion inner;
+union OuterSerializableUnion {
+    InnerSerializableUnion inner;
     int64_t value;
 };
-static_assert(is_portable<OuterPortableUnion>() == true);
+static_assert(is_serializable_current<OuterSerializableUnion> == true);
 
-// Union with non-portable nested union
-union InnerNonPortableUnion {
+// Union with non-serializable nested union
+union InnerNonSerializableUnion {
     wchar_t w;
     int32_t i;
 };
 
-union OuterNonPortableUnion {
-    InnerNonPortableUnion inner;  // Contains wchar_t
+union OuterNonSerializableUnion {
+    InnerNonSerializableUnion inner;  // Contains wchar_t
     int64_t value;
 };
-static_assert(is_portable<OuterNonPortableUnion>() == false);
+static_assert(is_serializable_current<OuterNonSerializableUnion> == false);
 
 //=============================================================================
-// 21. Bit-field Portability Tests
+// 21. Bit-field Serializability Tests
 //=============================================================================
 
 // Basic bit-field detection
@@ -637,7 +639,7 @@ struct SimpleBitfield {
     uint32_t c : 8;
 };
 static_assert(has_bitfields<SimpleBitfield>() == true);
-static_assert(is_portable<SimpleBitfield>() == false);  // Bit-fields are NOT portable
+static_assert(is_serializable_current<SimpleBitfield> == false);  // Bit-fields are NOT serializable
 
 // Multiple bit-field members
 struct MultipleBitfields {
@@ -647,7 +649,7 @@ struct MultipleBitfields {
     uint16_t reserved : 4;
 };
 static_assert(has_bitfields<MultipleBitfields>() == true);
-static_assert(is_portable<MultipleBitfields>() == false);
+static_assert(is_serializable_current<MultipleBitfields> == false);
 
 // Struct with nested bit-field
 struct NestedBitfield {
@@ -655,7 +657,7 @@ struct NestedBitfield {
     SimpleBitfield flags;  // Contains bit-fields via nesting
 };
 static_assert(has_bitfields<NestedBitfield>() == true);
-static_assert(is_portable<NestedBitfield>() == false);
+static_assert(is_serializable_current<NestedBitfield> == false);
 
 // Struct without bit-fields (control case)
 struct NoBitfield {
@@ -664,7 +666,7 @@ struct NoBitfield {
     double c;
 };
 static_assert(has_bitfields<NoBitfield>() == false);
-static_assert(is_portable<NoBitfield>() == true);
+static_assert(is_serializable_current<NoBitfield> == true);
 
 // Primitive types have no bit-fields
 static_assert(has_bitfields<int32_t>() == false);
@@ -673,11 +675,11 @@ static_assert(has_bitfields<char>() == false);
 
 // Array of bit-field structs
 static_assert(has_bitfields<SimpleBitfield[4]>() == true);
-static_assert(is_portable<SimpleBitfield[4]>() == false);
+static_assert(is_serializable_current<SimpleBitfield[4]> == false);
 
 // Array of non-bit-field structs
 static_assert(has_bitfields<NoBitfield[4]>() == false);
-static_assert(is_portable<NoBitfield[4]>() == true);
+static_assert(is_serializable_current<NoBitfield[4]> == true);
 
 // Inheritance with bit-fields in base
 struct BitfieldBase {
@@ -690,8 +692,8 @@ struct DerivedFromBitfield : BitfieldBase {
 };
 static_assert(has_bitfields<BitfieldBase>() == true);
 static_assert(has_bitfields<DerivedFromBitfield>() == true);
-static_assert(is_portable<BitfieldBase>() == false);
-static_assert(is_portable<DerivedFromBitfield>() == false);
+static_assert(is_serializable_current<BitfieldBase> == false);
+static_assert(is_serializable_current<DerivedFromBitfield> == false);
 
 // Inheritance with bit-fields in derived only
 struct CleanBase {
@@ -704,8 +706,8 @@ struct DerivedWithBitfield : CleanBase {
 };
 static_assert(has_bitfields<CleanBase>() == false);
 static_assert(has_bitfields<DerivedWithBitfield>() == true);
-static_assert(is_portable<CleanBase>() == true);
-static_assert(is_portable<DerivedWithBitfield>() == false);
+static_assert(is_serializable_current<CleanBase> == true);
+static_assert(is_serializable_current<DerivedWithBitfield> == false);
 
 // Union with bit-fields
 union BitfieldUnion {
@@ -717,18 +719,18 @@ union BitfieldUnion {
     } bits;
 };
 static_assert(has_bitfields<BitfieldUnion>() == true);
-static_assert(is_portable<BitfieldUnion>() == false);
+static_assert(is_serializable_current<BitfieldUnion> == false);
 
-// Deep nesting: Portable -> Non-portable (via bit-field)
+// Deep nesting: Serializable -> Non-serializable (via bit-field)
 struct Level1Clean { int32_t a; };
 struct Level2Clean : Level1Clean { int64_t b; };
 struct Level3WithBits : Level2Clean { uint8_t flags : 4; uint8_t priority : 4; };
 static_assert(has_bitfields<Level1Clean>() == false);
 static_assert(has_bitfields<Level2Clean>() == false);
 static_assert(has_bitfields<Level3WithBits>() == true);
-static_assert(is_portable<Level1Clean>() == true);
-static_assert(is_portable<Level2Clean>() == true);
-static_assert(is_portable<Level3WithBits>() == false);
+static_assert(is_serializable_current<Level1Clean> == true);
+static_assert(is_serializable_current<Level2Clean> == true);
+static_assert(is_serializable_current<Level3WithBits> == false);
 
 // has_bitfields_v variable template
 static_assert(has_bitfields_v<SimpleBitfield> == true);
@@ -738,12 +740,12 @@ static_assert(has_bitfields_v<NoBitfield> == false);
 // 22. Concept Tests
 //=============================================================================
 
-// Portable concept
-static_assert(Portable<int32_t>);
-static_assert(Portable<PortableStruct>);
-static_assert(Portable<PortableUnion>);
-static_assert(!Portable<wchar_t>);
-static_assert(!Portable<NonPortableWithWchar>);
+// Serializable concept
+static_assert(Serializable<int32_t>);
+static_assert(Serializable<SerializableStruct>);
+static_assert(Serializable<SerializableUnion>);
+static_assert(!Serializable<wchar_t>);
+static_assert(!Serializable<NonSerializableWithWchar>);
 
 // LayoutCompatible concept
 static_assert(LayoutCompatible<TypeA, TypeB>);
@@ -763,11 +765,11 @@ constexpr bool requires_point_layout() { return true; }
 static_assert(requires_point_layout<SimplePoint>());
 
 // Template constraint usage example
-template<Portable T>
-constexpr bool accepts_portable() { return true; }
+template<Serializable T>
+constexpr bool accepts_serializable() { return true; }
 
-static_assert(accepts_portable<PortableStruct>());
-static_assert(accepts_portable<int32_t>());
+static_assert(accepts_serializable<SerializableStruct>());
+static_assert(accepts_serializable<int32_t>());
 
 //=============================================================================
 // Main - if this compiles, all static_assert tests pass

@@ -17,13 +17,31 @@ Boost.TypeLayout 是一个 C++26 header-only 库，使用 P2996 静态反射提�
 ```
 TypeLayout/
 ├── include/boost/
-│   ├── typelayout.hpp                 # 便捷头文件
+│   ├── typelayout.hpp                 # 便捷头文件（转发到 typelayout/ 内部）
 │   └── typelayout/
-│       └── typelayout.hpp             # 主实现（~1240行）
+│       ├── typelayout.hpp             # Core 层入口
+│       ├── typelayout_util.hpp        # Utility 层入口（含 Core）
+│       ├── typelayout_all.hpp         # 完整功能入口
+│       ├── core/                      # Layer 1: 布局签名核心
+│       │   ├── config.hpp             # 编译器检测
+│       │   ├── compile_string.hpp     # CompileString<N>, fixed_string<N>
+│       │   ├── hash.hpp               # FNV-1a, DJB2 哈希
+│       │   ├── reflection_helpers.hpp # P2996 反射辅助
+│       │   ├── type_signature.hpp     # TypeSignature<T> 特化
+│       │   ├── signature.hpp          # get_layout_signature<T>()
+│       │   ├── verification.hpp       # LayoutVerification
+│       │   └── concepts.hpp           # LayoutCompatible, LayoutMatch
+│       ├── util/                      # Layer 2: 序列化实用工具
+│       │   ├── platform_set.hpp       # PlatformSet, SerializationBlocker
+│       │   ├── serialization_check.hpp# is_serializable<T, P>
+│       │   └── concepts.hpp           # Serializable, ZeroCopyTransmittable
+│       └── detail/                    # 已废弃的兼容头文件
 ├── test/
 │   └── test_all_types.cpp             # 全面的编译时测试
 ├── example/
-│   └── demo.cpp                       # 使用示例
+│   ├── demo.cpp                       # 完整功能示例
+│   ├── core_demo.cpp                  # 纯核心层示例
+│   └── util_demo.cpp                  # 序列化工具示例
 ├── doc/
 │   ├── api_reference.md
 │   ├── quickstart.md
@@ -34,6 +52,14 @@ TypeLayout/
 ├── CMakeLists.txt                     # CMake 构建文件
 └── README.md
 ```
+
+### 分层架构说明
+
+**核心价值定位**: Layout Signature（布局签名）是核心产品，Serialization Safety（序列化安全）是基于核心的实用工具。
+
+- **Core Layer (`core/`)**: 纯粹的内存布局分析引擎，无序列化策略依赖
+- **Utility Layer (`util/`)**: 基于 Core 构建的序列化安全检查功能
+- **detail/**: 保留用于内部实现，旧头文件提供向后兼容重定向
 
 ## Project Conventions
 
@@ -99,25 +125,39 @@ struct Point { int32_t x, y; };
 | 位域 | `bits<width,type>` | `@4.2[flags]:bits<3,u8[s:1,a:1]>` |
 | 智能指针 | `unique_ptr/shared_ptr/weak_ptr` | `shared_ptr[s:16,a:8]` |
 
-### 3. 核心 API
+### 3. 分层 API 架构
+
+Boost.TypeLayout 采用分层架构设计：
+
+**Layer 1: Layout Signature（布局签名层）**
+- 完整的类型内存布局描述（bit-level）
+- 用于 ABI 兼容性和二进制协议验证
+
+**Layer 2: Serialization Status（序列化状态层）**
+- 类型是否可安全序列化的审计结果
+- 检测指针、引用、位域、平台相关类型等
+
+### 4. 核心 API
 | 函数 | 说明 |
 |------|------|
 | `get_layout_signature<T>()` | 获取带架构前缀的编译时布局签名 |
 | `get_layout_hash<T>()` | 获取64位 FNV-1a 哈希 |
 | `get_layout_verification<T>()` | 获取双哈希验证（FNV-1a + DJB2 + 长度） |
 | `signatures_match<T1, T2>()` | 检查两个类型是否有相同布局签名 |
-| `is_portable<T>()` | 检查类型是否跨平台可移植 |
+| `is_serializable_v<T, P>` | 检查类型是否可在指定平台集上序列化 |
 | `has_bitfields<T>()` | 检查类型是否包含位域 |
+| `serialization_status<T, P>()` | 获取序列化状态指示符（如 `[64-le]serial` 或 `!serial:ptr`） |
 
-### 4. C++20 Concepts
+### 5. C++20 Concepts
 | Concept | 说明 |
 |---------|------|
-| `Portable<T>` | 类型不包含平台相关成员 |
+| `Serializable<T>` | 类型可安全序列化（无指针、引用、位域、平台相关类型） |
+| `ZeroCopyTransmittable<T>` | 类型可零拷贝传输（Serializable + trivially copyable + standard layout） |
 | `LayoutCompatible<T, U>` | 两个类型有相同内存布局 |
 | `LayoutMatch<T, Sig>` | 类型布局匹配预期签名字符串 |
 | `LayoutHashMatch<T, Hash>` | 类型布局哈希匹配预期值 |
 
-### 5. 关键宏
+### 6. 关键宏
 ```cpp
 TYPELAYOUT_BIND(Type, ExpectedSig)  // 静态断言布局匹配
 ```
@@ -170,7 +210,7 @@ TYPELAYOUT_BIND(NetworkHeader, "[64-le]struct[s:16,a:8]{...}");
 
 ### 2. 跨平台序列化
 ```cpp
-template<Portable T>
+template<Serializable T>
 void safe_binary_write(std::ostream& os, const T& obj) {
     os.write(reinterpret_cast<const char*>(&obj), sizeof(T));
 }
