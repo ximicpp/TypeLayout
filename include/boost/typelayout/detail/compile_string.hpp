@@ -12,6 +12,7 @@
 
 #include <boost/typelayout/detail/config.hpp>
 #include <string_view>
+#include <ostream>
 
 namespace boost {
 namespace typelayout {
@@ -147,6 +148,12 @@ namespace typelayout {
         constexpr operator const char*() const { return data; }
     };
     template<size_t N> fixed_string(const char (&)[N]) -> fixed_string<N>;
+
+    // Stream output operator for CompileString
+    template<size_t N>
+    std::ostream& operator<<(std::ostream& os, const CompileString<N>& str) {
+        return os << str.c_str();
+    }
 
 } // namespace typelayout
 } // namespace boost
