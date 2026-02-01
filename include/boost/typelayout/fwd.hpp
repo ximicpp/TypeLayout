@@ -63,9 +63,14 @@ namespace typelayout {
     template <typename T1, typename T2>
     [[nodiscard]] consteval bool verifications_match() noexcept;
 
-    // Portability checking
+    // Serialization safety checking
     template <typename T>
-    [[nodiscard]] consteval bool is_portable() noexcept;
+    [[nodiscard]] consteval bool is_trivially_serializable() noexcept;
+
+    /// @deprecated Use is_trivially_serializable<T>() instead
+    template <typename T>
+    [[nodiscard]] [[deprecated("Use is_trivially_serializable<T>() instead")]]
+    consteval bool is_portable() noexcept;
 
     template <typename T>
     [[nodiscard]] consteval bool has_bitfields() noexcept;

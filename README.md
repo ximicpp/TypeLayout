@@ -47,8 +47,8 @@ constexpr auto sig = get_layout_signature<Point>();
 // Compile-time layout verification
 TYPELAYOUT_BIND(Point, "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}");
 
-// Portability checking
-static_assert(is_portable<Point>());
+// Serialization safety checking
+static_assert(is_trivially_serializable<Point>());
 
 // Template constraints using concepts
 template<typename T>
@@ -187,14 +187,16 @@ The Docker image includes:
 | `get_layout_hash<T>()` | Get 64-bit FNV-1a hash of layout signature |
 | `get_layout_verification<T>()` | Get dual-hash verification (FNV-1a + DJB2 + length) |
 | `signatures_match<T1, T2>()` | Check if two types have identical layout signatures |
-| `is_portable<T>()` | Check if type is portable across platforms |
+| `is_trivially_serializable<T>()` | Check if type can be safely memcpy'd across processes |
+| `is_portable<T>()` | *(deprecated)* Use `is_trivially_serializable<T>()` instead |
 | `has_bitfields<T>()` | Check if type contains bit-fields |
 
 ### Concepts
 
 | Concept | Description |
 |---------|-------------|
-| `Portable<T>` | Type contains no platform-dependent members |
+| `TriviallySerializable<T>` | Type can be safely memcpy'd across process boundaries |
+| `Portable<T>` | *(deprecated)* Use `TriviallySerializable<T>` instead |
 | `LayoutCompatible<T, U>` | Two types have identical memory layouts |
 | `LayoutMatch<T, Sig>` | Type layout matches expected signature string |
 | `LayoutHashMatch<T, Hash>` | Type layout hash matches expected value |
@@ -227,7 +229,7 @@ TYPELAYOUT_BIND(NetworkHeader,
 
 ```cpp
 template<typename T>
-    requires Portable<T>
+    requires TriviallySerializable<T>
 void safe_binary_write(std::ostream& os, const T& obj) {
     os.write(reinterpret_cast<const char*>(&obj), sizeof(T));
 }

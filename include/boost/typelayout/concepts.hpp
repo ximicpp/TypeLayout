@@ -20,9 +20,15 @@ namespace typelayout {
     // Type Concepts
     // =========================================================================
 
-    /// Type contains no platform-dependent members
+    /// Type can be trivially serialized via memcpy and transmitted across
+    /// process boundaries (no pointers, references, bit-fields, etc.)
     template<typename T>
-    concept Portable = is_portable<T>();
+    concept TriviallySerializable = is_trivially_serializable<T>();
+
+    /// @deprecated Use TriviallySerializable instead
+    template<typename T>
+    concept Portable [[deprecated("Use TriviallySerializable instead")]] = 
+        is_trivially_serializable<T>();
 
     /// Two types have compatible memory layouts
     template<typename T, typename U>
@@ -46,7 +52,7 @@ namespace typelayout {
 
     /// Type can be safely transmitted as raw bytes (zero-copy network/IPC)
     /// Requirements:
-    ///   1. Portable: No platform-dependent members (pointers, long, etc.)
+    ///   1. TriviallySerializable: No pointers, references, bit-fields, etc.
     ///   2. Trivially Copyable: Safe to memcpy
     ///   3. Standard Layout: Predictable memory layout
     ///
@@ -56,7 +62,7 @@ namespace typelayout {
     ///   - Binary file formats
     template<typename T>
     concept ZeroCopyTransmittable = 
-        Portable<T> && 
+        TriviallySerializable<T> && 
         std::is_trivially_copyable_v<T> &&
         std::is_standard_layout_v<T>;
 

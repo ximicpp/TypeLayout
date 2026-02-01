@@ -1,4 +1,4 @@
-// Test for is_portable() fix - verifies pointers and references are excluded
+// Test for is_trivially_serializable() - verifies pointers and references are excluded
 #include <boost/typelayout.hpp>
 #include <iostream>
 
@@ -10,24 +10,28 @@ struct BadPointer { int* ptr; };
 struct NestedBadPointer { GoodType good; int* bad; };
 
 int main() {
-    std::cout << "=== Portability Check Fix Verification ===\n\n";
+    std::cout << "=== Trivial Serialization Check Verification ===\n\n";
     
-    std::cout << "is_portable<int>() = " << is_portable<int>() << " (expected: 1)\n";
-    std::cout << "is_portable<int*>() = " << is_portable<int*>() << " (expected: 0)\n";
-    std::cout << "is_portable<void*>() = " << is_portable<void*>() << " (expected: 0)\n";
-    std::cout << "is_portable<nullptr_t>() = " << is_portable<std::nullptr_t>() << " (expected: 0)\n";
-    std::cout << "is_portable<GoodType>() = " << is_portable<GoodType>() << " (expected: 1)\n";
-    std::cout << "is_portable<BadPointer>() = " << is_portable<BadPointer>() << " (expected: 0)\n";
-    std::cout << "is_portable<NestedBadPointer>() = " << is_portable<NestedBadPointer>() << " (expected: 0)\n";
+    std::cout << "is_trivially_serializable<int>() = " << is_trivially_serializable<int>() << " (expected: 1)\n";
+    std::cout << "is_trivially_serializable<int*>() = " << is_trivially_serializable<int*>() << " (expected: 0)\n";
+    std::cout << "is_trivially_serializable<void*>() = " << is_trivially_serializable<void*>() << " (expected: 0)\n";
+    std::cout << "is_trivially_serializable<nullptr_t>() = " << is_trivially_serializable<std::nullptr_t>() << " (expected: 0)\n";
+    std::cout << "is_trivially_serializable<GoodType>() = " << is_trivially_serializable<GoodType>() << " (expected: 1)\n";
+    std::cout << "is_trivially_serializable<BadPointer>() = " << is_trivially_serializable<BadPointer>() << " (expected: 0)\n";
+    std::cout << "is_trivially_serializable<NestedBadPointer>() = " << is_trivially_serializable<NestedBadPointer>() << " (expected: 0)\n";
     
-    // Static assertions - these will fail to compile if is_portable is wrong
-    static_assert(is_portable<int>() == true, "int should be portable");
-    static_assert(is_portable<int*>() == false, "int* should NOT be portable");
-    static_assert(is_portable<void*>() == false, "void* should NOT be portable");
-    static_assert(is_portable<std::nullptr_t>() == false, "nullptr_t should NOT be portable");
-    static_assert(is_portable<GoodType>() == true, "GoodType should be portable");
-    static_assert(is_portable<BadPointer>() == false, "BadPointer should NOT be portable");
-    static_assert(is_portable<NestedBadPointer>() == false, "NestedBadPointer should NOT be portable");
+    // Static assertions - these will fail to compile if is_trivially_serializable is wrong
+    static_assert(is_trivially_serializable<int>() == true, "int should be serializable");
+    static_assert(is_trivially_serializable<int*>() == false, "int* should NOT be serializable");
+    static_assert(is_trivially_serializable<void*>() == false, "void* should NOT be serializable");
+    static_assert(is_trivially_serializable<std::nullptr_t>() == false, "nullptr_t should NOT be serializable");
+    static_assert(is_trivially_serializable<GoodType>() == true, "GoodType should be serializable");
+    static_assert(is_trivially_serializable<BadPointer>() == false, "BadPointer should NOT be serializable");
+    static_assert(is_trivially_serializable<NestedBadPointer>() == false, "NestedBadPointer should NOT be serializable");
+    
+    // Test concepts
+    static_assert(TriviallySerializable<GoodType>, "GoodType should satisfy TriviallySerializable");
+    static_assert(!TriviallySerializable<BadPointer>, "BadPointer should not satisfy TriviallySerializable");
     
     std::cout << "\n✅ All static_assert passed!\n";
     return 0;
