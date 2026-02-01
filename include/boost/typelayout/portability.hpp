@@ -158,16 +158,36 @@ namespace typelayout {
         return (check_base_portable<T, Indices>() && ...);
     }
 
-    /// Check if a type is portable (no platform-dependent members, no bit-fields)
+    /// Check if a type is portable (no platform-dependent members, no bit-fields,
+    /// no pointers, no references)
     /// Recursively checks nested structs AND base classes
     /// Bit-fields are NOT portable: layout is implementation-defined (C++11 §9.6)
+    /// Pointers are NOT portable: different address spaces across processes
+    /// References are NOT portable: cannot be serialized/transmitted
     template <typename T>
     [[nodiscard]] consteval bool is_portable() noexcept {
+        // References are NEVER portable (check before removing cv/ref)
+        if constexpr (std::is_reference_v<T>) {
+            return false;
+        }
+        
         // Strip CV qualifiers
         using CleanT = std::remove_cv_t<T>;
         
+        // Pointers are NEVER portable (different address spaces)
+        if constexpr (std::is_pointer_v<CleanT>) {
+            return false;
+        }
+        // Member pointers are also not portable
+        else if constexpr (std::is_member_pointer_v<CleanT>) {
+            return false;
+        }
+        // Null pointer type is not portable
+        else if constexpr (std::is_null_pointer_v<CleanT>) {
+            return false;
+        }
         // Check if it's a platform-dependent primitive
-        if constexpr (is_platform_dependent_v<CleanT>) {
+        else if constexpr (is_platform_dependent_v<CleanT>) {
             return false;
         }
         // Check arrays recursively
