@@ -1,0 +1,214 @@
+= Runtime Verification
+:toc: left
+:toclevels: 3
+:source-highlighter: highlight.js
+
+== Overview
+
+While TypeLayout primarily focuses on compile-time verification, its APIs are fully usable at runtime for verifying data from external sources like network packets, files, or shared memory.
+
+The key insight is that `constexpr` values can be used at runtime:
+
+[source,cpp]
+----
+// This is constexpr, but the value can be used at runtime
+constexpr uint64_t hash = get_layout_hash<MyStruct>();
+
+// Runtime comparison
+if (received_hash == hash) {
+    // Safe to interpret data as MyStruct
+}
+----
+
+== Use Cases
+
+=== Network Protocol Verification
+
+When receiving data over the network, you can verify that the sender's data layout matches your local type definition.
+
+[source,cpp]
+----
+struct PacketHeader {
+    uint32_t magic;
+    uint64_t payload_hash;  // Layout hash embedded by sender
+    uint32_t payload_size;
+};
+
+// Sender embeds hash
+void send_data(const MyPayload& data) {
+    PacketHeader hdr;
+    hdr.payload_hash = get_layout_hash<MyPayload>();  // Embed hash
+    // ... send header + data
+}
+
+// Receiver verifies hash
+bool receive_data(const void* packet, MyPayload& out) {
+    auto* hdr = static_cast<const PacketHeader*>(packet);
+    
+    // Runtime verification!
+    if (hdr->payload_hash != get_layout_hash<MyPayload>()) {
+        return false;  // Layout mismatch
+    }
+    
+    // Safe to interpret
+    // ...
+}
+----
+
+=== File Format Verification
+
+Embed layout hashes in file headers to detect format changes between save and load:
+
+[source,cpp]
+----
+struct FileHeader {
+    char magic[4];
+    uint64_t data_hash;  // Layout hash of data structure
+    uint32_t data_size;
+};
+
+bool save_file(const char* path, const SaveData& data) {
+    FileHeader hdr;
+    hdr.data_hash = get_layout_hash<SaveData>();  // Embed hash
+    hdr.data_size = sizeof(SaveData);
+    // ... write to file
+}
+
+bool load_file(const char* path, SaveData& out) {
+    FileHeader hdr;
+    // ... read header
+    
+    if (hdr.data_hash != get_layout_hash<SaveData>()) {
+        // File was saved with a different layout version!
+        return false;
+    }
+    // ... read data
+}
+----
+
+=== Shared Memory Verification
+
+Ensure shared memory structures match between producer and consumer processes:
+
+[source,cpp]
+----
+struct SharedMemoryHeader {
+    uint64_t layout_hash;
+    uint32_t producer_pid;
+};
+
+// Producer
+void init_shared_memory(void* shm) {
+    auto* hdr = static_cast<SharedMemoryHeader*>(shm);
+    hdr->layout_hash = get_layout_hash<SharedData>();
+    hdr->producer_pid = getpid();
+}
+
+// Consumer
+bool attach_shared_memory(void* shm) {
+    auto* hdr = static_cast<const SharedMemoryHeader*>(shm);
+    return hdr->layout_hash == get_layout_hash<SharedData>();
+}
+----
+
+== Best Practices
+
+=== 1. Use Hash for Runtime, Signature for Debugging
+
+[source,cpp]
+----
+// For runtime comparison, use hash (fast, compact)
+constexpr uint64_t expected_hash = get_layout_hash<MyType>();
+
+// For debugging mismatches, use signature (readable)
+if (received_hash != expected_hash) {
+    std::cerr << "Expected layout: " << get_layout_signature<MyType>() << "\n";
+}
+----
+
+=== 2. Include Size as Additional Check
+
+[source,cpp]
+----
+struct VerificationHeader {
+    uint64_t layout_hash;
+    uint32_t data_size;  // Additional safety check
+};
+
+bool verify(const VerificationHeader& hdr) {
+    return hdr.layout_hash == get_layout_hash<MyData>()
+        && hdr.data_size == sizeof(MyData);
+}
+----
+
+=== 3. Use Dual-Hash for High Security
+
+[source,cpp]
+----
+// For security-critical applications
+struct SecureHeader {
+    uint64_t fnv1a_hash;
+    uint64_t djb2_hash;
+    uint32_t signature_length;
+};
+
+bool secure_verify(const SecureHeader& hdr) {
+    auto ver = get_layout_verification<MyData>();
+    return hdr.fnv1a_hash == ver.fnv1a
+        && hdr.djb2_hash == ver.djb2
+        && hdr.signature_length == ver.length;
+}
+----
+
+=== 4. Handle Version Mismatches Gracefully
+
+[source,cpp]
+----
+enum class VerifyResult {
+    OK,
+    LAYOUT_MISMATCH,
+    SIZE_MISMATCH,
+    VERSION_TOO_OLD,
+    VERSION_TOO_NEW
+};
+
+VerifyResult verify_and_migrate(const FileHeader& hdr) {
+    if (hdr.data_hash == get_layout_hash<DataV2>()) {
+        return VerifyResult::OK;  // Current version
+    }
+    if (hdr.data_hash == get_layout_hash<DataV1>()) {
+        return VerifyResult::VERSION_TOO_OLD;  // Can migrate
+    }
+    return VerifyResult::LAYOUT_MISMATCH;  // Unknown version
+}
+----
+
+== Example Code
+
+Complete examples are available in the `example/` directory:
+
+* `network_protocol.cpp` - Network packet verification demo
+* `file_format.cpp` - File format verification demo
+
+== API Reference
+
+|===
+| Function | Return Type | Use Case
+
+| `get_layout_hash<T>()`
+| `constexpr uint64_t`
+| Fast runtime comparison
+
+| `get_layout_signature<T>()`
+| `constexpr fixed_string`
+| Debugging, human-readable
+
+| `get_layout_verification<T>()`
+| `constexpr LayoutVerification`
+| High-security dual-hash
+|===
+
+== See Also
+
+* xref:hash-verification.adoc[Hash Verification]
+* xref:portability.adoc[Cross-Platform Portability]

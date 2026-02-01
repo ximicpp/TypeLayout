@@ -20,6 +20,7 @@ Boost.TypeLayout is a header-only C++26 library that provides compile-time memor
 | **Platform Detection** | Architecture and endianness encoded in signatures |
 | **Portability Analysis** | Identify non-portable types at compile time |
 | **Dual-Hash Verification** | FNV-1a + DJB2 for ~2^128 collision resistance |
+| **Runtime Verification** | Hash values usable for network/file data verification |
 | **C++20 Concepts** | `Portable`, `LayoutCompatible`, `LayoutMatch` constraints |
 | **Zero Runtime Cost** | All analysis happens at compile time |
 
@@ -172,6 +173,21 @@ template<typename T>
 T* map_shared_memory(const char* name) {
     // Safe to map - layout verified at compile time
     return static_cast<T*>(shm_open_and_map(name));
+}
+```
+
+### Runtime Verification (Network/File)
+
+```cpp
+// Embed hash in packet header
+struct PacketHeader {
+    uint64_t payload_hash;  // get_layout_hash<Payload>()
+    uint32_t payload_size;
+};
+
+// Verify at runtime
+bool verify_packet(const PacketHeader& hdr) {
+    return hdr.payload_hash == get_layout_hash<Payload>();
 }
 ```
 

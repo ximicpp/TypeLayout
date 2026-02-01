@@ -9,6 +9,7 @@
 * xref:user-guide/portability.adoc[Portability]
 * xref:user-guide/concepts.adoc[Concepts]
 * xref:user-guide/hash-verification.adoc[Hash Verification]
+* xref:user-guide/runtime-verification.adoc[Runtime Verification]
 * xref:user-guide/inheritance.adoc[Inheritance]
 * xref:user-guide/bitfields.adoc[Bit-fields]
 

@@ -71,7 +71,15 @@ if(BOOST_TYPELAYOUT_BUILD_EXAMPLES)
     add_executable(demo example/demo.cpp)
     target_link_libraries(demo PRIVATE typelayout)
     
-    message(STATUS "  Examples: Enabled")
+    # Network protocol verification example
+    add_executable(network_protocol_example example/network_protocol.cpp)
+    target_link_libraries(network_protocol_example PRIVATE typelayout)
+    
+    # File format verification example
+    add_executable(file_format_example example/file_format.cpp)
+    target_link_libraries(file_format_example PRIVATE typelayout)
+    
+    message(STATUS "  Examples: Enabled (demo, network_protocol, file_format)")
 else()
     message(STATUS "  Examples: Disabled")
 endif()
