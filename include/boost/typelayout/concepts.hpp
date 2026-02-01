@@ -40,6 +40,31 @@ namespace typelayout {
     template<typename T, typename U>
     concept LayoutHashCompatible = hashes_match<T, U>();
 
+    // =========================================================================
+    // Zero-Copy Transmission Concepts
+    // =========================================================================
+
+    /// Type can be safely transmitted as raw bytes (zero-copy network/IPC)
+    /// Requirements:
+    ///   1. Portable: No platform-dependent members (pointers, long, etc.)
+    ///   2. Trivially Copyable: Safe to memcpy
+    ///   3. Standard Layout: Predictable memory layout
+    ///
+    /// Use cases:
+    ///   - Zero-copy network protocols (alternative to Protobuf/Cap'n Proto)
+    ///   - Shared memory IPC
+    ///   - Binary file formats
+    template<typename T>
+    concept ZeroCopyTransmittable = 
+        Portable<T> && 
+        std::is_trivially_copyable_v<T> &&
+        std::is_standard_layout_v<T>;
+
+    /// Type can be safely shared across process boundaries
+    /// Same as ZeroCopyTransmittable, but explicitly named for IPC use cases
+    template<typename T>
+    concept SharedMemorySafe = ZeroCopyTransmittable<T>;
+
 } // namespace typelayout
 } // namespace boost
 

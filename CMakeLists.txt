@@ -79,7 +79,15 @@ if(BOOST_TYPELAYOUT_BUILD_EXAMPLES)
     add_executable(file_format_example example/file_format.cpp)
     target_link_libraries(file_format_example PRIVATE typelayout)
     
-    message(STATUS "  Examples: Enabled (demo, network_protocol, file_format)")
+    # Killer App #1-A: Shared Memory Demo
+    add_executable(shared_memory_demo example/shared_memory_demo.cpp)
+    target_link_libraries(shared_memory_demo PRIVATE typelayout)
+    
+    # Killer App #1-B: Zero-Copy Network Protocol Demo
+    add_executable(zero_copy_network_demo example/zero_copy_network_demo.cpp)
+    target_link_libraries(zero_copy_network_demo PRIVATE typelayout)
+    
+    message(STATUS "  Examples: Enabled (demo, network_protocol, file_format, shared_memory, zero_copy)")
 else()
     message(STATUS "  Examples: Disabled")
 endif()

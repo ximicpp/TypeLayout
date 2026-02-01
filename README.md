@@ -6,11 +6,19 @@
 [![C++ Standard](https://img.shields.io/badge/C%2B%2B-26-blue.svg)](https://en.cppreference.com/w/cpp/26)
 [![Header Only](https://img.shields.io/badge/Header-only-green.svg)]()
 
-> **C++26 Compile-Time Memory Layout Analysis using Static Reflection (P2996)**
+> **Native C++ Structs as Zero-Overhead Data Protocols — No IDL, No Codegen, Automatic Layout Verification**
 
 ## Overview
 
 Boost.TypeLayout is a header-only C++26 library that provides compile-time memory layout analysis and verification using static reflection (P2996). It generates human-readable signatures that uniquely identify type memory layouts, enabling robust binary interface verification and ABI compatibility checking.
+
+### 🎯 Killer Applications
+
+| Application | Description | Comparison |
+|-------------|-------------|------------|
+| **🥇 Shared Memory IPC** | Zero-overhead layout verification for cross-process data sharing | vs Boost.Interprocess (no auto-verification) |
+| **🥇 Zero-Copy Network** | IDL-free wire protocol with automatic version detection | vs Protobuf/Cap'n Proto (no IDL, no codegen) |
+| **🥈 Binary File Formats** | Automatic compatibility checking for save files/caches | vs Manual versioning (auto-detection) |
 
 ### Key Features
 
@@ -132,6 +140,8 @@ The Docker image includes:
 | `LayoutCompatible<T, U>` | Two types have identical memory layouts |
 | `LayoutMatch<T, Sig>` | Type layout matches expected signature string |
 | `LayoutHashMatch<T, Hash>` | Type layout hash matches expected value |
+| `ZeroCopyTransmittable<T>` | Type safe for zero-copy network/IPC transmission |
+| `SharedMemorySafe<T>` | Type safe for cross-process shared memory |
 
 ### Macros
 
@@ -252,6 +262,29 @@ Contributions are welcome! Please ensure:
 ## License
 
 Distributed under the [Boost Software License, Version 1.0](LICENSE).
+
+## Comparison with Alternatives
+
+### vs Protobuf / FlatBuffers / Cap'n Proto
+
+| Feature | Protobuf | FlatBuffers | Cap'n Proto | **TypeLayout** |
+|---------|----------|-------------|-------------|----------------|
+| Encode overhead | High | Low | **Zero** | **Zero** |
+| Decode overhead | High | Low | **Zero** | **Zero** |
+| Requires IDL | ✅ .proto | ✅ .fbs | ✅ .capnp | **❌ Native C++** |
+| Code generation | ✅ protoc | ✅ flatc | ✅ capnp | **❌ None** |
+| Auto layout detection | ❌ | ❌ | ❌ | **✅ Automatic** |
+| Learning curve | Medium | Medium | High | **Low** |
+
+**TypeLayout positioning**: *"Cap'n Proto performance + No IDL convenience + Automatic layout verification"*
+
+### vs Manual Versioning
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| Manual version numbers | Simple | Forget to update; can't detect field reorder |
+| Type name comparison | Easy | Can't detect internal changes |
+| **TypeLayout hash** | **Automatic, detects all changes** | **Requires C++26** |
 
 ## Related Work
 
