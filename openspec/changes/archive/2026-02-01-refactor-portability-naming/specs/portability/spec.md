@@ -1,4 +1,6 @@
-## MODIFIED Requirements
+# Portability Specification
+
+## ADDED Requirements
 
 ### Requirement: Serialization Safety Check
 
@@ -28,8 +30,6 @@ A type is trivially serializable if and only if:
 #### Scenario: Pure data struct is serializable
 - **WHEN** checking `is_trivially_serializable<PureDataStruct>()`
 - **THEN** the result is `true`
-
-## ADDED Requirements
 
 ### Requirement: Deprecated Alias for Backward Compatibility
 
