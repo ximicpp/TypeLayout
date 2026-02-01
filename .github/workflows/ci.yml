@@ -94,7 +94,7 @@ jobs:
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_CXX_COMPILER=clang++ \
-            -DCMAKE_CXX_FLAGS="-std=c++26 -freflection -stdlib=libc++" \
+            -DCMAKE_CXX_FLAGS="-std=c++26 -freflection -freflection-latest -stdlib=libc++" \
             -DBUILD_TESTING=ON
 
       - name: Build
@@ -142,7 +142,7 @@ jobs:
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_CXX_COMPILER=clang++ \
-            -DCMAKE_CXX_FLAGS="-std=c++26 -freflection -stdlib=libc++" \
+            -DCMAKE_CXX_FLAGS="-std=c++26 -freflection -freflection-latest -stdlib=libc++" \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
           # Run clang-tidy on public headers
@@ -205,7 +205,7 @@ jobs:
         run: |
           echo '#include <boost/typelayout.hpp>' > /tmp/test_include.cpp
           echo 'int main() { return 0; }' >> /tmp/test_include.cpp
-          clang++ -std=c++26 -freflection -stdlib=libc++ \
+          clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ \
             -I./include \
             -c /tmp/test_include.cpp -o /tmp/test_include.o
           echo "Single header inclusion works!"
@@ -220,7 +220,7 @@ jobs:
           echo 'void bar() { auto s = boost::typelayout::get_layout_signature<int>(); }' >> /tmp/tu2.cpp
           echo 'int main() { return 0; }' >> /tmp/tu2.cpp
           
-          clang++ -std=c++26 -freflection -stdlib=libc++ -I./include \
+          clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ -I./include \
             /tmp/tu1.cpp /tmp/tu2.cpp -o /tmp/odr_test
           echo "No ODR violations detected!"
 
