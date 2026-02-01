@@ -33,9 +33,7 @@ The library SHALL clearly define its core use cases and design decisions SHALL b
 
 ### High Priority
 
-| ID | Issue | Affected Use Cases | Status |
-|----|-------|-------------------|--------|
-| H1 | No runtime verification API for network/file data | Network, File I/O | Open |
+*No open issues*
 
 ### Medium Priority
 
@@ -44,6 +42,14 @@ The library SHALL clearly define its core use cases and design decisions SHALL b
 ### Low Priority
 
 *No open issues*
+
+## Documentation Enhancements
+
+| ID | Enhancement | Priority |
+|----|-------------|----------|
+| D1 | Add network protocol verification examples | Medium |
+| D2 | Add file format verification examples | Medium |
+| D3 | Add best practices guide for runtime scenarios | Medium |
 
 ## Design Decisions
 
@@ -112,3 +118,27 @@ Library provides both single-hash and dual-hash verification APIs.
 - Dual-hash is optional, not mandatory
 - No API complexity: simple use cases use simple API
 - Security-sensitive domains (finance, medical) benefit from higher collision resistance
+
+### Runtime Verification (Resolved - Already Supported)
+Initial concern: No runtime verification API for network/file data.
+
+**Analysis**:
+- `get_layout_hash<T>()` returns `constexpr uint64_t` which IS usable at runtime
+- Hash can be embedded in data structures, files, or network packets
+- Receiver compares embedded hash with local `get_layout_hash<T>()`
+
+**Example - Network Protocol**:
+```cpp
+struct Packet { uint64_t layout_hash; char payload[]; };
+// Sender: pkt.layout_hash = get_layout_hash<Payload>();
+// Receiver: if (pkt.layout_hash == get_layout_hash<Payload>()) { /* safe */ }
+```
+
+**Example - File Format**:
+```cpp
+struct FileHeader { char magic[4]; uint64_t layout_hash; };
+// Write: hdr.layout_hash = get_layout_hash<MyData>();
+// Read: if (hdr.layout_hash == get_layout_hash<MyData>()) { /* compatible */ }
+```
+
+**Conclusion**: API already supports runtime verification. Need documentation examples (see D1, D2, D3).
