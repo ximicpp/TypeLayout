@@ -59,16 +59,33 @@ namespace typelayout {
     // Field Signature Generation
     // =========================================================================
 
+    // Helper to generate field name or anonymous placeholder
+    // For anonymous members (e.g., anonymous unions/structs), uses <anon:Index>
+    template<std::meta::info Member, std::size_t Index>
+    static consteval auto get_member_name() noexcept {
+        using namespace std::meta;
+        if constexpr (has_identifier(Member)) {
+            // Named member: use actual identifier
+            constexpr std::string_view name = identifier_of(Member);
+            constexpr size_t NameLen = name.size() + 1;
+            return CompileString<NameLen>(name);
+        } else {
+            // Anonymous member: use placeholder <anon:Index>
+            return CompileString{"<anon:"} +
+                   CompileString<16>::from_number(Index) +
+                   CompileString{">"};
+        }
+    }
+
     // Build signature for a single field (includes field name for readability)
     // Supports bit-fields with bit offset and width
+    // Supports anonymous members with <anon:Index> placeholder
     template<typename T, std::size_t Index>
     static consteval auto get_field_signature() noexcept {
         using namespace std::meta;
         constexpr auto member = nonstatic_data_members_of(^^T, access_context::unchecked())[Index];
         
         using FieldType = [:type_of(member):];
-        constexpr std::string_view name = identifier_of(member);
-        constexpr size_t NameLen = name.size() + 1;
 
         // Check if this is a bit-field
         if constexpr (is_bit_field(member)) {
@@ -84,7 +101,7 @@ namespace typelayout {
                    CompileString{"."} +
                    CompileString<32>::from_number(bit_offset) +
                    CompileString{"["} +
-                   CompileString<NameLen>(name) +
+                   get_member_name<member, Index>() +
                    CompileString{"]:bits<"} +
                    CompileString<32>::from_number(bit_width) +
                    CompileString{","} +
@@ -97,7 +114,7 @@ namespace typelayout {
             return CompileString{"@"} +
                    CompileString<32>::from_number(offset) +
                    CompileString{"["} +
-                   CompileString<NameLen>(name) +
+                   get_member_name<member, Index>() +
                    CompileString{"]:"} +
                    TypeSignature<FieldType>::calculate();
         }

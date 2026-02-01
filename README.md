@@ -177,6 +177,53 @@ The Docker image includes:
 - CMake, Ninja build system
 - libc++ standard library
 
+## Supported Types
+
+TypeLayout provides comprehensive layout signature support for virtually all C++ types:
+
+### Fully Supported Types
+
+| Category | Types | Signature Examples |
+|----------|-------|-------------------|
+| **Integer Types** | `int8_t`, `int16_t`, `int32_t`, `int64_t`, `uint*_t` | `i32[s:4,a:4]`, `u64[s:8,a:8]` |
+| **Floating Types** | `float`, `double`, `long double` | `f32[s:4,a:4]`, `f64[s:8,a:8]` |
+| **Character Types** | `char`, `wchar_t`, `char8_t`, `char16_t`, `char32_t` | `char[s:1,a:1]` |
+| **Boolean/Special** | `bool`, `std::byte`, `std::nullptr_t` | `bool[s:1,a:1]` |
+| **Pointer Types** | `T*`, `T**`, `void*`, `const T*` | `ptr[s:8,a:8]` |
+| **Function Pointers** | `R(*)(Args...)`, `noexcept` variants | `fnptr[s:8,a:8]` |
+| **References** | `T&`, `T&&` | `ref[s:8,a:8]`, `rref[s:8,a:8]` |
+| **Member Pointers** | `T C::*`, `R (C::*)(Args...)` | `memptr[s:8,a:8]` |
+| **Arrays** | `T[N]`, `T[M][N]` | `array[s:40,a:4]<i32,10>` |
+| **Structs/Classes** | POD, nested, with pointers | `struct[s:8,a:4]{@0[x]:i32,...}` |
+| **Inheritance** | Single, multiple, virtual | `class[inherited]{...}` |
+| **Polymorphic** | Classes with virtual functions | `class[polymorphic]{...}` |
+| **Unions** | Standard unions | `union[s:4,a:4]` |
+| **Enums** | `enum`, `enum class` with underlying types | `enum[s:4,a:4]<u32>` |
+| **Bit-fields** | With precise bit offset | `bits<4,u32>` at `@0.0` |
+| **Smart Pointers** | `unique_ptr`, `shared_ptr`, `weak_ptr` | `unique_ptr[s:8,a:8]` |
+| **std::tuple** | With full internal layout | Complete field details |
+| **Template Types** | User-defined templates, nested | Full recursive expansion |
+
+### Special Attributes Support
+
+| Attribute | Support | Notes |
+|-----------|---------|-------|
+| `[[no_unique_address]]` | ✅ Full | Empty base optimization detected |
+| `alignas(N)` | ✅ Full | Custom alignment in signature |
+| `__attribute__((packed))` | ✅ Full | Reduced padding detected |
+| CV-qualifiers | ✅ Stripped | `const`/`volatile` don't affect layout |
+
+### Anonymous Member Support
+
+| Type | Status | Signature Example |
+|------|--------|-------------------|
+| Anonymous unions | ✅ Supported | `@4[<anon:1>]:union[s:4,a:4]` |
+| Anonymous structs | ✅ Supported | `@0[<anon:0>]:struct[s:8,a:4]{...}` |
+| `std::optional<T>` | ✅ Supported | Internal anonymous union handled |
+| `std::variant<Ts...>` | ✅ Supported | Internal anonymous members handled |
+
+> **Note**: Anonymous members use `<anon:N>` placeholder naming where `N` is the member index. This provides stable, deterministic signatures for types with anonymous members.
+
 ## API Reference
 
 ### Core Functions

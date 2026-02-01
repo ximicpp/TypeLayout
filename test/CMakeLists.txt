@@ -26,6 +26,18 @@ endfunction()
 add_executable(test_all_types test_all_types.cpp)
 target_compile_options(test_all_types PRIVATE ${TYPELAYOUT_CXX_FLAGS})
 
+# Extended signature tests (no Boost.Test dependency)
+add_executable(test_signature_extended test_signature_extended.cpp)
+target_compile_options(test_signature_extended PRIVATE ${TYPELAYOUT_CXX_FLAGS})
+
+# Comprehensive signature tests (no Boost.Test dependency)
+add_executable(test_signature_comprehensive test_signature_comprehensive.cpp)
+target_compile_options(test_signature_comprehensive PRIVATE ${TYPELAYOUT_CXX_FLAGS})
+
+# Anonymous member tests (no Boost.Test dependency)
+add_executable(test_anonymous_member test_anonymous_member.cpp)
+target_compile_options(test_anonymous_member PRIVATE ${TYPELAYOUT_CXX_FLAGS})
+
 # Unit tests with Boost.Test
 add_typelayout_test(test_primitives)
 add_typelayout_test(test_structs)
