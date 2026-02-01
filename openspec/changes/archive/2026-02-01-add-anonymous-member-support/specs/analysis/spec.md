@@ -47,7 +47,7 @@ The library SHALL successfully generate layout signatures for `std::variant<Ts..
 - **WHEN** calling `get_layout_signature<std::variant<int, float, std::string>>()`
 - **THEN** a valid layout signature is returned including size and alignment
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Field Signature Generation
 The library SHALL generate field signatures for all non-static data members including anonymous members.
