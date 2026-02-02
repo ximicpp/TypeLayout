@@ -38,6 +38,8 @@ on:
 env:
   REGISTRY: ghcr.io
   P2996_IMAGE: ${{ github.repository_owner }}/typelayout-p2996:latest
+  # P2996 toolchain's libc++ is in non-standard path, required for test execution
+  LD_LIBRARY_PATH: /opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu
 
 jobs:
   #==========================================================================
