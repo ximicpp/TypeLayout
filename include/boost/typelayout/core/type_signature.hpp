@@ -13,8 +13,10 @@
 #include <boost/typelayout/core/config.hpp>
 #include <boost/typelayout/core/compile_string.hpp>
 #include <boost/typelayout/core/reflection_helpers.hpp>
+#include <array>
 #include <memory>
 #include <type_traits>
+#include <utility>
 
 namespace boost {
 namespace typelayout {
@@ -535,8 +537,6 @@ namespace typelayout {
 // std::array Specialization
 // =========================================================================
 
-#include <array>
-
 namespace boost {
 namespace typelayout {
 
@@ -561,8 +561,6 @@ namespace typelayout {
 // =========================================================================
 // std::pair Specialization
 // =========================================================================
-
-#include <utility>
 
 namespace boost {
 namespace typelayout {
