@@ -24,6 +24,7 @@
 .Design Rationale
 * xref:design/index.adoc[Overview]
 * xref:design/architecture-analysis.adoc[Architecture Analysis]
+* xref:design/core-completeness.adoc[Core Completeness]
 * xref:design/comparison.adoc[Competitive Comparison]
 * xref:design/performance.adoc[Performance Analysis]
 * xref:design/signature-format.adoc[Signature Format]
