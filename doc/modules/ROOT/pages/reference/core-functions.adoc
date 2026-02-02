@@ -3,6 +3,20 @@
 
 Detailed reference for the core functions in Boost.TypeLayout.
 
+[#exception-safety]
+== Exception Safety
+
+All functions in Boost.TypeLayout are `consteval` or `constexpr` and provide the **nothrow guarantee**:
+
+* No runtime memory allocation
+* No I/O operations
+* No exceptions thrown
+* All errors manifest as compile-time failures
+
+Every public function is implicitly `noexcept`.
+
+'''
+
 [#get_layout_signature]
 == get_layout_signature
 

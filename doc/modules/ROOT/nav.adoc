@@ -15,6 +15,7 @@
 * xref:reference/concepts.adoc[Concepts]
 * xref:reference/macros.adoc[Macros]
 * xref:reference/type-signatures.adoc[Type Signatures]
+* xref:reference/configuration.adoc[Configuration]
 
 .Examples
 * xref:examples/index.adoc[Overview]

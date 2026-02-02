@@ -1,0 +1,156 @@
+= Configuration
+:navtitle: Configuration
+
+Configuration macros and compile-time options for Boost.TypeLayout.
+
+== Overview
+
+Boost.TypeLayout is designed to work out-of-the-box with minimal configuration. However, several macros can be used to customize behavior.
+
+== Configuration Macros
+
+[#TYPELAYOUT_NAMESPACE]
+=== TYPELAYOUT_NAMESPACE
+
+Defines the namespace for TypeLayout types and functions.
+
+[source,cpp]
+----
+#define TYPELAYOUT_NAMESPACE boost::typelayout
+----
+
+**Default**: `boost::typelayout`
+
+**Usage**: Normally not changed. Can be redefined before including headers if integration with a different namespace is required.
+
+'''
+
+[#TYPELAYOUT_BIND]
+=== TYPELAYOUT_BIND
+
+Macro for static assertion of layout signature.
+
+[source,cpp]
+----
+TYPELAYOUT_BIND(Type, ExpectedSignature)
+----
+
+**Parameters**:
+
+* `Type` - The type to verify
+* `ExpectedSignature` - The expected layout signature string
+
+**Behavior**:
+
+* Generates a `static_assert` that fails if the type's layout signature does not match the expected value
+* Compile-time only, zero runtime overhead
+
+**Example**:
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+
+struct Point {
+    int32_t x;
+    int32_t y;
+};
+
+// Fails compilation if layout changes
+TYPELAYOUT_BIND(Point, 
+    "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}");
+----
+
+'''
+
+== Compiler Requirements
+
+Boost.TypeLayout requires a compiler with C++26 static reflection support (P2996).
+
+**Currently Supported**:
+
+* Bloomberg Clang P2996 fork
+
+**Future Support** (when P2996 is standardized):
+
+* GCC (expected 14+)
+* Clang (expected 19+)
+* MSVC (expected VS 2027+)
+
+== Platform Detection
+
+TypeLayout automatically detects the target platform and includes this information in layout signatures:
+
+[cols="1,2"]
+|===
+| Platform Prefix | Description
+
+| `[64-le]` | 64-bit, little-endian
+| `[64-be]` | 64-bit, big-endian
+| `[32-le]` | 32-bit, little-endian
+| `[32-be]` | 32-bit, big-endian
+|===
+
+Platform detection is automatic and cannot be overridden.
+
+== Build System Integration
+
+=== CMake
+
+[source,cmake]
+----
+find_package(TypeLayout REQUIRED)
+target_link_libraries(your_target PRIVATE TypeLayout::TypeLayout)
+----
+
+=== Header-Only Usage
+
+Simply include the main header:
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+----
+
+Or for modular inclusion:
+
+[source,cpp]
+----
+#include <boost/typelayout/core/signature.hpp>
+#include <boost/typelayout/core/hash.hpp>
+----
+
+== Docker Environment
+
+For development and testing, use the provided Docker image:
+
+[source,bash]
+----
+docker pull ghcr.io/ximicpp/typelayout-p2996:latest
+docker run -it -v $(pwd):/workspace ghcr.io/ximicpp/typelayout-p2996:latest
+----
+
+The Docker image includes:
+
+* Bloomberg Clang P2996 fork
+* CMake 3.20+
+* Build essentials
+
+== Troubleshooting
+
+=== "Reflection not supported" errors
+
+Ensure you are using a compiler with P2996 support. Standard compilers (GCC, Clang, MSVC) do not yet support C++26 reflection.
+
+=== LD_LIBRARY_PATH issues
+
+When using the P2996 toolchain, ensure library paths are set:
+
+[source,bash]
+----
+export LD_LIBRARY_PATH=/opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu:$LD_LIBRARY_PATH
+----
+
+=== Signature mismatch across platforms
+
+This is expected behavior. Different platforms have different type layouts. Use `get_layout_hash()` for runtime verification when sharing data across platforms.
