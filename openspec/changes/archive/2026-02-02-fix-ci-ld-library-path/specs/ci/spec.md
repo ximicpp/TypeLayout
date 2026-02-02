@@ -1,6 +1,6 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
-### Requirement: Container Runtime Environment
+### Requirement: Container Runtime Library Path
 CI 容器环境 SHALL 配置正确的运行时库搜索路径，确保 P2996 工具链编译的二进制能够找到 `libc++.so.1`。
 
 #### Scenario: CTest 运行测试成功
