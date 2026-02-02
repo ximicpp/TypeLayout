@@ -13,113 +13,10 @@
 #include <boost/typelayout/core/config.hpp>
 #include <boost/typelayout/core/compile_string.hpp>
 #include <boost/typelayout/core/reflection_helpers.hpp>
-#include <array>
-#include <memory>
 #include <type_traits>
-#include <utility>
 
 namespace boost {
 namespace typelayout {
-
-    // =========================================================================
-    // Type Diagnostic Utilities
-    // =========================================================================
-    
-    /**
-     * @brief Type category diagnostic helper
-     * 
-     * Provides human-readable category names for types to aid in error diagnosis.
-     */
-    template <typename T>
-    struct TypeDiagnostic {
-        static constexpr const char* category() noexcept {
-            if constexpr (std::is_void_v<T>)
-                return "void type";
-            else if constexpr (std::is_null_pointer_v<T>)
-                return "nullptr_t";
-            else if constexpr (std::is_integral_v<T>)
-                return "integral type";
-            else if constexpr (std::is_floating_point_v<T>)
-                return "floating-point type";
-            else if constexpr (std::is_array_v<T>)
-                return "array type";
-            else if constexpr (std::is_enum_v<T>)
-                return "enum type";
-            else if constexpr (std::is_union_v<T>)
-                return "union type";
-            else if constexpr (std::is_class_v<T>)
-                return "class/struct type";
-            else if constexpr (std::is_pointer_v<T>)
-                return "pointer type";
-            else if constexpr (std::is_lvalue_reference_v<T>)
-                return "lvalue reference type";
-            else if constexpr (std::is_rvalue_reference_v<T>)
-                return "rvalue reference type";
-            else if constexpr (std::is_member_pointer_v<T>)
-                return "member pointer type";
-            else if constexpr (std::is_function_v<T>)
-                return "function type (not pointer)";
-            else
-                return "unknown type category";
-        }
-        
-        static constexpr bool is_supported() noexcept {
-            // Most standard types are supported
-            if constexpr (std::is_void_v<T>)
-                return false;  // void is not supported
-            else if constexpr (std::is_function_v<T>)
-                return false;  // Function types (not pointers) are not supported
-            else if constexpr (std::is_arithmetic_v<T> || std::is_enum_v<T> || 
-                             std::is_pointer_v<T> || std::is_array_v<T> ||
-                             std::is_class_v<T> || std::is_union_v<T> ||
-                             std::is_reference_v<T> || std::is_member_pointer_v<T>)
-                return true;
-            else
-                return false;
-        }
-        
-        static constexpr const char* suggestion() noexcept {
-            if constexpr (std::is_void_v<T>)
-                return "void types have no layout; consider using void* instead";
-            else if constexpr (std::is_function_v<T>)
-                return "use a function pointer type (e.g., ReturnType(*)(Args...)) instead";
-            else
-                return "this type should be supported; please report a bug";
-        }
-    };
-
-    /**
-     * @brief Static assertion macro with enhanced diagnostics
-     * 
-     * Usage:
-     *   TYPELAYOUT_STATIC_ASSERT_SUPPORTED(MyType, "Custom message");
-     * 
-     * Provides:
-     * - Type category information
-     * - Suggestions for fixing the issue
-     * - Clear indication of what went wrong
-     */
-    #define TYPELAYOUT_STATIC_ASSERT_SUPPORTED(Type, msg) \
-        static_assert(::boost::typelayout::TypeDiagnostic<Type>::is_supported(), \
-            "TypeLayout: Type '" #Type "' is not supported. " msg \
-            " [Category: " /* Note: cannot concatenate constexpr string in macro */ \
-            "See TypeDiagnostic<Type>::category() for details]")
-
-    /**
-     * @brief Check if a type is supported at compile time
-     * 
-     * Usage:
-     *   if constexpr (is_layout_supported_v<T>) { ... }
-     */
-    template <typename T>
-    inline constexpr bool is_layout_supported_v = TypeDiagnostic<T>::is_supported();
-
-    /**
-     * @brief Concept for types supported by TypeLayout
-     */
-    template <typename T>
-    concept LayoutSupported = is_layout_supported_v<T>;
-
 
     // =========================================================================
     // Fixed-width Integer Types
@@ -152,7 +49,7 @@ namespace typelayout {
     #endif
     
     // On Windows LLP64, long is 4 bytes (different from int64_t which is long long)
-    // On Linux LP64, long is 8 bytes and same as int64_t
+    // On Linux/macOS LP64, long is 8 bytes and same as int64_t
     #if defined(_WIN32) || defined(_WIN64)
     // Windows: long is 4 bytes, separate from int32_t (which is also 4 bytes but different type)
     template <> struct TypeSignature<long> { 
@@ -163,6 +60,18 @@ namespace typelayout {
     template <> struct TypeSignature<unsigned long> { 
         static consteval auto calculate() noexcept { 
             return CompileString{"u32[s:4,a:4]"};  // LLP64 (Windows)
+        } 
+    };
+    #elif defined(__APPLE__)
+    // macOS: long is 8 bytes (LP64), but int64_t is long long, so we need separate specializations
+    template <> struct TypeSignature<long> { 
+        static consteval auto calculate() noexcept { 
+            return CompileString{"i64[s:8,a:8]"};  // LP64 (macOS)
+        } 
+    };
+    template <> struct TypeSignature<unsigned long> { 
+        static consteval auto calculate() noexcept { 
+            return CompileString{"u64[s:8,a:8]"};  // LP64 (macOS)
         } 
     };
     #endif
@@ -481,199 +390,13 @@ namespace typelayout {
                 static_assert(always_false<T>::value, 
                     "TypeLayout Error: This type is not supported for layout signature generation. "
                     "Supported types include: arithmetic types, pointers, references, arrays, "
-                    "enums, unions, and standard layout class/struct types. "
-                    "Use TypeDiagnostic<T>::category() for more information about your type.");
+                    "enums, unions, and standard layout class/struct types.");
                 return CompileString{""};
             }
         }
     };
 
-    // =========================================================================
-    // Smart Pointer Specializations
-    // =========================================================================
-
-    // std::unique_ptr - treat as pointer
-    template <typename T, typename Deleter>
-    struct TypeSignature<std::unique_ptr<T, Deleter>> {
-        static consteval auto calculate() noexcept {
-            return CompileString{"unique_ptr[s:"} +
-                   CompileString<32>::from_number(sizeof(std::unique_ptr<T, Deleter>)) +
-                   CompileString{",a:"} +
-                   CompileString<32>::from_number(alignof(std::unique_ptr<T, Deleter>)) +
-                   CompileString{"]"};
-        }
-    };
-
-    // std::shared_ptr - treat as pointer
-    template <typename T>
-    struct TypeSignature<std::shared_ptr<T>> {
-        static consteval auto calculate() noexcept {
-            return CompileString{"shared_ptr[s:"} +
-                   CompileString<32>::from_number(sizeof(std::shared_ptr<T>)) +
-                   CompileString{",a:"} +
-                   CompileString<32>::from_number(alignof(std::shared_ptr<T>)) +
-                   CompileString{"]"};
-        }
-    };
-
-    // std::weak_ptr - treat as pointer
-    template <typename T>
-    struct TypeSignature<std::weak_ptr<T>> {
-        static consteval auto calculate() noexcept {
-            return CompileString{"weak_ptr[s:"} +
-                   CompileString<32>::from_number(sizeof(std::weak_ptr<T>)) +
-                   CompileString{",a:"} +
-                   CompileString<32>::from_number(alignof(std::weak_ptr<T>)) +
-                   CompileString{"]"};
-        }
-    };
-
 } // namespace typelayout
 } // namespace boost
-
-// =========================================================================
-// std::array Specialization
-// =========================================================================
-
-namespace boost {
-namespace typelayout {
-
-    template <typename T, std::size_t N>
-    struct TypeSignature<std::array<T, N>> {
-        static consteval auto calculate() noexcept {
-            return CompileString{"std_array[s:"} +
-                   CompileString<32>::from_number(sizeof(std::array<T, N>)) +
-                   CompileString{",a:"} +
-                   CompileString<32>::from_number(alignof(std::array<T, N>)) +
-                   CompileString{"]<"} +
-                   TypeSignature<T>::calculate() +
-                   CompileString{","} +
-                   CompileString<32>::from_number(N) +
-                   CompileString{">"};
-        }
-    };
-
-} // namespace typelayout
-} // namespace boost
-
-// =========================================================================
-// std::pair Specialization
-// =========================================================================
-
-namespace boost {
-namespace typelayout {
-
-    template <typename T1, typename T2>
-    struct TypeSignature<std::pair<T1, T2>> {
-        static consteval auto calculate() noexcept {
-            return CompileString{"pair[s:"} +
-                   CompileString<32>::from_number(sizeof(std::pair<T1, T2>)) +
-                   CompileString{",a:"} +
-                   CompileString<32>::from_number(alignof(std::pair<T1, T2>)) +
-                   CompileString{"]{"} +
-                   TypeSignature<T1>::calculate() +
-                   CompileString{","} +
-                   TypeSignature<T2>::calculate() +
-                   CompileString{"}"};
-        }
-    };
-
-} // namespace typelayout
-} // namespace boost
-
-// =========================================================================
-// std::span Specialization (C++20)
-// =========================================================================
-
-#if __cplusplus >= 202002L && __has_include(<span>)
-#include <span>
-
-namespace boost {
-namespace typelayout {
-
-    // Static extent span
-    template <typename T, std::size_t Extent>
-    struct TypeSignature<std::span<T, Extent>> {
-        static consteval auto calculate() noexcept {
-            if constexpr (Extent == std::dynamic_extent) {
-                // Dynamic extent: pointer + size
-                return CompileString{"span[s:"} +
-                       CompileString<32>::from_number(sizeof(std::span<T, Extent>)) +
-                       CompileString{",a:"} +
-                       CompileString<32>::from_number(alignof(std::span<T, Extent>)) +
-                       CompileString{",dynamic]<"} +
-                       TypeSignature<T>::calculate() +
-                       CompileString{">"};
-            } else {
-                // Static extent
-                return CompileString{"span[s:"} +
-                       CompileString<32>::from_number(sizeof(std::span<T, Extent>)) +
-                       CompileString{",a:"} +
-                       CompileString<32>::from_number(alignof(std::span<T, Extent>)) +
-                       CompileString{"]<"} +
-                       TypeSignature<T>::calculate() +
-                       CompileString{","} +
-                       CompileString<32>::from_number(Extent) +
-                       CompileString{">"};
-            }
-        }
-    };
-
-} // namespace typelayout
-} // namespace boost
-
-#endif // C++20 span
-
-// =========================================================================
-// std::atomic Specializations (must be in separate section to include <atomic>)
-// =========================================================================
-
-#include <atomic>
-
-namespace boost {
-namespace typelayout {
-
-    // std::atomic<T> - provides explicit signature to avoid reflecting internal
-    // implementation details (which vary between libc++ and libstdc++)
-    template <typename T>
-    struct TypeSignature<std::atomic<T>> {
-        static consteval auto calculate() noexcept {
-            return CompileString{"atomic[s:"} +
-                   CompileString<32>::from_number(sizeof(std::atomic<T>)) +
-                   CompileString{",a:"} +
-                   CompileString<32>::from_number(alignof(std::atomic<T>)) +
-                   CompileString{"]<"} +
-                   TypeSignature<T>::calculate() +
-                   CompileString{">"};
-        }
-    };
-
-} // namespace typelayout
-} // namespace boost
-
-// =========================================================================
-// Boost.Interprocess offset_ptr specialization (if header included)
-// =========================================================================
-
-#ifdef BOOST_INTERPROCESS_OFFSET_PTR_HPP
-
-namespace boost {
-namespace typelayout {
-
-    template <typename T, typename DifferenceType, typename OffsetType, std::size_t Alignment>
-    struct TypeSignature<boost::interprocess::offset_ptr<T, DifferenceType, OffsetType, Alignment>> {
-        static consteval auto calculate() noexcept {
-            return CompileString{"offset_ptr[s:"} +
-                   CompileString<32>::from_number(sizeof(boost::interprocess::offset_ptr<T, DifferenceType, OffsetType, Alignment>)) +
-                   CompileString{",a:"} +
-                   CompileString<32>::from_number(alignof(boost::interprocess::offset_ptr<T, DifferenceType, OffsetType, Alignment>)) +
-                   CompileString{"]"};
-        }
-    };
-
-} // namespace typelayout
-} // namespace boost
-
-#endif // BOOST_INTERPROCESS_OFFSET_PTR_HPP
 
 #endif // BOOST_TYPELAYOUT_CORE_TYPE_SIGNATURE_HPP

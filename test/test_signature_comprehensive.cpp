@@ -353,14 +353,6 @@ void test_bitfields() {
     std::cout << "[INFO] BitFieldStruct signature: " << sig.c_str() << std::endl;
 }
 
-void test_smart_pointers() {
-    TEST_SECTION("Smart Pointers");
-    
-    TEST_SIGNATURE_SIZE_ALIGN(std::unique_ptr<int>);
-    TEST_SIGNATURE_SIZE_ALIGN(std::shared_ptr<int>);
-    TEST_SIGNATURE_SIZE_ALIGN(std::weak_ptr<int>);
-}
-
 void test_std_optional() {
     TEST_SECTION("std::optional");
     
@@ -507,7 +499,6 @@ int main() {
     test_bitfields();
     
     // Section 5: Standard Library Types
-    test_smart_pointers();
     test_std_optional();
     test_std_variant();
     test_std_tuple();

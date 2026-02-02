@@ -26,6 +26,26 @@ namespace typelayout {
     // =========================================================================
 
     /**
+     * @brief Concept: Type has determinable memory layout.
+     * 
+     * Satisfied when type T can have its layout signature computed at compile-time.
+     * This is true for most types except: void, function types, incomplete types.
+     * 
+     * @tparam T The type to check
+     * 
+     * @par Example:
+     * @code
+     * template<typename T>
+     *     requires LayoutSupported<T>
+     * void serialize(const T& value);
+     * @endcode
+     */
+    template<typename T>
+    concept LayoutSupported = requires {
+        { get_layout_signature<T>() };
+    };
+
+    /**
      * @brief Concept: Two types have compatible memory layouts.
      * 
      * Satisfied when types T and U have identical layout signatures.
