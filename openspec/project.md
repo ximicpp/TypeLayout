@@ -256,15 +256,24 @@ cd /mnt/g/workspace/TypeLayout
 # 拉取预构建的 P2996 镜像
 docker pull ghcr.io/ximicpp/typelayout-p2996:latest
 
-# 构建和测试
-docker run --rm -v $(pwd):/workspace -w /workspace \
+# 构建和测试（需要设置 LD_LIBRARY_PATH 以找到 libc++）
+docker run --rm \
+    -v $(pwd):/src:ro \
+    -w /tmp/build \
+    -e LD_LIBRARY_PATH=/opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu \
     ghcr.io/ximicpp/typelayout-p2996:latest \
-    bash -c "cmake -B build -G Ninja && cmake --build build && ctest --test-dir build --output-on-failure"
+    bash -c "cp -r /src/* . && cmake -B build -G Ninja && cmake --build build && cd build && ctest --output-on-failure"
 
 # 交互式开发
-docker run -it --rm -v $(pwd):/workspace -w /workspace \
+docker run -it --rm \
+    -v $(pwd):/workspace -w /workspace \
+    -e LD_LIBRARY_PATH=/opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu \
     ghcr.io/ximicpp/typelayout-p2996:latest
 ```
+
+**重要说明**:
+- **LD_LIBRARY_PATH**: P2996 工具链的 `libc++.so.1` 位于非标准路径，必须设置此环境变量
+- **只读挂载 + 拷贝**: 使用 `-v $(pwd):/src:ro` 只读挂载，然后拷贝到 `/tmp/build`，避免 Windows/Linux 路径混淆导致的 CMake 缓存问题
 
 ### 方式 2: 本地 Docker 构建 (Windows/Linux/macOS)
 
@@ -362,6 +371,14 @@ docker run -it --rm -v $(pwd):/workspace -w /workspace \
 
 **问题**: 编译错误 "unknown argument: '-freflection'"
 - **解决**: 确保使用 P2996 Docker 镜像，而非标准 Clang
+
+**问题**: 测试运行时错误 "libc++.so.1: cannot open shared object file"
+- **原因**: P2996 工具链的 libc++ 安装在 `/opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu/`，不在标准库搜索路径中
+- **解决**: 启动 Docker 时必须设置 `-e LD_LIBRARY_PATH=/opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu`
+
+**问题**: CMake 报错 "binary dir was already configured"
+- **原因**: 在 Docker 容器内使用主机创建的 `build/` 目录，路径不匹配
+- **解决**: 使用只读挂载 + 拷贝策略（见方式 1 命令），或先删除 `build/` 目录
 
 ## Implementation Details
 
