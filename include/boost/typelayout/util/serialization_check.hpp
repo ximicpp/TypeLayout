@@ -403,23 +403,107 @@ consteval auto make_serialization_status() noexcept {
 // Public API (Utility)
 // =========================================================================
 
-/// Check if type T is serializable for platform set P
+/**
+ * @defgroup serialization_api Serialization API
+ * @brief Compile-time serialization safety validation utilities.
+ * @{
+ */
+
+/**
+ * @brief Check if type T is safely serializable for a target platform.
+ * 
+ * A type is serializable if it can be safely copied using memcpy for
+ * cross-platform binary serialization. Types are NOT serializable if they:
+ * - Contain raw pointers (address-dependent)
+ * - Contain references
+ * - Contain virtual functions (vtable pointer)
+ * - Contain std::variant or std::optional (runtime state)
+ * 
+ * @tparam T The type to check
+ * @tparam P Target platform set (defaults to current platform)
+ * @return true if serializable, false otherwise
+ * 
+ * @par Example:
+ * @code
+ * struct Point { int x; int y; };           // Serializable
+ * struct Node { int val; Node* next; };     // NOT serializable (pointer)
+ * 
+ * static_assert(is_serializable_v<Point>);
+ * static_assert(!is_serializable_v<Node>);
+ * @endcode
+ */
 template <typename T, PlatformSet P = PlatformSet::current()>
 inline constexpr bool is_serializable_v = detail::is_serializable_impl_v<T, P>;
 
-/// Get the serialization blocker for type T
+/**
+ * @brief Get the reason why a type is not serializable.
+ * 
+ * Returns a SerializationBlocker enum indicating why the type
+ * cannot be safely serialized. If the type IS serializable,
+ * returns SerializationBlocker::None.
+ * 
+ * @tparam T The type to check
+ * @tparam P Target platform set
+ * @return SerializationBlocker enum value
+ * 
+ * @par Example:
+ * @code
+ * struct Node { int val; Node* next; };
+ * 
+ * constexpr auto reason = serialization_blocker_v<Node>;
+ * // reason == SerializationBlocker::ContainsPointer
+ * @endcode
+ */
 template <typename T, PlatformSet P = PlatformSet::current()>
 inline constexpr SerializationBlocker serialization_blocker_v = 
     detail::is_serializable<T, P>::blocker;
 
-/// Generate serialization status string (NOT a full layout signature)
-/// Returns status like "[64-le]serial" or "[64-le]!serial:ptr"
+/**
+ * @brief Generate a serialization status string for diagnostics.
+ * 
+ * Returns a compile-time string indicating serialization status.
+ * Format: "[BITS-ENDIAN]serial" or "[BITS-ENDIAN]!serial:reason"
+ * 
+ * @tparam T The type to check
+ * @tparam P Target platform set
+ * @return CompileString with status information
+ * 
+ * @par Example:
+ * @code
+ * struct Point { int x; int y; };
+ * constexpr auto status = serialization_status<Point>();
+ * // Result: "[64-le]serial"
+ * 
+ * struct Node { int val; Node* next; };
+ * constexpr auto node_status = serialization_status<Node>();
+ * // Result: "[64-le]!serial:ptr"
+ * @endcode
+ */
 template <typename T, PlatformSet P = PlatformSet::current()>
 consteval auto serialization_status() noexcept {
     return detail::make_serialization_status<T, P>();
 }
 
-/// Check serialization compatibility between two types for platform set P
+/**
+ * @brief Check if two types are serialization-compatible.
+ * 
+ * Two types are serialization-compatible if:
+ * 1. Both are serializable
+ * 2. Both have the same size and alignment
+ * 
+ * @tparam T First type
+ * @tparam U Second type  
+ * @tparam P Target platform set
+ * @return true if compatible, false otherwise
+ * 
+ * @par Example:
+ * @code
+ * struct LocalPoint { int x; int y; };
+ * struct NetworkPoint { int x; int y; };
+ * 
+ * static_assert(check_serialization_compatible<LocalPoint, NetworkPoint>());
+ * @endcode
+ */
 template <typename T, typename U, PlatformSet P = PlatformSet::current()>
 consteval bool check_serialization_compatible() noexcept {
     if constexpr (!is_serializable_v<T, P> || !is_serializable_v<U, P>) {
@@ -428,15 +512,39 @@ consteval bool check_serialization_compatible() noexcept {
     return sizeof(T) == sizeof(U) && alignof(T) == alignof(U);
 }
 
-/// Check if a type contains any bit-fields (utility function)
+/**
+ * @brief Check if a type contains any bit-fields.
+ * 
+ * Recursively inspects the type and all nested types to detect
+ * bit-field members. Useful for understanding layout complexity.
+ * 
+ * @tparam T The type to check
+ * @return true if type contains bit-fields, false otherwise
+ * 
+ * @note Bit-field types ARE serializable in TypeLayout (signature-driven model).
+ * 
+ * @par Example:
+ * @code
+ * struct Flags { unsigned a : 1; unsigned b : 2; };
+ * struct Normal { int x; int y; };
+ * 
+ * static_assert(has_bitfields<Flags>());
+ * static_assert(!has_bitfields<Normal>());
+ * @endcode
+ */
 template <typename T>
 consteval bool has_bitfields() noexcept {
     return detail::has_any_bitfield<T>();
 }
 
-/// Variable template for has_bitfields
+/**
+ * @brief Variable template for has_bitfields.
+ * @see has_bitfields()
+ */
 template <typename T>
 inline constexpr bool has_bitfields_v = detail::has_any_bitfield<T>();
+
+/** @} */ // end of serialization_api group
 
 } // namespace typelayout
 } // namespace boost

@@ -2,10 +2,10 @@
 
 ### 1. 添加 Doxygen 注释
 - [x] 1.1 为 `signature.hpp` (核心 API) 添加 Doxygen 注释 ✅
-- [ ] 1.2 为 `type_info.hpp` 所有公共函数添加 Doxygen 注释
-- [ ] 1.3 为 `type_descriptor.hpp` 所有公共函数添加 Doxygen 注释
-- [ ] 1.4 为 `serialization.hpp` 所有公共函数添加 Doxygen 注释
-- [ ] 1.5 为 `concepts.hpp` 所有概念添加 Doxygen 注释
+- [x] 1.2 为 `core/concepts.hpp` 所有概念添加 Doxygen 注释 ✅
+- [x] 1.3 为 `util/serialization_check.hpp` 公共 API 添加 Doxygen 注释 ✅
+- [x] 1.4 为 `util/concepts.hpp` 所有概念添加 Doxygen 注释 ✅
+- [ ] 1.5 为其他头文件添加 Doxygen 注释 (可选)
 
 ### 2. 创建 API 参考页面
 - [ ] 2.1 创建 `doc/api/` 目录结构
@@ -22,5 +22,10 @@
 
 ---
 
-**进度**: 核心 API (signature.hpp) 已完成完整的 Doxygen 文档化。
-其余文件可在后续迭代中逐步完成。
+**进度**: 核心公共 API 已完成 Doxygen 文档化：
+- `core/signature.hpp` - 6 个函数
+- `core/concepts.hpp` - 4 个概念  
+- `util/serialization_check.hpp` - 6 个函数/变量
+- `util/concepts.hpp` - 7 个概念
+
+剩余任务为可选优化项。

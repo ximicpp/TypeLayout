@@ -22,33 +22,63 @@
 namespace boost {
 namespace typelayout {
 
+/**
+ * @defgroup serialization_concepts Serialization Concepts
+ * @brief C++20 concepts for serialization safety checking.
+ * @{
+ */
+
 // =========================================================================
 // Serialization Concepts (Utility Layer)
 // =========================================================================
 
-/// Concept: Type is serializable for a given platform set
-/// A type is serializable if it can be safely memcpy'd across process
-/// boundaries on the same platform configuration.
-///
-/// Requirements:
-/// - Must be trivially copyable
-/// - Must not contain pointers or references
-/// - Must not be polymorphic
-/// - Must not contain platform-dependent types (wchar_t, long double)
-/// - Must not have runtime state (std::variant, std::optional)
-/// - All members must recursively meet these requirements
-///
-/// Note: Bit-fields are ALLOWED - the signature includes bit positions,
-/// and signature comparison will detect any layout incompatibilities.
+/**
+ * @brief Concept: Type is serializable for a given platform set.
+ * 
+ * A type satisfies this concept if it can be safely memcpy'd across 
+ * process boundaries on the same platform configuration.
+ * 
+ * @tparam T The type to check
+ * @tparam P Target platform set (default: current platform)
+ * 
+ * @par Requirements:
+ * - Must be trivially copyable
+ * - Must not contain pointers or references
+ * - Must not be polymorphic (no virtual functions)
+ * - Must not contain platform-dependent types (wchar_t, long double)
+ * - Must not have runtime state (std::variant, std::optional)
+ * - All members must recursively meet these requirements
+ * 
+ * @note Bit-fields are ALLOWED - the signature includes bit positions,
+ * and signature comparison will detect any layout incompatibilities.
+ * 
+ * @par Example:
+ * @code
+ * template<Serializable T>
+ * void send(const T& data);
+ * 
+ * struct Point { int x; int y; };
+ * send(Point{10, 20}); // OK
+ * @endcode
+ */
 template <typename T, PlatformSet P = PlatformSet::current()>
 concept Serializable = is_serializable_v<T, P>;
 
-/// Concept: Type is serializable for 64-bit little-endian platforms
-/// Convenience alias for the most common server platform configuration.
+/**
+ * @brief Concept: Type is serializable for 64-bit little-endian platforms.
+ * 
+ * Convenience alias for the most common server platform (x86-64, ARM64 LE).
+ * 
+ * @tparam T The type to check
+ */
 template <typename T>
 concept Serializable64LE = Serializable<T, PlatformSet::bits64_le()>;
 
-/// Concept: Type is serializable for 32-bit little-endian platforms
+/**
+ * @brief Concept: Type is serializable for 32-bit little-endian platforms.
+ * 
+ * @tparam T The type to check
+ */
 template <typename T>
 concept Serializable32LE = Serializable<T, PlatformSet::bits32_le()>;
 
