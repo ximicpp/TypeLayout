@@ -281,7 +281,7 @@ PlatformSet::current()    // Current build platform
 #### Example
 
 ```cpp
-#include <boost/typelayout/signature.hpp>
+#include <boost/typelayout/typelayout_util.hpp>
 using namespace boost::typelayout;
 
 struct Message {
@@ -393,7 +393,8 @@ typelayout/
 │       │   ├── platform_set.hpp # PlatformSet, SerializationBlocker
 │       │   ├── serialization_check.hpp
 │       │   └── concepts.hpp     # Serializable, ZeroCopyTransmittable
-│       └── detail/              # Deprecated compatibility headers
+│       ├── fwd.hpp              # Forward declarations
+│       └── compat.hpp           # Cross-platform compatibility tools
 ├── test/
 │   └── test_all_types.cpp       # Comprehensive tests
 ├── example/
