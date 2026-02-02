@@ -76,17 +76,12 @@ if(BOOST_TYPELAYOUT_BUILD_TESTS)
     add_executable(test_anonymous_member test/test_anonymous_member.cpp)
     target_link_libraries(test_anonymous_member PRIVATE typelayout)
     
-    # Serialization signature tests (Layer 2)
-    add_executable(test_serialization_signature test/test_serialization_signature.cpp)
-    target_link_libraries(test_serialization_signature PRIVATE typelayout)
-    
     # Register tests with CTest
     # For static_assert tests, successful compilation = test passed
     add_test(NAME test_all_types COMMAND test_all_types)
     add_test(NAME test_signature_extended COMMAND test_signature_extended)
     add_test(NAME test_signature_comprehensive COMMAND test_signature_comprehensive)
     add_test(NAME test_anonymous_member COMMAND test_anonymous_member)
-    add_test(NAME test_serialization_signature COMMAND test_serialization_signature)
     
     # Set test properties
     set_tests_properties(
@@ -94,7 +89,6 @@ if(BOOST_TYPELAYOUT_BUILD_TESTS)
         test_signature_extended
         test_signature_comprehensive
         test_anonymous_member
-        test_serialization_signature
         PROPERTIES
             TIMEOUT 60
             LABELS "core"
@@ -107,15 +101,7 @@ endif()
 
 # Examples
 if(BOOST_TYPELAYOUT_BUILD_EXAMPLES)
-    # Core Layer Demo (pure layout reasoning)
-    add_executable(core_demo example/core_demo.cpp)
-    target_link_libraries(core_demo PRIVATE typelayout)
-    
-    # Utility Layer Demo (serialization safety)
-    add_executable(util_demo example/util_demo.cpp)
-    target_link_libraries(util_demo PRIVATE typelayout)
-    
-    # Basic demo (legacy)
+    # Basic demo
     add_executable(demo example/demo.cpp)
     target_link_libraries(demo PRIVATE typelayout)
     
@@ -127,15 +113,11 @@ if(BOOST_TYPELAYOUT_BUILD_EXAMPLES)
     add_executable(file_format_example example/file_format.cpp)
     target_link_libraries(file_format_example PRIVATE typelayout)
     
-    # Killer App #1-A: Shared Memory Demo
+    # Shared Memory Demo
     add_executable(shared_memory_demo example/shared_memory_demo.cpp)
     target_link_libraries(shared_memory_demo PRIVATE typelayout)
     
-    # Killer App #1-B: Zero-Copy Network Protocol Demo
-    add_executable(zero_copy_network_demo example/zero_copy_network_demo.cpp)
-    target_link_libraries(zero_copy_network_demo PRIVATE typelayout)
-    
-    message(STATUS "  Examples: Enabled (demo, network_protocol, file_format, shared_memory, zero_copy)")
+    message(STATUS "  Examples: Enabled (demo, network_protocol, file_format, shared_memory)")
 else()
     message(STATUS "  Examples: Disabled")
 endif()

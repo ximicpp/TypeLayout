@@ -14,7 +14,7 @@
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
-#include <boost/typelayout/typelayout_all.hpp>
+#include <boost/typelayout/typelayout.hpp>
 #include <iostream>
 #include <cstring>
 #include <cstdint>
@@ -36,10 +36,9 @@ struct GameState {
     uint64_t timestamp;
 };
 
-// Compile-time verification that GameState is safe for shared memory
-static_assert(SharedMemorySafe<GameState>, 
-    "GameState must be safe for shared memory");
-// Note: SharedMemorySafe already ensures zero-copy safety on current platform
+// GameState is layout-supported (can compute signatures/hashes)
+static_assert(LayoutSupported<GameState>,
+    "GameState must have determinable layout");
 
 // =============================================================================
 // Shared Memory Region Template
@@ -86,7 +85,7 @@ alignas(64) static char g_simulated_shm[4096];
 
 /// Simulate creating shared memory (producer process)
 template<typename T>
-    requires SharedMemorySafe<T>
+    requires LayoutSupported<T>
 SharedMemoryHeader<T>* create_shared_memory(const char* name) {
     std::cout << "[Producer] Creating shared memory: " << name << "\n";
     std::cout << "[Producer] Data type layout hash: 0x" 
@@ -101,7 +100,7 @@ SharedMemoryHeader<T>* create_shared_memory(const char* name) {
 
 /// Simulate attaching to shared memory (consumer process)
 template<typename T>
-    requires SharedMemorySafe<T>
+    requires LayoutSupported<T>
 SharedMemoryHeader<T>* attach_shared_memory(const char* name) {
     std::cout << "[Consumer] Attaching to shared memory: " << name << "\n";
     std::cout << "[Consumer] Expected layout hash: 0x" 
@@ -176,8 +175,8 @@ struct GameStateV2 {
     int32_t level;  // New field added
 };
 
-static_assert(SharedMemorySafe<GameStateV2>,
-    "GameStateV2 must be safe for shared memory");
+static_assert(LayoutSupported<GameStateV2>,
+    "GameStateV2 must have determinable layout");
 
 void demo_mismatch() {
     std::cout << "\n=== Demo: Layout Mismatch Detection ===\n\n";

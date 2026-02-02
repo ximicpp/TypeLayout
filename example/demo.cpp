@@ -1,11 +1,10 @@
 // demo.cpp - typelayout usage examples
 //
-// This demo uses the complete library (core + utility).
-// For core-only or utility-only demos, see core_demo.cpp and util_demo.cpp.
+// This demo showcases the core layout signature features.
 
 #include <iostream>
 #include <cstdint>
-#include <boost/typelayout/typelayout_all.hpp>  // All features
+#include <boost/typelayout/typelayout.hpp>
 
 using namespace boost::typelayout;
 
@@ -26,10 +25,6 @@ TYPELAYOUT_BIND(Player, "[64-le]struct[s:56,a:8]{@0[id]:u64[s:8,a:8],@8[name]:by
 // Layout compatibility check
 struct Vec2 { int32_t x, y; };
 static_assert(signatures_match<Point, Vec2>(), "Point and Vec2 must have same layout");
-
-// Serializability checks (replaces deprecated is_portable)
-static_assert(Serializable<Point>, "Point must be serializable");
-static_assert(Serializable<Player>, "Player must be serializable");
 
 // Template constraint using layout signature (includes platform prefix)
 template<typename T>

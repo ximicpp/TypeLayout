@@ -6,31 +6,30 @@
 [![C++ Standard](https://img.shields.io/badge/C%2B%2B-26-blue.svg)](https://en.cppreference.com/w/cpp/26)
 [![Header Only](https://img.shields.io/badge/Header-only-green.svg)]()
 
-> **Native C++ Structs as Zero-Overhead Data Protocols — No IDL, No Codegen, Automatic Layout Verification**
+> **Compile-Time Memory Layout Signatures via P2996 Static Reflection**
 
 ## Overview
 
-Boost.TypeLayout is a header-only C++26 library that provides compile-time memory layout analysis and verification using static reflection (P2996). It generates human-readable signatures that uniquely identify type memory layouts, enabling robust binary interface verification and ABI compatibility checking.
+Boost.TypeLayout is a focused, header-only C++26 library that provides **compile-time memory layout analysis** using static reflection (P2996). It generates human-readable signatures that uniquely identify type memory layouts, enabling robust binary interface verification and ABI compatibility checking.
 
-### 🎯 Killer Applications
+### 🎯 Core Capabilities
 
-| Application | Description | Comparison |
-|-------------|-------------|------------|
-| **🥇 Shared Memory IPC** | Zero-overhead layout verification for cross-process data sharing | vs Boost.Interprocess (no auto-verification) |
-| **🥇 Zero-Copy Network** | IDL-free wire protocol with automatic version detection | vs Protobuf/Cap'n Proto (no IDL, no codegen) |
-| **🥈 Binary File Formats** | Automatic compatibility checking for save files/caches | vs Manual versioning (auto-detection) |
-
-### Key Features
-
-| Feature | Description |
-|---------|-------------|
+| Capability | Description |
+|------------|-------------|
 | **Layout Signatures** | Automatic compile-time generation of portable layout descriptions |
-| **Platform Detection** | Architecture and endianness encoded in signatures |
-| **Portability Analysis** | Identify non-portable types at compile time |
+| **Platform Encoding** | Architecture (32/64-bit) and endianness encoded in signatures |
 | **Dual-Hash Verification** | FNV-1a + DJB2 for ~2^128 collision resistance |
-| **Runtime Verification** | Hash values usable for network/file data verification |
-| **C++20 Concepts** | `Serializable`, `LayoutCompatible`, `LayoutMatch` constraints |
 | **Zero Runtime Cost** | All analysis happens at compile time |
+| **C++20 Concepts** | `LayoutSupported`, `LayoutCompatible`, `LayoutMatch` constraints |
+
+### Use Cases
+
+| Application | Description |
+|-------------|-------------|
+| **Shared Memory IPC** | Layout verification for cross-process data sharing |
+| **Zero-Copy Network** | IDL-free wire protocol with automatic version detection |
+| **Binary File Formats** | Automatic compatibility checking for save files/caches |
+| **ABI Verification** | Compile-time detection of struct layout changes |
 
 ## Quick Start
 
@@ -47,8 +46,8 @@ constexpr auto sig = get_layout_signature<Point>();
 // Compile-time layout verification
 TYPELAYOUT_BIND(Point, "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}");
 
-// Serialization safety checking
-static_assert(Serializable<Point>);
+// Concept constraint for templates
+static_assert(LayoutSupported<Point>);
 
 // Template constraints using concepts
 template<typename T>
@@ -74,64 +73,6 @@ clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ your_code.cpp
 - Little-endian or big-endian (auto-detected)
 - IEEE 754 floating-point required
 
-## CI Cross-Platform Compatibility Check
-
-TypeLayout provides a complete toolset for verifying type layout compatibility across multiple platforms in your CI pipeline.
-
-### Quick Start (2 Steps)
-
-**Step 1: Create configuration file** (`typelayout.config.hpp`)
-
-```cpp
-#include <boost/typelayout/compat.hpp>
-
-struct MyData { int32_t id; float value; };
-struct Packet { uint64_t seq; int32_t data[4]; };
-
-TYPELAYOUT_TYPES(MyData, Packet)
-TYPELAYOUT_PLATFORMS(linux_x64, windows_x64)  // Optional
-```
-
-**Step 2: Add GitHub workflow** (`.github/workflows/compat.yml`)
-
-```yaml
-name: Type Compatibility
-on: [push]
-jobs:
-  check:
-    uses: ximicpp/typelayout/.github/workflows/compat-check.yml@main
-```
-
-### How It Works
-
-1. CI compiles your types on each target platform
-2. Generates layout signatures (hash, size, alignment)
-3. Compares signatures across all platforms
-4. Fails if any type has different layouts
-
-### Example Output
-
-```
-✅ COMPATIBLE TYPES:
-   MyData
-   Packet
-
-❌ INCOMPATIBLE TYPES:
-   BadLongType:
-   │ Platform     │ Hash               │ Size │ Align │
-   │ linux-x64    │ 0x27797f26d671c700 │ 16   │ 8     │
-   │ windows-x64  │ 0x4ef2fe4dace38e00 │ 8    │ 4     │
-```
-
-### Supported Platforms
-
-| Platform | OS | Architecture | Data Model |
-|----------|-----|--------------|------------|
-| `linux_x64` | Linux | x86_64 | LP64 |
-| `linux_arm64` | Linux | AArch64 | LP64 |
-| `windows_x64` | Windows | x86_64 | LLP64 |
-| `macos_arm64` | macOS | ARM64 | LP64 |
-
 ## Building
 
 ### Using CMake
@@ -148,13 +89,7 @@ cmake --build .
 ./demo
 ```
 
-### Using build script
-
-```bash
-./build_and_run.sh
-```
-
-### Using Docker (Recommended for CI/Development)
+### Using Docker (Recommended)
 
 A pre-built Docker image with Bloomberg Clang P2996 is available:
 
@@ -172,11 +107,6 @@ docker run -it --rm -v $(pwd):/workspace -w /workspace \
     ghcr.io/ximicpp/typelayout-p2996:latest
 ```
 
-The Docker image includes:
-- Bloomberg Clang P2996 fork with `-freflection` support
-- CMake, Ninja build system
-- libc++ standard library
-
 ## Supported Types
 
 TypeLayout provides comprehensive layout signature support for virtually all C++ types:
@@ -193,7 +123,7 @@ TypeLayout provides comprehensive layout signature support for virtually all C++
 | **Function Pointers** | `R(*)(Args...)`, `noexcept` variants | `fnptr[s:8,a:8]` |
 | **References** | `T&`, `T&&` | `ref[s:8,a:8]`, `rref[s:8,a:8]` |
 | **Member Pointers** | `T C::*`, `R (C::*)(Args...)` | `memptr[s:8,a:8]` |
-| **Arrays** | `T[N]`, `T[M][N]` | `array[s:40,a:4]<i32,10>` |
+| **Arrays** | `T[N]`, `T[M][N]`, `std::array<T,N>` | `array[s:40,a:4]<i32,10>` |
 | **Structs/Classes** | POD, nested, with pointers | `struct[s:8,a:4]{@0[x]:i32,...}` |
 | **Inheritance** | Single, multiple, virtual | `class[inherited]{...}` |
 | **Polymorphic** | Classes with virtual functions | `class[polymorphic]{...}` |
@@ -201,7 +131,9 @@ TypeLayout provides comprehensive layout signature support for virtually all C++
 | **Enums** | `enum`, `enum class` with underlying types | `enum[s:4,a:4]<u32>` |
 | **Bit-fields** | With precise bit offset | `bits<4,u32>` at `@0.0` |
 | **Smart Pointers** | `unique_ptr`, `shared_ptr`, `weak_ptr` | `unique_ptr[s:8,a:8]` |
-| **std::tuple** | With full internal layout | Complete field details |
+| **STL Containers** | `std::pair`, `std::tuple`, `std::optional`, `std::variant` | Full internal layout |
+| **std::atomic** | All atomic types | `atomic[s:4,a:4]<i32>` |
+| **std::span** | Static and dynamic extent | `span[s:16,a:8,dynamic]<i32>` |
 | **Template Types** | User-defined templates, nested | Full recursive expansion |
 
 ### Special Attributes Support
@@ -222,8 +154,6 @@ TypeLayout provides comprehensive layout signature support for virtually all C++
 | `std::optional<T>` | ✅ Supported | Internal anonymous union handled |
 | `std::variant<Ts...>` | ✅ Supported | Internal anonymous members handled |
 
-> **Note**: Anonymous members use `<anon:N>` placeholder naming where `N` is the member index. This provides stable, deterministic signatures for types with anonymous members.
-
 ## API Reference
 
 ### Core Functions
@@ -234,85 +164,15 @@ TypeLayout provides comprehensive layout signature support for virtually all C++
 | `get_layout_hash<T>()` | Get 64-bit FNV-1a hash of layout signature |
 | `get_layout_verification<T>()` | Get dual-hash verification (FNV-1a + DJB2 + length) |
 | `signatures_match<T1, T2>()` | Check if two types have identical layout signatures |
-| `is_serializable_v<T, P>` | Check if type can be safely serialized for platform set P |
-| `has_bitfields<T>()` | Check if type contains bit-fields |
-
-### Layer 2: Serialization Compatibility (New)
-
-For cross-process or cross-machine data transfer, TypeLayout provides **Layered Signatures**:
-
-| Layer | Purpose | API |
-|-------|---------|-----|
-| **Layer 1: Layout** | Identical memory layout (size, alignment, offsets) | `get_layout_signature<T>()` |
-| **Layer 2: Serialization** | Safe for `memcpy` across platform set | `serialization_status<T, P>()` |
-
-#### Serialization API
-
-| Function | Description |
-|----------|-------------|
-| `is_serializable_v<T, P>` | Check if type is memcpy-safe for platform set P |
-| `serialization_blocker_v<T, P>` | Get reason why type is not serializable |
-| `serialization_status<T, P>()` | Get serialization status string |
-| `check_serialization_compatible<T, U, P>()` | Check if T and U can be safely transmitted |
-
-#### Platform Sets
-
-```cpp
-// Predefined platform sets (by bitwidth + endianness)
-PlatformSet::bits64_le()  // 64-bit little-endian (x64, arm64, etc.)
-PlatformSet::bits64_be()  // 64-bit big-endian
-PlatformSet::bits32_le()  // 32-bit little-endian (x86, arm32, etc.)
-PlatformSet::bits32_be()  // 32-bit big-endian
-PlatformSet::current()    // Current build platform
-```
-
-#### Serialization Blocker Reasons
-
-| Blocker | Meaning |
-|---------|---------|
-| `None` | Type is serializable |
-| `NotTriviallyCopyable` | Type has non-trivial copy |
-| `HasPointer` | Contains pointer member |
-| `HasReference` | Contains reference member |
-| `IsPolymorphic` | Has virtual functions |
-| `HasPlatformDependentSize` | Uses `long` or similar |
-| `PlatformMismatch` | Build platform doesn't match target |
-
-#### Example
-
-```cpp
-#include <boost/typelayout/typelayout_util.hpp>
-using namespace boost::typelayout;
-
-struct Message {
-    int32_t id;
-    float data[8];
-};
-
-// Check for 64-bit little-endian targets
-constexpr auto platform = PlatformSet::bits64_le();
-static_assert(is_serializable_v<Message, platform>, "Must be serializable");
-
-// Get diagnostic status
-constexpr auto sig = serialization_status<Message, platform>();
-// Result: "[64-le]serial" for valid types
-// Result: "[64-le]!serial:ptr" for types with pointers
-
-// Note: 'long' is always rejected for cross-platform serialization
-struct BadData { long value; };  // Different sizes on Windows vs Linux!
-static_assert(!is_serializable_v<BadData, platform>, "long is not serializable");
-```
 
 ### Concepts
 
 | Concept | Description |
 |---------|-------------|
-| `Serializable<T>` | Type can be safely serialized for the current platform |
+| `LayoutSupported<T>` | Type can have its layout analyzed (fundamental check) |
 | `LayoutCompatible<T, U>` | Two types have identical memory layouts |
 | `LayoutMatch<T, Sig>` | Type layout matches expected signature string |
 | `LayoutHashMatch<T, Hash>` | Type layout hash matches expected value |
-| `ZeroCopyTransmittable<T>` | Type safe for zero-copy network/IPC transmission |
-| `SharedMemorySafe<T>` | Type safe for cross-process shared memory |
 
 ### Macros
 
@@ -334,16 +194,6 @@ struct NetworkHeader {
 // Verify ABI compatibility at compile time
 TYPELAYOUT_BIND(NetworkHeader, 
     "[64-le]struct[s:16,a:8]{@0[magic]:u32[s:4,a:4],@4[version]:u32[s:4,a:4],@8[timestamp]:u64[s:8,a:8]}");
-```
-
-### Cross-Platform Serialization
-
-```cpp
-template<typename T>
-    requires Serializable<T>
-void safe_binary_write(std::ostream& os, const T& obj) {
-    os.write(reinterpret_cast<const char*>(&obj), sizeof(T));
-}
 ```
 
 ### Shared Memory Verification
@@ -372,42 +222,49 @@ bool verify_packet(const PacketHeader& hdr) {
 }
 ```
 
+### Zero-Copy Data Transfer
+
+```cpp
+template<LayoutSupported T>
+void send_zero_copy(Socket& sock, const T& data) {
+    // Layout is well-defined and analyzable
+    sock.send(reinterpret_cast<const std::byte*>(&data), sizeof(T));
+}
+```
+
 ## Project Structure
 
 ```
 typelayout/
 ├── include/boost/
-│   ├── typelayout.hpp           # Core layer only (recommended)
+│   ├── typelayout.hpp           # Main entry point
 │   └── typelayout/
-│       ├── typelayout.hpp       # Core layer facade
-│       ├── typelayout_util.hpp  # Utility layer (serialization)
-│       ├── typelayout_all.hpp   # All features combined
-│       ├── core/                # Layer 1: Layout Signature Engine
-│       │   ├── config.hpp       # Compiler detection
-│       │   ├── compile_string.hpp
-│       │   ├── hash.hpp         # FNV-1a hash
-│       │   ├── signature.hpp    # get_layout_signature<T>()
-│       │   ├── verification.hpp # LayoutVerification
-│       │   └── concepts.hpp     # LayoutCompatible, LayoutMatch
-│       ├── util/                # Layer 2: Serialization Utilities
-│       │   ├── platform_set.hpp # PlatformSet, SerializationBlocker
-│       │   ├── serialization_check.hpp
-│       │   └── concepts.hpp     # Serializable, ZeroCopyTransmittable
-│       ├── fwd.hpp              # Forward declarations
-│       └── compat.hpp           # Cross-platform compatibility tools
+│       ├── typelayout.hpp       # Core facade
+│       └── core/                # Layout Signature Engine
+│           ├── config.hpp       # Compiler detection
+│           ├── compile_string.hpp
+│           ├── hash.hpp         # FNV-1a + DJB2 hash
+│           ├── type_signature.hpp # Base type signatures
+│           ├── signature.hpp    # get_layout_signature<T>()
+│           ├── verification.hpp # LayoutVerification
+│           └── concepts.hpp     # LayoutSupported, LayoutCompatible
 ├── test/
-│   └── test_all_types.cpp       # Comprehensive tests
+│   ├── test_all_types.cpp       # Comprehensive tests
+│   ├── test_signature_extended.cpp
+│   ├── test_signature_comprehensive.cpp
+│   └── test_anonymous_member.cpp
 ├── example/
-│   └── demo.cpp                 # Usage examples
+│   ├── demo.cpp                 # Basic usage examples
+│   ├── core_demo.cpp            # Core feature demonstration
+│   ├── network_protocol.cpp     # Network protocol example
+│   ├── file_format.cpp          # File format versioning
+│   ├── shared_memory_demo.cpp   # Shared memory IPC
+│   └── zero_copy_network_demo.cpp # Zero-copy networking
+├── tools/
+│   └── typelayout_tool.cpp      # CLI inspection tool
 ├── doc/                         # Antora documentation
-│   ├── antora.yml               # Antora component config
-│   ├── antora-playbook.yml      # Antora site config
-│   ├── build-docs.sh            # Build script (Linux/macOS)
-│   ├── build-docs.cmd           # Build script (Windows)
-│   └── modules/ROOT/pages/      # Documentation source
 ├── meta/
 │   └── libraries.json           # Boost metadata
-├── build.jam                    # B2 build file
 ├── CMakeLists.txt               # CMake build file
 ├── LICENSE                      # Boost Software License
 └── README.md
@@ -421,20 +278,11 @@ Full documentation is built using [Antora](https://antora.org/) following Boost 
 
 ```bash
 # Linux/macOS
-cd doc
-./build-docs.sh serve
+cd doc && ./build-docs.sh serve
 
 # Windows
-cd doc
-build-docs.cmd serve
+cd doc && build-docs.cmd serve
 ```
-
-### Documentation Contents
-
-- **User Guide** - Layout signatures, type support, portability, concepts
-- **API Reference** - Core functions, concepts, macros, utility classes
-- **Design Rationale** - Signature format, hash algorithms, compile-time design
-- **Examples** - Network protocols, shared memory, serialization
 
 ## Contributing
 

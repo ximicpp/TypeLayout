@@ -1,5 +1,7 @@
-# Build directory
+# Build directories
 build/
+build_wsl/
+build_*/
 
 # IDE files
 .vscode/
@@ -33,4 +35,9 @@ libs/typelayout/
 # Node.js / Antora build
 node_modules/
 package-lock.json
+package.json
 doc/build/
+doc/test/
+
+# Temporary files
+-p/

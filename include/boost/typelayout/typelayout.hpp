@@ -1,15 +1,12 @@
 // Boost.TypeLayout
 //
-// Primary Include Header - Core Layer Only
+// Primary Include Header
 //
-// This header provides the CORE layout signature engine:
+// This header provides the complete layout signature engine:
 // - Compile-time layout signature generation
 // - P2996 static reflection based type introspection
 // - Binary compatibility verification
 // - Layout concepts (LayoutCompatible, LayoutMatch)
-//
-// For serialization utilities, include <boost/typelayout/typelayout_util.hpp>
-// For everything, include <boost/typelayout/typelayout_all.hpp>
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
