@@ -56,6 +56,9 @@ option(BOOST_TYPELAYOUT_BUILD_TESTS "Build test suite" ON)
 option(BOOST_TYPELAYOUT_BUILD_EXAMPLES "Build examples" ON)
 option(BOOST_TYPELAYOUT_BUILD_TOOLS "Build tools" ON)
 
+# Enable CTest for test discovery
+include(CTest)
+
 # Test executable (compile-time static_assert tests)
 if(BOOST_TYPELAYOUT_BUILD_TESTS)
     add_executable(test_all_types test/test_all_types.cpp)
@@ -76,6 +79,26 @@ if(BOOST_TYPELAYOUT_BUILD_TESTS)
     # Serialization signature tests (Layer 2)
     add_executable(test_serialization_signature test/test_serialization_signature.cpp)
     target_link_libraries(test_serialization_signature PRIVATE typelayout)
+    
+    # Register tests with CTest
+    # For static_assert tests, successful compilation = test passed
+    add_test(NAME test_all_types COMMAND test_all_types)
+    add_test(NAME test_signature_extended COMMAND test_signature_extended)
+    add_test(NAME test_signature_comprehensive COMMAND test_signature_comprehensive)
+    add_test(NAME test_anonymous_member COMMAND test_anonymous_member)
+    add_test(NAME test_serialization_signature COMMAND test_serialization_signature)
+    
+    # Set test properties
+    set_tests_properties(
+        test_all_types
+        test_signature_extended
+        test_signature_comprehensive
+        test_anonymous_member
+        test_serialization_signature
+        PROPERTIES
+            TIMEOUT 60
+            LABELS "core"
+    )
     
     message(STATUS "  Tests: Enabled")
 else()
