@@ -1,0 +1,593 @@
+= Architecture Analysis
+:navtitle: Architecture
+:description: Deep dive into Boost.TypeLayout's architecture, design principles, and implementation
+
+== Overview
+
+Boost.TypeLayout is a C++26 header-only library that provides compile-time memory layout analysis and verification using P2996 static reflection. This document provides a comprehensive analysis of the library's functionality, design principles, and implementation details.
+
+== Core Problem Domain
+
+=== The Binary Compatibility Challenge
+
+Binary compatibility bugs are among the most insidious in systems programming. Consider two programs exchanging raw bytes through shared memory or network protocols—both compile successfully, both pass unit tests, yet one reads garbage from the other.
+
+[source,cpp]
+----
+// The silent killer: same struct, different layout
+struct Record {
+    int32_t id;
+    long    timestamp;  // 4 bytes (Windows LLP64) vs 8 bytes (Linux LP64)!
+    int32_t flags;
+};
+// Windows: sizeof = 12, offsets: id@0, timestamp@4, flags@8
+// Linux:   sizeof = 24, offsets: id@0, timestamp@8, flags@16
+// Result: Silent data corruption in cross-platform scenarios
+----
+
+=== Root Causes
+
+[cols="1,2"]
+|===
+| Factor | Impact
+
+| *Platform differences*
+| `long` is 4 bytes on Windows (LLP64), 8 bytes on Linux (LP64)
+
+| *Compiler variations*
+| Different padding and alignment strategies
+
+| *Struct modifications*
+| Adding/removing/reordering fields breaks binary compatibility
+
+| *Bit-field packing*
+| Implementation-defined ordering and alignment
+|===
+
+=== Why Traditional Solutions Fail
+
+[cols="1,2"]
+|===
+| Approach | Limitation
+
+| `static_assert(sizeof(T) == N)`
+| Only checks total size, not internal field layout
+
+| `#pragma pack(1)`
+| Non-portable, impacts performance, doesn't catch all issues
+
+| `offsetof()` macro
+| Manual, per-field verification—tedious and error-prone
+
+| Runtime validation
+| Catches bugs too late—after deployment
+|===
+
+== Design Philosophy
+
+=== Core Guarantee
+
+The fundamental invariant of Boost.TypeLayout:
+
+[source]
+----
+┌─────────────────────────────────────────────────────────────┐
+│                                                             │
+│   Identical Signature  ⟺  Identical Memory Layout           │
+│                                                             │
+│   If two types produce the same signature string,           │
+│   they have bit-for-bit identical memory representation.    │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+----
+
+=== Design Principles
+
+[cols="1,3"]
+|===
+| Principle | Implementation
+
+| *Zero Runtime Overhead*
+| All analysis happens at compile time via `consteval` functions
+
+| *Human Readable*
+| Signatures are strings, not opaque hashes—readable and debuggable
+
+| *Complete Information*
+| Captures field names, offsets, sizes, alignments, inheritance, bit-fields
+
+| *Platform Aware*
+| Includes architecture prefix `[64-le]` / `[32-be]` in signatures
+
+| *Composable*
+| Concepts enable seamless integration with templates and constraints
+|===
+
+== Two-Layer Architecture
+
+Boost.TypeLayout is organized into two distinct layers with clear separation of concerns:
+
+[source]
+----
+┌─────────────────────────────────────────────────────────────┐
+│                    User Application                          │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  Layer 2: Utility (typelayout_util.hpp)              │   │
+│  │  ─────────────────────────────────────────────────   │   │
+│  │  • Serializable<T> concept                           │   │
+│  │  • ZeroCopyTransmittable<T,U> concept                │   │
+│  │  • PlatformSet configuration                         │   │
+│  │  • Serialization safety checking                     │   │
+│  │                                                      │   │
+│  │  Purpose: "Is this type safe to serialize?"          │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                          │                                  │
+│                          ▼                                  │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  Layer 1: Core (typelayout.hpp)                      │   │
+│  │  ─────────────────────────────────────────────────   │   │
+│  │  • get_layout_signature<T>()                         │   │
+│  │  • get_layout_hash<T>()                              │   │
+│  │  • LayoutCompatible<T,U> concept                     │   │
+│  │  • TYPELAYOUT_BIND macro                             │   │
+│  │                                                      │   │
+│  │  Purpose: "What is this type's memory layout?"       │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                          │                                  │
+│                          ▼                                  │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  P2996 Static Reflection (<experimental/meta>)       │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+----
+
+=== Layer 1: Core — Layout Signature Engine
+
+The foundation of the library. Provides pure memory layout analysis with no serialization policy dependencies.
+
+*Header*: `<boost/typelayout.hpp>`
+
+*Key Components*:
+
+[cols="1,2"]
+|===
+| Component | Purpose
+
+| `get_layout_signature<T>()`
+| Generate complete layout signature string
+
+| `get_layout_hash<T>()`
+| 64-bit FNV-1a hash for efficient comparison
+
+| `get_layout_verification<T>()`
+| Dual-hash verification (FNV-1a + DJB2)
+
+| `signatures_match<T, U>()`
+| Check if two types have identical layout
+
+| `LayoutCompatible<T, U>`
+| Concept for template constraints
+
+| `TYPELAYOUT_BIND`
+| Macro for static layout assertions
+|===
+
+=== Layer 2: Utility — Serialization Safety Analysis
+
+Built on top of Core, provides practical serialization utilities.
+
+*Header*: `<boost/typelayout/typelayout_util.hpp>`
+
+*Key Components*:
+
+[cols="1,2"]
+|===
+| Component | Purpose
+
+| `Serializable<T>`
+| Concept: type is safe for binary serialization
+
+| `ZeroCopyTransmittable<T, U>`
+| Concept: types can be safely memcpy'd between each other
+
+| `SharedMemorySafe<T>`
+| Concept: type is safe for cross-process sharing
+
+| `PlatformSet`
+| Configuration for target platforms
+
+| `SerializationBlocker`
+| Enum indicating why a type is not serializable
+|===
+
+=== Why Two Layers?
+
+[cols="1,2"]
+|===
+| Benefit | Explanation
+
+| *Focused Usage*
+| Use Core alone for ABI verification without serialization policy overhead
+
+| *Clean Dependencies*
+| Core has no policy dependencies; Utility builds on Core
+
+| *Extensibility*
+| Users can build custom serialization policies on Core
+
+| *Separation of Concerns*
+| Layout analysis vs. serialization safety are orthogonal concerns
+|===
+
+== P2996 Reflection Mechanism
+
+=== What is P2996?
+
+P2996 is the C++26 Static Reflection proposal that enables compile-time introspection of types. TypeLayout uses these key APIs:
+
+[source,cpp]
+----
+#include <experimental/meta>
+
+// Reflect on a type
+constexpr auto type_mirror = ^^MyStruct;
+
+// Get all non-static data members
+constexpr auto members = std::meta::nonstatic_data_members_of(
+    type_mirror, 
+    std::meta::access_context::unchecked()
+);
+
+// For each member, we can query:
+std::meta::identifier_of(member);      // Field name
+std::meta::type_of(member);            // Field type
+std::meta::offset_of(member).bytes;    // Byte offset
+std::meta::offset_of(member).bits;     // Bit offset (for bit-fields)
+std::meta::is_bit_field(member);       // Is it a bit-field?
+std::meta::bit_size_of(member);        // Bit-field width
+
+// Get base classes
+constexpr auto bases = std::meta::bases_of(type_mirror);
+----
+
+=== How TypeLayout Uses Reflection
+
+[source,cpp]
+----
+template<typename T, std::size_t Index>
+static consteval auto get_field_signature() noexcept {
+    using namespace std::meta;
+    
+    // Get the Index-th member
+    constexpr auto member = nonstatic_data_members_of(
+        ^^T, access_context::unchecked())[Index];
+    
+    // Extract field type using splice syntax
+    using FieldType = [:type_of(member):];
+    
+    // Build signature: @offset[name]:type_signature
+    if constexpr (is_bit_field(member)) {
+        // Handle bit-field: @byte.bit[name]:bits<width,type>
+        constexpr auto bit_off = offset_of(member);
+        return CompileString{"@"} +
+               from_number(bit_off.bytes) + "." + from_number(bit_off.bits) +
+               "[" + identifier_of(member) + "]:bits<" +
+               from_number(bit_size_of(member)) + "," +
+               TypeSignature<FieldType>::calculate() + ">";
+    } else {
+        // Regular field: @offset[name]:type_signature
+        return CompileString{"@"} +
+               from_number(offset_of(member).bytes) +
+               "[" + identifier_of(member) + "]:" +
+               TypeSignature<FieldType>::calculate();
+    }
+}
+----
+
+== Signature Generation Algorithm
+
+=== Signature Format
+
+The signature format is designed to be human-readable and machine-comparable:
+
+[source]
+----
+[ARCH]type[s:SIZE,a:ALIGN]{@OFFSET[name]:type_sig,...}
+
+Example:
+[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}
+----
+
+=== Components Breakdown
+
+[cols="1,2,2"]
+|===
+| Component | Format | Example
+
+| Architecture Prefix
+| `[BITS-ENDIAN]`
+| `[64-le]`, `[32-be]`
+
+| Type Category
+| `struct`, `class`, `union`, `enum`
+| `struct[s:8,a:4]`
+
+| Size/Alignment
+| `[s:N,a:M]`
+| `[s:16,a:8]`
+
+| Field Offset
+| `@N`
+| `@0`, `@8`
+
+| Field Name
+| `[name]`
+| `[x]`, `[timestamp]`
+
+| Type Signature
+| Recursive
+| `i32[s:4,a:4]`, `struct{...}`
+
+| Bit-field
+| `@byte.bit[name]:bits<width,type>`
+| `@4.2[flags]:bits<3,u8[s:1,a:1]>`
+|===
+
+=== Primitive Type Signatures
+
+[cols="1,1"]
+|===
+| Type | Signature
+
+| `int8_t` / `uint8_t`
+| `i8[s:1,a:1]` / `u8[s:1,a:1]`
+
+| `int16_t` / `uint16_t`
+| `i16[s:2,a:2]` / `u16[s:2,a:2]`
+
+| `int32_t` / `uint32_t`
+| `i32[s:4,a:4]` / `u32[s:4,a:4]`
+
+| `int64_t` / `uint64_t`
+| `i64[s:8,a:8]` / `u64[s:8,a:8]`
+
+| `float` / `double`
+| `f32[s:4,a:4]` / `f64[s:8,a:8]`
+
+| `char[N]`
+| `bytes[s:N,a:1]`
+
+| `T[N]`
+| `array[s:S,a:A]<element_sig,N>`
+
+| `T*`
+| `ptr[s:8,a:8]` (on 64-bit)
+
+| `enum`
+| `enum[s:S,a:A]<underlying_sig>`
+|===
+
+=== Recursive Signature Generation
+
+For composite types, signatures are generated recursively:
+
+[source,cpp]
+----
+struct Inner { int32_t a; float b; };
+struct Outer { Inner inner; uint64_t id; };
+
+// Inner signature:
+// struct[s:8,a:4]{@0[a]:i32[s:4,a:4],@4[b]:f32[s:4,a:4]}
+
+// Outer signature (includes nested Inner):
+// [64-le]struct[s:16,a:8]{
+//   @0[inner]:struct[s:8,a:4]{@0[a]:i32[s:4,a:4],@4[b]:f32[s:4,a:4]},
+//   @8[id]:u64[s:8,a:8]
+// }
+----
+
+== Serialization Safety Checking
+
+=== What Makes a Type Non-Serializable?
+
+The Utility layer checks for conditions that make binary serialization unsafe:
+
+[cols="1,2"]
+|===
+| Blocker | Reason
+
+| *Pointers*
+| Address values are meaningless outside the current process
+
+| *References*
+| Implemented as pointers internally
+
+| *Polymorphic types*
+| Virtual table pointers are process-specific
+
+| *Platform-dependent types*
+| `long`, `wchar_t`, `long double` have different sizes across platforms
+
+| *Bit-fields*
+| Bit packing order is implementation-defined
+
+| *Non-trivially copyable*
+| Copy/move semantics may have side effects
+|===
+
+=== Recursive Safety Analysis
+
+The check is performed recursively on all members:
+
+[source,cpp]
+----
+template<typename T, PlatformSet P>
+consteval bool check_serializable() {
+    // Basic checks
+    if (!std::is_trivially_copyable_v<T>) return false;
+    if (std::is_pointer_v<T>) return false;
+    if (std::is_polymorphic_v<T>) return false;
+    
+    // Platform-dependent type check
+    if (is_platform_dependent<T>) return false;
+    
+    // Recursive member check
+    for (auto member : std::meta::nonstatic_data_members_of(^^T)) {
+        using MemberType = [:std::meta::type_of(member):];
+        if (std::meta::is_bit_field(member)) return false;
+        if (!check_serializable<MemberType, P>()) return false;
+    }
+    
+    return true;
+}
+----
+
+== Hash Verification System
+
+=== Why Hashes?
+
+While signatures are human-readable, they can be long. Hashes provide efficient comparison for:
+
+* Runtime protocol headers
+* File format magic numbers
+* Quick equality checks
+
+=== Dual-Hash Verification
+
+TypeLayout uses two independent hash algorithms for collision resistance:
+
+[source,cpp]
+----
+struct LayoutVerification {
+    uint64_t fnv1a;   // FNV-1a 64-bit hash
+    uint64_t djb2;    // DJB2 64-bit hash (independent algorithm)
+    uint32_t length;  // Signature string length
+};
+
+// Combined collision resistance: ~2^128
+// Probability of false match: negligible
+----
+
+=== Hash Algorithms
+
+*FNV-1a*:
+
+[source,cpp]
+----
+consteval uint64_t fnv1a_hash(const char* data, size_t len) {
+    uint64_t hash = 14695981039346656037ULL;  // FNV offset basis
+    for (size_t i = 0; i < len; ++i) {
+        hash ^= static_cast<uint64_t>(data[i]);
+        hash *= 1099511628211ULL;  // FNV prime
+    }
+    return hash;
+}
+----
+
+*DJB2*:
+
+[source,cpp]
+----
+consteval uint64_t djb2_hash(const char* data, size_t len) {
+    uint64_t hash = 5381;
+    for (size_t i = 0; i < len; ++i) {
+        hash = ((hash << 5) + hash) + static_cast<uint64_t>(data[i]);
+    }
+    return hash;
+}
+----
+
+== Concepts API
+
+=== Core Layer Concepts
+
+[source,cpp]
+----
+// Two types have identical memory layout
+template <typename T, typename U>
+concept LayoutCompatible = signatures_match<T, U>();
+
+// Type matches expected signature string
+template <typename T, auto ExpectedSig>
+concept LayoutMatch = (get_layout_signature<T>() == ExpectedSig);
+
+// Type matches expected hash
+template <typename T, uint64_t ExpectedHash>
+concept LayoutHashMatch = (get_layout_hash<T>() == ExpectedHash);
+----
+
+=== Utility Layer Concepts
+
+[source,cpp]
+----
+// Type is safe for binary serialization
+template <typename T, PlatformSet P = PlatformSet::current()>
+concept Serializable = is_serializable_v<T, P>;
+
+// Types can be safely transmitted via zero-copy
+template <typename T, typename U, PlatformSet P = PlatformSet::current()>
+concept ZeroCopyTransmittable = 
+    Serializable<T, P> && Serializable<U, P> && LayoutCompatible<T, U>;
+
+// Type is safe for shared memory
+template <typename T>
+concept SharedMemorySafe = Serializable<T, PlatformSet::current()>;
+----
+
+== File Organization
+
+[source]
+----
+include/boost/typelayout/
+├── typelayout.hpp           # Core layer entry point
+├── typelayout_util.hpp      # Utility layer entry point  
+├── typelayout_all.hpp       # Complete library
+├── core/
+│   ├── config.hpp           # Compiler/platform detection
+│   ├── compile_string.hpp   # Compile-time string class
+│   ├── hash.hpp             # FNV-1a, DJB2 hash functions
+│   ├── reflection_helpers.hpp # P2996 reflection wrappers
+│   ├── type_signature.hpp   # TypeSignature<T> specializations
+│   ├── signature.hpp        # get_layout_signature<T>()
+│   ├── verification.hpp     # LayoutVerification struct
+│   └── concepts.hpp         # LayoutCompatible, LayoutMatch
+└── util/
+    ├── platform_set.hpp     # PlatformSet, SerializationBlocker
+    ├── serialization_check.hpp # is_serializable<T, P>
+    └── concepts.hpp         # Serializable, ZeroCopyTransmittable
+----
+
+== Compiler Requirements
+
+[cols="1,2"]
+|===
+| Requirement | Details
+
+| *Standard*
+| C++26 with P2996 Static Reflection
+
+| *Compiler*
+| Bloomberg Clang P2996 fork (currently the only implementation)
+
+| *Flags*
+| `-std=c++26 -freflection -freflection-latest -stdlib=libc++`
+
+| *Include Path*
+| Requires `<experimental/meta>` header
+|===
+
+== Summary
+
+Boost.TypeLayout provides:
+
+1. **Complete Layout Introspection**: Full visibility into type memory layout at compile time
+2. **Two-Layer Architecture**: Core for layout analysis, Utility for serialization safety
+3. **Human-Readable Signatures**: Debuggable, versionable layout descriptions
+4. **Zero Runtime Overhead**: All analysis happens at compile time
+5. **Concept-Based API**: Seamless integration with modern C++ templates
+6. **First P2996 Application**: Pioneering practical use of C++26 static reflection
+
+The library's unique position: it's not a serialization framework—it's a *layout verification engine* that enables safe, zero-overhead binary data exchange using native C++ types.

@@ -23,6 +23,9 @@
 
 .Design Rationale
 * xref:design/index.adoc[Overview]
+* xref:design/architecture-analysis.adoc[Architecture Analysis]
+* xref:design/comparison.adoc[Competitive Comparison]
+* xref:design/performance.adoc[Performance Analysis]
 * xref:design/signature-format.adoc[Signature Format]
 * xref:design/hash-algorithms.adoc[Hash Algorithms]
 * xref:design/portability-strategy.adoc[Portability Strategy]
