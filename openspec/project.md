@@ -234,6 +234,135 @@ void process_point(const T& p) { ... }
 - **Boost License**: 使用 Boost Software License 1.0
 - **可选**: Boost.Interprocess（提供 `offset_ptr` 特化）
 
+## 构建与测试指南
+
+### 编译器要求
+
+本项目**必须**使用支持 P2996 (静态反射) 的 Clang 编译器，目前仅 Bloomberg Clang fork 支持：
+- **Bloomberg Clang P2996**: https://github.com/bloomberg/clang-p2996
+- **编译选项**: `-std=c++26 -freflection -freflection-latest -stdlib=libc++`
+
+### 方式 1: 本地 WSL 构建 (推荐开发环境)
+
+如果在 Windows 上，可以使用 WSL (Windows Subsystem for Linux) 运行 Docker：
+
+```bash
+# 在 WSL 中启动 Docker
+wsl
+
+# 进入项目目录（Windows 路径映射）
+cd /mnt/g/workspace/TypeLayout
+
+# 拉取预构建的 P2996 镜像
+docker pull ghcr.io/ximicpp/typelayout-p2996:latest
+
+# 构建和测试
+docker run --rm -v $(pwd):/workspace -w /workspace \
+    ghcr.io/ximicpp/typelayout-p2996:latest \
+    bash -c "cmake -B build -G Ninja && cmake --build build && ctest --test-dir build --output-on-failure"
+
+# 交互式开发
+docker run -it --rm -v $(pwd):/workspace -w /workspace \
+    ghcr.io/ximicpp/typelayout-p2996:latest
+```
+
+### 方式 2: 本地 Docker 构建 (Windows/Linux/macOS)
+
+如果已安装 Docker Desktop：
+
+```bash
+# 拉取镜像
+docker pull ghcr.io/ximicpp/typelayout-p2996:latest
+
+# 运行构建和测试
+docker run --rm -v ${PWD}:/workspace -w /workspace \
+    ghcr.io/ximicpp/typelayout-p2996:latest \
+    bash -c "cmake -B build -G Ninja && cmake --build build && ctest --test-dir build --output-on-failure"
+```
+
+Windows PowerShell 版本：
+```powershell
+docker run --rm -v "${PWD}:/workspace" -w /workspace `
+    ghcr.io/ximicpp/typelayout-p2996:latest `
+    bash -c "cmake -B build -G Ninja && cmake --build build && ctest --test-dir build --output-on-failure"
+```
+
+### 方式 3: GitHub Actions CI (远端构建)
+
+每次推送到 `main`/`develop`/`feature/*` 分支会自动触发 CI：
+
+1. CI 工作流文件: `.github/workflows/ci.yml`
+2. 使用镜像: `ghcr.io/ximicpp/typelayout-p2996:latest`
+3. 构建步骤:
+   - `cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release`
+   - `cmake --build build`
+   - `ctest --test-dir build --output-on-failure`
+
+查看 CI 状态: https://github.com/ximicpp/TypeLayout/actions
+
+### Docker 镜像内容
+
+`ghcr.io/ximicpp/typelayout-p2996:latest` 包含：
+- Bloomberg Clang P2996 fork（带 `-freflection` 支持）
+- CMake 3.x
+- Ninja 构建系统
+- libc++ 标准库
+
+### CMake 构建选项
+
+```bash
+# 完整构建命令
+cmake -B build \
+    -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_CXX_COMPILER=clang++ \
+    -DCMAKE_CXX_FLAGS="-std=c++26 -freflection -freflection-latest -stdlib=libc++" \
+    -DBUILD_TESTING=ON
+
+cmake --build build --parallel
+
+# 运行测试
+ctest --test-dir build --output-on-failure
+```
+
+### 测试目标
+
+| 目标 | 说明 | 类型 |
+|------|------|------|
+| `test_all_types` | 全类型布局签名测试 | 编译时 (static_assert) |
+| `demo` | 完整功能演示 | 运行时 |
+| `core_demo` | 核心层演示 | 运行时 |
+| `util_demo` | 序列化工具演示 | 运行时 |
+
+### 快速验证命令
+
+```bash
+# 1. 拉取镜像并构建测试 (一行命令)
+docker run --rm -v $(pwd):/workspace -w /workspace \
+    ghcr.io/ximicpp/typelayout-p2996:latest \
+    bash -c "cmake -B build -G Ninja && cmake --build build && ctest --test-dir build -V"
+
+# 2. 仅编译检查 (验证 static_assert 测试)
+docker run --rm -v $(pwd):/workspace -w /workspace \
+    ghcr.io/ximicpp/typelayout-p2996:latest \
+    bash -c "cmake -B build -G Ninja && cmake --build build --target test_all_types"
+
+# 3. 交互式 shell (用于调试)
+docker run -it --rm -v $(pwd):/workspace -w /workspace \
+    ghcr.io/ximicpp/typelayout-p2996:latest bash
+```
+
+### 故障排除
+
+**问题**: "Docker image not found"
+- **解决**: 先运行 Docker Build 工作流: GitHub Actions → "Build Docker Image" → Run workflow
+
+**问题**: WSL 中 Docker 无法启动
+- **解决**: 确保 Docker Desktop 已启用 WSL 2 后端
+
+**问题**: 编译错误 "unknown argument: '-freflection'"
+- **解决**: 确保使用 P2996 Docker 镜像，而非标准 Clang
+
 ## Implementation Details
 
 ### CompileString<N> 模板
