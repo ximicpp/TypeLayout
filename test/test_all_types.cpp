@@ -243,14 +243,16 @@ union TestUnion {
     float f;
     char bytes[4];
 };
-static_assert(get_layout_signature<TestUnion>() == "[64-le]union[s:4,a:4]");
+// Union signatures now include member information per spec
+// All members at offset 0 (overlapping storage)
+static_assert(get_layout_signature<TestUnion>() == "[64-le]union[s:4,a:4]{@0[i]:i32[s:4,a:4],@0[f]:f32[s:4,a:4],@0[bytes]:bytes[s:4,a:1]}");
 
 union BigUnion {
     double d;
     uint64_t u;
     char buf[16];
 };
-static_assert(get_layout_signature<BigUnion>() == "[64-le]union[s:16,a:8]");
+static_assert(get_layout_signature<BigUnion>() == "[64-le]union[s:16,a:8]{@0[d]:f64[s:8,a:8],@0[u]:u64[s:8,a:8],@0[buf]:bytes[s:16,a:1]}");
 
 //=============================================================================
 // 8. Special Layout
@@ -630,6 +632,10 @@ static_assert(is_serializable_current<OuterNonSerializableUnion> == false);
 
 //=============================================================================
 // 21. Bit-field Serializability Tests
+// 
+// NOTE: With the "Signature-Driven Compatibility Model", bit-fields ARE serializable
+// because the signature includes bit positions. Layout differences are detected
+// through signature comparison, not by rejecting bit-fields outright.
 //=============================================================================
 
 // Basic bit-field detection
@@ -639,7 +645,7 @@ struct SimpleBitfield {
     uint32_t c : 8;
 };
 static_assert(has_bitfields<SimpleBitfield>() == true);
-static_assert(is_serializable_current<SimpleBitfield> == false);  // Bit-fields are NOT serializable
+static_assert(is_serializable_current<SimpleBitfield> == true);  // Bit-fields ARE serializable (signature-driven model)
 
 // Multiple bit-field members
 struct MultipleBitfields {
@@ -649,7 +655,7 @@ struct MultipleBitfields {
     uint16_t reserved : 4;
 };
 static_assert(has_bitfields<MultipleBitfields>() == true);
-static_assert(is_serializable_current<MultipleBitfields> == false);
+static_assert(is_serializable_current<MultipleBitfields> == true);
 
 // Struct with nested bit-field
 struct NestedBitfield {
@@ -657,7 +663,7 @@ struct NestedBitfield {
     SimpleBitfield flags;  // Contains bit-fields via nesting
 };
 static_assert(has_bitfields<NestedBitfield>() == true);
-static_assert(is_serializable_current<NestedBitfield> == false);
+static_assert(is_serializable_current<NestedBitfield> == true);
 
 // Struct without bit-fields (control case)
 struct NoBitfield {
@@ -673,15 +679,15 @@ static_assert(has_bitfields<int32_t>() == false);
 static_assert(has_bitfields<double>() == false);
 static_assert(has_bitfields<char>() == false);
 
-// Array of bit-field structs
+// Array of bit-field structs - also serializable (signature-driven model)
 static_assert(has_bitfields<SimpleBitfield[4]>() == true);
-static_assert(is_serializable_current<SimpleBitfield[4]> == false);
+static_assert(is_serializable_current<SimpleBitfield[4]> == true);
 
 // Array of non-bit-field structs
 static_assert(has_bitfields<NoBitfield[4]>() == false);
 static_assert(is_serializable_current<NoBitfield[4]> == true);
 
-// Inheritance with bit-fields in base
+// Inheritance with bit-fields in base - serializable (signature-driven model)
 struct BitfieldBase {
     uint32_t flags : 16;
     uint32_t type : 8;
@@ -692,10 +698,10 @@ struct DerivedFromBitfield : BitfieldBase {
 };
 static_assert(has_bitfields<BitfieldBase>() == true);
 static_assert(has_bitfields<DerivedFromBitfield>() == true);
-static_assert(is_serializable_current<BitfieldBase> == false);
-static_assert(is_serializable_current<DerivedFromBitfield> == false);
+static_assert(is_serializable_current<BitfieldBase> == true);
+static_assert(is_serializable_current<DerivedFromBitfield> == true);
 
-// Inheritance with bit-fields in derived only
+// Inheritance with bit-fields in derived only - serializable
 struct CleanBase {
     int32_t x;
     int32_t y;
@@ -707,9 +713,9 @@ struct DerivedWithBitfield : CleanBase {
 static_assert(has_bitfields<CleanBase>() == false);
 static_assert(has_bitfields<DerivedWithBitfield>() == true);
 static_assert(is_serializable_current<CleanBase> == true);
-static_assert(is_serializable_current<DerivedWithBitfield> == false);
+static_assert(is_serializable_current<DerivedWithBitfield> == true);
 
-// Union with bit-fields
+// Union with bit-fields - serializable (signature-driven model)
 union BitfieldUnion {
     uint32_t raw;
     struct {
@@ -719,9 +725,9 @@ union BitfieldUnion {
     } bits;
 };
 static_assert(has_bitfields<BitfieldUnion>() == true);
-static_assert(is_serializable_current<BitfieldUnion> == false);
+static_assert(is_serializable_current<BitfieldUnion> == true);
 
-// Deep nesting: Serializable -> Non-serializable (via bit-field)
+// Deep nesting with bit-fields - all serializable (signature-driven model)
 struct Level1Clean { int32_t a; };
 struct Level2Clean : Level1Clean { int64_t b; };
 struct Level3WithBits : Level2Clean { uint8_t flags : 4; uint8_t priority : 4; };
@@ -730,7 +736,7 @@ static_assert(has_bitfields<Level2Clean>() == false);
 static_assert(has_bitfields<Level3WithBits>() == true);
 static_assert(is_serializable_current<Level1Clean> == true);
 static_assert(is_serializable_current<Level2Clean> == true);
-static_assert(is_serializable_current<Level3WithBits> == false);
+static_assert(is_serializable_current<Level3WithBits> == true);
 
 // has_bitfields_v variable template
 static_assert(has_bitfields_v<SimpleBitfield> == true);

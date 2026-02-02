@@ -141,6 +141,73 @@ WARNING: Types with virtual inheritance may have platform-specific layouts due t
 static_assert(!boost::typelayout::is_serializable_v<VLeft, PlatformSet::current()>);
 ----
 
+=== Virtual Inheritance Limitations
+
+[IMPORTANT]
+====
+**虚拟继承签名仅用于类型识别，不保证 ABI 兼容性。**
+
+虚拟基类存在以下限制：
+
+1. **动态偏移量**: 虚拟基类的实际偏移量可能在运行时通过 vtable 计算，而非编译时常量
+2. **平台差异**: 不同编译器对虚拟继承的实现方式不同（vptr 位置、vtable 布局）
+3. **跨编译器不兼容**: 即使在相同平台上，GCC 和 Clang 的虚拟继承布局也可能不同
+====
+
+==== 签名中的虚拟基类标记
+
+虚拟基类在签名中使用 `[vbase]` 标记：
+
+[source,cpp]
+----
+struct VirtualBase { int x; };
+struct VDerived : virtual VirtualBase { int y; };
+
+// 签名格式：
+// [64-le]class[s:24,a:8,polymorphic,inherited]{@0[vbase]:struct[s:4,a:4]{...},@16[y]:i32[s:4,a:4]}
+----
+
+==== 何时使用虚拟继承签名
+
+虚拟继承签名适用于：
+
+* ✓ **类型识别**: 确认两个类型是否为相同的虚拟继承结构
+* ✓ **版本检测**: 检测类定义是否发生变化
+* ✓ **调试**: 理解复杂继承层次的布局
+
+虚拟继承签名**不适用于**：
+
+* ✗ **跨进程通信**: 不同编译器/版本可能有不同布局
+* ✗ **序列化**: 偏移量可能是动态的
+* ✗ **共享内存**: 无法保证二进制兼容性
+
+==== 替代方案
+
+如果需要跨平台二进制兼容的钻石继承模式，考虑使用组合模式：
+
+[source,cpp]
+----
+// 不推荐：虚拟继承
+struct VBase { int x; };
+struct Left : virtual VBase { int l; };
+struct Right : virtual VBase { int r; };
+struct Diamond : Left, Right { int d; };
+
+// 推荐：组合模式
+struct SharedBase { int x; };
+struct LeftPart { int l; };
+struct RightPart { int r; };
+struct ComposedDiamond {
+    SharedBase base;  // 显式共享
+    LeftPart left;
+    RightPart right;
+    int d;
+};
+
+// ComposedDiamond 是可序列化的
+static_assert(is_serializable_v<ComposedDiamond, PlatformSet::current()>);
+----
+
 == Protected and Private Inheritance
 
 Access specifiers don't affect layout:

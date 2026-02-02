@@ -34,9 +34,12 @@ namespace typelayout {
 /// - Must be trivially copyable
 /// - Must not contain pointers or references
 /// - Must not be polymorphic
-/// - Must not contain platform-dependent types (long)
-/// - Must not contain bit-fields
+/// - Must not contain platform-dependent types (wchar_t, long double)
+/// - Must not have runtime state (std::variant, std::optional)
 /// - All members must recursively meet these requirements
+///
+/// Note: Bit-fields are ALLOWED - the signature includes bit positions,
+/// and signature comparison will detect any layout incompatibilities.
 template <typename T, PlatformSet P = PlatformSet::current()>
 concept Serializable = is_serializable_v<T, P>;
 
@@ -117,13 +120,13 @@ consteval const char* get_blocker_reason() noexcept {
         case SerializationBlocker::IsPolymorphic:
             return "type is polymorphic (has virtual functions)";
         case SerializationBlocker::HasPlatformDependentSize:
-            return "type contains long/ulong (platform-dependent size)";
+            return "type contains platform-dependent size (wchar_t, long double)";
         case SerializationBlocker::PlatformMismatch:
             return "current platform does not match target platform set";
         case SerializationBlocker::HasNonSerializableMember:
             return "type contains a non-serializable member";
-        case SerializationBlocker::HasBitField:
-            return "type contains bit-fields";
+        case SerializationBlocker::HasRuntimeState:
+            return "type has runtime state (std::variant, std::optional)";
         default:
             return "unknown blocker";
     }

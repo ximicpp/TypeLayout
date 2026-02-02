@@ -91,7 +91,8 @@ enum class SerializationBlocker : uint8_t {
     HasPlatformDependentSize = 5,  // long, etc.
     PlatformMismatch = 6,
     HasNonSerializableMember = 7,
-    HasBitField = 8         // bit-fields have implementation-defined layout
+    HasRuntimeState = 8     // Types with runtime state (std::variant, std::optional)
+    // Note: Bit-fields are allowed - signature contains bit positions for comparison
 };
 
 /// Convert blocker to fixed-size string representation
@@ -113,8 +114,8 @@ consteval auto blocker_to_string() noexcept {
         return CompileString{"!serial:mismatch"};
     } else if constexpr (B == SerializationBlocker::HasNonSerializableMember) {
         return CompileString{"!serial:member"};
-    } else if constexpr (B == SerializationBlocker::HasBitField) {
-        return CompileString{"!serial:bitfield"};
+    } else if constexpr (B == SerializationBlocker::HasRuntimeState) {
+        return CompileString{"!serial:runtime"};
     } else {
         return CompileString{"!serial:unknown"};
     }

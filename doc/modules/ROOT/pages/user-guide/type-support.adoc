@@ -286,15 +286,220 @@ static_assert(boost::typelayout::is_serializable_v<SerializableData, PlatformSet
 static_assert(!boost::typelayout::is_serializable_v<NonSerializableData, PlatformSet::bits64_le()>);
 ----
 
+== Standard Library Types
+
+Boost.TypeLayout provides specialized support for common standard library types to ensure consistent and readable signatures.
+
+=== std::array
+
+`std::array<T, N>` generates a dedicated signature format that clearly identifies it as a standard array container:
+
+[source,cpp]
+----
+#include <array>
+
+struct ArrayHolder {
+    std::array<int, 4> data;
+};
+----
+
+[source]
+----
+std_array[s:16,a:4]<i32[s:4,a:4],4>
+----
+
+The signature format is: `std_array[s:SIZE,a:ALIGN]<ELEMENT_TYPE,COUNT>`
+
+Nested arrays are also supported:
+
+[source,cpp]
+----
+std::array<std::array<int, 3>, 2> matrix;  // 2x3 matrix
+----
+
+[source]
+----
+std_array[s:24,a:4]<std_array[s:12,a:4]<i32[s:4,a:4],3>,2>
+----
+
+=== std::pair
+
+`std::pair<T1, T2>` generates a signature that includes both element types:
+
+[source,cpp]
+----
+#include <utility>
+
+std::pair<int, double> coord;
+----
+
+[source]
+----
+pair[s:16,a:8]{i32[s:4,a:4],f64[s:8,a:8]}
+----
+
+The signature format is: `pair[s:SIZE,a:ALIGN]{FIRST_TYPE,SECOND_TYPE}`
+
+Nested pairs work correctly:
+
+[source,cpp]
+----
+std::pair<int, std::pair<char, bool>> nested;
+----
+
+[source]
+----
+pair[s:8,a:4]{i32[s:4,a:4],pair[s:2,a:1]{char[s:1,a:1],bool[s:1,a:1]}}
+----
+
+=== std::span (C++20)
+
+`std::span<T, Extent>` is supported for both static and dynamic extent:
+
+[source,cpp]
+----
+#include <span>
+
+std::span<int, 10> static_span;   // Static extent
+std::span<int> dynamic_span;      // Dynamic extent
+----
+
+Static extent signature:
+[source]
+----
+span[s:8,a:8]<i32[s:4,a:4],10>
+----
+
+Dynamic extent signature:
+[source]
+----
+span[s:16,a:8,dynamic]<i32[s:4,a:4]>
+----
+
+NOTE: Dynamic extent spans include the `,dynamic` marker to indicate runtime-sized views.
+
+=== std::atomic
+
+`std::atomic<T>` types are explicitly specialized to avoid exposing internal implementation details:
+
+[source,cpp]
+----
+#include <atomic>
+
+std::atomic<int> counter;
+----
+
+[source]
+----
+atomic[s:4,a:4]<i32[s:4,a:4]>
+----
+
+=== Smart Pointers
+
+Smart pointers generate specialized signatures:
+
+[cols="1,1,2"]
+|===
+| Type | Signature Pattern | Notes
+
+| `std::unique_ptr<T>`
+| `unique_ptr[s:N,a:N]`
+| Size depends on deleter
+
+| `std::shared_ptr<T>`
+| `shared_ptr[s:N,a:N]`
+| Typically 16 bytes (two pointers)
+
+| `std::weak_ptr<T>`
+| `weak_ptr[s:N,a:N]`
+| Same as shared_ptr
+|===
+
+CAUTION: Smart pointer sizes vary between implementations. Do not use them for binary serialization across different platforms or compilers.
+
+== Signature-Driven Compatibility Model
+
+Boost.TypeLayout uses a **signature-driven compatibility model** for serialization:
+
+[source]
+----
+Signature Match ⟺ Memory Layout Match ⟺ memcpy Safe
+----
+
+=== How It Works
+
+1. Both endpoints generate signatures for the same type
+2. If signatures match → types have identical memory layout → memcpy is safe
+3. If signatures differ → serialization fails (automatically detected)
+
+This means:
+
+* **Bit-fields are allowed** - signatures include bit positions; layout differences are automatically detected
+* **Virtual inheritance is allowed** - signatures include offsets; ABI differences are automatically detected
+* **Platform differences are caught** - different compilers produce different signatures for types with platform-specific layouts
+
+=== Runtime State Types (Not Serializable)
+
+Some types have **runtime state** that cannot be safely preserved by memcpy:
+
+[cols="1,2,2"]
+|===
+| Type | Problem | Solution
+
+| `std::variant<T...>`
+| The `_index` field determines which member is active. memcpy cannot preserve object lifetime semantics.
+| Use explicit serialization with tagged unions
+
+| `std::optional<T>`
+| The `_engaged` flag determines if the value is valid. memcpy after copy may have inconsistent state.
+| Serialize presence flag and value separately
+|===
+
+Example of why `std::variant` is unsafe:
+
+[source,cpp]
+----
+std::variant<int, std::string> v1 = 42;      // _index = 0
+std::variant<int, std::string> v2 = "hello"; // _index = 1
+
+memcpy(&v2, &v1, sizeof(v1));
+// v2._index = 0, but the internal string was not destructed!
+// Any subsequent operation on v2 is undefined behavior
+----
+
+=== Bit-fields (Allowed)
+
+Bit-fields are **allowed** for serialization because:
+
+1. The signature includes exact bit positions
+2. Signature comparison automatically detects cross-compiler differences
+3. memcpy of a bit-field struct is semantically correct (just data)
+
+[source,cpp]
+----
+struct Flags {
+    uint32_t version : 4;
+    uint32_t flags : 12;
+    uint32_t length : 16;
+};
+
+// GCC signature:  "struct{version:4@0,flags:12@4,length:16@16}[s:4,a:4]"
+// MSVC signature: "struct{version:4@0,flags:12@4,length:16@16}[s:4,a:4]"
+// If they match → memcpy safe
+// If they differ → serialization fails (detected automatically)
+----
+
+TIP: For cross-platform binary protocols, consider using explicit bit manipulation instead of bit-fields for maximum portability.
+
 == Unsupported Types
 
 The following types are currently not supported:
 
-* Pointer-to-member types
-* Function pointers (treated as opaque pointers)
-* Reference types (use pointer instead)
-* Volatile-qualified types
-* Types with virtual functions (vtable affects layout)
+* `void` type (use `void*` for generic pointers)
+* Function types (use function pointers instead)
+* Incomplete types
+* `std::variant<T...>` for serialization (has runtime state)
+* `std::optional<T>` for serialization (has runtime state)
 
 == Type Qualifiers
 

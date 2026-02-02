@@ -17,6 +17,7 @@ import testing ;
 
 # Compile-time tests (static_assert only)
 compile test_all_types.cpp ;
+compile test_edge_cases.cpp ;
 
 # Unit tests using Boost.Test
 run test_primitives.cpp /boost/test//boost_unit_test_framework ;

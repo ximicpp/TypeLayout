@@ -18,6 +18,8 @@
 #include <experimental/meta>
 #include <type_traits>
 #include <cstdint>
+#include <variant>
+#include <optional>
 
 namespace boost {
 namespace typelayout {
@@ -294,6 +296,31 @@ struct check_base_serializable_recursive<T, P, BaseCount, BaseCount> {
 // Primary Serializability Trait
 // =========================================================================
 
+// =========================================================================
+// Runtime State Type Detection
+// =========================================================================
+
+// Forward declare is_runtime_state_type for use in compute_blocker
+template <typename T>
+struct is_runtime_state_type : std::false_type {};
+
+// std::variant has runtime state (_index determines which member is active)
+// memcpy cannot correctly preserve object lifetime semantics
+template <typename... Types>
+struct is_runtime_state_type<std::variant<Types...>> : std::true_type {};
+
+// std::optional has runtime state (_engaged flag determines if value is valid)
+// memcpy cannot correctly preserve object lifetime semantics  
+template <typename T>
+struct is_runtime_state_type<std::optional<T>> : std::true_type {};
+
+template <typename T>
+inline constexpr bool is_runtime_state_type_v = is_runtime_state_type<T>::value;
+
+// =========================================================================
+// Primary Serializability Trait
+// =========================================================================
+
 template <typename T, PlatformSet P>
 struct is_serializable {
 private:
@@ -305,9 +332,15 @@ private:
             return basic;
         }
         
-        if constexpr (has_any_bitfield<DecayedT>()) {
-            return SerializationBlocker::HasBitField;
+        // Check for runtime state types (std::variant, std::optional)
+        // These types have runtime state that cannot be safely memcpy'd
+        if constexpr (is_runtime_state_type_v<DecayedT>) {
+            return SerializationBlocker::HasRuntimeState;
         }
+        
+        // Note: Bit-fields are ALLOWED for serialization
+        // The signature includes bit positions, and signature comparison
+        // will detect any layout incompatibilities between platforms
         
         if constexpr (std::is_array_v<DecayedT>) {
             constexpr auto arr_check = check_array_element<DecayedT, P>();
