@@ -112,26 +112,30 @@ struct LayoutVerification {
 
 ### 3.1 Minimal Public API
 
-**Decision**: Expose only 6 functions + 1 macro + 4 concepts.
+**Decision**: Expose only 7 functions + 5 concepts (no macros).
 
 ```cpp
 // Core functions
-get_layout_signature<T>()
-get_layout_hash<T>()
-get_layout_verification<T>()
-signatures_match<T, U>()
+get_layout_signature<T>()      // Compile-time layout string
+get_layout_signature_cstr<T>() // C-string view of signature
+get_layout_hash<T>()           // 64-bit FNV-1a hash
+get_layout_verification<T>()   // Dual-hash verification struct
+signatures_match<T, U>()       // Compare two type signatures
+hashes_match<T, U>()           // Compare two type hashes
+is_portable<T>()               // Check portability
 
-// Concept
-LayoutCompatible<T, U>
-
-// Macro
-TYPELAYOUT_BIND(Type, ExpectedSignature)
+// Concepts
+Portable<T>                    // Type has no platform-dependent members
+LayoutMatch<T, U>              // Types have identical signatures
+LayoutHashMatch<T, Hash>       // Type matches expected hash
+LayoutCompatible<T, U>         // Types are layout compatible
+LayoutVerificationMatch<T, V>  // Types match verification struct
 ```
 
 **Rationale**:
 - Small API surface is easier to learn and maintain
 - Each function has a single, clear purpose
-- Macro provides convenient static assertion
+- Concepts enable expressive compile-time constraints
 
 ### 3.2 Header-Only Library
 
@@ -157,17 +161,27 @@ TYPELAYOUT_BIND(Type, ExpectedSignature)
 
 ## 4. Type Support Decisions
 
-### 4.1 STL Types
+### 4.1 STL Types: Transparent Reflection
 
-**Decision**: Support common STL types with implementation-aware signatures.
+**Decision**: Reflect STL types transparently using their actual internal member layout, not semantic aliases.
+
+**Example**:
+```cpp
+// std::optional<int> reflects its actual internal members:
+// e.g., __engaged_, __val_ (libc++)
+// NOT a simplified "optional<i32>" alias
+```
 
 **Rationale**:
-- Users need to verify layouts of types containing STL members
-- STL layout varies by implementation (libstdc++, libc++, MSVC STL)
+- **Physical reality**: The library's goal is to verify what is actually in memory
+- **No hidden surprises**: Different STL implementations have different layouts
+- **Consistency**: All types, including STL, follow the same reflection rules
+- **Avoids maintenance burden**: No need to manually track STL implementation changes
 
 **Trade-offs**:
 - Signatures are not portable across STL implementations
 - This is intentional: binary layouts actually differ
+- Signatures may expose internal member names that could change between library versions
 
 ### 4.2 Anonymous Members
 

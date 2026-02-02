@@ -108,23 +108,31 @@ struct Point { int32_t x, y; };
 #### 3.1 Library Design Philosophy (5 min)
 - Header-only, zero external dependencies
 - Under 2000 lines of focused core code
-- Minimal API surface: 6 functions + 1 macro + 4 concepts
+- Minimal API surface: 7 functions + 5 concepts
 
 ```cpp
 // The complete public API
 get_layout_signature<T>()     // Compile-time layout string
+get_layout_signature_cstr<T>()// C-string view of signature
 get_layout_hash<T>()          // 64-bit FNV-1a hash
 get_layout_verification<T>()  // Dual-hash verification struct
-signatures_match<T, U>()      // Compare two types
-LayoutCompatible<T, U>        // Concept constraint
-TYPELAYOUT_BIND(Type, Sig)    // Static assertion macro
+signatures_match<T, U>()      // Compare two type signatures
+hashes_match<T, U>()          // Compare two type hashes
+is_portable<T>()              // Check portability
+
+// Concepts
+Portable<T>                   // Type has no platform-dependent members
+LayoutMatch<T, U>             // Types have identical signatures
+LayoutHashMatch<T, Hash>      // Type matches expected hash
+LayoutCompatible<T, U>        // Types are layout compatible
+LayoutVerificationMatch<T, V> // Types match verification struct
 ```
 
 #### 3.2 Type Coverage Deep Dive (5 min)
 - Primitives: fixed-width integers, floats, pointers, references
 - Compound types: structs, classes, unions, enums
 - Complex cases: inheritance (single, multiple, virtual), polymorphism
-- STL types: `std::optional`, `std::variant`, `std::atomic`, `std::span`
+- STL types: Transparent reflection of internal layout (e.g., `std::optional`, `std::variant`, `std::unique_ptr`)
 
 #### 3.3 Hash Verification Strategy (5 min)
 - Dual hashing: FNV-1a (64-bit) + DJB2 (64-bit) for 128-bit combined space

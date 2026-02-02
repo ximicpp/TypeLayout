@@ -3,172 +3,156 @@
 > **Layer**: Core (`<boost/typelayout.hpp>`)
 
 ## Purpose
-Defines the layout signature generation system - the core capability of Boost.TypeLayout.
-Layout signatures provide bit-accurate, human-readable descriptions of type memory layouts.
-## Requirements
-### Requirement: Two-Layer Signature Architecture
-The library SHALL provide two distinct signature layers: Layout Compatibility (Layer 1) and Serialization Compatibility (Layer 2).
 
-#### Scenario: Layer 1 - Layout Compatibility
+Defines the layout signature generation system - the core capability of Boost.TypeLayout.
+Layout signatures provide bit-accurate, human-readable descriptions of type memory layouts
+for same-process and same-platform type verification.
+
+## Requirements
+
+### Requirement: Layout Signature Architecture
+The library SHALL provide layout signature generation for compile-time memory layout analysis.
+
+#### Scenario: Layout Compatibility
 - **GIVEN** a user needs same-process or same-platform type checking
 - **WHEN** using `get_layout_signature<T>()`
 - **THEN** the signature SHALL reflect memory layout (size, alignment, field offsets)
 - **AND** platform SHALL be implicitly the current build platform
 
-#### Scenario: Layer 2 - Serialization Compatibility
-- **GIVEN** a user needs cross-process/cross-machine memcpy-safe data transfer
-- **WHEN** using `get_serialization_signature<T, PlatformSet>()`
-- **THEN** a platform set P SHALL be explicitly specified
-- **AND** the type SHALL be validated against Layer 1 (Layout) requirements first
-- **AND** additional serialization constraints SHALL be applied
-
-#### Scenario: Layer hierarchy relationship
-- **GIVEN** the two layers
-- **THEN** Serialization compatibility(P) SHALL imply Layout compatibility
-- **AND** Layout compatibility SHALL NOT imply Serialization compatibility(P)
-- **AND** the relationship SHALL be: `Serialization(P) ⊂ Layout`
-
-### Requirement: Platform-Relative Serialization Compatibility
-Serialization compatibility SHALL NOT exist as a universal concept. It SHALL always be defined relative to a specific, user-specified platform set.
-
-#### Scenario: No universal serialization check
+#### Scenario: Signature format
 - **GIVEN** a type T
-- **WHEN** user attempts to check serialization without specifying a platform set
-- **THEN** a compile-time error SHALL be raised
+- **WHEN** generating layout signature
+- **THEN** the signature SHALL include platform prefix (e.g., `[64-le]`)
+- **AND** the signature SHALL include type category (struct/class/union/enum)
+- **AND** the signature SHALL include size and alignment
+- **AND** for aggregate types, member information SHALL be included
 
-#### Scenario: Platform set required
-- **GIVEN** a user defines platform set P as "64-bit little-endian"
-- **WHEN** checking `is_serializable<T, P>`
-- **THEN** the check SHALL validate T against all platforms in set P
+#### Scenario: Platform prefix format
+- **GIVEN** the current build platform
+- **WHEN** generating any layout signature
+- **THEN** the prefix SHALL be `[BITS-ENDIAN]` where BITS is 32 or 64 and ENDIAN is `le` or `be`
+- **AND** example: `[64-le]` for 64-bit little-endian platforms
 
-#### Scenario: long/unsigned long always rejected
-- **GIVEN** a struct using `long` or `unsigned long` member
-- **WHEN** checking serialization for any platform set
-- **THEN** the type SHALL NOT be serializable
-- **AND** the blocker reason SHALL be "platform" (HasPlatformDependentSize)
-- **RATIONALE** `long` is 4 bytes on Windows (LLP64) but 8 bytes on Linux (LP64), making it unsafe for cross-platform serialization
+### Requirement: Layout Hash Generation
+The library SHALL provide 64-bit hash generation for layout signatures.
 
-### Requirement: Serialization Compatibility Check
-The library SHALL provide compile-time detection of types that are safe for memcpy-based serialization.
+#### Scenario: Hash computation
+- **GIVEN** a type T with layout signature S
+- **WHEN** calling `get_layout_hash<T>()`
+- **THEN** the result SHALL be a 64-bit FNV-1a hash of S
 
-#### Scenario: Trivially copyable requirement
+#### Scenario: Hash determinism
+- **GIVEN** two types T and U with identical layout signatures
+- **WHEN** computing hashes
+- **THEN** `get_layout_hash<T>() == get_layout_hash<U>()` SHALL be true
+
+#### Scenario: Hash for runtime use
+- **GIVEN** a hash value
+- **WHEN** used at runtime (e.g., in shared memory headers)
+- **THEN** the hash SHALL be usable for quick layout verification
+
+### Requirement: Layout Verification
+The library SHALL provide dual-hash verification for collision resistance.
+
+#### Scenario: Dual hash computation
 - **GIVEN** a type T
-- **WHEN** checking serialization compatibility
-- **THEN** T MUST be trivially copyable (std::is_trivially_copyable_v<T>)
+- **WHEN** calling `get_layout_verification<T>()`
+- **THEN** the result SHALL contain both FNV-1a and DJB2 hashes
+- **AND** the result SHALL contain signature length
 
-#### Scenario: No pointer members
-- **GIVEN** a struct with pointer or reference members
-- **WHEN** checking serialization compatibility
-- **THEN** the type SHALL be marked as not serializable with reason "ptr"
+#### Scenario: Collision detection
+- **GIVEN** two types T and U with different layouts
+- **WHEN** their FNV-1a hashes happen to collide
+- **THEN** `verifications_match<T, U>()` SHALL return false if DJB2 hashes differ
 
-#### Scenario: No polymorphic types
-- **GIVEN** a class with virtual functions (is_polymorphic)
-- **WHEN** checking serialization compatibility
-- **THEN** the type SHALL be marked as not serializable with reason "poly"
+### Requirement: Signature Comparison
+The library SHALL provide compile-time signature comparison utilities.
 
-#### Scenario: Recursive member check
-- **GIVEN** a struct with nested struct members
-- **WHEN** checking serialization compatibility
-- **THEN** all nested members SHALL be recursively checked for serialization compatibility
+#### Scenario: Direct signature match
+- **GIVEN** two types T and U
+- **WHEN** calling `signatures_match<T, U>()`
+- **THEN** the result SHALL be true if and only if their layout signatures are identical
 
-### Requirement: Serialization Signature Generation
-The library SHALL generate serialization signatures that include serializability status.
+#### Scenario: Hash-based match
+- **GIVEN** two types T and U
+- **WHEN** calling `hashes_match<T, U>()`
+- **THEN** the result SHALL be true if and only if their layout hashes are identical
 
-#### Scenario: Serializable type signature
-- **GIVEN** a POD struct `struct Point { int x; int y; };`
-- **WHEN** calling `get_serialization_signature<Point>()`
-- **THEN** the signature SHALL include `serial` marker: `struct[s:8,a:4,serial]{...}`
+### Requirement: Layout Concepts
+The library SHALL provide C++20 concepts for compile-time layout validation.
 
-#### Scenario: Non-serializable type signature
-- **GIVEN** a struct with pointer `struct Node { int val; Node* next; };`
-- **WHEN** calling `get_serialization_signature<Node>()`
-- **THEN** the signature SHALL include `!serial:ptr` marker
+#### Scenario: LayoutSupported concept
+- **GIVEN** a type T
+- **WHEN** evaluating `LayoutSupported<T>`
+- **THEN** the result SHALL be true if T can have its layout signature computed
+- **AND** the result SHALL be false for void, function types, and incomplete types
 
-#### Scenario: Polymorphic type signature
-- **GIVEN** a class with virtual function `class Base { virtual void f(); };`
-- **WHEN** calling `get_serialization_signature<Base>()`
-- **THEN** the signature SHALL include `!serial:poly` marker
+#### Scenario: LayoutCompatible concept
+- **GIVEN** two types T and U
+- **WHEN** evaluating `LayoutCompatible<T, U>`
+- **THEN** the result SHALL be true if `signatures_match<T, U>()` is true
 
-### Requirement: Platform Constraints (Required)
-The library SHALL REQUIRE users to specify target platform constraints for serialization compatibility. Serialization signatures are only valid within the specified platform set.
+#### Scenario: LayoutMatch concept
+- **GIVEN** a type T and expected signature string S
+- **WHEN** evaluating `LayoutMatch<T, S>`
+- **THEN** the result SHALL be true if T's signature equals S
 
-#### Scenario: Platform constraint is mandatory
-- **GIVEN** a user wants to check serialization compatibility
-- **WHEN** no platform constraint is specified
-- **THEN** a compile-time error SHALL be raised
+#### Scenario: LayoutHashMatch concept
+- **GIVEN** a type T and expected hash value H
+- **WHEN** evaluating `LayoutHashMatch<T, H>`
+- **THEN** the result SHALL be true if `get_layout_hash<T>() == H`
 
-#### Scenario: Single platform target
-- **GIVEN** user specifies `PlatformSet::x64_le` (64-bit little-endian)
-- **WHEN** generating serialization signature
-- **THEN** the signature prefix SHALL be `[64-le,serial]`
-- **AND** types with platform-dependent sizes SHALL be validated against 64-bit
+### Requirement: Type Categories
+The library SHALL distinguish different type categories in signatures.
 
-#### Scenario: Platform-dependent type rejection
-- **GIVEN** a struct with `long` member (4 bytes on Windows LLP64, 8 bytes on Linux LP64)
-- **AND** user specifies a platform set that includes both Windows and Linux 64-bit
-- **WHEN** checking serialization compatibility
-- **THEN** the type SHALL be marked as not serializable with reason "platform-size"
+#### Scenario: Struct type
+- **GIVEN** a non-polymorphic class/struct without base classes
+- **WHEN** generating signature
+- **THEN** the category SHALL be `struct`
+- **AND** format SHALL be `struct[s:SIZE,a:ALIGN]{FIELDS}`
 
-#### Scenario: Fixed-width types preferred
-- **GIVEN** a struct using only fixed-width types (int32_t, uint64_t, etc.)
-- **WHEN** checking serialization compatibility across any platform set
-- **THEN** the type SHALL pass the platform size check
+#### Scenario: Class with inheritance
+- **GIVEN** a class with base classes
+- **WHEN** generating signature
+- **THEN** the category SHALL be `class`
+- **AND** `inherited` marker SHALL be present
+- **AND** base class signatures SHALL be included
 
-#### Scenario: Endianness constraint
-- **GIVEN** user specifies little-endian only platforms
-- **WHEN** the current build platform is big-endian
-- **THEN** serialization signature generation SHALL fail with platform mismatch error
+#### Scenario: Polymorphic class
+- **GIVEN** a class with virtual functions
+- **WHEN** generating signature
+- **THEN** the category SHALL be `class`
+- **AND** `polymorphic` marker SHALL be present
 
-### Requirement: Predefined Platform Sets
-The library SHALL provide predefined platform sets based on bitwidth and endianness (not microarchitecture).
+#### Scenario: Union type
+- **GIVEN** a union type
+- **WHEN** generating signature
+- **THEN** the category SHALL be `union`
+- **AND** all members SHALL have offset 0
 
-#### Scenario: Common platform sets
-- **GIVEN** the library's predefined platform sets
-- **THEN** the following SHALL be available:
-  - `PlatformSet::bits64_le()` - 64-bit little-endian (x64, arm64, etc.)
-  - `PlatformSet::bits64_be()` - 64-bit big-endian
-  - `PlatformSet::bits32_le()` - 32-bit little-endian (x86, arm32, etc.)
-  - `PlatformSet::bits32_be()` - 32-bit big-endian
-  - `PlatformSet::current()` - Current build platform
+#### Scenario: Enum type
+- **GIVEN** an enum type
+- **WHEN** generating signature
+- **THEN** the category SHALL be `enum`
+- **AND** underlying type signature SHALL be included
 
-#### Scenario: Platform abstraction rationale
-- **GIVEN** x64 and arm64 on 64-bit little-endian
-- **THEN** they SHALL use the same platform set `bits64_le()`
-- **RATIONALE** Standard C++ types have identical sizes on both architectures
+### Requirement: Field Information
+The library SHALL include detailed field information for aggregate types.
 
-#### Scenario: Custom platform set
-- **GIVEN** user needs a custom platform combination
-- **WHEN** creating a custom `PlatformSet`
-- **THEN** user SHALL be able to specify `BitWidth` (32/64) and `Endianness` (Little/Big)
+#### Scenario: Field offset and name
+- **GIVEN** a struct with fields
+- **WHEN** generating signature
+- **THEN** each field SHALL include `@OFFSET[NAME]:TYPE`
+- **AND** OFFSET SHALL match the actual byte offset
 
-### Requirement: is_serializable Trait
-The library SHALL provide a compile-time trait `is_serializable<T>` for checking serialization compatibility.
+#### Scenario: Bit-field format
+- **GIVEN** a struct with bit-fields
+- **WHEN** generating signature
+- **THEN** bit-fields SHALL use format `@BYTE.BIT[NAME]:bits<WIDTH,UNDERLYING>`
+- **AND** BYTE is byte offset, BIT is bit offset within that byte
 
-#### Scenario: POD type check
-- **GIVEN** `struct Point { int x; int y; };`
-- **WHEN** evaluating `is_serializable<Point>::value`
-- **THEN** the result SHALL be `true`
-
-#### Scenario: Pointer-containing type check
-- **GIVEN** `struct Node { int val; Node* next; };`
-- **WHEN** evaluating `is_serializable<Node>::value`
-- **THEN** the result SHALL be `false`
-
-#### Scenario: Nested serializable type check
-- **GIVEN** `struct Rect { Point tl; Point br; };` where Point is serializable
-- **WHEN** evaluating `is_serializable<Rect>::value`
-- **THEN** the result SHALL be `true`
-
-### Requirement: Serialization Blocker Diagnostic
-The library SHALL provide information about what prevents a type from being serializable.
-
-#### Scenario: Single blocker
-- **GIVEN** a struct with one pointer member
-- **WHEN** querying `serialization_blocker<T>`
-- **THEN** the result SHALL identify the blocking member and reason
-
-#### Scenario: Multiple blockers
-- **GIVEN** a polymorphic class with pointer members
-- **WHEN** querying `serialization_blocker<T>`
-- **THEN** all blocking reasons SHALL be reported (poly, ptr)
-
+#### Scenario: Anonymous members
+- **GIVEN** a struct with anonymous union or struct members
+- **WHEN** generating signature
+- **THEN** anonymous members SHALL use `<anon:N>` placeholder
+- **AND** N SHALL be a sequential index
