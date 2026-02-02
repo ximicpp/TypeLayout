@@ -46,6 +46,10 @@ target_compile_options(test_serialization_signature PRIVATE ${TYPELAYOUT_CXX_FLA
 add_executable(test_edge_cases test_edge_cases.cpp)
 target_compile_options(test_edge_cases PRIVATE ${TYPELAYOUT_CXX_FLAGS})
 
+# Signature compatibility tests (no Boost.Test dependency)
+add_executable(test_signature_compatibility test_signature_compatibility.cpp)
+target_compile_options(test_signature_compatibility PRIVATE ${TYPELAYOUT_CXX_FLAGS})
+
 # Unit tests with Boost.Test
 add_typelayout_test(test_primitives)
 add_typelayout_test(test_structs)
