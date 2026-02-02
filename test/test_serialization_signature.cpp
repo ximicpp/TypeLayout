@@ -156,23 +156,29 @@ static_assert(!is_serializable_v<NestedWithPointer, CurrentPlatform>, "NestedWit
 static_assert(!is_serializable_v<WithString, CurrentPlatform>, "WithString should NOT be serializable");
 
 // =============================================================================
-// Bit-field Tests
+// Bit-field Tests (Signature-Driven Model: Bit-fields are ALLOWED)
 // =============================================================================
 
-// Test: Struct with bit-fields should NOT be serializable (implementation-defined layout)
-static_assert(!is_serializable_v<WithBitFields, CurrentPlatform>, "WithBitFields should NOT be serializable");
-static_assert(serialization_blocker_v<WithBitFields, CurrentPlatform> == SerializationBlocker::HasBitField,
-              "WithBitFields blocker should be HasBitField");
+// NEW: Under the Signature-Driven Compatibility model, bit-fields ARE serializable
+// because their layout is fully captured in the type signature. If the signature
+// matches between sender and receiver, memcpy is safe regardless of bit-field presence.
 
-// Test: Nested struct with bit-fields should NOT be serializable
-static_assert(!is_serializable_v<NestedWithBitFields, CurrentPlatform>, "NestedWithBitFields should NOT be serializable");
-static_assert(serialization_blocker_v<NestedWithBitFields, CurrentPlatform> == SerializationBlocker::HasBitField,
-              "NestedWithBitFields blocker should be HasBitField");
+// Test: Struct with bit-fields IS now serializable (signature captures layout)
+static_assert(is_serializable_v<WithBitFields, CurrentPlatform>, 
+              "WithBitFields SHOULD be serializable under signature-driven model");
+static_assert(serialization_blocker_v<WithBitFields, CurrentPlatform> == SerializationBlocker::None,
+              "WithBitFields blocker should be None (bit-fields are captured in signature)");
 
-// Test: Bit-field status string should contain "!serial:bitfield"
+// Test: Nested struct with bit-fields IS also serializable
+static_assert(is_serializable_v<NestedWithBitFields, CurrentPlatform>, 
+              "NestedWithBitFields SHOULD be serializable under signature-driven model");
+static_assert(serialization_blocker_v<NestedWithBitFields, CurrentPlatform> == SerializationBlocker::None,
+              "NestedWithBitFields blocker should be None");
+
+// Test: Bit-field status string should contain "serial" (serializable)
 constexpr auto bitfield_sig = serialization_status<WithBitFields, CurrentPlatform>();
-static_assert(contains_substring(bitfield_sig.c_str(), "!serial:bitfield"),
-              "WithBitFields status should contain '!serial:bitfield'");
+static_assert(contains_substring(bitfield_sig.c_str(), "serial"),
+              "WithBitFields status should contain 'serial'");
 
 // =============================================================================
 // Platform-Dependent Type Tests

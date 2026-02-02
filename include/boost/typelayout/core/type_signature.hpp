@@ -83,8 +83,6 @@ namespace typelayout {
                 return "void types have no layout; consider using void* instead";
             else if constexpr (std::is_function_v<T>)
                 return "use a function pointer type (e.g., ReturnType(*)(Args...)) instead";
-            else if constexpr (!std::is_complete_v<T>)
-                return "ensure the type is complete (fully defined) before use";
             else
                 return "this type should be supported; please report a bug";
         }
