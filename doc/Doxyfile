@@ -1,0 +1,96 @@
+# Doxyfile for Boost.TypeLayout
+# @file Doxyfile
+# @brief Doxygen configuration for generating API documentation
+
+#---------------------------------------------------------------------------
+# Project information
+#---------------------------------------------------------------------------
+PROJECT_NAME           = "Boost.TypeLayout"
+PROJECT_NUMBER         = "0.1.0"
+PROJECT_BRIEF          = "Compile-Time Type Layout Signature Library for C++26"
+PROJECT_LOGO           = 
+
+OUTPUT_DIRECTORY       = doc/api
+CREATE_SUBDIRS         = NO
+
+#---------------------------------------------------------------------------
+# Build configuration
+#---------------------------------------------------------------------------
+EXTRACT_ALL            = NO
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+EXTRACT_LOCAL_CLASSES  = NO
+
+HIDE_UNDOC_MEMBERS     = YES
+HIDE_UNDOC_CLASSES     = YES
+HIDE_IN_BODY_DOCS      = YES
+
+#---------------------------------------------------------------------------
+# Input configuration
+#---------------------------------------------------------------------------
+INPUT                  = include/boost/typelayout \
+                         README.md
+INPUT_ENCODING         = UTF-8
+FILE_PATTERNS          = *.hpp *.md
+RECURSIVE              = YES
+
+EXCLUDE                = include/boost/typelayout/detail
+EXCLUDE_PATTERNS       = */detail/*
+
+#---------------------------------------------------------------------------
+# Source browsing
+#---------------------------------------------------------------------------
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+STRIP_CODE_COMMENTS    = YES
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+
+#---------------------------------------------------------------------------
+# Output formats
+#---------------------------------------------------------------------------
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+HTML_FILE_EXTENSION    = .html
+HTML_COLORSTYLE        = LIGHT
+HTML_DYNAMIC_SECTIONS  = YES
+HTML_INDEX_NUM_ENTRIES = 100
+
+GENERATE_LATEX         = NO
+GENERATE_RTF           = NO
+GENERATE_MAN           = NO
+GENERATE_XML           = NO
+
+#---------------------------------------------------------------------------
+# Preprocessor
+#---------------------------------------------------------------------------
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = NO
+SEARCH_INCLUDES        = YES
+INCLUDE_PATH           = include
+
+PREDEFINED             = BOOST_TYPELAYOUT_DOXYGEN=1 \
+                         __cpp_reflection=202311L \
+                         __cpp_lib_reflection=202311L
+
+#---------------------------------------------------------------------------
+# Diagrams (require Graphviz)
+#---------------------------------------------------------------------------
+HAVE_DOT               = NO
+CLASS_DIAGRAMS         = YES
+
+#---------------------------------------------------------------------------
+# Miscellaneous
+#---------------------------------------------------------------------------
+QUIET                  = NO
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = YES
+
+ALPHABETICAL_INDEX     = YES
+SORT_MEMBER_DOCS       = YES
+SORT_BRIEF_DOCS        = YES
+
+USE_MDFILE_AS_MAINPAGE = README.md

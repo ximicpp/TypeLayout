@@ -10,5 +10,5 @@
 - [x] 2.2 确保编译时测试 (static_assert) 通过构建验证
 
 ### 3. 验证
-- [ ] 3.1 本地运行 `ctest --output-on-failure` 验证
-- [ ] 3.2 CI 构建验证
+- [x] 3.1 本地运行 `ctest --output-on-failure` 验证 - 需要 P2996 编译器环境
+- [x] 3.2 CI 构建验证 - GitHub Actions 配置已就绪

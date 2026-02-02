@@ -1,8 +1,8 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: API 参考文档
 
-所有公共 API SHALL 包含 Doxygen 风格的详细文档，包括参数说明、返回值和使用示例。
+系统 SHALL 提供完整的 API 参考文档，描述所有公开接口。所有公共 API 包含 Doxygen 风格的详细文档，包括参数说明、返回值和使用示例。
 
 #### Scenario: 开发者查阅 API 文档
 

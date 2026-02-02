@@ -33,29 +33,22 @@ TBD - created by archiving change add-boost-antora-docs. Update Purpose after ar
 - **THEN** 代码成功编译无错误
 
 ### Requirement: API 参考文档
-系统 SHALL 提供完整的 API 参考文档，描述所有公开接口。
 
-#### Scenario: API 参考包含所有公开函数
-- **GIVEN** API 参考文档
-- **WHEN** 查看核心函数章节
-- **THEN** 应包含以下函数的完整说明:
-  - `get_layout_signature<T>()`
-  - `get_layout_hash<T>()`
-  - `get_layout_verification<T>()`
-  - `signatures_match<T1, T2>()`
-  - `is_serializable_v<T, PlatformSet>`
-  - `serialization_status<T, PlatformSet>()`
-  - `has_bitfields<T>()`
+系统 SHALL 提供完整的 API 参考文档，描述所有公开接口。所有公共 API 包含 Doxygen 风格的详细文档，包括参数说明、返回值和使用示例。
 
-#### Scenario: API 参考包含所有 Concepts
-- **GIVEN** API 参考文档
-- **WHEN** 查看 Concepts 章节
-- **THEN** 应包含以下 Concepts 的完整说明:
-  - `Serializable<T>`
-  - `ZeroCopyTransmittable<T>`
-  - `LayoutCompatible<T, U>`
-  - `LayoutMatch<T, Sig>`
-  - `LayoutHashMatch<T, Hash>`
+#### Scenario: 开发者查阅 API 文档
+
+- **WHEN** 开发者打开 API 参考文档
+- **THEN** 显示所有公共函数的详细说明
+- **AND** 每个函数包含参数描述
+- **AND** 每个函数包含返回值描述
+- **AND** 提供使用示例代码
+
+#### Scenario: IDE 智能提示
+
+- **WHEN** 开发者在 IDE 中使用 TypeLayout API
+- **THEN** IDE 显示 Doxygen 注释作为智能提示
+- **AND** 显示参数和返回值类型信息
 
 ### Requirement: 设计原理文档
 系统 SHALL 提供设计原理 (Rationale) 文档，解释关键设计决策。
@@ -201,4 +194,32 @@ The library SHALL provide performance analysis documentation including:
 #### Scenario: Performance-conscious developer evaluates library
 - **WHEN** a developer needs to assess performance implications
 - **THEN** they SHALL find quantitative analysis and benchmarks
+
+### Requirement: 变更日志
+
+项目 SHALL 包含符合 Keep a Changelog 格式的 CHANGELOG.md 文件，记录所有版本的变更。
+
+#### Scenario: 用户查看版本变更
+
+- **WHEN** 用户打开 CHANGELOG.md
+- **THEN** 显示所有版本的变更记录
+- **AND** 每个版本包含 Added/Changed/Deprecated/Removed/Fixed/Security 分类
+- **AND** 版本号遵循语义化版本控制 (SemVer)
+
+### Requirement: 贡献指南
+
+项目 SHALL 包含 CONTRIBUTING.md 文件，指导贡献者参与项目开发。
+
+#### Scenario: 贡献者了解开发流程
+
+- **WHEN** 贡献者打开 CONTRIBUTING.md
+- **THEN** 显示开发环境设置说明
+- **AND** 显示代码风格指南
+- **AND** 显示 Pull Request 流程
+
+#### Scenario: 用户报告问题
+
+- **WHEN** 用户创建 Issue
+- **THEN** 显示问题报告模板
+- **AND** 模板包含重现步骤、期望行为、实际行为等字段
 
