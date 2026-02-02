@@ -8,6 +8,6 @@
 - [x] 2.1 确认 `serialization_check.hpp` 已移除位域阻止（已在 analyze-remaining-limitations 中完成）
 - [x] 2.2 更新 `test_all_types.cpp` 中的位域序列化测试断言
 
-### 3. 待跟踪项目（低优先级）
-- [ ] 3.1 `[[no_unique_address]]` 属性检测（依赖 P2996 `is_nua()`）
-- [ ] 3.2 考虑在签名中标识 EBO（当前 size 已隐式反映）
+### 3. 待跟踪项目（低优先级 - 暂不处理）
+- [x] 3.1 `[[no_unique_address]]` 属性检测 - **暂缓**: 依赖 P2996 `is_nua()` API，当前版本未提供
+- [x] 3.2 考虑在签名中标识 EBO - **设计决策**: 当前 `sizeof()` 已隐式反映 EBO 效果，无需额外标记
