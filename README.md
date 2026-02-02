@@ -237,36 +237,31 @@ void send_zero_copy(Socket& sock, const T& data) {
 ```
 typelayout/
 ├── include/boost/
-│   ├── typelayout.hpp           # Main entry point
+│   ├── typelayout.hpp              # Main entry point
 │   └── typelayout/
-│       ├── typelayout.hpp       # Core facade
-│       └── core/                # Layout Signature Engine
-│           ├── config.hpp       # Compiler detection
-│           ├── compile_string.hpp
-│           ├── hash.hpp         # FNV-1a + DJB2 hash
-│           ├── type_signature.hpp # Base type signatures
-│           ├── signature.hpp    # get_layout_signature<T>()
-│           ├── verification.hpp # LayoutVerification
-│           └── concepts.hpp     # LayoutSupported, LayoutCompatible
+│       ├── typelayout.hpp          # Core facade
+│       └── core/                   # Layout Signature Engine
+│           ├── config.hpp          # Compiler/platform detection
+│           ├── compile_string.hpp  # Compile-time string utilities
+│           ├── hash.hpp            # FNV-1a + DJB2 hash
+│           ├── type_signature.hpp  # Type signature specializations
+│           ├── reflection_helpers.hpp # P2996 reflection utilities
+│           ├── signature.hpp       # Public API
+│           ├── verification.hpp    # Dual-hash verification
+│           └── concepts.hpp        # C++20 concepts
 ├── test/
-│   ├── test_all_types.cpp       # Comprehensive tests
-│   ├── test_signature_extended.cpp
-│   ├── test_signature_comprehensive.cpp
-│   └── test_anonymous_member.cpp
+│   ├── test_all_types.cpp          # Core type tests
+│   ├── test_signature_extended.cpp # Extended type coverage
+│   ├── test_signature_comprehensive.cpp # Full audit
+│   └── test_anonymous_member.cpp   # Anonymous member tests
 ├── example/
-│   ├── demo.cpp                 # Basic usage examples
-│   ├── core_demo.cpp            # Core feature demonstration
-│   ├── network_protocol.cpp     # Network protocol example
-│   ├── file_format.cpp          # File format versioning
-│   ├── shared_memory_demo.cpp   # Shared memory IPC
-│   └── zero_copy_network_demo.cpp # Zero-copy networking
-├── tools/
-│   └── typelayout_tool.cpp      # CLI inspection tool
-├── doc/                         # Antora documentation
-├── meta/
-│   └── libraries.json           # Boost metadata
-├── CMakeLists.txt               # CMake build file
-├── LICENSE                      # Boost Software License
+│   ├── demo.cpp                    # Quick start example
+│   ├── network_protocol.cpp        # Network protocol verification
+│   ├── file_format.cpp             # Binary file format versioning
+│   └── shared_memory_demo.cpp      # Cross-process IPC
+├── doc/                            # Antora documentation
+├── CMakeLists.txt
+├── Dockerfile
 └── README.md
 ```
 
