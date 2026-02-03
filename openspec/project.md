@@ -361,6 +361,55 @@ docker run -it --rm -v $(pwd):/workspace -w /workspace \
     ghcr.io/ximicpp/typelayout-p2996:latest bash
 ```
 
+### 快速编译单个测试文件
+
+无需使用 CMake，直接编译单个测试文件进行快速验证：
+
+**Windows (通过 WSL + Docker)**:
+```cmd
+wsl -e bash -c "cd /mnt/g/workspace/TypeLayout && docker run --rm -v $(pwd):/workspace -w /workspace ghcr.io/ximicpp/typelayout-p2996:latest bash -c 'clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ -I./include -o test_output test/test_complex_cases.cpp'"
+```
+
+**Linux/macOS (直接 Docker)**:
+```bash
+docker run --rm -v $(pwd):/workspace -w /workspace \
+    ghcr.io/ximicpp/typelayout-p2996:latest \
+    clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ \
+    -I./include -o test_output test/test_complex_cases.cpp
+```
+
+**运行测试可执行文件**:
+```bash
+# 需要设置 LD_LIBRARY_PATH 以找到 libc++
+docker run --rm -v $(pwd):/workspace -w /workspace \
+    -e LD_LIBRARY_PATH=/opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu \
+    ghcr.io/ximicpp/typelayout-p2996:latest \
+    ./test_output
+```
+
+**编译+运行一体化命令 (Windows WSL)**:
+```cmd
+wsl -e bash -c "cd /mnt/g/workspace/TypeLayout && docker run --rm -v $(pwd):/workspace -w /workspace -e LD_LIBRARY_PATH=/opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu ghcr.io/ximicpp/typelayout-p2996:latest bash -c 'clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ -I./include -o test_output test/test_complex_cases.cpp && ./test_output'"
+```
+
+**编译选项说明**:
+| 选项 | 说明 |
+|------|------|
+| `-std=c++26` | 使用 C++26 标准 |
+| `-freflection` | 启用 P2996 静态反射 |
+| `-freflection-latest` | 使用最新的反射 API |
+| `-stdlib=libc++` | 使用 LLVM libc++ 标准库 |
+| `-I./include` | 添加项目头文件路径 |
+
+**清理编译产物**:
+```bash
+# Windows (通过 WSL)
+wsl -e bash -c "cd /mnt/g/workspace/TypeLayout && rm -f test_output"
+
+# Linux/macOS
+rm -f test_output
+```
+
 ### 故障排除
 
 **问题**: "Docker image not found"

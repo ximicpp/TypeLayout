@@ -38,6 +38,10 @@ target_compile_options(test_signature_comprehensive PRIVATE ${TYPELAYOUT_CXX_FLA
 add_executable(test_anonymous_member test_anonymous_member.cpp)
 target_compile_options(test_anonymous_member PRIVATE ${TYPELAYOUT_CXX_FLAGS})
 
+# Complex cases tests (no Boost.Test dependency)
+add_executable(test_complex_cases test_complex_cases.cpp)
+target_compile_options(test_complex_cases PRIVATE ${TYPELAYOUT_CXX_FLAGS})
+
 # Edge case tests (no Boost.Test dependency)
 add_executable(test_edge_cases test_edge_cases.cpp)
 target_compile_options(test_edge_cases PRIVATE ${TYPELAYOUT_CXX_FLAGS})
