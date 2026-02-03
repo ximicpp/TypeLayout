@@ -1,0 +1,77 @@
+name: Deploy Documentation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'doc/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Antora
+        run: npm i -g @antora/cli@3.1 @antora/site-generator@3.1
+
+      - name: Create Antora Playbook
+        run: |
+          cat > antora-playbook.yml << 'EOF'
+          site:
+            title: Boost.TypeLayout Documentation
+            url: https://ximicpp.github.io/TypeLayout
+            start_page: typelayout::index.adoc
+          content:
+            sources:
+              - url: .
+                branches: HEAD
+                start_path: doc
+          ui:
+            bundle:
+              url: https://gitlab.com/antora/antora-ui-default/-/jobs/artifacts/HEAD/raw/build/ui-bundle.zip?job=bundle-stable
+              snapshot: true
+          asciidoc:
+            attributes:
+              experimental: true
+              source-highlighter: highlight.js
+          EOF
+
+      - name: Build Documentation
+        run: antora --fetch antora-playbook.yml
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./build/site
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
