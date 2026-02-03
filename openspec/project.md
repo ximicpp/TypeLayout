@@ -200,6 +200,55 @@ TYPELAYOUT_BIND(Type, ExpectedSig)  // 静态断言布局匹配
 - 需要支持 IEEE 754 浮点数
 - 指针大小编码在签名中（4或8字节）
 
+## Known Limitations (已知限制)
+
+### Constexpr Step Limits (编译器步数限制)
+
+由于 `constexpr` 计算的固有限制，Bloomberg Clang P2996 fork 对复杂类型有默认步数限制。
+当类型成员过多或签名字符串过长时，编译器可能报错：
+```
+constexpr evaluation hit maximum step limit; possible infinite loop?
+```
+
+**已验证的边界**:
+| 测试用例 | 签名长度 | 所需最小步数 |
+|----------|---------|-------------|
+| 60字段结构体 | ~3100 chars | ~1M (默认足够) |
+| 100字段结构体 | ~5200 chars | ~2.2M |
+| 10类型 variant | ~5100 chars | ~2.2M |
+
+**编译器参数建议**:
+```bash
+# 支持大型类型（100+字段）的编译选项
+clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ \
+    -fconstexpr-steps=3000000 \
+    -I./include your_code.cpp
+
+# 支持超大型类型的编译选项
+clang++ ... -fconstexpr-steps=5000000 ...
+```
+
+**步数消耗的根本原因**:
+1. `CompileString::operator+` 在每次连接时逐字符复制
+2. 字段签名使用 fold expression 展开，产生 O(n²) 复制开销
+3. 5000字符的签名 × 100次连接 = 大量循环迭代
+
+**推荐配置**:
+| 项目类型 | 最大结构体大小 | 建议步数限制 |
+|----------|---------------|-------------|
+| 小型项目 | <50 字段 | 默认 (不设置) |
+| 中型项目 | 50-80 字段 | `-fconstexpr-steps=1500000` |
+| 大型项目 | 80-100 字段 | `-fconstexpr-steps=3000000` |
+| 超大型项目 | 100+ 字段 | `-fconstexpr-steps=5000000` |
+
+**CMake 配置示例**:
+```cmake
+# 对于包含大型类型的项目
+target_compile_options(your_target PRIVATE
+    $<$<CXX_COMPILER_ID:Clang>:-fconstexpr-steps=3000000>
+)
+```
+
 ## Use Cases
 
 ### 1. 二进制协议验证
