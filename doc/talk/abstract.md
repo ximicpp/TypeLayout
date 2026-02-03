@@ -2,7 +2,7 @@
 
 ## Abstract
 
-What if your compiler could automatically verify that two separately compiled binaries agree on the memory layout of every shared data structure? **TypeLayout** makes this possible using C++26 static reflection (P2996).
+What if you could **detect ABI mismatches instantly** when two separately compiled binaries try to share data? **TypeLayout** makes this possible by generating compile-time layout signatures using C++26 static reflection (P2996).
 
 TypeLayout is a header-only library that generates **compile-time memory layout signatures**—human-readable strings that uniquely describe how a type is laid out in memory:
 
