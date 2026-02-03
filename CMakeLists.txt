@@ -129,7 +129,11 @@ if(BOOST_TYPELAYOUT_BUILD_EXAMPLES)
     add_executable(shared_memory_demo example/shared_memory_demo.cpp)
     target_link_libraries(shared_memory_demo PRIVATE typelayout)
     
-    message(STATUS "  Examples: Enabled (demo, network_protocol, file_format, shared_memory)")
+    # Plugin Interface Verification Demo
+    add_executable(plugin_interface_example example/plugin_interface.cpp)
+    target_link_libraries(plugin_interface_example PRIVATE typelayout)
+    
+    message(STATUS "  Examples: Enabled (demo, network_protocol, file_format, shared_memory, plugin_interface)")
 else()
     message(STATUS "  Examples: Disabled")
 endif()
