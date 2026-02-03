@@ -46,6 +46,14 @@ target_compile_options(test_complex_cases PRIVATE ${TYPELAYOUT_CXX_FLAGS})
 add_executable(test_edge_cases test_edge_cases.cpp)
 target_compile_options(test_edge_cases PRIVATE ${TYPELAYOUT_CXX_FLAGS})
 
+# Alignment completeness tests (no Boost.Test dependency)
+add_executable(test_alignment test_alignment.cpp)
+target_compile_options(test_alignment PRIVATE ${TYPELAYOUT_CXX_FLAGS})
+
+# User-defined types tests (no Boost.Test dependency)
+add_executable(test_user_defined_types test_user_defined_types.cpp)
+target_compile_options(test_user_defined_types PRIVATE ${TYPELAYOUT_CXX_FLAGS})
+
 # Unit tests with Boost.Test
 add_typelayout_test(test_primitives)
 add_typelayout_test(test_structs)

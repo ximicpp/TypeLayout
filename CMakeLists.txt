@@ -76,12 +76,22 @@ if(BOOST_TYPELAYOUT_BUILD_TESTS)
     add_executable(test_anonymous_member test/test_anonymous_member.cpp)
     target_link_libraries(test_anonymous_member PRIVATE typelayout)
     
+    # Alignment completeness tests
+    add_executable(test_alignment test/test_alignment.cpp)
+    target_link_libraries(test_alignment PRIVATE typelayout)
+    
+    # User-defined types tests
+    add_executable(test_user_defined_types test/test_user_defined_types.cpp)
+    target_link_libraries(test_user_defined_types PRIVATE typelayout)
+    
     # Register tests with CTest
     # For static_assert tests, successful compilation = test passed
     add_test(NAME test_all_types COMMAND test_all_types)
     add_test(NAME test_signature_extended COMMAND test_signature_extended)
     add_test(NAME test_signature_comprehensive COMMAND test_signature_comprehensive)
     add_test(NAME test_anonymous_member COMMAND test_anonymous_member)
+    add_test(NAME test_alignment COMMAND test_alignment)
+    add_test(NAME test_user_defined_types COMMAND test_user_defined_types)
     
     # Set test properties
     set_tests_properties(
@@ -89,6 +99,8 @@ if(BOOST_TYPELAYOUT_BUILD_TESTS)
         test_signature_extended
         test_signature_comprehensive
         test_anonymous_member
+        test_alignment
+        test_user_defined_types
         PROPERTIES
             TIMEOUT 60
             LABELS "core"
