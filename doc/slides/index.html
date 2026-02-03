@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TypeLayout: Compile-Time Binary Compatibility for C++26</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/reset.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/reveal.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/theme/black.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/plugin/highlight/monokai.css">
+    <style>
+        :root {
+            --r-heading-font: 'Source Sans Pro', Helvetica, sans-serif;
+            --r-main-font-size: 32px;
+        }
+        .reveal h1 { font-size: 2.2em; }
+        .reveal h2 { font-size: 1.6em; }
+        .reveal h3 { font-size: 1.3em; }
+        .reveal pre { font-size: 0.55em; width: 100%; }
+        .reveal pre code { max-height: 500px; }
+        .reveal .small { font-size: 0.7em; }
+        .reveal .tiny { font-size: 0.5em; }
+        .reveal .highlight { color: #42affa; }
+        .reveal .warning { color: #ff6b6b; }
+        .reveal .success { color: #51cf66; }
+        .reveal .columns { display: flex; gap: 2em; }
+        .reveal .column { flex: 1; }
+        .reveal .center { text-align: center; }
+        .reveal ul { text-align: left; }
+        .reveal .signature { 
+            font-family: monospace; 
+            background: #2d2d2d; 
+            padding: 0.5em 1em; 
+            border-radius: 5px;
+            font-size: 0.8em;
+        }
+        .reveal .agenda-current { color: #42affa; font-weight: bold; }
+        .reveal blockquote {
+            background: rgba(255,255,255,0.05);
+            padding: 1em;
+            border-left: 4px solid #42affa;
+        }
+        .reveal table { font-size: 0.7em; }
+        .reveal th { background: #333; }
+        .reveal td, .reveal th { padding: 0.4em 0.8em; border: 1px solid #555; }
+    </style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- ============================================================ -->
+<!-- PART 1: INTRODUCTION (5 min) -->
+<!-- ============================================================ -->
+
+<section>
+    <h1>TypeLayout</h1>
+    <h3>Compile-Time Binary Compatibility<br>Verification for C++26</h3>
+    <p class="small" style="margin-top: 2em;">
+        CppCon 2026<br>
+        <em>Using P2996 Static Reflection in Practice</em>
+    </p>
+</section>
+
+<section>
+    <h2>About Me</h2>
+    <ul>
+        <li>Your Name</li>
+        <li>Your Company / Affiliation</li>
+        <li>GitHub: <span class="highlight">github.com/your-repo/typelayout</span></li>
+    </ul>
+</section>
+
+<section>
+    <h2>Agenda</h2>
+    <ol>
+        <li>The Problem: Binary Compatibility Bugs</li>
+        <li>Traditional Solutions & Their Limits</li>
+        <li>TypeLayout: A New Approach</li>
+        <li>Live Demo</li>
+        <li>Under the Hood: P2996 in Action</li>
+        <li>Real-World Applications</li>
+        <li>Q&A</li>
+    </ol>
+</section>
+
+<!-- ============================================================ -->
+<!-- PART 2: THE PROBLEM (8 min) -->
+<!-- ============================================================ -->
+
+<section>
+    <h2>Part 1</h2>
+    <h3>The Problem</h3>
+</section>
+
+<section>
+    <h2>A Simple Struct</h2>
+    <pre><code class="cpp" data-trim>
+struct NetworkPacket {
+    uint8_t  version;
+    uint32_t sequence;
+    uint16_t flags;
+    uint64_t timestamp;
+};
+
+// What's sizeof(NetworkPacket)?
+    </code></pre>
+    <p class="fragment">🤔 Is it <code>15</code> bytes?</p>
+</section>
+
+<section>
+    <h2>The Reality</h2>
+    <pre><code class="cpp" data-trim>
+struct NetworkPacket {
+    uint8_t  version;    // offset 0, size 1
+    // 3 bytes padding
+    uint32_t sequence;   // offset 4, size 4
+    uint16_t flags;      // offset 8, size 2
+    // 6 bytes padding
+    uint64_t timestamp;  // offset 16, size 8
+};  // Total: 24 bytes!
+    </code></pre>
+    <p class="warning">9 bytes of hidden padding (37.5% waste)</p>
+</section>
+
+<section>
+    <h2>When Does This Matter?</h2>
+    <div class="columns">
+        <div class="column">
+            <h4>Network Protocols</h4>
+            <p class="small">Client and server disagree on packet format</p>
+        </div>
+        <div class="column">
+            <h4>Shared Memory IPC</h4>
+            <p class="small">Producer and consumer see different layouts</p>
+        </div>
+    </div>
+    <div class="columns" style="margin-top: 1em;">
+        <div class="column">
+            <h4>File Formats</h4>
+            <p class="small">Saved data can't be loaded after recompile</p>
+        </div>
+        <div class="column">
+            <h4>Hardware Registers</h4>
+            <p class="small">Memory-mapped I/O at wrong addresses</p>
+        </div>
+    </div>
+</section>
+
+<section>
+    <h2>The Silent Bug</h2>
+    <pre><code class="cpp" data-trim>
+// service_a.cpp (compiled with GCC on Linux)
+struct Message { int id; long value; };  // 16 bytes
+
+// service_b.cpp (compiled with MSVC on Windows)
+struct Message { int id; long value; };  // 12 bytes
+    </code></pre>
+    <p class="fragment warning">Same source code. Different layouts.</p>
+    <p class="fragment">No compiler error. No warning. Just corrupted data.</p>
+</section>
+
+<section>
+    <h2>It Gets Worse</h2>
+    <pre><code class="cpp" data-trim>
+// v1.0
+struct Config {
+    int timeout;
+    bool enabled;
+};
+
+// v2.0 - "minor" addition
+struct Config {
+    int timeout;
+    bool enabled;
+    int retry_count;  // Added field
+};
+    </code></pre>
+    <p class="fragment">Old binaries reading new data = 💥</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- PART 3: TRADITIONAL SOLUTIONS (7 min) -->
+<!-- ============================================================ -->
+
+<section>
+    <h2>Part 2</h2>
+    <h3>Traditional Solutions</h3>
+</section>
+
+<section>
+    <h2>Solution 1: Manual Verification</h2>
+    <pre><code class="cpp" data-trim>
+static_assert(sizeof(NetworkPacket) == 15);  // Fails!
+static_assert(offsetof(NetworkPacket, timestamp) == 7);  // Fails!
+    </code></pre>
+    <p class="fragment warning">Problems:</p>
+    <ul class="fragment small">
+        <li>Easy to forget</li>
+        <li>Doesn't check all fields</li>
+        <li>Breaks with private members</li>
+    </ul>
+</section>
+
+<section>
+    <h2>Solution 2: Serialization Libraries</h2>
+    <pre><code class="cpp" data-trim>
+// Protocol Buffers, FlatBuffers, Cap'n Proto...
+message NetworkPacket {
+    uint32 version = 1;
+    uint32 sequence = 2;
+    uint32 flags = 3;
+    uint64 timestamp = 4;
+}
+    </code></pre>
+    <p class="fragment warning">Problems:</p>
+    <ul class="fragment small">
+        <li>Runtime overhead</li>
+        <li>External IDL files to maintain</li>
+        <li>Not native C++ structs</li>
+    </ul>
+</section>
+
+<section>
+    <h2>Solution 3: Pragma Pack</h2>
+    <pre><code class="cpp" data-trim>
+#pragma pack(push, 1)
+struct NetworkPacket {
+    uint8_t  version;
+    uint32_t sequence;
+    uint16_t flags;
+    uint64_t timestamp;
+};
+#pragma pack(pop)
+    </code></pre>
+    <p class="fragment warning">Problems:</p>
+    <ul class="fragment small">
+        <li>Performance penalty (unaligned access)</li>
+        <li>Some platforms don't support unaligned access</li>
+        <li>Easy to forget the pragma</li>
+    </ul>
+</section>
+
+<section>
+    <h2>Comparison</h2>
+    <table>
+        <tr>
+            <th>Feature</th>
+            <th>Manual</th>
+            <th>Serialization</th>
+            <th>Pack</th>
+        </tr>
+        <tr>
+            <td>Compile-time check</td>
+            <td class="success">Yes</td>
+            <td class="warning">No</td>
+            <td class="warning">No</td>
+        </tr>
+        <tr>
+            <td>Zero runtime cost</td>
+            <td class="success">Yes</td>
+            <td class="warning">No</td>
+            <td class="warning">No*</td>
+        </tr>
+        <tr>
+            <td>Native C++ structs</td>
+            <td class="success">Yes</td>
+            <td class="warning">No</td>
+            <td class="success">Yes</td>
+        </tr>
+        <tr>
+            <td>Automatic</td>
+            <td class="warning">No</td>
+            <td class="success">Yes</td>
+            <td class="success">Yes</td>
+        </tr>
+        <tr>
+            <td>Private members</td>
+            <td class="warning">No</td>
+            <td>N/A</td>
+            <td class="success">Yes</td>
+        </tr>
+    </table>
+</section>
+
+<section>
+    <h2>What We Really Need</h2>
+    <ul>
+        <li class="fragment">✅ Compile-time verification</li>
+        <li class="fragment">✅ Zero runtime overhead</li>
+        <li class="fragment">✅ Works with native C++ structs</li>
+        <li class="fragment">✅ Automatic & complete</li>
+        <li class="fragment">✅ Supports private members</li>
+        <li class="fragment">✅ Human-readable diagnostics</li>
+    </ul>
+    <p class="fragment highlight" style="margin-top: 1em;">Enter: C++26 Static Reflection</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- PART 4: TYPELAYOUT INTRODUCTION (8 min) -->
+<!-- ============================================================ -->
+
+<section>
+    <h2>Part 3</h2>
+    <h3>Introducing TypeLayout</h3>
+</section>
+
+<section>
+    <h2>The Vision</h2>
+    <pre><code class="cpp" data-trim>
+#include &lt;typelayout/typelayout.hpp&gt;
+
+struct NetworkPacket { /* ... */ };
+
+// One line. Complete verification. Zero runtime cost.
+static_assert(
+    type_layout&lt;NetworkPacket&gt;() == 
+    "[24|8]{@0:version:u8,@4:sequence:u32,@8:flags:u16,@16:timestamp:u64}"
+);
+    </code></pre>
+</section>
+
+<section>
+    <h2>Reading a Signature</h2>
+    <div class="signature">
+        [24|8]{@0:version:u8, @4:sequence:u32, @8:flags:u16, @16:timestamp:u64}
+    </div>
+    <div style="margin-top: 1em; text-align: left;" class="small">
+        <p><span class="highlight">[24|8]</span> — Total size: 24 bytes, alignment: 8 bytes</p>
+        <p><span class="highlight">@0:version:u8</span> — Field "version" at offset 0, type uint8_t</p>
+        <p><span class="highlight">@4:sequence:u32</span> — Field "sequence" at offset 4, type uint32_t</p>
+        <p>...</p>
+    </div>
+</section>
+
+<section>
+    <h2>Signature Elements</h2>
+    <table>
+        <tr><th>Element</th><th>Meaning</th><th>Example</th></tr>
+        <tr><td><code>[S|A]</code></td><td>Size and alignment</td><td><code>[24|8]</code></td></tr>
+        <tr><td><code>@N</code></td><td>Byte offset</td><td><code>@16</code></td></tr>
+        <tr><td><code>:name:</code></td><td>Field name</td><td><code>:timestamp:</code></td></tr>
+        <tr><td><code>u8, i32, f64</code></td><td>Primitive types</td><td><code>u64</code></td></tr>
+        <tr><td><code>*T</code></td><td>Pointer to T</td><td><code>*void</code></td></tr>
+        <tr><td><code>[N]T</code></td><td>Array of N elements</td><td><code>[16]u8</code></td></tr>
+        <tr><td><code>{...}</code></td><td>Nested struct</td><td><code>{@0:x:i32}</code></td></tr>
+    </table>
+</section>
+
+<section>
+    <h2>Cross-Platform Verification</h2>
+    <pre><code class="cpp" data-trim>
+// Explicit platform annotation
+constexpr auto linux_layout = 
+    "[64-le][16|8]{@0:x:i64,@8:y:*void}";
+
+constexpr auto windows_layout = 
+    "[64-le][16|8]{@0:x:i64,@8:y:*void}";
+
+// Verify current platform matches expected
+static_assert(
+    type_layout&lt;Point&gt;() == linux_layout ||
+    type_layout&lt;Point&gt;() == windows_layout
+);
+    </code></pre>
+</section>
+
+<section>
+    <h2>When Verification Fails</h2>
+    <pre><code class="plaintext" data-trim>
+error: static assertion failed:
+  Layout mismatch detected!
+  
+  Expected: [16|8]{@0:x:i32,@4:y:i32,@8:z:i64}
+  Actual:   [24|8]{@0:x:i32,@8:y:i64,@16:z:i32}
+                           ^^^^^^^ offset changed
+    </code></pre>
+    <p class="success">Human-readable. Instantly debuggable.</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- PART 5: LIVE DEMO (5 min) -->
+<!-- ============================================================ -->
+
+<section>
+    <h2>Part 4</h2>
+    <h3>Live Demo</h3>
+</section>
+
+<section data-background="#1a1a2e">
+    <h2>Demo Time! 🎬</h2>
+    <ol class="small">
+        <li>Basic signature generation</li>
+        <li>Catching a hidden bug</li>
+        <li>Versioned data structure</li>
+    </ol>
+    <p style="margin-top: 2em;" class="tiny">(Switch to IDE)</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- PART 6: UNDER THE HOOD (10 min) -->
+<!-- ============================================================ -->
+
+<section>
+    <h2>Part 5</h2>
+    <h3>Under the Hood: P2996</h3>
+</section>
+
+<section>
+    <h2>C++26 Static Reflection</h2>
+    <p>P2996: "Reflection for C++26"</p>
+    <ul class="small">
+        <li class="fragment"><span class="highlight">^T</span> — Reflect on type T</li>
+        <li class="fragment"><span class="highlight">std::meta::info</span> — Reflection handle</li>
+        <li class="fragment"><span class="highlight">[: refl :]</span> — Splice back to code</li>
+    </ul>
+</section>
+
+<section>
+    <h2>Reflection Basics</h2>
+    <pre><code class="cpp" data-trim>
+#include &lt;meta&gt;
+
+struct Point { int x; int y; };
+
+constexpr auto refl = ^Point;  // Get reflection
+
+// Query properties
+static_assert(std::meta::is_class_type(refl));
+static_assert(std::meta::identifier_of(refl) == "Point");
+    </code></pre>
+</section>
+
+<section>
+    <h2>Iterating Members</h2>
+    <pre><code class="cpp" data-trim>
+template&lt;typename T&gt;
+consteval void print_members() {
+    constexpr auto members = 
+        std::meta::nonstatic_data_members_of(
+            ^T, 
+            std::meta::access_context::unchecked()
+        );
+    
+    for (auto member : members) {
+        // member is std::meta::info
+        auto name = std::meta::identifier_of(member);
+        auto offset = std::meta::offset_of(member);
+        // ...
+    }
+}
+    </code></pre>
+</section>
+
+<section>
+    <h2>Building the Signature</h2>
+    <pre><code class="cpp" data-trim>
+template&lt;typename T&gt;
+consteval auto type_layout() {
+    FixedString result = "[";
+    result += to_string(sizeof(T));
+    result += "|";
+    result += to_string(alignof(T));
+    result += "]{";
+    
+    constexpr auto members = nonstatic_data_members_of(
+        ^T, access_context::unchecked());
+    
+    bool first = true;
+    for (auto m : members) {
+        if (!first) result += ",";
+        result += "@" + to_string(offset_of(m).bytes);
+        result += ":" + identifier_of(m);
+        result += ":" + type_signature&lt;[: type_of(m) :]&gt;();
+        first = false;
+    }
+    
+    return result + "}";
+}
+    </code></pre>
+</section>
+
+<section>
+    <h2>The Magic: Splicing</h2>
+    <pre><code class="cpp" data-trim>
+constexpr auto member = /* some std::meta::info */;
+
+// Get the type of the member
+using MemberType = [: std::meta::type_of(member) :];
+
+// Now we can use it!
+constexpr size_t size = sizeof(MemberType);
+    </code></pre>
+    <p class="fragment highlight">Reflection → Code → Reflection → Code</p>
+</section>
+
+<section>
+    <h2>Why P2996?</h2>
+    <div class="columns">
+        <div class="column">
+            <h4 class="warning">Before P2996</h4>
+            <ul class="small">
+                <li>Macros (BOOST_DESCRIBE)</li>
+                <li>External code generators</li>
+                <li>Compiler-specific intrinsics</li>
+                <li>Manual registration</li>
+            </ul>
+        </div>
+        <div class="column">
+            <h4 class="success">With P2996</h4>
+            <ul class="small">
+                <li>Standard C++</li>
+                <li>100% compile-time</li>
+                <li>Zero macros</li>
+                <li>Works with any type</li>
+            </ul>
+        </div>
+    </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- PART 7: REAL-WORLD APPLICATIONS (5 min) -->
+<!-- ============================================================ -->
+
+<section>
+    <h2>Part 6</h2>
+    <h3>Real-World Applications</h3>
+</section>
+
+<section>
+    <h2>Use Case 1: Shared Memory IPC</h2>
+    <pre><code class="cpp" data-trim>
+// shared_types.hpp
+struct SharedState {
+    std::atomic&lt;uint64_t&gt; counter;
+    char buffer[1024];
+    uint32_t flags;
+};
+
+// Producer and Consumer both verify:
+static_assert(
+    type_layout&lt;SharedState&gt;() == EXPECTED_LAYOUT,
+    "Shared memory layout mismatch!"
+);
+    </code></pre>
+</section>
+
+<section>
+    <h2>Use Case 2: Network Protocols</h2>
+    <pre><code class="cpp" data-trim>
+struct [[gnu::packed]] TCPHeader {
+    uint16_t src_port;
+    uint16_t dst_port;
+    uint32_t seq_number;
+    uint32_t ack_number;
+    uint8_t  data_offset : 4;
+    uint8_t  reserved : 3;
+    // ...
+};
+
+static_assert(type_layout&lt;TCPHeader&gt;() == RFC_793_LAYOUT);
+    </code></pre>
+</section>
+
+<section>
+    <h2>Use Case 3: Hardware Registers</h2>
+    <pre><code class="cpp" data-trim>
+struct GPIORegisters {
+    volatile uint32_t MODER;    // @0x00
+    volatile uint32_t OTYPER;   // @0x04
+    volatile uint32_t OSPEEDR;  // @0x08
+    volatile uint32_t PUPDR;    // @0x0C
+    // ...
+};
+
+// Must match hardware specification exactly!
+static_assert(
+    type_layout&lt;GPIORegisters&gt;() == STM32_GPIO_LAYOUT
+);
+    </code></pre>
+</section>
+
+<section>
+    <h2>Use Case 4: CI/CD Integration</h2>
+    <pre><code class="yaml" data-trim>
+# .github/workflows/abi-check.yml
+- name: Verify ABI Stability
+  run: |
+    clang++ -std=c++26 -freflection \
+      -include typelayout.hpp \
+      -DEXPECTED_LAYOUT="$BASELINE" \
+      verify_layout.cpp
+    </code></pre>
+    <p class="small">Catch ABI breaks before they reach production.</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- PART 8: CONCLUSION (2 min) -->
+<!-- ============================================================ -->
+
+<section>
+    <h2>Summary</h2>
+    <ul>
+        <li class="fragment">Binary compatibility bugs are <span class="warning">silent and dangerous</span></li>
+        <li class="fragment">Traditional solutions have <span class="warning">significant tradeoffs</span></li>
+        <li class="fragment">TypeLayout provides <span class="success">compile-time verification</span></li>
+        <li class="fragment">P2996 makes it <span class="success">possible in standard C++</span></li>
+        <li class="fragment">Human-readable signatures enable <span class="success">easy debugging</span></li>
+    </ul>
+</section>
+
+<section>
+    <h2>Try It Today!</h2>
+    <pre><code class="bash" data-trim>
+# Clone the repository
+git clone https://github.com/boost/typelayout
+
+# Build with P2996-enabled Clang
+clang++ -std=c++26 -freflection example.cpp
+    </code></pre>
+    <p style="margin-top: 1em;">
+        📖 Tutorial: <code>doc/TypeLayout-Tutorial-Complete.pdf</code>
+    </p>
+</section>
+
+<section>
+    <h2>Future Directions</h2>
+    <ul>
+        <li>IDE integration (show layouts inline)</li>
+        <li>Layout migration tools</li>
+        <li>Integration with serialization libraries</li>
+        <li>Potential Boost library submission</li>
+    </ul>
+</section>
+
+<section>
+    <h1>Questions?</h1>
+    <p style="margin-top: 2em;">
+        <span class="highlight">github.com/boost/typelayout</span>
+    </p>
+    <p class="small" style="margin-top: 2em;">
+        Thank you! 🙏
+    </p>
+</section>
+
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/plugin/highlight/highlight.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/plugin/notes/notes.js"></script>
+<script>
+    Reveal.initialize({
+        hash: true,
+        slideNumber: 'c/t',
+        transition: 'slide',
+        plugins: [ RevealHighlight, RevealNotes ]
+    });
+</script>
+</body>
+</html>

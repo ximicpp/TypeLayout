@@ -1,0 +1,248 @@
+= Chapter 6: Beyond the Basics
+:navtitle: 6. Beyond the Basics
+
+Advanced features: inheritance, polymorphism, bitfields, and concepts.
+
+== Inheritance
+
+TypeLayout fully supports class inheritance, including private members.
+
+=== Single Inheritance
+
+[source,cpp]
+----
+class Entity {
+public:
+    Entity(uint64_t id) : id_(id) {}
+    uint64_t getId() const { return id_; }
+private:
+    uint64_t id_;
+};
+
+class Player : public Entity {
+public:
+    Player(uint64_t id, int32_t score) : Entity(id), score_(score) {}
+    int32_t getScore() const { return score_; }
+private:
+    int32_t score_;
+};
+
+// Signature includes base class
+constexpr auto sig = get_layout_signature<Player>();
+// class[s:16,a:8,inherited]{@0[base]:struct[s:8,a:8]{@0[id_]:u64[s:8,a:8]},@8[score_]:i32[s:4,a:4]}
+----
+
+NOTE: The `inherited` marker indicates base class presence.
+
+=== Multiple Inheritance
+
+[source,cpp]
+----
+struct Movable { float x, y; };
+struct Renderable { uint32_t sprite_id; };
+
+struct GameObject : Movable, Renderable {
+    uint32_t object_id;
+};
+
+constexpr auto sig = get_layout_signature<GameObject>();
+// Includes both base classes with their offsets
+----
+
+=== Virtual Inheritance
+
+[source,cpp]
+----
+struct VirtualBase { int32_t value; };
+struct Left : virtual VirtualBase { int32_t left_data; };
+struct Right : virtual VirtualBase { int32_t right_data; };
+struct Diamond : Left, Right { int32_t diamond_data; };
+
+// Virtual bases are marked with [vbase]
+// @N[vbase]:struct{...}
+----
+
+== Polymorphism
+
+Polymorphic classes (with virtual functions) are handled correctly.
+
+[source,cpp]
+----
+class IShape {
+public:
+    virtual ~IShape() = default;
+    virtual double area() const = 0;
+};
+
+class Circle : public IShape {
+public:
+    Circle(double r) : radius_(r) {}
+    double area() const override { return 3.14159 * radius_ * radius_; }
+private:
+    double radius_;
+};
+
+constexpr auto sig = get_layout_signature<Circle>();
+// class[s:16,a:8,polymorphic,inherited]{...}
+----
+
+The `polymorphic` marker indicates:
+
+* A vtable pointer exists (typically at offset 0)
+* The class has virtual functions
+* Size includes vtable pointer (8 bytes on 64-bit)
+
+== Bitfields
+
+Bitfields are represented with bit-level precision.
+
+[source,cpp]
+----
+struct PacketFlags {
+    uint8_t version : 4;    // Bits 0-3
+    uint8_t type : 3;       // Bits 4-6
+    uint8_t urgent : 1;     // Bit 7
+    uint8_t priority : 4;   // Bits 8-11 (second byte)
+    uint8_t reserved : 4;   // Bits 12-15
+};
+
+constexpr auto sig = get_layout_signature<PacketFlags>();
+// struct[s:2,a:1]{
+//   @0.0[version]:bits<4,u8[s:1,a:1]>,
+//   @0.4[type]:bits<3,u8[s:1,a:1]>,
+//   @0.7[urgent]:bits<1,u8[s:1,a:1]>,
+//   @1.0[priority]:bits<4,u8[s:1,a:1]>,
+//   @1.4[reserved]:bits<4,u8[s:1,a:1]>
+// }
+----
+
+Bitfield format: `@BYTE.BIT[name]:bits<WIDTH,UNDERLYING>`
+
+== Anonymous Members
+
+Anonymous unions and structs get placeholder names.
+
+[source,cpp]
+----
+struct Variant {
+    uint32_t type;
+    union {
+        int32_t  as_int;
+        float    as_float;
+        void*    as_ptr;
+    };  // Anonymous union
+};
+
+constexpr auto sig = get_layout_signature<Variant>();
+// struct[s:16,a:8]{@0[type]:u32[s:4,a:4],@8[<anon:0>]:union[s:8,a:8]{...}}
+----
+
+== Concepts Integration
+
+TypeLayout provides C++20 concepts for type constraints.
+
+=== LayoutSupported
+
+Check if a type can have its layout computed:
+
+[source,cpp]
+----
+template<typename T>
+    requires LayoutSupported<T>
+void serialize(const T& value, Buffer& buf) {
+    buf.write(&value, sizeof(T));
+}
+
+// Works with: structs, classes, unions, enums, primitives, arrays
+// Fails with: void, function types, incomplete types
+----
+
+=== LayoutCompatible
+
+Check if two types have identical layouts:
+
+[source,cpp]
+----
+template<typename T, typename U>
+    requires LayoutCompatible<T, U>
+void safe_copy(const T& src, U& dst) {
+    std::memcpy(&dst, &src, sizeof(T));
+}
+
+// Only compiles if T and U have exactly the same layout signature
+----
+
+=== LayoutMatch
+
+Check if a type matches a specific signature:
+
+[source,cpp]
+----
+template<typename T>
+    requires LayoutMatch<T, "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}">
+void process_point(const T& point) {
+    // Guaranteed layout
+}
+----
+
+=== LayoutHashMatch
+
+Check if a type matches a specific hash:
+
+[source,cpp]
+----
+template<typename T>
+    requires LayoutHashMatch<T, 0xABCD1234DEADBEEF>
+void load_from_file(T& data, const char* path) {
+    // Layout verified at compile time
+}
+----
+
+== Practical Example: Type-Safe Memory Pool
+
+[source,cpp]
+----
+template<typename T>
+    requires LayoutSupported<T>
+class MemoryPool {
+public:
+    // Store layout hash for verification
+    static constexpr uint64_t LAYOUT_HASH = get_layout_hash<T>();
+    
+    T* allocate() {
+        // ...
+    }
+    
+    void deallocate(T* ptr) {
+        // ...
+    }
+    
+    // Verify at runtime (e.g., when loading serialized pool)
+    bool verify_layout(uint64_t stored_hash) const {
+        return stored_hash == LAYOUT_HASH;
+    }
+};
+----
+
+== Private Members
+
+TypeLayout uses P2996's `access_context::unchecked()` to reflect private members.
+
+[source,cpp]
+----
+class SecretData {
+private:
+    uint64_t secret_key_;
+    int32_t  secret_value_;
+};
+
+// Works! Private members are fully visible
+constexpr auto sig = get_layout_signature<SecretData>();
+// struct[s:16,a:8]{@0[secret_key_]:u64[s:8,a:8],@8[secret_value_]:i32[s:4,a:4]}
+----
+
+No `friend` declarations needed. No workarounds. Just works.
+
+== Next Chapter
+
+In xref:tutorial/07-under-the-hood.adoc[Chapter 7: Under the Hood], we'll explore how TypeLayout uses C++26 static reflection internally.

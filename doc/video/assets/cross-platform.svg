@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="800" height="300" viewBox="0 0 800 300" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .box { stroke: #42affa; stroke-width: 2; rx: 8; }
+    .linux { fill: #2d2d2d; }
+    .windows { fill: #2d2d2d; }
+    .label { font-family: 'Consolas', monospace; font-size: 14px; fill: #ffffff; }
+    .title { font-family: 'Arial', sans-serif; font-size: 16px; fill: #ffffff; font-weight: bold; }
+    .platform { font-family: 'Arial', sans-serif; font-size: 14px; fill: #888888; }
+    .warning { fill: #ff6b6b; }
+    .success { fill: #51cf66; }
+    .code { font-family: 'Consolas', monospace; font-size: 12px; fill: #e0e0e0; }
+    .size { font-family: 'Arial', sans-serif; font-size: 24px; font-weight: bold; }
+    .arrow { stroke: #ff6b6b; stroke-width: 3; fill: none; marker-end: url(#arrowhead); }
+  </style>
+  
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#ff6b6b"/>
+    </marker>
+  </defs>
+  
+  <!-- Title -->
+  <text x="400" y="30" text-anchor="middle" class="title" style="font-size: 20px;">
+    Same Code, Different Layouts
+  </text>
+  
+  <!-- Linux Box -->
+  <g transform="translate(50, 60)">
+    <rect x="0" y="0" width="300" height="180" class="box linux"/>
+    
+    <!-- Header -->
+    <text x="150" y="30" text-anchor="middle" class="platform">🐧 Linux (GCC, LP64)</text>
+    
+    <!-- Code -->
+    <text x="20" y="60" class="code">struct Message {</text>
+    <text x="40" y="80" class="code">int id;      // 4 bytes</text>
+    <text x="40" y="100" class="code">long value;  // 8 bytes</text>
+    <text x="20" y="120" class="code">};</text>
+    
+    <!-- Size -->
+    <text x="150" y="160" text-anchor="middle" class="size success">16 bytes</text>
+  </g>
+  
+  <!-- Windows Box -->
+  <g transform="translate(450, 60)">
+    <rect x="0" y="0" width="300" height="180" class="box windows"/>
+    
+    <!-- Header -->
+    <text x="150" y="30" text-anchor="middle" class="platform">🪟 Windows (MSVC, LLP64)</text>
+    
+    <!-- Code -->
+    <text x="20" y="60" class="code">struct Message {</text>
+    <text x="40" y="80" class="code">int id;      // 4 bytes</text>
+    <text x="40" y="100" class="code">long value;  // 4 bytes</text>
+    <text x="20" y="120" class="code">};</text>
+    
+    <!-- Size -->
+    <text x="150" y="160" text-anchor="middle" class="size warning">12 bytes</text>
+  </g>
+  
+  <!-- Conflict Arrow -->
+  <path d="M 350 150 L 400 150 L 400 130 L 450 150 L 400 170 L 400 150" class="arrow" style="stroke: none; fill: #ff6b6b;"/>
+  
+  <!-- Warning message -->
+  <g transform="translate(400, 260)">
+    <text x="0" y="0" text-anchor="middle" class="label warning" style="font-size: 16px;">
+      ⚠️ Binary Incompatible!
+    </text>
+    <text x="0" y="25" text-anchor="middle" class="label" style="font-size: 12px; fill: #888;">
+      Data corruption when communicating between platforms
+    </text>
+  </g>
+</svg>

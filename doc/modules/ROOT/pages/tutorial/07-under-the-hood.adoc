@@ -1,0 +1,280 @@
+= Chapter 7: Under the Hood
+:navtitle: 7. Under the Hood
+
+How TypeLayout uses C++26 static reflection (P2996) internally.
+
+== Introduction to P2996
+
+P2996 "Reflection for C++26" introduces compile-time type introspection via:
+
+* `^^T` - The "reflection operator" that creates a reflection of type T
+* `std::meta::info` - Opaque handle representing reflected entities
+* `[:refl:]` - The "splice" operator that converts reflection back to code
+
+[source,cpp]
+----
+#include <experimental/meta>
+
+struct Point { int x, y; };
+
+consteval void example() {
+    // Get reflection of Point
+    constexpr auto refl = ^^Point;
+    
+    // Query its properties
+    static_assert(std::meta::is_class_type(refl));
+    
+    // Get members
+    auto members = std::meta::nonstatic_data_members_of(refl);
+}
+----
+
+== Key P2996 APIs Used
+
+TypeLayout relies on these core P2996 functions:
+
+=== `nonstatic_data_members_of`
+
+Returns a list of non-static data members:
+
+[source,cpp]
+----
+template<typename T>
+consteval std::size_t get_member_count() {
+    using namespace std::meta;
+    auto members = nonstatic_data_members_of(^^T, access_context::unchecked());
+    return members.size();
+}
+----
+
+=== `offset_of`
+
+Gets the byte (and bit) offset of a member:
+
+[source,cpp]
+----
+template<typename T, size_t Index>
+consteval size_t get_field_offset() {
+    using namespace std::meta;
+    auto members = nonstatic_data_members_of(^^T, access_context::unchecked());
+    return offset_of(members[Index]).bytes;
+}
+----
+
+=== `type_of`
+
+Gets the type of a reflected entity:
+
+[source,cpp]
+----
+template<typename T, size_t Index>
+using FieldType = [:type_of(
+    nonstatic_data_members_of(^^T, access_context::unchecked())[Index]
+):];
+----
+
+=== `identifier_of`
+
+Gets the name of a reflected entity:
+
+[source,cpp]
+----
+consteval std::string_view get_field_name(std::meta::info member) {
+    if (std::meta::has_identifier(member)) {
+        return std::meta::identifier_of(member);
+    }
+    return "<anonymous>";
+}
+----
+
+=== `bases_of`
+
+Gets base classes of a type:
+
+[source,cpp]
+----
+template<typename T>
+consteval bool has_bases() {
+    using namespace std::meta;
+    return bases_of(^^T, access_context::unchecked()).size() > 0;
+}
+----
+
+== Access Control: The Magic of `unchecked()`
+
+Traditional reflection (like `offsetof`) fails on private members:
+
+[source,cpp]
+----
+class Secret {
+private:
+    int value_;
+};
+
+// Error: 'value_' is private
+// offsetof(Secret, value_);
+----
+
+P2996 solves this with `access_context::unchecked()`:
+
+[source,cpp]
+----
+auto members = nonstatic_data_members_of(^^Secret, 
+    access_context::unchecked());  // Bypasses access control!
+
+auto offset = offset_of(members[0]).bytes;  // Works!
+----
+
+This is by design - reflection for introspection should see everything.
+
+== How TypeLayout Generates Signatures
+
+=== Step 1: Iterate Members
+
+[source,cpp]
+----
+template<typename T>
+consteval auto get_fields_signature() {
+    constexpr auto members = nonstatic_data_members_of(
+        ^^T, access_context::unchecked());
+    
+    // Process each member...
+    return concatenate_signatures<T>(
+        std::make_index_sequence<members.size()>{}
+    );
+}
+----
+
+=== Step 2: Build Field Signature
+
+[source,cpp]
+----
+template<typename T, size_t Index>
+consteval auto get_field_signature() {
+    constexpr auto member = nonstatic_data_members_of(
+        ^^T, access_context::unchecked())[Index];
+    
+    using FieldType = [:type_of(member):];
+    constexpr size_t offset = offset_of(member).bytes;
+    constexpr auto name = identifier_of(member);
+    
+    // Build: @OFFSET[NAME]:TYPE_SIGNATURE
+    return CompileString{"@"} +
+           to_string(offset) +
+           CompileString{"["} +
+           CompileString{name} +
+           CompileString{"]:"} +
+           TypeSignature<FieldType>::calculate();
+}
+----
+
+=== Step 3: Handle Special Cases
+
+Bitfields:
+[source,cpp]
+----
+if constexpr (is_bit_field(member)) {
+    auto bit_off = offset_of(member);
+    // Use bit_off.bytes and bit_off.bits
+    // Format: @BYTE.BIT[name]:bits<WIDTH,TYPE>
+}
+----
+
+Base classes:
+[source,cpp]
+----
+template<typename T>
+consteval auto get_bases_signature() {
+    auto bases = bases_of(^^T, access_context::unchecked());
+    // For each base, get offset and signature
+}
+----
+
+== The CompileString Type
+
+TypeLayout uses a custom compile-time string type:
+
+[source,cpp]
+----
+template<size_t N>
+struct CompileString {
+    char value[N];
+    static constexpr size_t size = N;
+    
+    consteval CompileString(const char (&str)[N]) {
+        std::copy_n(str, N, value);
+    }
+    
+    // Concatenation
+    template<size_t M>
+    consteval auto operator+(const CompileString<M>& other) const {
+        CompileString<N + M - 1> result;
+        // Copy this, then other...
+        return result;
+    }
+};
+----
+
+This enables building signatures entirely at compile time.
+
+== Recursion and Nested Types
+
+For nested structs, TypeLayout recursively generates signatures:
+
+[source,cpp]
+----
+struct Inner { int32_t value; };
+struct Outer { Inner inner; int32_t extra; };
+
+// Outer's signature includes Inner's full signature:
+// struct[s:8,a:4]{@0[inner]:struct[s:4,a:4]{@0[value]:i32},@4[extra]:i32}
+----
+
+This is achieved by `TypeSignature<FieldType>::calculate()` recursing into nested types.
+
+== Performance Considerations
+
+All computation happens at compile time:
+
+* No runtime overhead
+* No binary size increase (signatures are constexpr values)
+* Build time: proportional to type complexity
+
+Typical impact:
+
+* Simple structs: ~0ms
+* Complex hierarchies: ~10-50ms
+* Very deep nesting: may hit compiler limits
+
+== Compiler Support
+
+Currently requires Bloomberg's experimental Clang with P2996:
+
+[source,bash]
+----
+# Build with P2996 toolchain
+clang++ -std=c++26 -freflection my_code.cpp
+----
+
+As P2996 gets standardized, expect support in:
+
+* GCC 15+ (planned)
+* Clang 19+ (planned)
+* MSVC (TBD)
+
+== Summary
+
+TypeLayout leverages P2996 to:
+
+1. **Reflect** all members (including private) at compile time
+2. **Extract** offsets, names, and types automatically
+3. **Generate** human-readable signatures with zero runtime cost
+4. **Verify** layouts at compile time via `static_assert` and concepts
+
+The result: automatic, complete, and efficient layout introspection.
+
+== Further Reading
+
+* link:https://wg21.link/P2996[P2996: Reflection for C++26]
+* link:https://wg21.link/P2320[P2320: The Syntax of Static Reflection]
+* link:https://github.com/bloomberg/clang-p2996[Bloomberg's P2996 Clang Fork]

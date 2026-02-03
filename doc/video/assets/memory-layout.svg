@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="800" height="200" viewBox="0 0 800 200" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .memory-block { stroke: #42affa; stroke-width: 2; }
+    .padding { fill: #ff6b6b; fill-opacity: 0.3; }
+    .data { fill: #51cf66; fill-opacity: 0.3; }
+    .label { font-family: 'Consolas', monospace; font-size: 14px; fill: #ffffff; }
+    .offset { font-family: 'Consolas', monospace; font-size: 12px; fill: #888888; }
+    .title { font-family: 'Arial', sans-serif; font-size: 18px; fill: #ffffff; font-weight: bold; }
+    .size-label { font-family: 'Consolas', monospace; font-size: 11px; fill: #aaaaaa; }
+  </style>
+  
+  <!-- Title -->
+  <text x="400" y="30" text-anchor="middle" class="title">Memory Layout: NetworkPacket (24 bytes)</text>
+  
+  <!-- Memory blocks -->
+  <g transform="translate(50, 60)">
+    <!-- version: 1 byte -->
+    <rect x="0" y="0" width="30" height="60" class="memory-block data"/>
+    <text x="15" y="35" text-anchor="middle" class="label">v</text>
+    <text x="15" y="52" text-anchor="middle" class="size-label">1B</text>
+    <text x="15" y="85" text-anchor="middle" class="offset">@0</text>
+    
+    <!-- padding: 3 bytes -->
+    <rect x="30" y="0" width="90" height="60" class="memory-block padding"/>
+    <text x="75" y="35" text-anchor="middle" class="label" fill="#ff6b6b">padding</text>
+    <text x="75" y="52" text-anchor="middle" class="size-label">3B</text>
+    
+    <!-- sequence: 4 bytes -->
+    <rect x="120" y="0" width="120" height="60" class="memory-block data"/>
+    <text x="180" y="35" text-anchor="middle" class="label">sequence</text>
+    <text x="180" y="52" text-anchor="middle" class="size-label">4B</text>
+    <text x="180" y="85" text-anchor="middle" class="offset">@4</text>
+    
+    <!-- flags: 2 bytes -->
+    <rect x="240" y="0" width="60" height="60" class="memory-block data"/>
+    <text x="270" y="35" text-anchor="middle" class="label">flags</text>
+    <text x="270" y="52" text-anchor="middle" class="size-label">2B</text>
+    <text x="270" y="85" text-anchor="middle" class="offset">@8</text>
+    
+    <!-- padding: 6 bytes -->
+    <rect x="300" y="0" width="180" height="60" class="memory-block padding"/>
+    <text x="390" y="35" text-anchor="middle" class="label" fill="#ff6b6b">padding</text>
+    <text x="390" y="52" text-anchor="middle" class="size-label">6B</text>
+    
+    <!-- timestamp: 8 bytes -->
+    <rect x="480" y="0" width="220" height="60" class="memory-block data"/>
+    <text x="590" y="35" text-anchor="middle" class="label">timestamp</text>
+    <text x="590" y="52" text-anchor="middle" class="size-label">8B</text>
+    <text x="590" y="85" text-anchor="middle" class="offset">@16</text>
+  </g>
+  
+  <!-- Legend -->
+  <g transform="translate(50, 160)">
+    <rect x="0" y="0" width="20" height="15" class="data" style="stroke: #51cf66;"/>
+    <text x="30" y="12" class="label" style="font-size: 12px;">Data</text>
+    
+    <rect x="100" y="0" width="20" height="15" class="padding" style="stroke: #ff6b6b;"/>
+    <text x="130" y="12" class="label" style="font-size: 12px;">Padding (37.5% waste)</text>
+  </g>
+  
+  <!-- Signature -->
+  <text x="400" y="185" text-anchor="middle" class="label" style="font-size: 11px; fill: #42affa;">
+    [24|8]{@0:version:u8, @4:sequence:u32, @8:flags:u16, @16:timestamp:u64}
+  </text>
+</svg>

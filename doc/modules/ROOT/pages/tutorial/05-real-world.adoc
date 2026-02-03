@@ -1,0 +1,275 @@
+= Chapter 5: Real-World Applications
+:navtitle: 5. Real-World Applications
+
+Practical use cases for TypeLayout.
+
+== Application 1: Shared Memory IPC
+
+Multiple processes share data through memory-mapped regions.
+
+=== The Problem
+
+[source,cpp]
+----
+// Process A writes
+SharedData* data = map_shared_memory("/my_shm");
+data->value = 42;
+
+// Process B reads
+SharedData* data = map_shared_memory("/my_shm");
+int v = data->value;  // Is this correct?
+----
+
+If Process A and B were compiled differently, `value` might be at different offsets.
+
+=== The Solution
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+
+struct SharedData {
+    uint32_t magic;
+    uint64_t layout_hash;  // Layout verification
+    // ... actual data ...
+    int32_t  value;
+    double   temperature;
+};
+
+// At compile time, lock down the expected layout
+constexpr auto EXPECTED_HASH = get_layout_hash<SharedData>();
+
+void* map_shared_memory(const char* name) {
+    void* ptr = /* mmap or shm_open */;
+    auto* header = static_cast<SharedData*>(ptr);
+    
+    // Runtime verification
+    if (header->layout_hash != EXPECTED_HASH) {
+        throw std::runtime_error("Layout mismatch in shared memory!");
+    }
+    return ptr;
+}
+
+void init_shared_memory(SharedData* data) {
+    data->magic = 0x12345678;
+    data->layout_hash = EXPECTED_HASH;
+}
+----
+
+== Application 2: File Format Versioning
+
+Game save files must remain compatible across versions.
+
+=== The Problem
+
+[source,cpp]
+----
+// Version 1.0
+struct SaveFile_v1 {
+    uint32_t version;
+    char player_name[32];
+    int32_t score;
+};
+
+// Version 2.0 - added new field
+struct SaveFile_v2 {
+    uint32_t version;
+    char player_name[32];
+    int32_t score;
+    uint64_t playtime;  // NEW!
+};
+----
+
+How do you handle old save files?
+
+=== The Solution
+
+[source,cpp]
+----
+// Define known layouts with their signatures
+constexpr auto V1_SIGNATURE = 
+    "[64-le]struct[s:40,a:4]{@0[version]:u32[s:4,a:4],"
+    "@4[player_name]:bytes[s:32,a:1],@36[score]:i32[s:4,a:4]}";
+
+constexpr auto V2_SIGNATURE = 
+    "[64-le]struct[s:48,a:8]{@0[version]:u32[s:4,a:4],"
+    "@4[player_name]:bytes[s:32,a:1],@36[score]:i32[s:4,a:4],"
+    "@40[playtime]:u64[s:8,a:8]}";
+
+// Compile-time verification
+static_assert(LayoutMatch<SaveFile_v1, V1_SIGNATURE>);
+static_assert(LayoutMatch<SaveFile_v2, V2_SIGNATURE>);
+
+// Runtime loader
+SaveData load_save(const char* path) {
+    FileHeader header = read_header(path);
+    
+    switch (header.version) {
+        case 1: return load_v1(path);
+        case 2: return load_v2(path);
+        default: throw std::runtime_error("Unknown save version");
+    }
+}
+----
+
+== Application 3: Network Protocol
+
+Client and server must agree on message layouts.
+
+=== Protocol Definition
+
+[source,cpp]
+----
+// protocol.hpp - shared between client and server
+namespace protocol {
+
+struct MessageHeader {
+    uint32_t magic;       // 0xDEADBEEF
+    uint16_t type;        // Message type
+    uint16_t flags;       // Flags
+    uint32_t length;      // Payload length
+    uint64_t timestamp;   // Unix timestamp
+};
+
+struct LoginRequest {
+    MessageHeader header;
+    char username[32];
+    char password_hash[64];
+};
+
+struct LoginResponse {
+    MessageHeader header;
+    uint32_t result_code;
+    uint64_t session_id;
+};
+
+// Compile-time layout contracts
+static_assert(get_layout_signature<MessageHeader>() ==
+    "[64-le]struct[s:24,a:8]{"
+    "@0[magic]:u32[s:4,a:4],"
+    "@4[type]:u16[s:2,a:2],"
+    "@6[flags]:u16[s:2,a:2],"
+    "@8[length]:u32[s:4,a:4],"
+    "@16[timestamp]:u64[s:8,a:8]}");
+
+} // namespace protocol
+----
+
+=== Version Negotiation
+
+[source,cpp]
+----
+// Include layout hash in handshake
+struct Handshake {
+    uint32_t protocol_version;
+    uint64_t header_layout_hash;
+};
+
+void connect(Socket& socket) {
+    Handshake hs;
+    hs.protocol_version = 1;
+    hs.header_layout_hash = get_layout_hash<MessageHeader>();
+    
+    socket.send(&hs, sizeof(hs));
+    
+    Handshake server_hs;
+    socket.recv(&server_hs, sizeof(server_hs));
+    
+    if (server_hs.header_layout_hash != hs.header_layout_hash) {
+        throw std::runtime_error("Protocol layout mismatch!");
+    }
+}
+----
+
+== Application 4: Hardware Register Mapping
+
+Embedded systems access hardware through memory-mapped registers.
+
+=== Register Definition
+
+[source,cpp]
+----
+// SPI controller registers (hypothetical)
+struct SPIRegisters {
+    volatile uint32_t control;    // @0x00: Control register
+    volatile uint32_t status;     // @0x04: Status register
+    volatile uint32_t data;       // @0x08: Data register
+    volatile uint32_t clock_div;  // @0x0C: Clock divider
+};
+
+// Verify against hardware specification
+static_assert(sizeof(SPIRegisters) == 16);
+static_assert(get_layout_signature<SPIRegisters>() ==
+    "[32-le]struct[s:16,a:4]{"
+    "@0[control]:u32[s:4,a:4],"
+    "@4[status]:u32[s:4,a:4],"
+    "@8[data]:u32[s:4,a:4],"
+    "@12[clock_div]:u32[s:4,a:4]}");
+
+SPIRegisters* spi = reinterpret_cast<SPIRegisters*>(0x40001000);
+----
+
+== Application 5: ABI Stability
+
+Library maintainers need to ensure ABI stability.
+
+=== Public API Types
+
+[source,cpp]
+----
+// public_api.hpp
+
+// ABI-stable types - changes break compatibility
+struct [[nodiscard]] Result {
+    int32_t  error_code;
+    uint64_t data;
+};
+
+struct Config {
+    uint32_t flags;
+    uint32_t timeout_ms;
+    char     name[64];
+};
+
+// Document and enforce ABI
+namespace abi {
+    // Current ABI version
+    constexpr int VERSION = 1;
+    
+    // Layout hashes for verification
+    constexpr uint64_t RESULT_HASH = get_layout_hash<Result>();
+    constexpr uint64_t CONFIG_HASH = get_layout_hash<Config>();
+    
+    // CI can verify these don't change unexpectedly
+    static_assert(RESULT_HASH == 0x1234567890ABCDEFull,
+        "ABI break: Result layout changed!");
+}
+----
+
+== Summary
+
+TypeLayout is useful whenever you need to:
+
+[cols="1,2"]
+|===
+|Scenario |Key Technique
+
+|Shared Memory
+|Hash in header + runtime check
+
+|File Formats
+|Version-specific signatures
+
+|Network Protocols
+|Layout hash in handshake
+
+|Hardware Registers
+|Static assert against spec
+
+|ABI Stability
+|CI-verified hash constants
+|===
+
+== Next Chapter
+
+In xref:tutorial/06-advanced.adoc[Chapter 6: Beyond the Basics], we'll explore advanced features like inheritance, polymorphism, and concepts.
