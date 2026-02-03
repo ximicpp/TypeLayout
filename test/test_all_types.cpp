@@ -85,6 +85,81 @@ struct SimplePoint {
 static_assert(get_layout_signature<SimplePoint>() ==
     "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}");
 
+//=============================================================================
+// 3.5 Class Types (Non-POD with encapsulation)
+//=============================================================================
+
+// Simple class with private members - TypeLayout reflects ALL members
+class SimpleClass {
+public:
+    SimpleClass(int32_t a, int32_t b) : a_(a), b_(b) {}
+    int32_t getA() const { return a_; }
+    int32_t getB() const { return b_; }
+private:
+    int32_t a_;
+    int32_t b_;
+};
+static_assert(get_layout_signature<SimpleClass>() == 
+    "[64-le]struct[s:8,a:4]{@0[a_]:i32[s:4,a:4],@4[b_]:i32[s:4,a:4]}");
+static_assert(LayoutSupported<SimpleClass>);
+
+// Class with mixed access levels
+class MixedAccessClass {
+public:
+    int32_t pub_val;
+    MixedAccessClass() : pub_val(0), prot_val(0), priv_val(0) {}
+protected:
+    int32_t prot_val;
+private:
+    int32_t priv_val;
+};
+static_assert(sizeof(MixedAccessClass) == 12);
+static_assert(LayoutSupported<MixedAccessClass>);
+
+// Class with constructor, destructor, methods (Non-trivial)
+class NonTrivialClass {
+public:
+    NonTrivialClass(uint64_t id) : id_(id), active_(true) {}
+    ~NonTrivialClass() { active_ = false; }
+    
+    uint64_t getId() const { return id_; }
+    bool isActive() const { return active_; }
+    void setActive(bool v) { active_ = v; }
+    
+private:
+    uint64_t id_;
+    bool active_;
+};
+static_assert(get_layout_signature<NonTrivialClass>() ==
+    "[64-le]struct[s:16,a:8]{@0[id_]:u64[s:8,a:8],@8[active_]:bool[s:1,a:1]}");
+
+// Class with static members (should be excluded from layout)
+class WithStaticMembers {
+public:
+    static int32_t counter;      // Static: NOT in layout
+    static constexpr float PI = 3.14159f;  // Static constexpr: NOT in layout
+    
+    int32_t instance_val;        // Instance: IN layout
+    double instance_data;        // Instance: IN layout
+};
+static_assert(get_layout_signature<WithStaticMembers>() ==
+    "[64-le]struct[s:16,a:8]{@0[instance_val]:i32[s:4,a:4],@8[instance_data]:f64[s:8,a:8]}");
+
+// Class template
+template<typename T>
+class GenericContainer {
+public:
+    GenericContainer(T val, uint32_t sz) : value_(val), size_(sz) {}
+    T getValue() const { return value_; }
+private:
+    T value_;
+    uint32_t size_;
+};
+static_assert(get_layout_signature<GenericContainer<int32_t>>() == 
+    "[64-le]struct[s:8,a:4]{@0[value_]:i32[s:4,a:4],@4[size_]:u32[s:4,a:4]}");
+static_assert(get_layout_signature<GenericContainer<double>>() == 
+    "[64-le]struct[s:16,a:8]{@0[value_]:f64[s:8,a:8],@8[size_]:u32[s:4,a:4]}");
+
 // Struct with padding
 struct PaddedStruct {
     int8_t x;     // offset 0

@@ -160,7 +160,15 @@ Boost.TypeLayout supports a comprehensive range of {cpp} types. This page docume
 
 === Structs and Classes
 
-Structs and classes generate signatures containing all non-static data members:
+TypeLayout fully supports both `struct` and `class` types, including classes with:
+
+* **Private/protected members** - ALL members are reflected regardless of access specifier
+* **Constructors/destructors** - Non-trivial classes are fully supported
+* **Inheritance** - Single, multiple, and virtual inheritance
+* **Virtual functions** - Polymorphic classes include vtable in layout
+* **Static members** - Correctly excluded from signatures
+
+==== Simple Struct Example
 
 [source,cpp]
 ----
@@ -177,6 +185,76 @@ struct Example {
 ----
 
 NOTE: Size is 24 due to alignment padding.
+
+==== Class with Private Members
+
+TypeLayout reflects ALL members, including private ones:
+
+[source,cpp]
+----
+class Entity {
+public:
+    Entity(uint64_t id) : id_(id), active_(true) {}
+    uint64_t getId() const { return id_; }
+    bool isActive() const { return active_; }
+    
+private:
+    uint64_t id_;    // TypeLayout reflects this!
+    bool active_;    // TypeLayout reflects this!
+};
+
+static_assert(LayoutSupported<Entity>);  // Classes are fully supported
+----
+
+[source]
+----
+[64-le]struct[s:16,a:8]{@0[id_]:u64[s:8,a:8],@8[active_]:bool[s:1,a:1]}
+----
+
+TIP: TypeLayout is *NOT* limited to POD types or structs. It supports the full spectrum of C++ types.
+
+==== Class with Inheritance
+
+[source,cpp]
+----
+class Base {
+public:
+    int32_t baseValue;
+};
+
+class Derived : public Base {
+public:
+    int32_t derivedValue;
+};
+----
+
+[source]
+----
+[64-le]class[s:8,a:4,inherited]{@0[base]:struct[s:4,a:4]{@0[baseValue]:i32[s:4,a:4]},@4[derivedValue]:i32[s:4,a:4]}
+----
+
+NOTE: The `inherited` marker indicates the class has base classes.
+
+==== Polymorphic Classes (Virtual Functions)
+
+[source,cpp]
+----
+class IShape {
+public:
+    virtual ~IShape() = default;
+    virtual double area() const = 0;
+    
+protected:
+    int32_t id_;
+};
+----
+
+[source]
+----
+[64-le]class[s:16,a:8,polymorphic]{@8[id_]:i32[s:4,a:4]}
+----
+
+NOTE: The `polymorphic` marker indicates the class has a vtable. The vtable pointer occupies bytes 0-7, so member `id_` starts at offset 8.
 
 === Unions
 

@@ -165,6 +165,56 @@ int main() {
 }
 ----
 
+== Classes with Private Members
+
+TypeLayout fully supports `class` types with private members, constructors, and methods:
+
+[source,cpp]
+----
+#include <boost/typelayout.hpp>
+#include <iostream>
+#include <cstdint>
+
+using namespace boost::typelayout;
+
+// Classes with private members - TypeLayout reflects ALL members
+class Entity {
+public:
+    Entity(uint64_t id) : id_(id), active_(true) {}
+    uint64_t getId() const { return id_; }
+    bool isActive() const { return active_; }
+    
+private:
+    uint64_t id_;    // Private member - still reflected!
+    bool active_;    // Private member - still reflected!
+};
+
+// Polymorphic classes with virtual functions
+class IShape {
+public:
+    virtual ~IShape() = default;
+    virtual double area() const = 0;
+protected:
+    int32_t id_;
+};
+
+// Both are fully supported
+static_assert(LayoutSupported<Entity>, "Classes are supported");
+static_assert(LayoutSupported<IShape>, "Polymorphic classes are supported");
+
+int main() {
+    std::cout << "Entity layout: " << get_layout_signature_cstr<Entity>() << std::endl;
+    // Output: [64-le]struct[s:16,a:8]{@0[id_]:u64[s:8,a:8],@8[active_]:bool[s:1,a:1]}
+    
+    std::cout << "IShape layout: " << get_layout_signature_cstr<IShape>() << std::endl;
+    // Output: [64-le]class[s:16,a:8,polymorphic]{@8[id_]:i32[s:4,a:4]}
+    
+    return 0;
+}
+----
+
+TIP: TypeLayout is *NOT* limited to `struct` or POD types. It supports classes with constructors, private members, inheritance, and virtual functions.
+
 == Complete Example: With Utility Layer
 
 [source,cpp]

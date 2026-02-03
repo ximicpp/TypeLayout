@@ -55,6 +55,39 @@ template<typename T>
 void process_point(const T& p) { /* ... */ }
 ```
 
+### Classes, Inheritance, and Polymorphism
+
+TypeLayout fully supports `class` types, including private members, inheritance, and virtual functions:
+
+```cpp
+// Classes with private members - ALL members are reflected
+class Entity {
+public:
+    Entity(uint64_t id) : id_(id) {}
+private:
+    uint64_t id_;    // Private members included in layout!
+    bool active_;
+};
+static_assert(LayoutSupported<Entity>);
+
+// Inheritance (single, multiple, virtual)
+class Base { public: int32_t value; };
+class Derived : public Base { public: int32_t extra; };
+static_assert(LayoutSupported<Derived>);
+
+// Polymorphic classes (with virtual functions)
+class IShape {
+public:
+    virtual ~IShape() = default;
+    virtual double area() const = 0;
+protected:
+    int32_t id_;
+};
+static_assert(LayoutSupported<IShape>);  // vtable pointer included in layout
+```
+
+> **Note**: TypeLayout is NOT limited to `struct` or POD types. It supports the full spectrum of C++ types including classes with constructors, private members, inheritance hierarchies, and virtual functions.
+
 ## Requirements
 
 ### Compiler

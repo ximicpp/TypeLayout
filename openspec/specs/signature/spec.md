@@ -7,9 +7,7 @@
 Defines the layout signature generation system - the core capability of Boost.TypeLayout.
 Layout signatures provide bit-accurate, human-readable descriptions of type memory layouts
 for same-process and same-platform type verification.
-
 ## Requirements
-
 ### Requirement: Layout Signature Architecture
 The library SHALL provide layout signature generation for compile-time memory layout analysis.
 
@@ -156,3 +154,63 @@ The library SHALL include detailed field information for aggregate types.
 - **WHEN** generating signature
 - **THEN** anonymous members SHALL use `<anon:N>` placeholder
 - **AND** N SHALL be a sequential index
+
+### Requirement: Alignment Information Completeness
+The layout signature SHALL contain sufficient alignment information to reconstruct the complete memory layout.
+
+#### Scenario: Alignment reconstruction
+- **GIVEN** a type T with specific alignment requirements
+- **WHEN** the layout signature is generated
+- **THEN** the signature SHALL contain enough information to determine all padding locations
+
+#### Scenario: User-specified alignment
+- **GIVEN** a type with alignas(N) specification
+- **WHEN** the layout signature is generated
+- **THEN** the signature SHALL reflect the actual alignment value N
+
+### Requirement: User-Defined Types Support Documentation
+The library documentation SHALL include a comprehensive guide for user-defined types support.
+
+#### Scenario: User checks class support
+- **GIVEN** a user wants to know if their custom class is supported
+- **WHEN** they consult the type support documentation
+- **THEN** they SHALL find clear guidance on supported class variants and any limitations
+
+### Requirement: Analysis Placeholder
+The library documentation SHALL include a value proposition and completeness analysis.
+
+#### Scenario: Analysis complete
+- **WHEN** all analysis tasks are completed
+- **THEN** the results SHALL be documented in the proposal.md file
+
+### Requirement: Field Alignment Redundancy Analysis
+The library documentation SHALL include analysis of field alignment information redundancy in signatures.
+
+#### Scenario: Analysis documented
+- **GIVEN** the current signature format includes `[s:SIZE,a:ALIGN]` for each field type
+- **WHEN** analyzing signature efficiency
+- **THEN** the analysis SHALL document which cases are redundant
+- **AND** the analysis SHALL document which cases require the information
+- **AND** the analysis SHALL conclude that offset `@N` already captures alignment effects
+- **AND** the decision SHALL be to retain the detailed format for self-documentation benefits
+
+### Requirement: Signature Format Optimization Consideration
+The library SHALL consider signature format optimizations to reduce redundancy while preserving layout verification accuracy.
+
+#### Scenario: Optimization evaluation
+- **GIVEN** a proposed signature format optimization
+- **WHEN** evaluating the optimization
+- **THEN** the evaluation SHALL consider backward compatibility
+- **AND** the evaluation SHALL verify that layout mismatches are still detectable
+- **AND** the evaluation SHALL measure signature length reduction
+
+### Requirement: Signature Format Retention Decision
+The library SHALL retain the current detailed signature format with per-field `[s:SIZE,a:ALIGN]` information.
+
+#### Scenario: Format justification
+- **GIVEN** field-level size/alignment is technically derivable from type names
+- **WHEN** considering signature format changes
+- **THEN** the format SHALL be retained for self-documentation
+- **AND** the format SHALL be retained for debugging convenience
+- **AND** the format SHALL be retained for backward compatibility
+

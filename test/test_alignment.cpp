@@ -50,12 +50,19 @@ static_assert([]() constexpr {
 }(), "double should have alignment 8");
 
 // ============================================================================
-// Test 2: Struct Alignment (natural alignment)
+// Test 2: Class Alignment (natural alignment)
 // ============================================================================
 
-struct NaturalAlign {
-    int8_t a;    // offset 0
-    int32_t b;   // offset 4 (aligned to 4)
+// Using class instead of struct - TypeLayout supports both equally
+class NaturalAlign {
+public:
+    NaturalAlign() = default;
+    NaturalAlign(int8_t a, int32_t b) : a_(a), b_(b) {}
+    int8_t getA() const { return a_; }
+    int32_t getB() const { return b_; }
+private:
+    int8_t a_;    // offset 0
+    int32_t b_;   // offset 4 (aligned to 4)
 };
 
 static_assert(alignof(NaturalAlign) == 4, "NaturalAlign should have alignment 4");
@@ -63,17 +70,24 @@ static_assert(sizeof(NaturalAlign) == 8, "NaturalAlign should have size 8");
 
 static_assert([]() constexpr {
     constexpr auto sig = get_layout_signature<NaturalAlign>();
-    // struct[s:8,a:4]
+    // struct[s:8,a:4] - note: signature uses 'struct' for both struct and class
     return to_view(sig).find("struct[s:8,a:4]") != std::string_view::npos;
-}(), "NaturalAlign struct should have s:8,a:4");
+}(), "NaturalAlign class should have s:8,a:4");
 
 // ============================================================================
-// Test 3: alignas Specified Alignment
+// Test 3: alignas Specified Alignment (class)
 // ============================================================================
 
-struct alignas(16) Aligned16 {
-    int32_t x;
-    int32_t y;
+// Over-aligned class with alignas specifier
+class alignas(16) Aligned16 {
+public:
+    Aligned16() = default;
+    Aligned16(int32_t x, int32_t y) : x_(x), y_(y) {}
+    int32_t getX() const { return x_; }
+    int32_t getY() const { return y_; }
+private:
+    int32_t x_;
+    int32_t y_;
 };
 
 static_assert(alignof(Aligned16) == 16, "Aligned16 should have alignment 16");
@@ -81,16 +95,23 @@ static_assert(sizeof(Aligned16) == 16, "Aligned16 should have size 16");
 
 static_assert([]() constexpr {
     constexpr auto sig = get_layout_signature<Aligned16>();
-    // struct[s:16,a:16]
+    // struct[s:16,a:16] - class uses 'struct' in signature
     return to_view(sig).find("struct[s:16,a:16]") != std::string_view::npos;
-}(), "alignas(16) struct should have a:16 in signature");
+}(), "alignas(16) class should have a:16 in signature");
 
 // ============================================================================
-// Test 4: Over-aligned Types (cache line)
+// Test 4: Over-aligned Types (cache line, class)
 // ============================================================================
 
-struct alignas(64) CacheLineAligned {
-    int32_t data;
+// Cache-line aligned class for performance-critical data
+class alignas(64) CacheLineAligned {
+public:
+    CacheLineAligned() = default;
+    explicit CacheLineAligned(int32_t value) : data_(value) {}
+    int32_t getData() const { return data_; }
+    void setData(int32_t value) { data_ = value; }
+private:
+    int32_t data_;
 };
 
 static_assert(alignof(CacheLineAligned) == 64, "CacheLineAligned should have alignment 64");
@@ -100,17 +121,25 @@ static_assert([]() constexpr {
     constexpr auto sig = get_layout_signature<CacheLineAligned>();
     // struct[s:64,a:64]
     return to_view(sig).find("struct[s:64,a:64]") != std::string_view::npos;
-}(), "alignas(64) struct should have a:64 in signature");
+}(), "alignas(64) class should have a:64 in signature");
 
 // ============================================================================
-// Test 5: Padding Derivation from Signature
+// Test 5: Padding Derivation from Signature (class)
 // ============================================================================
 
-struct WithPadding {
-    int8_t a;     // offset 0, size 1
+// Class with internal padding - TypeLayout captures all offsets
+class WithPadding {
+public:
+    WithPadding() = default;
+    WithPadding(int8_t a, int32_t b, int8_t c) : a_(a), b_(b), c_(c) {}
+    int8_t getA() const { return a_; }
+    int32_t getB() const { return b_; }
+    int8_t getC() const { return c_; }
+private:
+    int8_t a_;     // offset 0, size 1
     // padding: 3 bytes
-    int32_t b;    // offset 4, size 4
-    int8_t c;     // offset 8, size 1
+    int32_t b_;    // offset 4, size 4
+    int8_t c_;     // offset 8, size 1
     // tail padding: 3 bytes
 };
 
@@ -120,11 +149,11 @@ static_assert(alignof(WithPadding) == 4, "WithPadding should have alignment 4");
 static_assert([]() constexpr {
     constexpr auto sig = get_layout_signature<WithPadding>();
     // Should contain offsets that allow padding derivation:
-    // @0[a]:... @4[b]:... @8[c]:...
+    // @0[a_]:... @4[b_]:... @8[c_]:...
     auto view = to_view(sig);
-    bool has_a_at_0 = view.find("@0[a]") != std::string_view::npos;
-    bool has_b_at_4 = view.find("@4[b]") != std::string_view::npos;
-    bool has_c_at_8 = view.find("@8[c]") != std::string_view::npos;
+    bool has_a_at_0 = view.find("@0[a_]") != std::string_view::npos;
+    bool has_b_at_4 = view.find("@4[b_]") != std::string_view::npos;
+    bool has_c_at_8 = view.find("@8[c_]") != std::string_view::npos;
     bool has_size_12 = view.find("[s:12,") != std::string_view::npos;
     return has_a_at_0 && has_b_at_4 && has_c_at_8 && has_size_12;
 }(), "WithPadding signature should contain all offsets for padding derivation");

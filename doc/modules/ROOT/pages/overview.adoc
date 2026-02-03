@@ -48,11 +48,24 @@ Boost.TypeLayout leverages {cpp26} Static Reflection (P2996) to generate *comple
 
 [source,cpp]
 ----
+// Works with struct
 struct Player { uint64_t id; char name[32]; float health; };
 TYPELAYOUT_BIND(Player, "[64-le]struct[s:48,a:8]{@0[id]:u64[s:8,a:8],@8[name]:bytes[s:32,a:1],@40[health]:f32[s:4,a:4]}");
+
+// Works equally well with class (including private members)
+class GameEntity {
+public:
+    GameEntity(uint64_t id) : id_(id), active_(true) {}
+private:
+    uint64_t id_;     // Private - still reflected!
+    bool active_;     // Private - still reflected!
+};
+TYPELAYOUT_BIND(GameEntity, "[64-le]struct[s:16,a:8]{@0[id_]:u64[s:8,a:8],@8[active_]:bool[s:1,a:1]}");
 ----
 
 If the layout ever differs—on any platform, with any compiler—*compilation fails immediately*.
+
+NOTE: TypeLayout is *NOT* limited to `struct` or POD types. It fully supports classes with private members, inheritance, virtual functions, and complex constructors.
 
 == Two-Layer Architecture
 
