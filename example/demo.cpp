@@ -1,4 +1,9 @@
-// demo.cpp - typelayout usage examples
+// Boost.TypeLayout - Demo Examples
+//
+// Copyright (c) 2024-2026 TypeLayout Development Team
+// Distributed under the Boost Software License, Version 1.0.
+// (See accompanying file LICENSE_1_0.txt or copy at
+// http://www.boost.org/LICENSE_1_0.txt)
 //
 // This demo showcases the core layout signature features.
 // TypeLayout supports ALL C++ types: struct, class, inheritance, polymorphism, etc.

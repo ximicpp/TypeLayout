@@ -1,4 +1,10 @@
-// test_all_types.cpp - Comprehensive type coverage tests
+// Boost.TypeLayout - Comprehensive Type Coverage Tests
+//
+// Copyright (c) 2024-2026 TypeLayout Development Team
+// Distributed under the Boost Software License, Version 1.0.
+// (See accompanying file LICENSE_1_0.txt or copy at
+// http://www.boost.org/LICENSE_1_0.txt)
+//
 // Compile success = all tests pass (static_assert based)
 // Tests core layer functionality only
 

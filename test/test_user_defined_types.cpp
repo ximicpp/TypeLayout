@@ -1,6 +1,11 @@
-// test_user_defined_types.cpp - Comprehensive User-Defined Types Analysis
-// This test validates TypeLayout support for all class/struct variants
+// Boost.TypeLayout - User-Defined Types Analysis
 //
+// Copyright (c) 2024-2026 TypeLayout Development Team
+// Distributed under the Boost Software License, Version 1.0.
+// (See accompanying file LICENSE_1_0.txt or copy at
+// http://www.boost.org/LICENSE_1_0.txt)
+//
+// Comprehensive test for TypeLayout support for all class/struct variants
 // Compile with: clang++ -std=c++26 -freflection -fconstexpr-steps=5000000
 
 #include <boost/typelayout/typelayout.hpp>

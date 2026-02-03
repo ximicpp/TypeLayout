@@ -323,7 +323,7 @@ Contributions are welcome! Please ensure:
 
 ## License
 
-Distributed under the [Boost Software License, Version 1.0](LICENSE).
+Distributed under the [Boost Software License, Version 1.0](LICENSE_1_0.txt).
 
 ## Comparison with Alternatives
 

@@ -1,3 +1,10 @@
+// Boost.TypeLayout - Anonymous Member Support Tests
+//
+// Copyright (c) 2024-2026 TypeLayout Development Team
+// Distributed under the Boost Software License, Version 1.0.
+// (See accompanying file LICENSE_1_0.txt or copy at
+// http://www.boost.org/LICENSE_1_0.txt)
+//
 // Test file to verify anonymous member support in TypeLayout signatures
 #include <boost/typelayout/typelayout.hpp>
 #include <cstdio>

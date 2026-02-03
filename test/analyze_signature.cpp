@@ -1,3 +1,10 @@
+// Boost.TypeLayout - Signature Analysis Tool
+//
+// Copyright (c) 2024-2026 TypeLayout Development Team
+// Distributed under the Boost Software License, Version 1.0.
+// (See accompanying file LICENSE_1_0.txt or copy at
+// http://www.boost.org/LICENSE_1_0.txt)
+//
 // Analyze signature format and identify optimization opportunities
 #include <boost/typelayout/typelayout.hpp>
 #include <iostream>
