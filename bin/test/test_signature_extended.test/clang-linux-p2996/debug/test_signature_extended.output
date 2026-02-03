@@ -1,0 +1,61 @@
+===================================================
+TypeLayout Extended Signature Tests
+===================================================
+
+=== std::array Tests ===
+std::array<int, 4>: [64-le]struct[s:16,a:4]{@0[__elems_]:array[s:16,a:4]<i32[s:4,a:4],4>}
+  sizeof: 16, alignof: 4
+std::array<double, 2>: [64-le]struct[s:16,a:8]{@0[__elems_]:array[s:16,a:8]<f64[s:8,a:8],2>}
+  sizeof: 16, alignof: 8
+std::array<int, 0>: [64-le]struct[s:4,a:4]{@0[__elems_]:array[s:4,a:1]<struct[s:1,a:1]{},4>}
+  sizeof: 4, alignof: 4
+
+=== std::pair Tests ===
+std::pair<int, double>: [64-le]struct[s:16,a:8]{@0[first]:i32[s:4,a:4],@8[second]:f64[s:8,a:8]}
+  sizeof: 16, alignof: 8
+std::pair<char, char>: [64-le]struct[s:2,a:1]{@0[first]:char[s:1,a:1],@1[second]:char[s:1,a:1]}
+  sizeof: 2, alignof: 1
+std::pair<std::pair<int, int>, double>: [64-le]struct[s:16,a:8]{@0[first]:struct[s:8,a:4]{@0[first]:i32[s:4,a:4],@4[second]:i32[s:4,a:4]},@8[second]:f64[s:8,a:8]}
+  sizeof: 16, alignof: 8
+
+=== Diamond Inheritance Tests ===
+DiamondDerived: [64-le]class[s:40,a:8,inherited]{@0[base]:class[s:16,a:8,inherited]{@12[vbase]:struct[s:4,a:4]{@0[base_val]:i32[s:4,a:4]},@8[left_val]:i32[s:4,a:4]},@16[base]:class[s:16,a:8,inherited]{@12[vbase]:struct[s:4,a:4]{@0[base_val]:i32[s:4,a:4]},@8[right_val]:i32[s:4,a:4]},@28[derived_val]:i32[s:4,a:4]}
+  sizeof: 40, alignof: 8
+
+=== Mutable Member Tests ===
+MutableTest: [64-le]struct[s:12,a:4]{@0[normal_val]:i32[s:4,a:4],@4[mutable_val]:i32[s:4,a:4],@8[const_val]:i32[s:4,a:4]}
+  sizeof: 12, alignof: 4
+
+=== Cross-Boundary Bit-field Tests ===
+CrossBoundaryBitfield: [64-le]struct[s:8,a:4]{@0.0[a]:bits<20,u32[s:4,a:4]>,@4.0[b]:bits<20,u32[s:4,a:4]>,@6.4[c]:bits<8,u32[s:4,a:4]>}
+  sizeof: 8, alignof: 4
+
+=== Recursive Type Tests ===
+RecursiveNode: [64-le]struct[s:24,a:8]{@0[value]:i32[s:4,a:4],@8[next]:ptr[s:8,a:8],@16[prev]:ptr[s:8,a:8]}
+  sizeof: 24, alignof: 8
+
+=== Lambda Type Tests ===
+Stateless lambda: [64-le]struct[s:1,a:1]{}
+  sizeof: 1, alignof: 1
+Capturing lambda [int, double]: [64-le]struct[s:16,a:8]{@0[<anon:0>]:i32[s:4,a:4],@8[<anon:1>]:f64[s:8,a:8]}
+  sizeof: 16, alignof: 8
+
+=== std::complex Tests ===
+std::complex<float>: [64-le]struct[s:8,a:4]{@0[__re_]:f32[s:4,a:4],@4[__im_]:f32[s:4,a:4]}
+  sizeof: 8, alignof: 4
+std::complex<double>: [64-le]struct[s:16,a:8]{@0[__re_]:f64[s:8,a:8],@8[__im_]:f64[s:8,a:8]}
+  sizeof: 16, alignof: 8
+
+=== std::string_view / std::span Tests ===
+std::string_view: [64-le]struct[s:16,a:8]{@0[__data_]:ptr[s:8,a:8],@8[__size_]:u64[s:8,a:8]}
+  sizeof: 16, alignof: 8
+std::span<int>: [64-le]struct[s:16,a:8]{@0[__data_]:ptr[s:8,a:8],@8[__size_]:u64[s:8,a:8]}
+  sizeof: 16, alignof: 8
+std::span<int, 4>: [64-le]struct[s:8,a:8]{@0[__data_]:ptr[s:8,a:8]}
+  sizeof: 8, alignof: 8
+
+===================================================
+All extended tests completed!
+===================================================
+
+EXIT STATUS: 0

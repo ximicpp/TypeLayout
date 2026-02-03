@@ -35,10 +35,3 @@ build-project example ;
 
 # Build tests (optional)  
 build-project test ;
-
-# Explicit install target for headers
-explicit install-headers ;
-install install-headers
-    : [ glob-tree include/boost/*.hpp : .git ]
-    : <location>$(BOOST_ROOT)/boost
-    ;

@@ -24,4 +24,14 @@ run test_signature_extended.cpp ;
 
 # Complex test cases
 compile test_complex_cases.cpp ;
-compile test_constexpr_limits.cpp ;
+
+# Constexpr limits test - requires increased step limit
+# This test intentionally pushes constexpr evaluation limits
+# and may fail with default compiler settings
+run test_constexpr_limits.cpp
+    : # args
+    : # input files
+    : # requirements
+        <cxxflags>"-fconstexpr-steps=10000000"
+    : test_constexpr_limits  # target name
+    ;
