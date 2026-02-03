@@ -12,22 +12,39 @@ project boost/typelayout/test
         <library>/boost/typelayout//boost_typelayout
     ;
 
-# Compile-time tests (pass if they compile)
+# =========================================================================
+# Boost.Test Unit Tests (Primary)
+# =========================================================================
+
+# Main Boost.Test unit test suite (header-only mode)
+run boost_test_typelayout.cpp
+    : # args
+    : # input files
+    : # requirements
+    : boost_test_typelayout  # target name
+    ;
+
+# =========================================================================
+# Compile-Time Tests (Legacy - pass if they compile)
+# =========================================================================
+
 compile test_all_types.cpp ;
 compile test_alignment.cpp ;
 compile test_anonymous_member.cpp ;
 compile test_user_defined_types.cpp ;
+compile test_complex_cases.cpp ;
 
-# Runtime tests
+# =========================================================================
+# Runtime Tests (Legacy)
+# =========================================================================
+
 run test_signature_comprehensive.cpp ;
 run test_signature_extended.cpp ;
 
-# Complex test cases
-compile test_complex_cases.cpp ;
+# =========================================================================
+# Constexpr Limits Test (Requires Extended Step Limit)
+# =========================================================================
 
-# Constexpr limits test - requires increased step limit
-# This test intentionally pushes constexpr evaluation limits
-# and may fail with default compiler settings
 run test_constexpr_limits.cpp
     : # args
     : # input files
