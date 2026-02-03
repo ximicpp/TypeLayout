@@ -2,7 +2,7 @@
 
 ## Abstract
 
-What if you could **detect ABI mismatches instantly** when two separately compiled binaries try to share data? **TypeLayout** makes this possible by generating compile-time layout signatures using C++26 static reflection (P2996).
+What if ABI mismatches could be caught **at compile time**, before your code ever runs? **TypeLayout** makes this possible by generating compile-time layout signatures using C++26 static reflection (P2996).
 
 TypeLayout is a header-only library that generates **compile-time memory layout signatures**—human-readable strings that uniquely describe how a type is laid out in memory:
 
@@ -17,12 +17,18 @@ constexpr auto hash = get_layout_hash<NetworkPacket>();  // 64-bit hash for fast
 
 **The core guarantee**: *Identical signature ⟺ Identical memory layout*. Two types with the same signature can safely share memory, no matter where or when they were compiled.
 
-Signatures are great for debugging and documentation; hashes are perfect for runtime checks. Together, they unlock powerful patterns:
+Embed the hash in your interface contracts, and mismatches become compile-time errors:
 
-- **Shared Memory IPC**: Embed layout hash in header; verify before mapping
-- **Network Protocols**: Include hash in packet; detect version mismatch instantly
-- **Plugin Systems**: Check interface hash at load time; reject incompatible DLLs
-- **Binary Files**: Store hash with data; auto-detect schema changes on read
+```cpp
+static_assert(get_layout_hash<NetworkPacket>() == EXPECTED_HASH, "ABI changed!");
+```
+
+This unlocks powerful patterns across all binary boundaries:
+
+- **Shared Memory IPC**: Verify layout compatibility before mapping
+- **Network Protocols**: Detect version mismatch at compile time or on receive
+- **Plugin Systems**: Reject incompatible DLLs at load time
+- **Binary Files**: Auto-detect schema changes on read
 
 What makes TypeLayout unique:
 
