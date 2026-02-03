@@ -1,125 +1,85 @@
 # Boost Interest Email Draft
 
 **To:** boost@lists.boost.org  
-**Subject:** [interest] Boost.TypeLayout - Compile-time Layout Verification with C++26 Reflection
+**Subject:** [interest] TypeLayout - Compile-time Layout Signatures with C++26 Reflection
 
 ---
 
 Dear Boost Community,
 
-I would like to gauge interest in a library for compile-time type layout verification built on C++26 static reflection (P2996).
+I'd like to gauge interest in a library that generates compile-time memory layout signatures using C++26 static reflection (P2996).
 
 ## The Problem
 
-Binary compatibility bugs are notoriously difficult to debug:
+C++ gives us precise control over memory layout, but **no standard way to observe or verify it at compile time**.
 
-```cpp
-// Process A (compiled with GCC, libstdc++)
-struct Message { int id; std::string name; double value; };
+We can query `sizeof` and `alignof`, but the complete picture—field offsets, padding, bit-field positions, inheritance layout—remains opaque. This matters whenever types cross binary boundaries: shared memory, network protocols, file formats, plugin interfaces.
 
-// Process B (compiled with Clang, libc++)
-struct Message { int id; std::string name; double value; };
+Today's options all have tradeoffs:
+- **Manual checks**: `static_assert(offsetof(...) == N)` is tedious and incomplete
+- **IDL-based tools**: Require code generation, can't use native C++ types
+- **Macro annotations**: Intrusive, must be maintained for every type
 
-// Same source code, but std::string has DIFFERENT memory layouts!
-// Result: silent data corruption in shared memory / network protocols
-```
+## The Solution
 
-Current solutions have significant limitations:
-- **Manual `offsetof` checks**: Tedious, incomplete, doesn't support bit-fields
-- **IDL-based (Protobuf, FlatBuffers)**: Requires code generation, not native C++
-- **Version numbers**: Easily forgotten, doesn't detect field reordering
-- **Boost.Describe**: Complete but requires macro annotations for every type
-
-## The Solution: Boost.TypeLayout
-
-TypeLayout leverages C++26 static reflection to automatically generate complete memory layout signatures at compile time—with zero annotations and zero runtime overhead.
+TypeLayout uses P2996 static reflection to generate a complete layout signature at compile time:
 
 ```cpp
 #include <boost/typelayout.hpp>
 
-struct Point { int32_t x, y; };
+struct Message { uint32_t id; uint64_t timestamp; };
 
-// Automatic compile-time signature generation
-constexpr auto sig = boost::typelayout::get_layout_signature<Point>();
-// Result: "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}"
+constexpr auto sig = boost::typelayout::get_layout_signature<Message>();
+// "[64-le]struct[s:16,a:8]{@0[id]:u32[s:4,a:4],@8[timestamp]:u64[s:8,a:8]}"
 
-// 64-bit hash for runtime verification
-constexpr auto hash = boost::typelayout::get_layout_hash<Point>();
-
-// Compile-time layout compatibility check
-static_assert(boost::typelayout::LayoutCompatible<PointA, PointB>);
+constexpr auto hash = boost::typelayout::get_layout_hash<Message>();
+// 64-bit hash for fast comparison
 ```
 
-## Key Features
+The signature captures: platform (64-bit little-endian), size, alignment, field names, offsets, and types—everything needed to verify binary compatibility.
 
-| Feature | Description |
-|---------|-------------|
-| **Zero annotation** | Works with any type, including third-party and STL types |
-| **Complete layout info** | Size, alignment, field offsets, bit-fields, inheritance |
-| **Zero runtime overhead** | All computation happens at compile time |
-| **Dual-hash verification** | FNV-1a + DJB2 for ~2^128 collision resistance |
-| **Human-readable signatures** | Easy to diff and debug |
+**Core guarantee**: *Identical signature ⟺ Identical memory layout*.
 
-## Type Support
+## What Makes This Different
 
-- Primitives (fixed-width integers, floats, pointers)
-- Compound types (struct, class, union, enum)
-- Inheritance hierarchies (single, multiple, virtual)
-- Bit-fields (with bit-level offset and width)
-- Anonymous members
-- STL types (transparent reflection of actual internal layout)
+Libraries like Boost.PFR and Boost.Describe solve related problems elegantly. TypeLayout addresses a specific gap: **automatic layout verification without annotations**.
 
-## Real-World Applications
+- Works with any type—including third-party libraries and STL
+- Captures everything: offsets, sizes, bit-fields, inheritance, virtual tables
+- Zero runtime overhead—all computation at compile time
+- Human-readable for debugging, hashable for verification
 
-1. **Shared Memory IPC** - Verify producer/consumer layout agreement
-2. **Zero-copy Networking** - Embed layout hash in message headers
-3. **Plugin Systems** - Compile-time ABI contract enforcement
-4. **Binary File Formats** - Detect version incompatibilities
+## Use Cases
 
-## Comparison with Existing Solutions
-
-| Capability | TypeLayout | Boost.PFR | Boost.Describe | Manual |
-|------------|------------|-----------|----------------|--------|
-| Zero annotation | ✅ | ✅ | ❌ (macros) | ❌ |
-| Inheritance support | ✅ | ❌ | ✅ | ✅ |
-| Bit-field support | ✅ | ❌ | Limited | ❌ |
-| Offset information | ✅ | ❌ | ❌ | ✅ |
-| Signature generation | ✅ | ❌ | ❌ | ❌ |
-| Hash verification | ✅ | ❌ | ❌ | ❌ |
+- **Shared Memory IPC** - Verify layout before mapping
+- **Network Protocols** - Detect version mismatch on receive
+- **Plugin Systems** - Reject incompatible binaries at load time
+- **Binary Files** - Validate schema on read
 
 ## Current Status
 
-- **Compiler**: Requires Bloomberg Clang P2996 fork (C++26 experimental)
-- **Build**: CMake + B2/Jamfile support
-- **Tests**: Comprehensive test suite with Boost.Test
-- **Documentation**: QuickBook reference + tutorial
-- **License**: BSL-1.0
+- Header-only, BSL-1.0 licensed
+- Requires Bloomberg Clang P2996 fork (C++26 experimental)
+- CMake + B2 build support
+- Comprehensive test suite
 
-## Addressing the C++26 Dependency
+## C++26 Dependency
 
-I acknowledge that P2996 is not yet standardized. However:
-
-1. **C++26 timeline**: Expected finalization in late 2026
-2. **Implementation maturity**: Bloomberg's P2996 implementation is feature-complete
-3. **Precedent**: Boost has historically accepted forward-looking libraries (Mp11, Hana)
-4. **Unique value**: This is the only solution providing zero-annotation complete layout verification
-
-I believe TypeLayout can serve as a reference implementation and help the community prepare for C++26 reflection.
+I'm aware P2996 isn't standardized yet. However, Bloomberg's implementation is mature, and I believe early exploration helps the community prepare for C++26 reflection. TypeLayout could serve as a proving ground for reflection-based APIs.
 
 ## Links
 
-- **GitHub**: https://github.com/ximicpp/TypeLayout
-- **Documentation**: https://ximicpp.github.io/TypeLayout
-- **Live Demo**: Docker image `ghcr.io/ximicpp/typelayout-p2996:latest`
+- GitHub: https://github.com/ximicpp/TypeLayout
+- Documentation: https://ximicpp.github.io/TypeLayout
+- Try it: `docker pull ghcr.io/ximicpp/typelayout-p2996:latest`
 
-## Questions for the Community
+## Questions
 
-1. Is there interest in a compile-time layout verification library?
-2. Are there additional use cases I should consider?
-3. What concerns do you have about the C++26/P2996 dependency?
-4. Would you be willing to review this library?
+1. Is there interest in this kind of compile-time layout verification?
+2. Any use cases I should explore?
+3. Concerns about the P2996 dependency?
 
-I welcome all feedback and suggestions.
+I welcome all feedback.
 
 Best regards,  
 [Your Name]
@@ -130,7 +90,5 @@ Best regards,
 
 - [ ] Subscribe to boost mailing list first
 - [ ] Replace [Your Name] with actual name
-- [ ] Add hosted documentation link
 - [ ] Verify GitHub repo is public
 - [ ] Proofread for typos
-- [ ] Test all code examples compile
