@@ -1,0 +1,27 @@
+# Boost.TypeLayout - Tests Build File
+#
+# Copyright (c) 2024-2026 TypeLayout Development Team
+# Distributed under the Boost Software License, Version 1.0.
+# (See accompanying file LICENSE_1_0.txt or copy at
+# http://www.boost.org/LICENSE_1_0.txt)
+
+import testing ;
+
+project boost/typelayout/test
+    : requirements
+        <library>/boost/typelayout//boost_typelayout
+    ;
+
+# Compile-time tests (pass if they compile)
+compile test_all_types.cpp ;
+compile test_alignment.cpp ;
+compile test_anonymous_member.cpp ;
+compile test_user_defined_types.cpp ;
+
+# Runtime tests
+run test_signature_comprehensive.cpp ;
+run test_signature_extended.cpp ;
+
+# Complex test cases
+compile test_complex_cases.cpp ;
+compile test_constexpr_limits.cpp ;

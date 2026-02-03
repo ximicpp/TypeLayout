@@ -1,17 +1,20 @@
 {
     "key": "typelayout",
-    "name": "TypeLayout",
+    "name": "Boost.TypeLayout",
     "authors": [
         "TypeLayout Development Team"
     ],
     "maintainers": [
-        "TypeLayout Development Team"
+        "TypeLayout Development Team <typelayout@example.org>"
     ],
-    "description": "Compile-time memory layout analysis and verification using C++26 static reflection (P2996).",
+    "description": "Compile-time memory layout analysis and ABI verification using C++26 static reflection (P2996).",
     "category": [
-        "Data",
-        "Metaprogramming"
+        "Data structures",
+        "Metaprogramming",
+        "Correctness and testing"
     ],
+    "cxxstd": "26",
     "std": ["proposal"],
-    "cxxstd": "26"
+    "documentation": "doc/",
+    "build": ["header-only"]
 }
