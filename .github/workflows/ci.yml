@@ -65,10 +65,22 @@ jobs:
           fi
 
   #==========================================================================
-  # Build and Test (using P2996 Docker container)
+  # Build and Test Matrix
+  #==========================================================================
+  # Currently only Bloomberg Clang supports P2996.
+  # When GCC/MSVC add P2996 support, this will expand to a full matrix:
+  #
+  # strategy:
+  #   matrix:
+  #     include:
+  #       - { name: "Bloomberg Clang", compiler: clang++, container: p2996 }
+  #       - { name: "GCC 14", compiler: g++-14, container: gcc14 }
+  #       - { name: "MSVC 19.40", os: windows-latest }
+  #
+  # For now, we test with Bloomberg Clang P2996 only.
   #==========================================================================
   build-and-test:
-    name: Build & Test (P2996 Container)
+    name: Build & Test (Bloomberg Clang P2996)
     runs-on: ubuntu-latest
     needs: check-image
     if: needs.check-image.outputs.image_exists == 'true'
