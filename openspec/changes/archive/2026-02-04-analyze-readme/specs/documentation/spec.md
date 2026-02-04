@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Documentation Accuracy
 README documentation SHALL accurately reflect the current API and capabilities.

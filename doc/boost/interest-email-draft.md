@@ -59,36 +59,47 @@ Libraries like Boost.PFR and Boost.Describe solve related problems elegantly. Ty
 ## Current Status
 
 - Header-only, BSL-1.0 licensed
-- Requires Bloomberg Clang P2996 fork (C++26 experimental)
-- CMake + B2 build support
+- Tested with EDG and Bloomberg Clang P2996 implementations
+- CMake build support (B2 in progress)
 - Comprehensive test suite
 
-## C++26 Dependency
+## P2996 Status
 
-I'm aware P2996 isn't standardized yet. However, Bloomberg's implementation is mature, and I believe early exploration helps the community prepare for C++26 reflection. TypeLayout could serve as a proving ground for reflection-based APIs.
+P2996 is currently at R13, in CWG/LWG wording stage (as of 2025-06-20). Given this mature state, I believe the API is essentially frozen. TypeLayout tracks the latest P2996 revisions and has been tested against both available implementations.
+
+I would appreciate community guidance on timing:
+
+1. **Is the Boost community open to reviewing libraries that depend on C++26 features before ratification?**
+2. Would it be preferable to:
+   - a) Wait for C++26 ratification (expected late 2026)
+   - b) Begin the review process now with conditional acceptance
+   - c) Propose TypeLayout as an "experimental" library first
+
+I'm flexible and happy to follow whatever path the community prefers.
 
 ## Links
 
 - GitHub: https://github.com/ximicpp/TypeLayout
-- Documentation: https://ximicpp.github.io/TypeLayout
-- Try it: `docker pull ghcr.io/ximicpp/typelayout-p2996:latest`
+- Documentation: (in README, GitHub Pages coming soon)
+- Docker: (coming soon - use source build for now)
 
 ## Questions
 
-1. Is there interest in this kind of compile-time layout verification?
-2. Any use cases I should explore?
-3. Concerns about the P2996 dependency?
+1. Is there interest in compile-time layout verification for binary compatibility?
+2. Any additional use cases I should explore?
+3. What's the community's stance on C++26 dependencies at this stage?
 
 I welcome all feedback.
 
 Best regards,  
-[Your Name]
+Fanchen Su
 
 ---
 
 ## Email Checklist Before Sending
 
-- [ ] Subscribe to boost mailing list first
-- [ ] Replace [Your Name] with actual name
-- [ ] Verify GitHub repo is public
+- [ ] Subscribe to boost mailing list first (https://lists.boost.org/mailman/listinfo.cgi/boost)
+- [ ] Verify GitHub repo is public and README is up-to-date
+- [ ] Test all links work
+- [ ] Choose optimal timing: Tuesday-Thursday, avoid major holidays
 - [ ] Proofread for typos
