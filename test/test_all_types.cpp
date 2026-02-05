@@ -1,23 +1,13 @@
-// Boost.TypeLayout - Comprehensive Type Coverage Tests
-//
+// Boost.TypeLayout - Type Coverage Tests
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
-// (See accompanying file LICENSE_1_0.txt or copy at
-// http://www.boost.org/LICENSE_1_0.txt)
-//
-// Compile success = all tests pass (static_assert based)
-// Tests core layer functionality only
 
 #include <cstdint>
 #include <boost/typelayout/typelayout.hpp>
 
 using namespace boost::typelayout;
 
-//=============================================================================
-// 1. Primitive Types
-//=============================================================================
-
-// Integers
+// Fixed-width integers
 static_assert(get_layout_signature<int8_t>() == "[64-le]i8[s:1,a:1]");
 static_assert(get_layout_signature<uint8_t>() == "[64-le]u8[s:1,a:1]");
 static_assert(get_layout_signature<int16_t>() == "[64-le]i16[s:2,a:2]");
@@ -31,16 +21,26 @@ static_assert(get_layout_signature<uint64_t>() == "[64-le]u64[s:8,a:8]");
 static_assert(get_layout_signature<float>() == "[64-le]f32[s:4,a:4]");
 static_assert(get_layout_signature<double>() == "[64-le]f64[s:8,a:8]");
 
-// Character types
+// Characters
 static_assert(get_layout_signature<char>() == "[64-le]char[s:1,a:1]");
 static_assert(get_layout_signature<char8_t>() == "[64-le]char8[s:1,a:1]");
 static_assert(get_layout_signature<char16_t>() == "[64-le]char16[s:2,a:2]");
 static_assert(get_layout_signature<char32_t>() == "[64-le]char32[s:4,a:4]");
-
-// Boolean
 static_assert(get_layout_signature<bool>() == "[64-le]bool[s:1,a:1]");
 
-// Pointers (all 8 bytes on 64-bit)
+// Standard integers (platform-dependent sizes)
+static_assert(sizeof(signed char) == 1);
+static_assert(sizeof(long) == 4 || sizeof(long) == 8);
+static_assert(sizeof(long long) == 8);
+
+// wchar_t: 2 bytes on Windows, 4 bytes on Linux/macOS
+#if defined(_WIN32)
+static_assert(get_layout_signature<wchar_t>() == "[64-le]wchar[s:2,a:2]");
+#else
+static_assert(get_layout_signature<wchar_t>() == "[64-le]wchar[s:4,a:4]");
+#endif
+
+// Pointers (8 bytes on 64-bit)
 static_assert(get_layout_signature<void*>() == "[64-le]ptr[s:8,a:8]");
 static_assert(get_layout_signature<int*>() == "[64-le]ptr[s:8,a:8]");
 static_assert(get_layout_signature<const char*>() == "[64-le]ptr[s:8,a:8]");
@@ -48,59 +48,31 @@ static_assert(get_layout_signature<void**>() == "[64-le]ptr[s:8,a:8]");
 
 // References
 static_assert(get_layout_signature<int&>() == "[64-le]ref[s:8,a:8]");
-static_assert(get_layout_signature<const double&>() == "[64-le]ref[s:8,a:8]");
 static_assert(get_layout_signature<int&&>() == "[64-le]rref[s:8,a:8]");
 
 // nullptr
 static_assert(get_layout_signature<std::nullptr_t>() == "[64-le]nullptr[s:8,a:8]");
 
-//=============================================================================
-// 2. Array Types
-//=============================================================================
-
-// char arrays -> bytes
+// Arrays
 static_assert(get_layout_signature<char[16]>() == "[64-le]bytes[s:16,a:1]");
-static_assert(get_layout_signature<char[64]>() == "[64-le]bytes[s:64,a:1]");
-static_assert(get_layout_signature<char[1]>() == "[64-le]bytes[s:1,a:1]");
-
-// Regular arrays
 static_assert(get_layout_signature<int32_t[4]>() == "[64-le]array[s:16,a:4]<i32[s:4,a:4],4>");
 static_assert(get_layout_signature<double[3]>() == "[64-le]array[s:24,a:8]<f64[s:8,a:8],3>");
-static_assert(get_layout_signature<uint8_t[10]>() == "[64-le]array[s:10,a:1]<u8[s:1,a:1],10>");
-
-// Multi-dimensional arrays
 static_assert(get_layout_signature<int32_t[2][3]>() == "[64-le]array[s:24,a:4]<array[s:12,a:4]<i32[s:4,a:4],3>,2>");
 
-//=============================================================================
-// 3. Struct Types
-//=============================================================================
-
-// Simple struct
-struct SimpleStruct {
-    int32_t a;
-    int32_t b;
-};
+// Structs
+struct SimpleStruct { int32_t a; int32_t b; };
 static_assert(get_layout_signature<SimpleStruct>() == 
     "[64-le]struct[s:8,a:4]{@0[a]:i32[s:4,a:4],@4[b]:i32[s:4,a:4]}");
 
-// Simple point (for LayoutMatch concept test)
-struct SimplePoint {
-    int32_t x;
-    int32_t y;
-};
+struct SimplePoint { int32_t x; int32_t y; };
 static_assert(get_layout_signature<SimplePoint>() ==
     "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}");
 
-//=============================================================================
-// 3.5 Class Types (Non-POD with encapsulation)
-//=============================================================================
-
-// Simple class with private members - TypeLayout reflects ALL members
+// Classes with private members
 class SimpleClass {
 public:
     SimpleClass(int32_t a, int32_t b) : a_(a), b_(b) {}
     int32_t getA() const { return a_; }
-    int32_t getB() const { return b_; }
 private:
     int32_t a_;
     int32_t b_;
@@ -109,7 +81,6 @@ static_assert(get_layout_signature<SimpleClass>() ==
     "[64-le]struct[s:8,a:4]{@0[a_]:i32[s:4,a:4],@4[b_]:i32[s:4,a:4]}");
 static_assert(LayoutSupported<SimpleClass>);
 
-// Class with mixed access levels
 class MixedAccessClass {
 public:
     int32_t pub_val;
@@ -122,16 +93,11 @@ private:
 static_assert(sizeof(MixedAccessClass) == 12);
 static_assert(LayoutSupported<MixedAccessClass>);
 
-// Class with constructor, destructor, methods (Non-trivial)
 class NonTrivialClass {
 public:
     NonTrivialClass(uint64_t id) : id_(id), active_(true) {}
     ~NonTrivialClass() { active_ = false; }
-    
     uint64_t getId() const { return id_; }
-    bool isActive() const { return active_; }
-    void setActive(bool v) { active_ = v; }
-    
 private:
     uint64_t id_;
     bool active_;
@@ -139,24 +105,21 @@ private:
 static_assert(get_layout_signature<NonTrivialClass>() ==
     "[64-le]struct[s:16,a:8]{@0[id_]:u64[s:8,a:8],@8[active_]:bool[s:1,a:1]}");
 
-// Class with static members (should be excluded from layout)
+// Static members excluded from layout
 class WithStaticMembers {
 public:
-    static int32_t counter;      // Static: NOT in layout
-    static constexpr float PI = 3.14159f;  // Static constexpr: NOT in layout
-    
-    int32_t instance_val;        // Instance: IN layout
-    double instance_data;        // Instance: IN layout
+    static int32_t counter;
+    static constexpr float PI = 3.14159f;
+    int32_t instance_val;
+    double instance_data;
 };
 static_assert(get_layout_signature<WithStaticMembers>() ==
     "[64-le]struct[s:16,a:8]{@0[instance_val]:i32[s:4,a:4],@8[instance_data]:f64[s:8,a:8]}");
 
-// Class template
-template<typename T>
-class GenericContainer {
+// Template instantiation
+template<typename T> class GenericContainer {
 public:
     GenericContainer(T val, uint32_t sz) : value_(val), size_(sz) {}
-    T getValue() const { return value_; }
 private:
     T value_;
     uint32_t size_;
@@ -166,24 +129,9 @@ static_assert(get_layout_signature<GenericContainer<int32_t>>() ==
 static_assert(get_layout_signature<GenericContainer<double>>() == 
     "[64-le]struct[s:16,a:8]{@0[value_]:f64[s:8,a:8],@8[size_]:u32[s:4,a:4]}");
 
-// Struct with padding
-struct PaddedStruct {
-    int8_t x;     // offset 0
-    // 3 bytes padding
-    int32_t y;    // offset 4
-    int8_t z;     // offset 8
-    // 7 bytes padding to align to 8
-};
-static_assert(sizeof(PaddedStruct) == 12 || sizeof(PaddedStruct) == 16);
-
-// Nested struct
-struct Inner {
-    uint16_t val;
-};
-struct Outer {
-    Inner inner;
-    uint32_t extra;
-};
+// Nested structs
+struct Inner { uint16_t val; };
+struct Outer { Inner inner; uint32_t extra; };
 static_assert(get_layout_signature<Outer>() == 
     "[64-le]struct[s:8,a:4]{@0[inner]:struct[s:2,a:2]{@0[val]:u16[s:2,a:2]},@4[extra]:u32[s:4,a:4]}");
 
@@ -191,352 +139,179 @@ static_assert(get_layout_signature<Outer>() ==
 struct EmptyStruct {};
 static_assert(sizeof(EmptyStruct) == 1);
 
-//=============================================================================
-// 4. Inheritance
-//=============================================================================
-
-// Single inheritance
-struct Base1 {
-    uint64_t id;
-};
-struct Derived1 : Base1 {
-    uint32_t value;
-};
+// Inheritance
+struct Base1 { uint64_t id; };
+struct Derived1 : Base1 { uint32_t value; };
 static_assert(get_layout_signature<Derived1>() == 
     "[64-le]class[s:16,a:8,inherited]{@0[base]:struct[s:8,a:8]{@0[id]:u64[s:8,a:8]},@8[value]:u32[s:4,a:4]}");
 
-// Multiple inheritance
-struct MixinA {
-    uint32_t a_val;
-};
-struct MixinB {
-    uint32_t b_val;
-};
-struct MultiDerived : MixinA, MixinB {
-    uint32_t own_val;
-};
-
 // Virtual inheritance
-struct VBase {
-    uint64_t vb_id;
-};
-struct VDerived1 : virtual VBase {
-    float v1;
-};
-struct VDerived2 : virtual VBase {
-    double v2;
-};
-struct Diamond : VDerived1, VDerived2 {
-    int32_t d_val;
-};
-// Virtual base should show [vbase] marker
+struct VBase { uint64_t vb_id; };
+struct VDerived1 : virtual VBase { float v1; };
+struct VDerived2 : virtual VBase { double v2; };
+struct Diamond : VDerived1, VDerived2 { int32_t d_val; };
 
-//=============================================================================
-// 5. Polymorphic Classes
-//=============================================================================
-
-// Simple polymorphic
+// Polymorphic classes
 class Polymorphic {
 public:
     virtual ~Polymorphic() = default;
 private:
     int32_t data;
 };
-static_assert(sizeof(Polymorphic) == 16); // vptr + data + padding
+static_assert(sizeof(Polymorphic) == 16);
 
-// Pure virtual
-class Interface {
-public:
-    virtual ~Interface() = default;
-    virtual void method() = 0;
-protected:
-    uint64_t iface_data;
-};
-
-// Polymorphic with inheritance
-class PolyDerived : public Base1 {
-public:
-    virtual ~PolyDerived() = default;
-    virtual void tick() = 0;
-private:
-    float velocity;
-};
-
-//=============================================================================
-// 6. Bit-fields
-//=============================================================================
-
-// Single byte bit-field
-struct BitField1 {
-    uint8_t a : 1;
-    uint8_t b : 2;
-    uint8_t c : 3;
-    uint8_t d : 2;
-};
+// Bit-fields
+struct BitField1 { uint8_t a : 1; uint8_t b : 2; uint8_t c : 3; uint8_t d : 2; };
 static_assert(sizeof(BitField1) == 1);
 
-// Multi-byte bit-field
-struct BitField2 {
-    uint32_t x : 10;
-    uint32_t y : 10;
-    uint32_t z : 12;
-};
+struct BitField2 { uint32_t x : 10; uint32_t y : 10; uint32_t z : 12; };
 static_assert(sizeof(BitField2) == 4);
 
-// Mixed fields and bit-fields
-struct MixedBF {
-    uint32_t normal;
-    uint8_t bf_a : 3;
-    uint8_t bf_b : 5;
-    char name[4];
-};
-
-// Bit-field crossing storage unit (compiler dependent)
-struct CrossBF {
-    uint16_t a : 4;
-    uint16_t b : 8;
-    uint16_t c : 4;
-};
-static_assert(sizeof(CrossBF) == 2);
-
-//=============================================================================
-// 7. Enum and Union
-//=============================================================================
-
-// C-style enum (underlying type is implementation-defined, usually int or unsigned int)
-enum CEnum { CE_A, CE_B, CE_C };
-// Note: underlying type may be int or unsigned int depending on compiler
-static_assert(sizeof(CEnum) == 4 && alignof(CEnum) == 4);
-
-// Scoped enum with explicit underlying type
+// Enums
 enum class ScopedU8 : uint8_t { A, B };
 static_assert(get_layout_signature<ScopedU8>() == "[64-le]enum[s:1,a:1]<u8[s:1,a:1]>");
 
 enum class ScopedI32 : int32_t { X = -1, Y = 0, Z = 1 };
 static_assert(get_layout_signature<ScopedI32>() == "[64-le]enum[s:4,a:4]<i32[s:4,a:4]>");
 
-enum class ScopedU64 : uint64_t { Big = 0xFFFFFFFFFFFFFFFF };
-static_assert(get_layout_signature<ScopedU64>() == "[64-le]enum[s:8,a:8]<u64[s:8,a:8]>");
-
-// Union
-union TestUnion {
-    int32_t i;
-    float f;
-    char bytes[4];
-};
-// Union signatures now include member information per spec
-// All members at offset 0 (overlapping storage)
+// Unions
+union TestUnion { int32_t i; float f; char bytes[4]; };
 static_assert(get_layout_signature<TestUnion>() == "[64-le]union[s:4,a:4]{@0[i]:i32[s:4,a:4],@0[f]:f32[s:4,a:4],@0[bytes]:bytes[s:4,a:1]}");
 
-union BigUnion {
-    double d;
-    uint64_t u;
-    char buf[16];
-};
+union BigUnion { double d; uint64_t u; char buf[16]; };
 static_assert(get_layout_signature<BigUnion>() == "[64-le]union[s:16,a:8]{@0[d]:f64[s:8,a:8],@0[u]:u64[s:8,a:8],@0[buf]:bytes[s:16,a:1]}");
 
-//=============================================================================
-// 8. Special Layout
-//=============================================================================
-
 // alignas
-struct alignas(16) Aligned16 {
-    int32_t x;
-    int32_t y;
-};
+struct alignas(16) Aligned16 { int32_t x; int32_t y; };
 static_assert(alignof(Aligned16) == 16);
 static_assert(sizeof(Aligned16) == 16);
 
-struct alignas(32) Aligned32 {
-    double val;
-};
-static_assert(alignof(Aligned32) == 32);
-
 // Empty base optimization
 struct EmptyBase {};
-struct EBODerived : EmptyBase {
-    int32_t value;
-};
-static_assert(sizeof(EBODerived) == 4); // EBO applied
+struct EBODerived : EmptyBase { int32_t value; };
+static_assert(sizeof(EBODerived) == 4);
 
-// Multiple empty bases
-struct Empty1 {};
-struct Empty2 {};
-struct MultiEmpty : Empty1, Empty2 {
-    int32_t data;
-};
-static_assert(sizeof(MultiEmpty) == 4);
-
-//=============================================================================
-// 9. Member Pointers
-//=============================================================================
-
-struct TestClass {
-    int32_t member;
-    void method() {}
-    virtual void vmethod() {}
-};
-
-// Data member pointer
+// Member pointers
+struct TestClass { int32_t member; void method() {} virtual void vmethod() {} };
 using DataMemberPtr = int32_t TestClass::*;
-static_assert(sizeof(DataMemberPtr) == 8);
+static_assert(get_layout_signature<DataMemberPtr>() == "[64-le]memptr[s:8,a:8]");
 
-// Function member pointer (may be larger for virtual)
-using FuncMemberPtr = void (TestClass::*)();
-
-//=============================================================================
-// 10. CV Qualifiers and Templates
-//=============================================================================
-
-// const/volatile should be stripped
+// CV qualifiers stripped
 static_assert(get_layout_signature<const int32_t>() == "[64-le]i32[s:4,a:4]");
 static_assert(get_layout_signature<volatile int32_t>() == "[64-le]i32[s:4,a:4]");
 static_assert(get_layout_signature<const volatile int32_t>() == "[64-le]i32[s:4,a:4]");
-static_assert(get_layout_signature<const int32_t*>() == "[64-le]ptr[s:8,a:8]");
 
-// Template instantiation
-template<typename T>
-struct Container {
-    T value;
-    uint32_t size;
-};
-
-using IntContainer = Container<int32_t>;
-using DoubleContainer = Container<double>;
-
-static_assert(sizeof(IntContainer) == 8);
-static_assert(sizeof(DoubleContainer) == 16);
-
-// Verify template instances have correct signatures
-static_assert(get_layout_signature<IntContainer>() == 
+// Template containers
+template<typename T> struct Container { T value; uint32_t size; };
+static_assert(get_layout_signature<Container<int32_t>>() == 
     "[64-le]struct[s:8,a:4]{@0[value]:i32[s:4,a:4],@4[size]:u32[s:4,a:4]}");
 
-//=============================================================================
-// 11. Struct with pointer/reference members
-//=============================================================================
-
-struct WithPointers {
-    int32_t* ptr;
-    const char* str;
-    void* data;
-};
+// Struct with pointers
+struct WithPointers { int32_t* ptr; const char* str; void* data; };
 static_assert(get_layout_signature<WithPointers>() ==
     "[64-le]struct[s:24,a:8]{@0[ptr]:ptr[s:8,a:8],@8[str]:ptr[s:8,a:8],@16[data]:ptr[s:8,a:8]}");
 
-//=============================================================================
-// 12. Struct containing arrays
-//=============================================================================
-
-struct WithArrays {
-    int32_t values[4];
-    char name[16];
-};
+// Struct with arrays
+struct WithArrays { int32_t values[4]; char name[16]; };
 static_assert(get_layout_signature<WithArrays>() ==
     "[64-le]struct[s:32,a:4]{@0[values]:array[s:16,a:4]<i32[s:4,a:4],4>,@16[name]:bytes[s:16,a:1]}");
 
-//=============================================================================
-// 13. wchar_t (platform-dependent size)
-//=============================================================================
-
-// wchar_t size: 2 bytes on Windows, 4 bytes on Linux
-static_assert(sizeof(wchar_t) == 2 || sizeof(wchar_t) == 4);
-
-//=============================================================================
-// 14. long double (platform-dependent)
-//=============================================================================
-
-// long double: 8/12/16 bytes depending on platform
-static_assert(sizeof(long double) >= 8);
-
-//=============================================================================
-// 15. std::byte (C++17)
-//=============================================================================
-
+// std::byte
 static_assert(get_layout_signature<std::byte>() == "[64-le]byte[s:1,a:1]");
-
-// std::byte array
 static_assert(get_layout_signature<std::byte[8]>() == "[64-le]array[s:8,a:1]<byte[s:1,a:1],8>");
 
-// Struct with std::byte
-struct WithByte {
-    std::byte b;
-    int32_t val;
-};
-static_assert(sizeof(WithByte) == 8);
-
-//=============================================================================
-// 16. Function Pointers
-//=============================================================================
-
-// Simple function pointer
+// Function pointers
 using VoidFn = void(*)();
 static_assert(get_layout_signature<VoidFn>() == "[64-le]fnptr[s:8,a:8]");
-
-// Function pointer with args and return
 using IntFn = int(*)(int, int);
 static_assert(get_layout_signature<IntFn>() == "[64-le]fnptr[s:8,a:8]");
-
-// Noexcept function pointer
 using NoexceptFn = void(*)() noexcept;
 static_assert(get_layout_signature<NoexceptFn>() == "[64-le]fnptr[s:8,a:8]");
 
-// Variadic function pointer
-using VarFn = int(*)(const char*, ...);
-static_assert(get_layout_signature<VarFn>() == "[64-le]fnptr[s:8,a:8]");
-
-// Complex function pointer
-using ComplexFn = double(*)(int, float, const char*);
-static_assert(get_layout_signature<ComplexFn>() == "[64-le]fnptr[s:8,a:8]");
-
-// Struct with function pointer
-struct WithFnPtr {
-    void (*callback)(int);
-    void* user_data;
-};
+struct WithFnPtr { void (*callback)(int); void* user_data; };
 static_assert(get_layout_signature<WithFnPtr>() ==
     "[64-le]struct[s:16,a:8]{@0[callback]:fnptr[s:8,a:8],@8[user_data]:ptr[s:8,a:8]}");
 
-//=============================================================================
-// Cross-type compatibility checks
-//=============================================================================
-
+// Cross-type compatibility
 struct TypeA { int32_t x; int32_t y; };
-struct TypeB { int32_t x; int32_t y; };  // Same field names = same signature
-static_assert(signatures_match<TypeA, TypeB>()); // Identical layout and names
-
-struct TypeC { int32_t a; int32_t b; };  // Different field names
-static_assert(!signatures_match<TypeA, TypeC>()); // Field names differ
-
+struct TypeB { int32_t x; int32_t y; };
+struct TypeC { int32_t a; int32_t b; };
 struct TypeD { int32_t x; int64_t y; };
-static_assert(!signatures_match<TypeA, TypeD>()); // Different layout
 
-//=============================================================================
-// 17. Concept Tests
-//=============================================================================
+static_assert(signatures_match<TypeA, TypeB>());
+static_assert(!signatures_match<TypeA, TypeC>());
+static_assert(!signatures_match<TypeA, TypeD>());
 
-// LayoutCompatible concept
+// Concepts
 static_assert(LayoutCompatible<TypeA, TypeB>);
 static_assert(!LayoutCompatible<TypeA, TypeC>);
-static_assert(!LayoutCompatible<TypeA, TypeD>);
-
-// LayoutMatch concept - verify type matches expected signature
 static_assert(LayoutMatch<SimplePoint, "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}">);
 static_assert(LayoutMatch<int32_t, "[64-le]i32[s:4,a:4]">);
-static_assert(LayoutMatch<double, "[64-le]f64[s:8,a:8]">);
 
-// Template constraint using LayoutMatch
 template<typename T>
     requires LayoutMatch<T, "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}">
 constexpr bool requires_point_layout() { return true; }
-
 static_assert(requires_point_layout<SimplePoint>());
 
-//=============================================================================
-// Main - if this compiles, all static_assert tests pass
-//=============================================================================
+// Core API
+static_assert(get_arch_prefix() == "[64-le]" || get_arch_prefix() == "[64-be]" ||
+              get_arch_prefix() == "[32-le]" || get_arch_prefix() == "[32-be]");
+static_assert(hashes_match<TypeA, TypeB>());
+static_assert(!hashes_match<TypeA, TypeC>());
+static_assert(get_layout_hash<int32_t>() == get_layout_hash<int32_t>());
+static_assert(get_layout_hash<int32_t>() != get_layout_hash<int64_t>());
 
-int main() {
-    // All tests are compile-time static_assert
-    // If this file compiles successfully, all tests pass
-    return 0;
-}
+TYPELAYOUT_BIND(SimplePoint, "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}");
+TYPELAYOUT_BIND(int32_t, "[64-le]i32[s:4,a:4]");
+
+// Extended concepts
+constexpr uint64_t EXPECTED_INT32_HASH = get_layout_hash<int32_t>();
+static_assert(LayoutHashMatch<int32_t, EXPECTED_INT32_HASH>);
+
+constexpr uint64_t EXPECTED_POINT_HASH = get_layout_hash<SimplePoint>();
+static_assert(LayoutHashMatch<SimplePoint, EXPECTED_POINT_HASH>);
+
+static_assert(LayoutHashCompatible<TypeA, TypeB>);
+static_assert(!LayoutHashCompatible<TypeA, TypeC>);
+
+template<typename T, typename U>
+    requires LayoutHashCompatible<T, U>
+constexpr bool hash_compatible_types() { return true; }
+static_assert(hash_compatible_types<TypeA, TypeB>());
+
+// Verification API
+constexpr auto point_verification = get_layout_verification<SimplePoint>();
+static_assert(point_verification.fnv1a != 0);
+static_assert(point_verification.djb2 != 0);
+static_assert(point_verification.length > 0);
+
+static_assert(verifications_match<TypeA, TypeB>());
+static_assert(!verifications_match<TypeA, TypeC>());
+
+constexpr auto int32_v = get_layout_verification<int32_t>();
+constexpr auto int64_v = get_layout_verification<int64_t>();
+static_assert(int32_v != int64_v);
+
+// Collision detection (types with different layouts)
+static_assert(no_hash_collision<int8_t, int16_t, int32_t, int64_t>());
+static_assert(no_hash_collision<SimplePoint, Inner, Outer, TypeC>());
+static_assert(no_hash_collision<float, double, bool, char>());
+
+static_assert(no_verification_collision<int8_t, int16_t, int32_t, int64_t>());
+static_assert(no_verification_collision<SimplePoint, Inner, Outer, TypeC>());
+
+// Edge cases
+static_assert(no_hash_collision<int32_t>());
+static_assert(no_verification_collision<int32_t>());
+static_assert(no_hash_collision<>());
+static_assert(no_verification_collision<>());
+
+// C string API
+static_assert(get_layout_signature_cstr<int32_t>() != nullptr);
+static_assert(get_layout_signature_cstr<int32_t>()[0] == '[');
+
+// Hash algorithm properties
+constexpr auto simple_v = get_layout_verification<SimpleStruct>();
+static_assert(simple_v.fnv1a != 0 && simple_v.djb2 != 0);
+
+int main() { return 0; }

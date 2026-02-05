@@ -1,11 +1,6 @@
-// Boost.TypeLayout
-//
-// Core Layout Verification (Dual-Hash)
-//
+// Boost.TypeLayout - Layout Verification (Dual-Hash)
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
-// (See accompanying file LICENSE_1_0.txt or copy at
-// http://www.boost.org/LICENSE_1_0.txt)
 
 #ifndef BOOST_TYPELAYOUT_CORE_VERIFICATION_HPP
 #define BOOST_TYPELAYOUT_CORE_VERIFICATION_HPP
@@ -15,9 +10,9 @@
 namespace boost {
 namespace typelayout {
 
-    // =========================================================================
-    // Dual-Hash Verification Structure
-    // =========================================================================
+    // ========================================================
+    // Dual-hash Verification Structure
+    // ========================================================
 
     /// Dual-hash verification: FNV-1a + DJB2 + length (~2^128 collision resistance)
     struct LayoutVerification {
@@ -45,9 +40,9 @@ namespace typelayout {
         return get_layout_verification<T1>() == get_layout_verification<T2>();
     }
 
-    // =========================================================================
+    // ========================================================
     // Collision Detection
-    // =========================================================================
+    // ========================================================
 
     /// Check no hash collision within a type library (compile-time)
     template<typename... Types>
@@ -57,11 +52,9 @@ namespace typelayout {
         } else {
             constexpr uint64_t hashes[] = { get_layout_hash<Types>()... };
             constexpr size_t N = sizeof...(Types);
-            for (size_t i = 0; i < N; ++i) {
-                for (size_t j = i + 1; j < N; ++j) {
+            for (size_t i = 0; i < N; ++i)
+                for (size_t j = i + 1; j < N; ++j)
                     if (hashes[i] == hashes[j]) return false;
-                }
-            }
             return true;
         }
     }
@@ -74,11 +67,9 @@ namespace typelayout {
         } else {
             constexpr LayoutVerification vs[] = { get_layout_verification<Types>()... };
             constexpr size_t N = sizeof...(Types);
-            for (size_t i = 0; i < N; ++i) {
-                for (size_t j = i + 1; j < N; ++j) {
+            for (size_t i = 0; i < N; ++i)
+                for (size_t j = i + 1; j < N; ++j)
                     if (vs[i] == vs[j]) return false;
-                }
-            }
             return true;
         }
     }
