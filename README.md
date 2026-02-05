@@ -5,32 +5,55 @@
 [![C++ Standard](https://img.shields.io/badge/C%2B%2B-26-blue.svg)](https://en.cppreference.com/w/cpp/26)
 [![Header Only](https://img.shields.io/badge/Header-only-green.svg)]()
 
-> **Compile-Time Memory Layout Signatures via P2996 Static Reflection**
+> Verify that types have identical memory layouts — at compile time, with zero overhead.
 
-## Overview
+```cpp
+static_assert(get_layout_signature<MyStruct>() == get_layout_signature<TheirStruct>());  // ✓ Safe to share memory
+```
 
-Boost.TypeLayout generates human-readable memory layout signatures at compile time using C++26 static reflection (P2996). It enables robust binary interface verification without annotations, code generation, or runtime overhead.
+## The Problem
 
-**Core guarantee**: *Identical signature ⟺ Identical memory layout*
+When sharing data between **processes**, **plugins**, or **network endpoints**, you must guarantee that both sides interpret memory identically. A silent layout mismatch causes:
 
-## Quick Start
+- 🔥 **Data corruption** — wrong offsets, reading garbage
+- 💥 **Crashes** — dereferencing misaligned pointers  
+- 🐛 **Heisenbugs** — works on your machine, fails in production
+
+Traditional solutions require tedious manual `static_assert` chains, external code generators, or runtime checks that come too late.
+
+## The Solution
+
+**One line. Compile time. Zero overhead.**
 
 ```cpp
 #include <boost/typelayout.hpp>
-using namespace boost::typelayout;
 
 struct Message { uint32_t id; uint64_t timestamp; };
 
-// Generate layout signature at compile time
-constexpr auto sig = get_layout_signature<Message>();
-// "[64-le]struct[s:16,a:8]{@0[id]:u32[s:4,a:4],@8[timestamp]:u64[s:8,a:8]}"
+// Complete layout captured as a human-readable string
+constexpr auto sig = boost::typelayout::get_layout_signature<Message>();
+// → "[64-le]struct[s:16,a:8]{@0[id]:u32[s:4,a:4],@8[timestamp]:u64[s:8,a:8]}"
 
-// Get 64-bit hash for fast comparison
-constexpr auto hash = get_layout_hash<Message>();
-
-// Verify layout at compile time
+// Verify at compile time — mismatches become build errors
 static_assert(LayoutHashMatch<Message, 0x1234567890ABCDEF>);
 ```
+
+**Core guarantee**: *Identical signature ⟺ Identical memory layout*
+
+## Why TypeLayout vs Alternatives?
+
+| Feature | **TypeLayout** | Boost.Describe | Boost.PFR |
+|---------|:--------------:|:--------------:|:---------:|
+| Requires macros | ❌ No | ✅ Yes | ❌ No |
+| Requires invasive changes | ❌ No | ✅ Yes | ❌ No |
+| Works with third-party types | ✅ Yes | ❌ No | ⚠️ Limited |
+| Layout hash for comparison | ✅ Yes | ❌ No | ❌ No |
+| Captures padding/offsets | ✅ Yes | ❌ No | ❌ No |
+| Bit-field support | ✅ Yes | ❌ No | ❌ No |
+| Pure constexpr | ✅ Yes | ⚠️ Partial | ✅ Yes |
+| Zero runtime overhead | ✅ Yes | ✅ Yes | ✅ Yes |
+
+**TypeLayout** uses C++26 static reflection (P2996) — no macros, no intrusive annotations, works with *any* type including STL containers and third-party libraries.
 
 ## Key Features
 
@@ -181,6 +204,45 @@ jobs:
 ## License
 
 [Boost Software License 1.0](LICENSE_1_0.txt)
+
+## API Stability
+
+TypeLayout follows the Boost Library Guidelines for API stability:
+
+- **Major version** (1.x → 2.x): May include breaking changes (deprecated APIs removed)
+- **Minor version** (1.0 → 1.1): New features only, full backward compatibility
+- **Patch version** (1.0.0 → 1.0.1): Bug fixes only
+
+### Deprecation Policy
+- APIs are marked `[[deprecated]]` for at least **one minor version** before removal
+- Deprecated APIs include migration guidance in the deprecation message
+- Removal only occurs in major version updates
+
+```cpp
+#include <boost/typelayout/core/config.hpp>
+// BOOST_TYPELAYOUT_VERSION = 100000 (1.0.0)
+// BOOST_TYPELAYOUT_VERSION_MAJOR = 1
+// BOOST_TYPELAYOUT_VERSION_MINOR = 0
+// BOOST_TYPELAYOUT_VERSION_PATCH = 0
+```
+
+## Why Boost, Not std::?
+
+TypeLayout implements **layout verification** — a specialized application of reflection that:
+
+1. **Addresses an immediate need**: C++26 P2996 provides reflection primitives, but no standard facility for layout comparison or hashing
+2. **Enables experimentation**: Library-level implementation allows rapid iteration before potential standardization
+3. **Complements, not replaces**: If layout verification becomes part of a future standard, TypeLayout can adapt or gracefully deprecate
+
+### Relationship to P2996
+
+| Aspect | P2996 (Standard) | TypeLayout (This Library) |
+|--------|------------------|---------------------------|
+| Scope | Reflection primitives | Layout verification application |
+| Timeline | C++26 | Available now (Bloomberg Clang) |
+| Evolution | Slow (ISO process) | Fast (Boost release cycle) |
+
+TypeLayout will track P2996 evolution and maintain compatibility as the standard matures.
 
 ## Related Work
 

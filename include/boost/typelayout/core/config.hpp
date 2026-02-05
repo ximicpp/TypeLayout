@@ -36,6 +36,9 @@
 #define BOOST_TYPELAYOUT_VERSION_MINOR 0
 #define BOOST_TYPELAYOUT_VERSION_PATCH 0
 
+// Combined version: MAJOR * 100000 + MINOR * 100 + PATCH
+#define BOOST_TYPELAYOUT_VERSION 100000
+
 namespace boost {
 namespace typelayout {
 
