@@ -1,7 +1,0 @@
-test_all_types 1 0.0137789
-test_signature_extended 1 0.0140177
-test_signature_comprehensive 1 0.0138051
-test_anonymous_member 1 0.0132698
-test_alignment 1 0.0117039
-test_user_defined_types 1 0.0163504
----
