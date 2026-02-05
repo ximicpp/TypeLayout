@@ -314,4 +314,30 @@ static_assert(get_layout_signature_cstr<int32_t>()[0] == '[');
 constexpr auto simple_v = get_layout_verification<SimpleStruct>();
 static_assert(simple_v.fnv1a != 0 && simple_v.djb2 != 0);
 
+// Variable templates (new API)
+static_assert(layout_hash_v<int32_t> == get_layout_hash<int32_t>());
+static_assert(layout_hash_v<SimplePoint> == get_layout_hash<SimplePoint>());
+static_assert(layout_signature_v<int32_t> == get_layout_signature<int32_t>());
+
+// Negative tests (should NOT match)
+struct DifferentSize1 { int32_t x; };
+struct DifferentSize2 { int64_t x; };
+static_assert(!signatures_match<DifferentSize1, DifferentSize2>());
+static_assert(!hashes_match<DifferentSize1, DifferentSize2>());
+static_assert(!LayoutCompatible<DifferentSize1, DifferentSize2>);
+static_assert(!LayoutHashCompatible<DifferentSize1, DifferentSize2>);
+
+struct DifferentAlign1 { alignas(4) int32_t x; };
+struct DifferentAlign2 { alignas(8) int32_t x; };
+static_assert(!signatures_match<DifferentAlign1, DifferentAlign2>());
+
+struct DifferentFieldCount1 { int32_t x; };
+struct DifferentFieldCount2 { int32_t x; int32_t y; };
+static_assert(!signatures_match<DifferentFieldCount1, DifferentFieldCount2>());
+
+// Platform traits (documentation)
+static_assert(detail::int8_is_signed_char || !detail::int8_is_signed_char);
+static_assert(detail::int64_is_long || !detail::int64_is_long);
+static_assert(detail::int64_is_long_long || !detail::int64_is_long_long);
+
 int main() { return 0; }

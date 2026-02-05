@@ -58,6 +58,13 @@ template <typename T1, typename T2>
     return get_layout_hash<T1>() == get_layout_hash<T2>();
 }
 
+// Variable templates (modern C++ style)
+template <typename T>
+inline constexpr uint64_t layout_hash_v = get_layout_hash<T>();
+
+template <typename T>
+inline constexpr auto layout_signature_v = get_layout_signature<T>();
+
 } // namespace typelayout
 } // namespace boost
 

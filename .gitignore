@@ -41,4 +41,4 @@ doc/build/
 doc/test/
 
 # Temporary files
--p/
+-p/build-linux/

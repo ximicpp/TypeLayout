@@ -34,6 +34,15 @@ namespace typelayout {
         std::is_same_v<T, int32_t> || std::is_same_v<T, uint32_t> ||
         std::is_same_v<T, int64_t> || std::is_same_v<T, uint64_t>;
 
+    // Platform type aliasing traits (replaces scattered #if macros)
+    // macOS/Linux: int8_t = signed char, int64_t = long long
+    // Windows: these are distinct types
+    namespace detail {
+        inline constexpr bool int8_is_signed_char = std::is_same_v<int8_t, signed char>;
+        inline constexpr bool int64_is_long = std::is_same_v<int64_t, long>;
+        inline constexpr bool int64_is_long_long = std::is_same_v<int64_t, long long>;
+    }
+
     // Fixed-width integers
     template <> struct TypeSignature<int8_t>   { static consteval auto calculate() noexcept { return CompileString{"i8[s:1,a:1]"}; } };
     template <> struct TypeSignature<uint8_t>  { static consteval auto calculate() noexcept { return CompileString{"u8[s:1,a:1]"}; } };
@@ -55,6 +64,10 @@ namespace typelayout {
 #endif
 
     // long: 4 bytes on Windows/32-bit, 8 bytes on LP64 Unix
+    // Linux LP64: long == int64_t, skip to avoid redefinition
+    // macOS LP64: long != int64_t (int64_t == long long), need specialization
+    // Windows LLP64: long == 4 bytes, need specialization
+#if !defined(__linux__) || !defined(__LP64__)
     template <> struct TypeSignature<long> { 
         static consteval auto calculate() noexcept { 
             if constexpr (sizeof(long) == 4) return CompileString{"i32[s:4,a:4]"};
@@ -68,9 +81,19 @@ namespace typelayout {
             else return CompileString{"u64[s:8,a:8]"};
         } 
     };
+#endif
 
-    // Platform-specific: int64_t aliases long long on most platforms
-#if !defined(__APPLE__) && !defined(__linux__) && !defined(_WIN64)
+    // long long: always 8 bytes, but may alias int64_t on some platforms
+    // On macOS/Windows: int64_t == long long, so skip to avoid redefinition
+    // On Linux LP64: int64_t == long, so long long needs its own specialization
+#if defined(__linux__) && defined(__LP64__)
+    template <> struct TypeSignature<long long> { 
+        static consteval auto calculate() noexcept { return CompileString{"i64[s:8,a:8]"}; } 
+    };
+    template <> struct TypeSignature<unsigned long long> { 
+        static consteval auto calculate() noexcept { return CompileString{"u64[s:8,a:8]"}; } 
+    };
+#elif !defined(__APPLE__) && !defined(_WIN64)
     template <> struct TypeSignature<long long> { 
         static consteval auto calculate() noexcept { return CompileString{"i64[s:8,a:8]"}; } 
     };
