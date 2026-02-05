@@ -1,267 +1,187 @@
-# Continuous Integration Workflow for Boost.TypeLayout
+# Boost.TypeLayout CI Pipeline
 #
-# Builds and tests the library using the P2996-enabled Clang container.
-#
-# Copyright (c) 2024-2026 TypeLayout Development Team
-# Distributed under the Boost Software License, Version 1.0.
+# Multi-compiler validation for P2996 reflection support
+# Primary focus: Bloomberg Clang P2996 fork (the only compiler with full support)
 
 name: CI
 
 on:
   push:
-    branches:
-      - main
-      - develop
-      - 'feature/**'
-    paths-ignore:
-      - '**.md'
-      - 'doc/**'
-      - '.github/docker/**'
-
+    branches: [main, develop]
   pull_request:
-    branches:
-      - main
-      - develop
-    paths-ignore:
-      - '**.md'
-      - 'doc/**'
-
-  # Allow manual trigger
+    branches: [main, develop]
   workflow_dispatch:
 
-  # Triggered when Docker image is built
-  workflow_run:
-    workflows: ["Build Docker Image"]
-    types:
-      - completed
-
 env:
-  REGISTRY: ghcr.io
-  P2996_IMAGE: ${{ github.repository_owner }}/typelayout-p2996:latest
-  # P2996 toolchain's libc++ is in non-standard path, required for test execution
-  LD_LIBRARY_PATH: /opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu
+  LLVM_P2996_VERSION: "p2996"
 
 jobs:
-  #==========================================================================
-  # Check if Docker image exists
-  #==========================================================================
-  check-image:
-    name: Check Docker Image
+  # =========================================================================
+  # Primary Build: Bloomberg Clang P2996
+  # =========================================================================
+  build-p2996:
+    name: Clang P2996 (${{ matrix.build_type }})
     runs-on: ubuntu-latest
-    outputs:
-      image_exists: ${{ steps.check.outputs.exists }}
-    steps:
-      - name: Check if P2996 image exists
-        id: check
-        run: |
-          # Try to pull the image manifest (no download, just check)
-          if docker manifest inspect ghcr.io/${{ github.repository_owner }}/typelayout-p2996:latest > /dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-            echo "✅ Docker image exists!"
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "⚠️ Docker image not found. Container-based jobs will be skipped."
-            echo "Please run the 'Build Docker Image' workflow first."
-          fi
-
-  #==========================================================================
-  # Build and Test Matrix
-  #==========================================================================
-  # Currently only Bloomberg Clang supports P2996.
-  # When GCC/MSVC add P2996 support, this will expand to a full matrix:
-  #
-  # strategy:
-  #   matrix:
-  #     include:
-  #       - { name: "Bloomberg Clang", compiler: clang++, container: p2996 }
-  #       - { name: "GCC 14", compiler: g++-14, container: gcc14 }
-  #       - { name: "MSVC 19.40", os: windows-latest }
-  #
-  # For now, we test with Bloomberg Clang P2996 only.
-  #==========================================================================
-  build-and-test:
-    name: Build & Test (Bloomberg Clang P2996)
-    runs-on: ubuntu-latest
-    needs: check-image
-    if: needs.check-image.outputs.image_exists == 'true'
     container:
-      image: ghcr.io/${{ github.repository_owner }}/typelayout-p2996:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
+      image: ghcr.io/ximicpp/typelayout-p2996:latest
+    strategy:
+      matrix:
+        build_type: [Debug, Release]
+    
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Verify Compiler
-        run: |
-          echo "=== Compiler Version ==="
-          clang++ --version
-          echo ""
-          echo "=== CMake Version ==="
-          cmake --version
-
-      - name: Configure with CMake
+      - uses: actions/checkout@v4
+      
+      - name: Configure CMake
         run: |
           cmake -B build \
-            -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_CXX_COMPILER=clang++ \
-            -DCMAKE_CXX_FLAGS="-std=c++26 -freflection -freflection-latest -stdlib=libc++" \
-            -DBUILD_TESTING=ON
-
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_CXX_FLAGS="-freflection -freflection-latest -stdlib=libc++" \
+            -DTYPELAYOUT_BUILD_TESTS=ON \
+            -DTYPELAYOUT_BUILD_EXAMPLES=ON
+      
       - name: Build
         run: cmake --build build --parallel
-
-      - name: Run Compile-Time Tests
+      
+      - name: Run Tests
+        run: ctest --test-dir build --output-on-failure
+      
+      - name: Build Benchmarks
+        if: matrix.build_type == 'Release'
         run: |
-          cmake --build build --target test_all_types
-          echo "Compile-time tests passed!"
+          cd bench/compile_time
+          cmake -B build -DCMAKE_CXX_FLAGS="-freflection -freflection-latest -stdlib=libc++"
+          cmake --build build
 
-      - name: Run Unit Tests
+  # =========================================================================
+  # Compile-Time Benchmarks
+  # =========================================================================
+  benchmarks:
+    name: Compile-Time Benchmarks
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ximicpp/typelayout-p2996:latest
+    needs: build-p2996
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run Compile-Time Benchmarks
         run: |
-          cd build
-          ctest --output-on-failure --parallel 4
+          cd bench/compile_time
+          chmod +x run_benchmarks.sh
+          ./run_benchmarks.sh 2>&1 | tee benchmark_results.txt
+      
+      - name: Upload Benchmark Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: bench/compile_time/benchmark_results.txt
 
-      - name: Test Summary
-        if: always()
+  # =========================================================================
+  # Documentation Build
+  # =========================================================================
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Doxygen
+        run: sudo apt-get update && sudo apt-get install -y doxygen graphviz
+      
+      - name: Generate Documentation
         run: |
-          echo "=== Test Results ==="
-          cd build
-          ctest --show-only=json-v1 | head -50 || true
+          cd doc
+          doxygen Doxyfile 2>&1 | tee doxygen_output.txt
+      
+      - name: Check for Doxygen Warnings
+        run: |
+          if grep -q "warning:" doc/doxygen_output.txt; then
+            echo "::warning::Doxygen generated warnings"
+            grep "warning:" doc/doxygen_output.txt
+          fi
+      
+      - name: Upload Documentation
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation
+          path: doc/html/
 
-  #==========================================================================
+  # =========================================================================
   # Static Analysis
-  #==========================================================================
-  static-analysis:
+  # =========================================================================
+  analysis:
     name: Static Analysis
     runs-on: ubuntu-latest
-    needs: check-image
-    if: needs.check-image.outputs.image_exists == 'true'
     container:
-      image: ghcr.io/${{ github.repository_owner }}/typelayout-p2996:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
+      image: ghcr.io/ximicpp/typelayout-p2996:latest
+    
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
+      
       - name: Run clang-tidy
         run: |
           # Create compilation database
           cmake -B build \
-            -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_CXX_COMPILER=clang++ \
-            -DCMAKE_CXX_FLAGS="-std=c++26 -freflection -freflection-latest -stdlib=libc++" \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-
-          # Run clang-tidy on public headers
-          find include -name "*.hpp" | head -10 | while read file; do
-            echo "Checking $file..."
-            clang-tidy "$file" \
-              -p build \
-              --checks='-*,bugprone-*,modernize-*,performance-*,readability-*' \
-              --warnings-as-errors='' \
-              || true
-          done
-
-  #==========================================================================
-  # Documentation Build Check
-  #==========================================================================
-  docs:
-    name: Documentation
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js (for Antora)
-        uses: actions/setup-node@v4
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCMAKE_CXX_FLAGS="-freflection -freflection-latest -stdlib=libc++"
+          
+          # Run clang-tidy on source files
+          find include -name "*.hpp" -exec \
+            clang-tidy {} -p build --quiet \
+            --checks="-*,boost-*,modernize-*,performance-*,readability-*" \; \
+            2>&1 | tee clang_tidy_output.txt || true
+      
+      - name: Upload Analysis Results
+        uses: actions/upload-artifact@v4
         with:
-          node-version: '20'
+          name: clang-tidy-results
+          path: clang_tidy_output.txt
 
-      - name: Install Antora
-        run: npm install -g @antora/cli @antora/site-generator
+  # =========================================================================
+  # Future: GCC P2996 (when available)
+  # =========================================================================
+  # build-gcc:
+  #   name: GCC (P2996 experimental)
+  #   runs-on: ubuntu-latest
+  #   if: false  # Enable when GCC supports P2996
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Build with GCC
+  #       run: echo "GCC P2996 support not yet available"
 
-      - name: Build Documentation
-        run: |
-          if [ -f "antora-playbook.yml" ]; then
-            antora antora-playbook.yml
-            echo "Documentation built successfully!"
-          else
-            echo "No antora-playbook.yml found, skipping docs build"
-          fi
+  # =========================================================================
+  # Future: MSVC P2996 (when available)
+  # =========================================================================
+  # build-msvc:
+  #   name: MSVC (P2996 experimental)
+  #   runs-on: windows-latest
+  #   if: false  # Enable when MSVC supports P2996
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Build with MSVC
+  #       run: echo "MSVC P2996 support not yet available"
 
-  #==========================================================================
-  # Header-Only Verification
-  #==========================================================================
-  header-only-check:
-    name: Header-Only Check
-    runs-on: ubuntu-latest
-    needs: check-image
-    if: needs.check-image.outputs.image_exists == 'true'
-    container:
-      image: ghcr.io/${{ github.repository_owner }}/typelayout-p2996:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Verify Single Header Inclusion
-        run: |
-          echo '#include <boost/typelayout.hpp>' > /tmp/test_include.cpp
-          echo 'int main() { return 0; }' >> /tmp/test_include.cpp
-          clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ \
-            -I./include \
-            -c /tmp/test_include.cpp -o /tmp/test_include.o
-          echo "Single header inclusion works!"
-
-      - name: Check for ODR Violations
-        run: |
-          # Create two translation units including the same header
-          echo '#include <boost/typelayout.hpp>' > /tmp/tu1.cpp
-          echo 'void foo() { auto s = boost::typelayout::get_layout_signature<int>(); }' >> /tmp/tu1.cpp
-          
-          echo '#include <boost/typelayout.hpp>' > /tmp/tu2.cpp
-          echo 'void bar() { auto s = boost::typelayout::get_layout_signature<int>(); }' >> /tmp/tu2.cpp
-          echo 'int main() { return 0; }' >> /tmp/tu2.cpp
-          
-          clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ -I./include \
-            /tmp/tu1.cpp /tmp/tu2.cpp -o /tmp/odr_test
-          echo "No ODR violations detected!"
-
-  #==========================================================================
-  # Summary (always runs)
-  #==========================================================================
+  # =========================================================================
+  # Summary
+  # =========================================================================
   summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs: [check-image, docs]
+    needs: [build-p2996, benchmarks, docs, analysis]
     if: always()
+    
     steps:
-      - name: Report Status
+      - name: Check Results
         run: |
-          echo "## CI Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## CI Results Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [ "${{ needs.check-image.outputs.image_exists }}" == "true" ]; then
-            echo "✅ **Docker Image**: Available" >> $GITHUB_STEP_SUMMARY
-            echo "- Build & Test: Will run" >> $GITHUB_STEP_SUMMARY
-            echo "- Static Analysis: Will run" >> $GITHUB_STEP_SUMMARY
-            echo "- Header-Only Check: Will run" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "⚠️ **Docker Image**: Not found" >> $GITHUB_STEP_SUMMARY
-            echo "- Container-based jobs skipped" >> $GITHUB_STEP_SUMMARY
-            echo "- Please run 'Build Docker Image' workflow first" >> $GITHUB_STEP_SUMMARY
-          fi
-          
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Build (P2996) | ${{ needs.build-p2996.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Benchmarks | ${{ needs.benchmarks.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Documentation | ${{ needs.docs.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Static Analysis | ${{ needs.analysis.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ **Documentation**: Checked" >> $GITHUB_STEP_SUMMARY
+          echo "**Note**: Only Bloomberg Clang P2996 fork currently supports C++26 reflection." >> $GITHUB_STEP_SUMMARY

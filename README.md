@@ -65,6 +65,30 @@ static_assert(LayoutHashMatch<Message, 0x1234567890ABCDEF>);
 | **Dual-hash verification** | FNV-1a + DJB2 for robust collision resistance |
 | **Human-readable** | Easy to diff and debug |
 
+## How It Works
+
+<p align="center">
+  <img src="doc/diagrams/signature_guarantee.svg" alt="Same Signature = Same Layout" width="700">
+</p>
+
+TypeLayout generates a **canonical layout signature** that captures every detail affecting memory interpretation:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  [64-le]struct[s:16,a:8]{@0[id]:u32[s:4,a:4],@8[ts]:u64[s:8,a:8]}  │
+│   ▲  ▲    ▲      ▲   ▲   ▲      ▲                                 │
+│   │  │    │      │   │   │      └── Member type details           │
+│   │  │    │      │   │   └── Field offset                         │
+│   │  │    │      │   └── Overall alignment                        │
+│   │  │    │      └── Overall size                                 │
+│   │  │    └── Type category                                       │
+│   │  └── Endianness (le/be)                                       │
+│   └── Pointer size (32/64)                                        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**If two types have identical signatures, they have identical memory layouts** — regardless of name, namespace, or source file.
+
 ## Why TypeLayout?
 
 | Metric | Manual `static_assert` | TypeLayout |
@@ -243,6 +267,42 @@ TypeLayout implements **layout verification** — a specialized application of r
 | Evolution | Slow (ISO process) | Fast (Boost release cycle) |
 
 TypeLayout will track P2996 evolution and maintain compatibility as the standard matures.
+
+## Performance
+
+### Compile-Time Overhead
+
+TypeLayout performs all analysis at **compile time**, meaning **zero runtime cost**. The compile-time overhead is:
+
+| Type Complexity | Members | Overhead |
+|-----------------|---------|----------|
+| Simple struct | 5 | ~52ms |
+| Medium struct | 20 | ~243ms |
+| Complex struct | 30-35 | ~293ms |
+
+**Estimated**: ~10ms per member (linear scaling)
+
+### Runtime Cost
+
+```
+┌────────────────────────────────────────────────┐
+│  Runtime overhead:    ZERO                     │
+│  ─────────────────────────────────────────     │
+│  • Hash values are compile-time constants      │
+│  • No dynamic memory allocation                │
+│  • No function calls for comparison            │
+│  • No std::stringstream or std::locale usage   │
+└────────────────────────────────────────────────┘
+```
+
+### Practical Limits
+
+Due to `constexpr` step limits in current P2996 implementations:
+
+- **Recommended**: ≤40 members per struct
+- **Workaround**: Split larger structs into nested sub-structures
+
+See [full benchmark results](bench/compile_time/RESULTS.md) for detailed methodology.
 
 ## Related Work
 
