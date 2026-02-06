@@ -21,101 +21,82 @@ constexpr auto defn = get_definition_signature<Message>();
 // → "[64-le]record[s:16,a:8]{@0[id]:u32[s:4,a:4],@8[timestamp]:u64[s:8,a:8]}"
 ```
 
-## The Problem
+## What It Does
 
-When sharing data across platforms — via shared memory, mmap, network sockets,
-or file I/O — you need to know: **does this type have the exact same memory
-layout on both sides?** Get it wrong and you get silent data corruption.
+TypeLayout uses C++26 static reflection to generate **deterministic, human-readable
+signatures** that fully describe a type's memory layout — at compile time, with zero
+runtime cost.
 
-Traditional solutions (protobuf, FlatBuffers, manual serialization) add runtime
-overhead and complexity. TypeLayout answers this question **at compile time, with
-zero overhead**.
+A signature encodes: field types, sizes, alignments, offsets, padding, inheritance
+structure, and platform characteristics (pointer width, endianness).
 
 ## Two-Layer Signature System
+
+TypeLayout provides two complementary layers of type identity:
 
 ```
 Definition Signature ──project()──→ Layout Signature
     (many)                              (one)
 ```
 
-| Layer | What it captures | Inheritance | Field Names |
-|-------|-----------------|-------------|-------------|
-| **Layout** | Pure byte identity | Flattened | No |
-| **Definition** | Full type structure | Preserved | Yes |
+| Layer | What it captures | Inheritance | Field Names | Use case |
+|-------|-----------------|-------------|-------------|----------|
+| **Layout** | Pure byte identity | Flattened | No | Binary compatibility |
+| **Definition** | Full type structure | Preserved | Yes | API/ABI identity |
 
-**Guarantee**: `definition_match(T,U) ⟹ layout_match(T,U)`
+**Mathematical guarantee**: `definition_match(T,U) ⟹ layout_match(T,U)`
 
-```cpp
-struct Base { int x; };
-struct Derived : Base { int y; };
-struct Flat { int x; int y; };
-
-// Same bytes → Layout matches
-static_assert(layout_signatures_match<Derived, Flat>());
-
-// Different structure → Definition differs
-static_assert(!definition_signatures_match<Derived, Flat>());
-```
-
-## API (4 functions)
+The converse does not hold — two types can be byte-identical (Layout match) yet
+structurally different (Definition mismatch):
 
 ```cpp
-get_layout_signature<T>()             // Pure byte layout
-get_definition_signature<T>()         // Full type definition
-layout_signatures_match<T, U>()       // Byte-level comparison
-definition_signatures_match<T, U>()   // Structural comparison
+struct Base { int32_t x; };
+struct Derived : Base { int32_t y; };
+struct Flat { int32_t x; int32_t y; };
+
+static_assert( layout_signatures_match<Derived, Flat>());   // same bytes
+static_assert(!definition_signatures_match<Derived, Flat>()); // different structure
 ```
 
-## Cross-Platform Compatibility Check
+## API
 
-The killer application: determine which types can be shared across platforms
-**without serialization**.
+Four `consteval` functions — the entire public surface:
 
-```bash
-# Step 1: Compile & run on each target platform
-./build/cross_platform_check > sig_linux.json    # on Linux x86_64
-./build/cross_platform_check > sig_windows.json  # on Windows x86_64
-
-# Step 2: Compare
-python3 scripts/compare_signatures.py sig_linux.json sig_windows.json
+```cpp
+namespace boost::typelayout {
+    template<class T>        consteval auto get_layout_signature();
+    template<class T>        consteval auto get_definition_signature();
+    template<class T, class U> consteval bool layout_signatures_match();
+    template<class T, class U> consteval bool definition_signatures_match();
+}
 ```
 
-**Example output:**
+## Supported Types
 
-```
-Platforms compared: 2
-  • 64-le (sig_linux)    — pointer=8B, long=8B, wchar_t=4B, long_double=16B
-  • 64-le (sig_windows)  — pointer=8B, long=4B, wchar_t=2B, long_double=8B
+| Category | Examples |
+|----------|---------|
+| Fixed-width integers | `int8_t` … `uint64_t` |
+| Fundamental types | `int`, `long`, `char`, `bool`, `float`, `double`, `long double` |
+| Characters | `char8_t`, `char16_t`, `char32_t`, `wchar_t` |
+| Pointers & references | `T*`, `T&`, `T&&`, `T C::*`, function pointers |
+| Enums | with underlying type preserved |
+| Arrays | `T[N]`, byte arrays normalized (`char[N]` ≡ `uint8_t[N]` ≡ `std::byte[N]`) |
+| Structs & classes | fields, padding, alignment, base classes |
+| Inheritance | single, multiple, multi-level, empty base optimization |
+| Polymorphic types | `virtual` marker in Definition layer |
+| Unions | member-level signatures |
 
-  Type                       Size     Layout     Definition  Verdict
-  PacketHeader                 16   ✅ MATCH     ✅ MATCH   🟢 Serialization-free
-  SharedMemRegion              24   ✅ MATCH     ✅ MATCH   🟢 Serialization-free
-  SensorRecord                 24   ✅ MATCH     ✅ MATCH   🟢 Serialization-free
-  UnsafeStruct              48/24   ❌ DIFFER    ❌ DIFFER  🔴 Needs serialization
-```
+## Applications
 
-Types using fixed-width integers (`uint32_t`, `int64_t`, `float`, `double`)
-are portable. Types using `long`, `wchar_t`, `long double`, or pointers
-will differ across platforms. See [`example/README.md`](example/README.md)
-for the full workflow.
+TypeLayout signatures enable a range of compile-time and cross-compilation analyses:
 
-## Project Structure
+- **Shared memory** — verify type layout before `mmap` / IPC
+- **Network protocols** — prove wire-format compatibility at compile time
+- **File formats** — ensure header structs match across reader/writer
+- **Plugin systems** — validate ABI at load time
+- **Cross-platform analysis** — compare signatures across architectures
 
-```
-include/boost/typelayout/
-  core/signature.hpp        ← 4 public API functions
-  core/type_signature.hpp   ← signature generation engine
-  core/reflection_helpers.hpp ← P2996 reflection utilities
-  core/compile_string.hpp   ← compile-time string type
-  core/config.hpp           ← platform detection
-example/
-  cross_platform_check.cpp  ← signature extraction program (JSON output)
-  README.md                 ← cross-platform workflow guide
-scripts/
-  compare_signatures.py     ← multi-platform signature comparison tool
-test/
-  test_two_layer.cpp        ← core test suite
-```
+See [`example/`](example/README.md) for a multi-platform comparison demo.
 
 ## Build & Test
 
