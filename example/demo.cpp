@@ -139,7 +139,7 @@ static_assert(LayoutSupported<MixedAccess>, "Mixed access class is supported");
 // Part 6: Layout compatibility check (Two-Layer)
 // ============================================================================
 
-struct Vec2 { int32_t x, y; };
+struct Vec2 { int32_t a, b; };
 
 // Layout layer: same byte layout
 static_assert(layout_signatures_match<Point, Vec2>(),
@@ -163,7 +163,9 @@ static_assert(layout_verifications_match<Point, Vec2>(),
     "Point and Vec2 must have same layout verification");
 
 // Type library collision detection (compile-time guarantee)
-static_assert(no_hash_collision<Point, Entity, Base, Derived>(), 
+// Note: Point and Derived have same Layout hash (both are two int32_t fields
+// after flattening), so we use types with distinct layouts here
+static_assert(no_hash_collision<Point, Entity, Player>(), 
               "Hash collision in type library!");
 
 // ============================================================================

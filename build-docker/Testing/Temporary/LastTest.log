@@ -1,0 +1,42 @@
+Start testing: Feb 06 17:47 UTC
+----------------------------------------------------------
+1/1 Testing: test_two_layer
+1/1 Test: test_two_layer
+Command: "/workspace/build-docker/test_two_layer"
+Directory: /workspace/build-docker
+"test_two_layer" start time: Feb 06 17:47 UTC
+Output:
+----------------------------------------------------------
+=== Two-Layer Signature System Tests ===
+
+--- Layout Signatures (byte-level) ---
+  Simple:    [64-le]record[s:16,a:8]{@0:i32[s:4,a:4],@8:f64[s:8,a:8]}
+  Derived:   [64-le]record[s:16,a:8]{@0:i32[s:4,a:4],@8:f64[s:8,a:8]}
+  Flat:      [64-le]record[s:16,a:8]{@0:i32[s:4,a:4],@8:f64[s:8,a:8]}
+  Poly:      [64-le]record[s:16,a:8]{@8:i32[s:4,a:4]}
+
+--- Definition Signatures (type definition) ---
+  Simple:    [64-le]record[s:16,a:8]{@0[x]:i32[s:4,a:4],@8[y]:f64[s:8,a:8]}
+  Derived:   [64-le]record[s:16,a:8]{~base<Base>:record[s:4,a:4]{@0[id]:i32[s:4,a:4]},@8[value]:f64[s:8,a:8]}
+  Flat:      [64-le]record[s:16,a:8]{@0[id]:i32[s:4,a:4],@8[value]:f64[s:8,a:8]}
+  Poly:      [64-le]record[s:16,a:8,polymorphic]{@8[x]:i32[s:4,a:4]}
+
+--- Projection Relationship ---
+  Derived == Flat (Layout)?      YES
+  Derived == Flat (Definition)?   NO
+  Simple == Simple2 (Layout)?     YES
+  Simple == Simple2 (Definition)?  NO
+
+All tests passed!
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"test_two_layer" end time: Feb 06 17:47 UTC
+"test_two_layer" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Feb 06 17:47 UTC
+
+core =   0.01 sec*proc
+
