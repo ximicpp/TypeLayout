@@ -59,9 +59,6 @@ namespace typelayout {
     // Field Signature Generation
     // =========================================================================
 
-    // Number buffer size for from_number (matches type_signature.hpp)
-    inline constexpr size_t NumberBufSize = 22;
-
     // Helper to generate field name or anonymous placeholder (Annotated mode only)
     template<std::meta::info Member, std::size_t Index>
     consteval auto get_member_name() noexcept {
@@ -72,7 +69,7 @@ namespace typelayout {
             return CompileString<NameLen>(name);
         } else {
             return CompileString{"<anon:"} +
-                   CompileString<NumberBufSize>::from_number(Index) +
+                   CompileString<number_buffer_size>::from_number(Index) +
                    CompileString{">"};
         }
     }
@@ -94,24 +91,24 @@ namespace typelayout {
             if constexpr (Mode == SignatureMode::Annotated) {
                 // Annotated: @BYTE.BIT[name]:bits<WIDTH,TYPE>
                 return CompileString{"@"} +
-                       CompileString<NumberBufSize>::from_number(byte_offset) +
+                       CompileString<number_buffer_size>::from_number(byte_offset) +
                        CompileString{"."} +
-                       CompileString<NumberBufSize>::from_number(bit_offset) +
+                       CompileString<number_buffer_size>::from_number(bit_offset) +
                        CompileString{"["} +
                        get_member_name<member, Index>() +
                        CompileString{"]:bits<"} +
-                       CompileString<NumberBufSize>::from_number(bit_width) +
+                       CompileString<number_buffer_size>::from_number(bit_width) +
                        CompileString{","} +
                        TypeSignature<FieldType, Mode>::calculate() +
                        CompileString{">"};
             } else {
                 // Structural: @BYTE.BIT:bits<WIDTH,TYPE> (no name)
                 return CompileString{"@"} +
-                       CompileString<NumberBufSize>::from_number(byte_offset) +
+                       CompileString<number_buffer_size>::from_number(byte_offset) +
                        CompileString{"."} +
-                       CompileString<NumberBufSize>::from_number(bit_offset) +
+                       CompileString<number_buffer_size>::from_number(bit_offset) +
                        CompileString{":bits<"} +
-                       CompileString<NumberBufSize>::from_number(bit_width) +
+                       CompileString<number_buffer_size>::from_number(bit_width) +
                        CompileString{","} +
                        TypeSignature<FieldType, Mode>::calculate() +
                        CompileString{">"};
@@ -122,7 +119,7 @@ namespace typelayout {
             if constexpr (Mode == SignatureMode::Annotated) {
                 // Annotated: @OFFSET[name]:TYPE
                 return CompileString{"@"} +
-                       CompileString<NumberBufSize>::from_number(offset) +
+                       CompileString<number_buffer_size>::from_number(offset) +
                        CompileString{"["} +
                        get_member_name<member, Index>() +
                        CompileString{"]:"} +
@@ -130,7 +127,7 @@ namespace typelayout {
             } else {
                 // Structural: @OFFSET:TYPE (no name)
                 return CompileString{"@"} +
-                       CompileString<NumberBufSize>::from_number(offset) +
+                       CompileString<number_buffer_size>::from_number(offset) +
                        CompileString{":"} +
                        TypeSignature<FieldType, Mode>::calculate();
             }
@@ -181,12 +178,12 @@ namespace typelayout {
             // Annotated mode: include [base] or [vbase] marker
             if constexpr (is_virtual_base) {
                 return CompileString{"@"} +
-                       CompileString<NumberBufSize>::from_number(base_offset) +
+                       CompileString<number_buffer_size>::from_number(base_offset) +
                        CompileString{"[vbase]:"} +
                        TypeSignature<BaseType, Mode>::calculate();
             } else {
                 return CompileString{"@"} +
-                       CompileString<NumberBufSize>::from_number(base_offset) +
+                       CompileString<number_buffer_size>::from_number(base_offset) +
                        CompileString{"[base]:"} +
                        TypeSignature<BaseType, Mode>::calculate();
             }
@@ -195,12 +192,12 @@ namespace typelayout {
             // Use ~vbase or ~base to indicate base class without being a "name"
             if constexpr (is_virtual_base) {
                 return CompileString{"@"} +
-                       CompileString<NumberBufSize>::from_number(base_offset) +
+                       CompileString<number_buffer_size>::from_number(base_offset) +
                        CompileString{"~vbase:"} +
                        TypeSignature<BaseType, Mode>::calculate();
             } else {
                 return CompileString{"@"} +
-                       CompileString<NumberBufSize>::from_number(base_offset) +
+                       CompileString<number_buffer_size>::from_number(base_offset) +
                        CompileString{"~base:"} +
                        TypeSignature<BaseType, Mode>::calculate();
             }

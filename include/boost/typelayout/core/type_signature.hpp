@@ -18,17 +18,12 @@
 namespace boost {
 namespace typelayout {
 
-    // =============================================================================
-    // Number buffer size: 22 bytes sufficient for uint64_t max + sign + null
-    // =============================================================================
-    inline constexpr size_t NumberBufferSize = 22;
-
     template<size_t N>
     consteval auto format_size_align(const char (&name)[N], size_t size, size_t align) noexcept {
         return CompileString{name} + CompileString{"[s:"} +
-               CompileString<NumberBufferSize>::from_number(size) +
+               CompileString<number_buffer_size>::from_number(size) +
                CompileString{",a:"} +
-               CompileString<NumberBufferSize>::from_number(align) +
+               CompileString<number_buffer_size>::from_number(align) +
                CompileString{"]"};
     }
 
@@ -151,14 +146,10 @@ namespace typelayout {
         static consteval auto calculate() noexcept { return TypeSignature<T, Mode>::calculate(); }
     };
 
-    // Pointers and references
+    // Pointers and references (void* covered by T* specialization)
     template <typename T, SignatureMode Mode> 
     struct TypeSignature<T*, Mode> { 
         static consteval auto calculate() noexcept { return format_size_align("ptr", sizeof(T*), alignof(T*)); } 
-    };
-    template <SignatureMode Mode> 
-    struct TypeSignature<void*, Mode> { 
-        static consteval auto calculate() noexcept { return format_size_align("ptr", sizeof(void*), alignof(void*)); } 
     };
     template <typename T, SignatureMode Mode> 
     struct TypeSignature<T&, Mode> { 
@@ -197,14 +188,14 @@ namespace typelayout {
             // This ensures char[N], int8_t[N], uint8_t[N], byte[N], char8_t[N] have identical signatures
             // guaranteeing: identical layout ⟺ identical signature
             if constexpr (is_byte_element_v<T>) {
-                return CompileString{"bytes[s:"} + CompileString<NumberBufferSize>::from_number(N) + CompileString{",a:1]"};
+                return CompileString{"bytes[s:"} + CompileString<number_buffer_size>::from_number(N) + CompileString{",a:1]"};
             }
             // General case: full type information for non-byte arrays
             else {
-                return CompileString{"array[s:"} + CompileString<NumberBufferSize>::from_number(sizeof(T[N])) +
-                       CompileString{",a:"} + CompileString<NumberBufferSize>::from_number(alignof(T[N])) +
+                return CompileString{"array[s:"} + CompileString<number_buffer_size>::from_number(sizeof(T[N])) +
+                       CompileString{",a:"} + CompileString<number_buffer_size>::from_number(alignof(T[N])) +
                        CompileString{"]<"} + TypeSignature<T, Mode>::calculate() +
-                       CompileString{","} + CompileString<NumberBufferSize>::from_number(N) + CompileString{">"};
+                       CompileString{","} + CompileString<number_buffer_size>::from_number(N) + CompileString{">"};
             }
         }
     };
@@ -218,22 +209,21 @@ namespace typelayout {
         static consteval auto calculate() noexcept {
             if constexpr (std::is_enum_v<T>) {
                 using U = std::underlying_type_t<T>;
-                return CompileString{"enum[s:"} + CompileString<NumberBufferSize>::from_number(sizeof(T)) +
-                       CompileString{",a:"} + CompileString<NumberBufferSize>::from_number(alignof(T)) +
+                return CompileString{"enum[s:"} + CompileString<number_buffer_size>::from_number(sizeof(T)) +
+                       CompileString{",a:"} + CompileString<number_buffer_size>::from_number(alignof(T)) +
                        CompileString{"]<"} + TypeSignature<U, Mode>::calculate() + CompileString{">"};
             }
             else if constexpr (std::is_union_v<T>) {
-                return CompileString{"union[s:"} + CompileString<NumberBufferSize>::from_number(sizeof(T)) +
-                       CompileString{",a:"} + CompileString<NumberBufferSize>::from_number(alignof(T)) +
+                return CompileString{"union[s:"} + CompileString<number_buffer_size>::from_number(sizeof(T)) +
+                       CompileString{",a:"} + CompileString<number_buffer_size>::from_number(alignof(T)) +
                        CompileString{"]{"} + get_fields_signature<T, Mode>() + CompileString{"}"};
             }
             else if constexpr (std::is_class_v<T> && !std::is_array_v<T>) {
                 constexpr bool poly = std::is_polymorphic_v<T>;
                 constexpr bool base = has_bases<T>();
+                // Simplified: polymorphic or inherited types use "class", otherwise "struct"
                 auto prefix = [&]() {
-                    if constexpr (poly && base) return CompileString{"class[s:"};
-                    else if constexpr (poly) return CompileString{"class[s:"};
-                    else if constexpr (base) return CompileString{"class[s:"};
+                    if constexpr (poly || base) return CompileString{"class[s:"};
                     else return CompileString{"struct[s:"};
                 }();
                 auto suffix = [&]() {
@@ -242,8 +232,8 @@ namespace typelayout {
                     else if constexpr (base) return CompileString{",inherited]{"};
                     else return CompileString{"]{"};
                 }();
-                return prefix + CompileString<NumberBufferSize>::from_number(sizeof(T)) +
-                       CompileString{",a:"} + CompileString<NumberBufferSize>::from_number(alignof(T)) +
+                return prefix + CompileString<number_buffer_size>::from_number(sizeof(T)) +
+                       CompileString{",a:"} + CompileString<number_buffer_size>::from_number(alignof(T)) +
                        suffix + get_layout_content_signature<T, Mode>() + CompileString{"}"};
             }
             else if constexpr (std::is_void_v<T>) {

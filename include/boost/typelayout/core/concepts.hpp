@@ -10,9 +10,10 @@
 namespace boost {
 namespace typelayout {
 
-// Type has determinable layout (excludes void, function types, incomplete types)
+// Type has determinable layout (excludes void, function types, unbounded arrays)
+// Uses has_determinable_layout_v trait to avoid static_assert hard errors
 template<typename T>
-concept LayoutSupported = requires { { get_layout_signature<T>() }; };
+concept LayoutSupported = has_determinable_layout_v<T>;
 
 // Two types have identical layout signatures
 template<typename T, typename U>

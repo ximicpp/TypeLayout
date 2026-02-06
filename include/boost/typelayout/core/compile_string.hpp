@@ -31,11 +31,11 @@ namespace typelayout {
             }
         }
 
-        constexpr CompileString(std::string_view sv) {
+        constexpr CompileString(std::string_view sv) : value{} {
             for (size_t i = 0; i < N - 1 && i < sv.size(); ++i) {
                 value[i] = sv[i];
             }
-            value[N - 1] = '\0';
+            // value[N-1] already initialized to '\0' by value{}
         }
 
         // Convert number to compile-time string

@@ -129,13 +129,12 @@ template <typename T>
 
 /**
  * @brief Get layout hash from signature string (legacy method).
- * May fail for large structures due to constexpr step limits.
  * @deprecated Use get_layout_hash<T>() instead.
  */
 template <typename T>
+[[deprecated("Use get_layout_hash<T>() instead")]]
 [[nodiscard]] consteval uint64_t get_layout_hash_from_signature() noexcept {
-    constexpr auto sig = get_layout_signature<T, SignatureMode::Structural>();
-    return fnv1a_hash(sig.c_str(), sig.length());
+    return get_layout_hash<T>();
 }
 
 /**

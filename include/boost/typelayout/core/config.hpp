@@ -109,6 +109,35 @@ namespace typelayout {
     template <typename... Ts>
     inline constexpr bool always_false_v = always_false<Ts...>::value;
 
+    // =========================================================================
+    // Type Traits for Layout Support
+    // =========================================================================
+
+    /**
+     * @brief Check if a type has determinable layout.
+     * 
+     * Types without determinable layout:
+     * - void (no size)
+     * - function types (no size)
+     * - unbounded arrays T[] (unknown size)
+     * 
+     * This trait is SFINAE-friendly and won't trigger static_assert.
+     */
+    template <typename T>
+    inline constexpr bool has_determinable_layout_v =
+        !std::is_void_v<T> &&
+        !std::is_function_v<T> &&
+        !std::is_unbounded_array_v<T>;
+
+    // =========================================================================
+    // Number Buffer Size for Compile-Time Conversion
+    // =========================================================================
+
+    /// Buffer size for compile-time number-to-string conversion.
+    /// 22 bytes sufficient for uint64_t max (20 digits) + sign + null.
+    /// Note: from_number() returns CompileString<32> regardless of this value.
+    inline constexpr std::size_t number_buffer_size = 22;
+
 } // namespace typelayout
 } // namespace boost
 
