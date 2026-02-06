@@ -215,6 +215,19 @@ namespace typelayout {
     // Generic: structs, classes, enums, unions
     // Primary template with mode parameter
     // =========================================================================
+    //
+    // DESIGN DECISION: struct vs class distinction
+    //
+    // Signatures encode "ABI identity" rather than just "byte layout". This means:
+    // - Polymorphic types use "class" prefix with "polymorphic" flag (vtable affects ABI)
+    // - Types with bases use "class" prefix with "inherited" flag (affects ABI on some platforms)
+    // - Plain aggregates use "struct" prefix
+    //
+    // Consequence: A flat struct and an inherited class with identical byte layouts
+    // will have DIFFERENT signatures. This is intentional—it's conservative ABI safety.
+    // See doc/design/abi-identity.md for detailed rationale.
+    //
+    // =========================================================================
     template <typename T, SignatureMode Mode>
     struct TypeSignature {
         static consteval auto calculate() noexcept {

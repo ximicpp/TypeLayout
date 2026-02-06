@@ -169,6 +169,22 @@ namespace typelayout {
     // =========================================================================
     // Base Class Signature Generation
     // =========================================================================
+    //
+    // DESIGN DECISION: Why encode base classes in signatures?
+    //
+    // Even non-polymorphic, non-virtual inheritance affects ABI identity:
+    // - Construction/destruction semantics differ
+    // - Slicing behavior differs
+    // - Some platform ABIs treat inherited types differently (e.g., parameter passing)
+    //
+    // Consequence: Derived{int x; double y;} and Flat{int x; double y;} with
+    // identical byte layouts will have DIFFERENT signatures. This is intentional.
+    //
+    // The ~base: and ~vbase: prefixes mark base class subobjects without being
+    // member "names" — they're structural markers in Structural mode.
+    //
+    // See doc/design/abi-identity.md for detailed rationale.
+    // =========================================================================
 
     template<typename T, std::size_t Index, SignatureMode Mode>
     consteval auto get_base_signature() noexcept {
