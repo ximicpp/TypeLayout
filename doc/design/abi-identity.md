@@ -139,3 +139,86 @@ Boost.TypeLayout provides a sound, automatic mechanism for ABI identity verifica
 - **Not Complete**: Compatible layouts ↛ matching signatures (by design)
 
 This incompleteness is a feature, not a bug—it provides conservative ABI safety by encoding structural properties that affect type interchangeability beyond raw byte patterns.
+
+---
+
+# Appendix: ABI vs Layout — Precise Distinction
+
+## The Difference
+
+**Memory Layout** is a purely spatial concept:
+- Size (`sizeof`)
+- Alignment (`alignof`)
+- Field offsets
+- Padding bytes
+- Byte ordering
+
+**ABI** encompasses layout PLUS:
+- Calling conventions (register vs stack parameter passing)
+- Name mangling
+- Vtable layout mechanics
+- RTTI representation
+- Exception handling tables
+- Object construction/destruction protocols
+- Whether a type is "trivially copyable" (affects parameter passing)
+- How inheritance affects calling conventions
+
+## Where TypeLayout Sits
+
+```
+Pure Memory Layout ⊂ TypeLayout Signature ⊂ Complete ABI
+```
+
+TypeLayout captures:
+- ✅ All memory layout information
+- ✅ Platform context (pointer width, endianness)
+- ✅ Structural properties (polymorphic, inherited)
+
+TypeLayout does NOT capture:
+- ❌ Calling conventions
+- ❌ Name mangling rules
+- ❌ Vtable internal layout
+- ❌ Exception handling mechanisms
+- ❌ **Trivially copyable property** (critical blind spot)
+
+## Critical Blind Spot: Trivially Copyable
+
+```cpp
+struct A { int x; double y; };                          // trivially copyable
+struct C { int x; double y; C(const C&) {} };           // NOT trivially copyable
+```
+
+`A` and `C` have **identical TypeLayout signatures**—TypeLayout only examines non-static data members, not constructors/destructors.
+
+But in Itanium C++ ABI (x86-64 Linux/macOS):
+- `A` as function parameter: passed via registers (RDI + XMM0)
+- `C` as function parameter: passed via pointer to stack copy
+
+**Consequence**: TypeLayout signature match guarantees "data can be safely memcpy'd" but NOT "functions can be safely called interchangeably."
+
+## Four Key Propositions
+
+1. **Layout consistency is necessary but not sufficient for ABI compatibility.**
+   Two ABI-compatible types must have identical layouts, but identical layouts don't guarantee ABI compatibility.
+
+2. **TypeLayout signature match is sufficient for layout consistency.**
+   Signatures encode all layout info plus structural properties.
+
+3. **TypeLayout signature match is NOT sufficient for ABI compatibility.**
+   Signatures don't encode calling conventions, trivially_copyable, or name mangling.
+
+4. **TypeLayout signature match is NOT necessary for layout consistency.**
+   Structural property markers cause layout-identical but structurally-different types to have different signatures.
+
+## Use Case Boundaries
+
+| Scenario | TypeLayout Sufficient? |
+|----------|------------------------|
+| Shared memory data exchange | ✅ Yes |
+| Serialization/deserialization | ✅ Yes |
+| File format verification | ✅ Yes |
+| FFI function pointer casting | ❌ No (need calling convention check) |
+| Dynamic linker symbol replacement | ❌ No (need full ABI check) |
+| Cross-compiler binary compatibility | ❌ No (different ABIs possible) |
+
+TypeLayout is a **data compatibility verification tool**, not a complete ABI compatibility tool.
