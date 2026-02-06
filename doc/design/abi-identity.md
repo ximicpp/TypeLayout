@@ -151,6 +151,123 @@ This incompleteness is a feature, not a bug—it provides conservative ABI safet
 
 ---
 
+# Appendix: Physical Layer — Byte-Level Compatibility
+
+## Motivation
+
+Structural mode intentionally distinguishes types with different C++ structures (inheritance, polymorphism) even when their byte-level memory layouts are identical. This is the right default for ABI safety but is too strict for certain use cases:
+
+- **C interop**: A C struct and a C++ derived class may share identical memory but differ structurally
+- **Flat data buffers**: Shared memory regions where only byte-level identity matters
+- **Cross-language FFI**: Binding generators that flatten C++ hierarchies into flat types
+- **Legacy migration**: Replacing an inheritance-based type with a flat equivalent
+
+## Physical Mode
+
+Physical mode (`SignatureMode::Physical`) strips all C++ structural metadata and produces a **flattened, offset-based** signature that captures only what exists in memory:
+
+```cpp
+struct Base { int x; };
+struct Derived : Base { double y; };
+struct Flat { int x; double y; };
+
+// Structural mode: DIFFERENT (inheritance encoded)
+static_assert(!signatures_match<Derived, Flat>());
+
+// Physical mode: IDENTICAL (same bytes at same offsets)
+static_assert(physical_signatures_match<Derived, Flat>());
+```
+
+### What Physical Signatures Encode
+
+- `sizeof` and `alignof` of the type
+- Every field's **absolute byte offset** from the object start
+- Every field's type signature (recursively physical)
+- Byte-array normalization (same as Structural mode)
+
+### What Physical Signatures Strip
+
+- `struct` vs `class` distinction
+- `polymorphic` / `inherited` flags
+- Base class subobject boundaries (`~base:` / `~vbase:` prefixes)
+- Virtual inheritance metadata
+
+### Signature Format
+
+Physical signatures use the `record` prefix instead of `struct`/`class`:
+
+```
+record[s:16,a:8]{@0:i32[s:4,a:4],@8:f64[s:8,a:8]}
+```
+
+No metadata flags (`polymorphic`, `inherited`) appear.
+
+### Inheritance Flattening
+
+Physical mode recursively flattens the inheritance tree. For each non-virtual base class, the base's fields are re-emitted at their **absolute offsets** (base offset + field offset within base):
+
+```cpp
+struct A { int x; };           // x at offset 0 within A
+struct B : A { double y; };    // A subobject at offset 0, y at offset 8
+struct C : B { char z; };      // B subobject at offset 0, z at offset 16
+
+// Physical signature of C:
+// record[s:24,a:8]{@0:i32[s:4,a:4],@8:f64[s:8,a:8],@16:i8[s:1,a:1]}
+```
+
+This is identical to a flat struct `{ int x; double y; char z; }`.
+
+### Virtual Inheritance Limitation
+
+Virtual base classes have **runtime-determined offsets** that depend on the most-derived type. Physical mode **skips virtual bases** during flattening — only direct (non-virtual) fields are included. The `sizeof`/`alignof` remain accurate, but the flattened field list may be incomplete for types with virtual inheritance.
+
+This is a deliberate v1 limitation. Users requiring virtual inheritance support should use Structural mode, which correctly encodes `~vbase:` subobjects.
+
+## Physical vs Structural: Selection Guide
+
+| Criterion | Structural (default) | Physical |
+|-----------|---------------------|----------|
+| Inheritance-aware | ✅ Yes | ❌ No (flattened) |
+| Polymorphism markers | ✅ Yes | ❌ No |
+| `Derived` vs `Flat` equivalence | ❌ Different | ✅ Same |
+| ABI safety (vtable, calling convention) | Stricter | Relaxed |
+| C interop / FFI | Too strict | ✅ Ideal |
+| Shared memory (POD types) | ✅ Good | ✅ Good |
+| Virtual inheritance | ✅ Correct | ⚠️ Incomplete |
+
+### When to Use Structural Mode
+
+- Plugin systems (vtable layout matters)
+- Cross-version ABI contracts (inheritance changes are breaking)
+- Any scenario where C++ type structure affects correctness
+
+### When to Use Physical Mode
+
+- C/FFI interop (foreign types have no C++ inheritance)
+- Flat buffer verification (only byte offsets matter)
+- Migrating from inherited to flat types (verifying equivalence)
+- Hardware register overlays (pure memory mapping)
+
+## Guarantee Comparison
+
+**Structural mode**:
+```
+signatures_match<T, U>()
+    ⟹ sizeof, alignof, field offsets, field types match
+    ∧ structural properties (polymorphic, inherited) match
+```
+
+**Physical mode**:
+```
+physical_signatures_match<T, U>()
+    ⟹ sizeof, alignof, flattened field offsets, field types match
+    (structural properties NOT checked)
+```
+
+Physical mode provides **completeness** (layout-identical types will match) at the cost of reduced **strictness** (structurally different types may also match).
+
+---
+
 # Appendix: ABI vs Layout — Precise Distinction
 
 ## The Difference
@@ -269,3 +386,4 @@ This is a **layout identity** guarantee, not a **usage safety** guarantee.
 - Safe pointer dereference after copy (requires no address-sensitive members)
 - Safe virtual function calls after copy (requires same vtable)
 - Safe cross-ABI function calls (requires calling convention match)
+

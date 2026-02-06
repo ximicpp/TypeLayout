@@ -48,6 +48,6 @@
 - [x] 7.9 回归测试：所有现有测试通过（GitHub CI）
 
 ## 8. Documentation
-- [ ] 8.1 更新 `doc/design/abi-identity.md` 添加 Physical 层说明
-- [ ] 8.2 更新 README 说明两层架构和使用场景
-- [ ] 8.3 添加 Physical vs Structural 选择指南
+- [x] 8.1 更新 `doc/design/abi-identity.md` 添加 Physical 层说明
+- [x] 8.2 更新 README 说明三层模式架构和使用场景
+- [x] 8.3 添加 Physical vs Structural 选择指南

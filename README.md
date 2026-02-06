@@ -40,9 +40,9 @@ static_assert(LayoutHashMatch<Message, 0x1234567890ABCDEF>);
 
 **Core guarantee**: *Identical structural signature → Identical ABI layout*
 
-> **Note**: TypeLayout uses **Structural mode** by default, which captures **ABI layout** including type structure, inheritance hierarchy, and polymorphism markers. This ensures types are compatible for safe binary data exchange. Member names are excluded so types with identical layouts but different field names are considered compatible. Use **Annotated mode** for debugging when you need to see member names.
+> **Note**: TypeLayout provides three signature modes: **Structural** (default) captures ABI layout including inheritance hierarchy and polymorphism markers; **Physical** captures pure byte-level layout with inheritance flattened; **Annotated** includes member names for debugging. Member names are excluded in both Structural and Physical modes so types with identical layouts but different field names are considered compatible.
 >
-> **Why ABI layout, not pure byte layout?** Two types may have identical byte layouts but different ABI semantics (e.g., a flat struct vs. a derived class). TypeLayout preserves inheritance and polymorphism information because these affect pointer semantics, vtable layout, and type-safe casting—critical for shared memory, IPC, and plugin systems.
+> **Why three modes?** Structural mode is the safe default — it preserves inheritance and polymorphism information critical for ABI safety (vtable layout, type-safe casting). Physical mode relaxes this by flattening inheritance, making `Derived : Base { int x; }` and `Flat { int x; }` equivalent when they share the same memory layout — ideal for C interop and flat data buffers. Annotated mode adds member names for diagnostics.
 
 ## Core Value: Safe Data Sharing Across Boundaries
 
@@ -179,29 +179,51 @@ TypeLayout generates a **canonical layout signature** that captures every detail
 
 ### Signature Modes
 
-TypeLayout provides two signature modes:
+TypeLayout provides three signature modes:
 
-| Mode | Default | Purpose | Member Names |
-|------|---------|---------|--------------|
-| **Structural** | ✅ Yes | Layout comparison & hashing | Excluded |
-| **Annotated** | No | Debugging & diagnostics | Included |
+| Mode | Default | Purpose | Inheritance | Member Names |
+|------|---------|---------|-------------|--------------|
+| **Structural** | ✅ Yes | ABI-safe layout comparison | Preserved | Excluded |
+| **Physical** | No | Byte-level layout comparison | Flattened | Excluded |
+| **Annotated** | No | Debugging & diagnostics | Preserved | Included |
 
 ```cpp
+struct Base { int x; };
+struct Derived : Base { double y; };
+struct Flat { int x; double y; };
+
+// Structural mode (default) — inheritance preserved
+static_assert(!signatures_match<Derived, Flat>());  // ❌ Different structure
+
+// Physical mode — inheritance flattened, byte-level comparison
+static_assert(physical_signatures_match<Derived, Flat>());  // ✅ Same memory layout
+
 struct PointA { float x, y; };
 struct PointB { float horizontal, vertical; };  // Same layout, different names
 
-// Structural mode (default) - names excluded
+// Both Structural and Physical modes exclude names
 constexpr auto sig_a = get_structural_signature<PointA>();
 constexpr auto sig_b = get_structural_signature<PointB>();
 static_assert(sig_a == sig_b);  // ✅ PASS: Same layout
 
-// Annotated mode - names included (for debugging)
+// Annotated mode — names included (for debugging)
 constexpr auto ann_a = get_annotated_signature<PointA>();
 constexpr auto ann_b = get_annotated_signature<PointB>();
 static_assert(ann_a != ann_b);  // Different names visible
 ```
 
-**Rule**: All comparisons (`signatures_match`, `hashes_match`, concepts) use **Structural mode** internally, ensuring name-independence.
+#### Choosing a Mode
+
+| Use Case | Recommended Mode |
+|----------|-----------------|
+| Plugin ABI contracts | **Structural** (inheritance changes are breaking) |
+| Shared memory IPC (POD types) | **Structural** or **Physical** |
+| C interop / FFI | **Physical** (C has no inheritance) |
+| Flat buffer / hardware register overlays | **Physical** |
+| Migrating inherited → flat types | **Physical** (verify equivalence) |
+| Debugging layout issues | **Annotated** |
+
+**Rule**: Default comparisons (`signatures_match`, `hashes_match`, concepts) use **Structural mode**. Use `physical_signatures_match` / `physical_hashes_match` for Physical mode comparisons.
 
 ## Why TypeLayout?
 
@@ -231,21 +253,27 @@ static_assert(ann_a != ann_b);  // Different names visible
 |----------|-------------|
 | `get_layout_signature<T, Mode>()` | Layout signature with mode (default: Structural) |
 | `get_structural_signature<T>()` | Structural signature (no names, for comparison) |
+| `get_physical_signature<T>()` | Physical signature (flattened, byte-level) |
 | `get_annotated_signature<T>()` | Annotated signature (with names, for debugging) |
 | `get_layout_signature_cstr<T>()` | C-string pointer (static storage) |
 | `get_layout_hash<T>()` | 64-bit FNV-1a hash (always Structural) |
-| `signatures_match<T, U>()` | Check if two types have identical layouts |
-| `hashes_match<T, U>()` | Fast hash comparison |
+| `get_physical_hash<T>()` | 64-bit FNV-1a hash (Physical mode) |
+| `signatures_match<T, U>()` | Check structural layout compatibility |
+| `physical_signatures_match<T, U>()` | Check physical (byte-level) layout compatibility |
+| `hashes_match<T, U>()` | Fast structural hash comparison |
+| `physical_hashes_match<T, U>()` | Fast physical hash comparison |
 
 ### Concepts
 
 | Concept | Description |
 |---------|-------------|
 | `LayoutSupported<T>` | Type can be analyzed |
-| `LayoutCompatible<T, U>` | Types have identical layouts |
+| `LayoutCompatible<T, U>` | Types have identical structural layouts |
+| `PhysicalLayoutCompatible<T, U>` | Types have identical physical (byte-level) layouts |
 | `LayoutMatch<T, Sig>` | Layout matches expected signature |
 | `LayoutHashMatch<T, Hash>` | Layout hash matches expected value |
-| `LayoutHashCompatible<T, U>` | Types have matching hashes |
+| `LayoutHashCompatible<T, U>` | Types have matching structural hashes |
+| `PhysicalHashCompatible<T, U>` | Types have matching physical hashes |
 
 ## Type Support
 
