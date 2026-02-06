@@ -59,9 +59,12 @@ namespace typelayout {
     // Field Signature Generation
     // =========================================================================
 
+    // Number buffer size for from_number (matches type_signature.hpp)
+    inline constexpr size_t NumberBufSize = 22;
+
     // Helper to generate field name or anonymous placeholder (Annotated mode only)
     template<std::meta::info Member, std::size_t Index>
-    static consteval auto get_member_name() noexcept {
+    consteval auto get_member_name() noexcept {
         using namespace std::meta;
         if constexpr (has_identifier(Member)) {
             constexpr std::string_view name = identifier_of(Member);
@@ -69,14 +72,14 @@ namespace typelayout {
             return CompileString<NameLen>(name);
         } else {
             return CompileString{"<anon:"} +
-                   CompileString<16>::from_number(Index) +
+                   CompileString<NumberBufSize>::from_number(Index) +
                    CompileString{">"};
         }
     }
 
     // Build signature for a single field with mode awareness
     template<typename T, std::size_t Index, SignatureMode Mode>
-    static consteval auto get_field_signature() noexcept {
+    consteval auto get_field_signature() noexcept {
         using namespace std::meta;
         constexpr auto member = nonstatic_data_members_of(^^T, access_context::unchecked())[Index];
         
@@ -91,24 +94,24 @@ namespace typelayout {
             if constexpr (Mode == SignatureMode::Annotated) {
                 // Annotated: @BYTE.BIT[name]:bits<WIDTH,TYPE>
                 return CompileString{"@"} +
-                       CompileString<32>::from_number(byte_offset) +
+                       CompileString<NumberBufSize>::from_number(byte_offset) +
                        CompileString{"."} +
-                       CompileString<32>::from_number(bit_offset) +
+                       CompileString<NumberBufSize>::from_number(bit_offset) +
                        CompileString{"["} +
                        get_member_name<member, Index>() +
                        CompileString{"]:bits<"} +
-                       CompileString<32>::from_number(bit_width) +
+                       CompileString<NumberBufSize>::from_number(bit_width) +
                        CompileString{","} +
                        TypeSignature<FieldType, Mode>::calculate() +
                        CompileString{">"};
             } else {
                 // Structural: @BYTE.BIT:bits<WIDTH,TYPE> (no name)
                 return CompileString{"@"} +
-                       CompileString<32>::from_number(byte_offset) +
+                       CompileString<NumberBufSize>::from_number(byte_offset) +
                        CompileString{"."} +
-                       CompileString<32>::from_number(bit_offset) +
+                       CompileString<NumberBufSize>::from_number(bit_offset) +
                        CompileString{":bits<"} +
-                       CompileString<32>::from_number(bit_width) +
+                       CompileString<NumberBufSize>::from_number(bit_width) +
                        CompileString{","} +
                        TypeSignature<FieldType, Mode>::calculate() +
                        CompileString{">"};
@@ -119,7 +122,7 @@ namespace typelayout {
             if constexpr (Mode == SignatureMode::Annotated) {
                 // Annotated: @OFFSET[name]:TYPE
                 return CompileString{"@"} +
-                       CompileString<32>::from_number(offset) +
+                       CompileString<NumberBufSize>::from_number(offset) +
                        CompileString{"["} +
                        get_member_name<member, Index>() +
                        CompileString{"]:"} +
@@ -127,7 +130,7 @@ namespace typelayout {
             } else {
                 // Structural: @OFFSET:TYPE (no name)
                 return CompileString{"@"} +
-                       CompileString<32>::from_number(offset) +
+                       CompileString<NumberBufSize>::from_number(offset) +
                        CompileString{":"} +
                        TypeSignature<FieldType, Mode>::calculate();
             }
@@ -166,7 +169,7 @@ namespace typelayout {
     // =========================================================================
 
     template<typename T, std::size_t Index, SignatureMode Mode>
-    static consteval auto get_base_signature() noexcept {
+    consteval auto get_base_signature() noexcept {
         using namespace std::meta;
         constexpr auto base_info = bases_of(^^T, access_context::unchecked())[Index];
         
@@ -178,12 +181,12 @@ namespace typelayout {
             // Annotated mode: include [base] or [vbase] marker
             if constexpr (is_virtual_base) {
                 return CompileString{"@"} +
-                       CompileString<32>::from_number(base_offset) +
+                       CompileString<NumberBufSize>::from_number(base_offset) +
                        CompileString{"[vbase]:"} +
                        TypeSignature<BaseType, Mode>::calculate();
             } else {
                 return CompileString{"@"} +
-                       CompileString<32>::from_number(base_offset) +
+                       CompileString<NumberBufSize>::from_number(base_offset) +
                        CompileString{"[base]:"} +
                        TypeSignature<BaseType, Mode>::calculate();
             }
@@ -192,12 +195,12 @@ namespace typelayout {
             // Use ~vbase or ~base to indicate base class without being a "name"
             if constexpr (is_virtual_base) {
                 return CompileString{"@"} +
-                       CompileString<32>::from_number(base_offset) +
+                       CompileString<NumberBufSize>::from_number(base_offset) +
                        CompileString{"~vbase:"} +
                        TypeSignature<BaseType, Mode>::calculate();
             } else {
                 return CompileString{"@"} +
-                       CompileString<32>::from_number(base_offset) +
+                       CompileString<NumberBufSize>::from_number(base_offset) +
                        CompileString{"~base:"} +
                        TypeSignature<BaseType, Mode>::calculate();
             }

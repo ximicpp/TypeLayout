@@ -98,29 +98,29 @@ namespace typelayout {
             return CompileString<new_size>(result);
         }
 
-        // Equality comparison with another CompileString
+        // Equality comparison with another CompileString (bounds-safe)
         template <size_t M>
         constexpr bool operator==(const CompileString<M>& other) const noexcept {
             size_t i = 0;
-            while (i < N && i < M && value[i] != '\0' && other.value[i] != '\0') {
-                if (value[i] != other.value[i]) {
-                    return false;
-                }
+            while (i < N && i < M) {
+                if (value[i] != other.value[i]) return false;
+                if (value[i] == '\0') return true; // Both end here
                 ++i;
             }
-            return value[i] == other.value[i];
+            // One buffer exhausted, check if other also terminates
+            if (i < N) return value[i] == '\0';
+            if (i < M) return other.value[i] == '\0';
+            return true; // Both exhausted at same position, all matched
         }
 
-        // Equality comparison with C-string
+        // Equality comparison with C-string (bounds-safe)
         constexpr bool operator==(const char* other) const noexcept {
-            size_t i = 0;
-            while (i < N && value[i] != '\0' && other[i] != '\0') {
-                if (value[i] != other[i]) {
-                    return false;
-                }
-                ++i;
+            for (size_t i = 0; i < N; ++i) {
+                if (value[i] != other[i]) return false;
+                if (value[i] == '\0') return true;
             }
-            return value[i] == other[i];
+            // If value has no null within N bytes, check if other terminates at N
+            return other[N] == '\0';
         }
 
         // Get C-string view

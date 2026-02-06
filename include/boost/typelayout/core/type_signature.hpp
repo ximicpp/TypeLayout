@@ -18,38 +18,23 @@
 namespace boost {
 namespace typelayout {
 
+    // =============================================================================
+    // Number buffer size: 22 bytes sufficient for uint64_t max + sign + null
+    // =============================================================================
+    inline constexpr size_t NumberBufferSize = 22;
+
     template<size_t N>
     consteval auto format_size_align(const char (&name)[N], size_t size, size_t align) noexcept {
         return CompileString{name} + CompileString{"[s:"} +
-               CompileString<32>::from_number(size) +
+               CompileString<NumberBufferSize>::from_number(size) +
                CompileString{",a:"} +
-               CompileString<32>::from_number(align) +
+               CompileString<NumberBufferSize>::from_number(align) +
                CompileString{"]"};
     }
 
-    // Mode-aware format_size_align (used for primitives - mode doesn't affect them)
-    template<SignatureMode Mode, size_t N>
-    consteval auto format_size_align_mode(const char (&name)[N], size_t size, size_t align) noexcept {
-        return format_size_align(name, size, align);
-    }
-
-    template <typename T>
-    inline constexpr bool is_fixed_width_integer_v = 
-        std::is_same_v<T, int8_t> || std::is_same_v<T, uint8_t> ||
-        std::is_same_v<T, int16_t> || std::is_same_v<T, uint16_t> ||
-        std::is_same_v<T, int32_t> || std::is_same_v<T, uint32_t> ||
-        std::is_same_v<T, int64_t> || std::is_same_v<T, uint64_t>;
-
-    // Platform type aliasing traits (replaces scattered #if macros)
-    // macOS/Linux: int8_t = signed char, int64_t = long long
-    // Windows: these are distinct types
-    namespace detail {
-        inline constexpr bool int8_is_signed_char = std::is_same_v<int8_t, signed char>;
-        inline constexpr bool int64_is_long = std::is_same_v<int64_t, long>;
-        inline constexpr bool int64_is_long_long = std::is_same_v<int64_t, long long>;
-    }
-
-    // Fixed-width integers (mode doesn't affect primitive types)
+    // =============================================================================
+    // Fixed-width integers (canonical, always defined)
+    // =============================================================================
     template <SignatureMode Mode> struct TypeSignature<int8_t, Mode>   { static consteval auto calculate() noexcept { return CompileString{"i8[s:1,a:1]"}; } };
     template <SignatureMode Mode> struct TypeSignature<uint8_t, Mode>  { static consteval auto calculate() noexcept { return CompileString{"u8[s:1,a:1]"}; } };
     template <SignatureMode Mode> struct TypeSignature<int16_t, Mode>  { static consteval auto calculate() noexcept { return CompileString{"i16[s:2,a:2]"}; } };
@@ -59,49 +44,55 @@ namespace typelayout {
     template <SignatureMode Mode> struct TypeSignature<int64_t, Mode>  { static consteval auto calculate() noexcept { return CompileString{"i64[s:8,a:8]"}; } };
     template <SignatureMode Mode> struct TypeSignature<uint64_t, Mode> { static consteval auto calculate() noexcept { return CompileString{"u64[s:8,a:8]"}; } };
 
-    // Platform-specific: int8_t aliases signed char on macOS/Linux
-#if !defined(__APPLE__) && !defined(__linux__)
-    template <SignatureMode Mode> struct TypeSignature<signed char, Mode> { 
-        static consteval auto calculate() noexcept { return CompileString{"i8[s:1,a:1]"}; } 
-    };
-    template <SignatureMode Mode> struct TypeSignature<unsigned char, Mode> { 
-        static consteval auto calculate() noexcept { return CompileString{"u8[s:1,a:1]"}; } 
-    };
-#endif
+    // =============================================================================
+    // Fundamental types: use requires clauses to avoid duplicate specializations
+    // Only specialize when the type is distinct from fixed-width integers
+    // =============================================================================
 
-    // long: 4 bytes on Windows/32-bit, 8 bytes on LP64 Unix
-#if !defined(__linux__) || !defined(__LP64__)
-    template <SignatureMode Mode> struct TypeSignature<long, Mode> { 
-        static consteval auto calculate() noexcept { 
+    // signed char / unsigned char: only if distinct from int8_t/uint8_t
+    template <SignatureMode Mode>
+        requires (!std::is_same_v<signed char, int8_t>)
+    struct TypeSignature<signed char, Mode> {
+        static consteval auto calculate() noexcept { return CompileString{"i8[s:1,a:1]"}; }
+    };
+
+    template <SignatureMode Mode>
+        requires (!std::is_same_v<unsigned char, uint8_t>)
+    struct TypeSignature<unsigned char, Mode> {
+        static consteval auto calculate() noexcept { return CompileString{"u8[s:1,a:1]"}; }
+    };
+
+    // long / unsigned long: only if distinct from int32_t AND int64_t
+    template <SignatureMode Mode>
+        requires (!std::is_same_v<long, int32_t> && !std::is_same_v<long, int64_t>)
+    struct TypeSignature<long, Mode> {
+        static consteval auto calculate() noexcept {
             if constexpr (sizeof(long) == 4) return CompileString{"i32[s:4,a:4]"};
             else return CompileString{"i64[s:8,a:8]"};
-        } 
+        }
     };
 
-    template <SignatureMode Mode> struct TypeSignature<unsigned long, Mode> { 
-        static consteval auto calculate() noexcept { 
+    template <SignatureMode Mode>
+        requires (!std::is_same_v<unsigned long, uint32_t> && !std::is_same_v<unsigned long, uint64_t>)
+    struct TypeSignature<unsigned long, Mode> {
+        static consteval auto calculate() noexcept {
             if constexpr (sizeof(unsigned long) == 4) return CompileString{"u32[s:4,a:4]"};
             else return CompileString{"u64[s:8,a:8]"};
-        } 
+        }
     };
-#endif
 
-    // long long
-#if defined(__linux__) && defined(__LP64__)
-    template <SignatureMode Mode> struct TypeSignature<long long, Mode> { 
-        static consteval auto calculate() noexcept { return CompileString{"i64[s:8,a:8]"}; } 
+    // long long / unsigned long long: only if distinct from int64_t/uint64_t
+    template <SignatureMode Mode>
+        requires (!std::is_same_v<long long, int64_t>)
+    struct TypeSignature<long long, Mode> {
+        static consteval auto calculate() noexcept { return CompileString{"i64[s:8,a:8]"}; }
     };
-    template <SignatureMode Mode> struct TypeSignature<unsigned long long, Mode> { 
-        static consteval auto calculate() noexcept { return CompileString{"u64[s:8,a:8]"}; } 
+
+    template <SignatureMode Mode>
+        requires (!std::is_same_v<unsigned long long, uint64_t>)
+    struct TypeSignature<unsigned long long, Mode> {
+        static consteval auto calculate() noexcept { return CompileString{"u64[s:8,a:8]"}; }
     };
-#elif !defined(__APPLE__) && !defined(_WIN64)
-    template <SignatureMode Mode> struct TypeSignature<long long, Mode> { 
-        static consteval auto calculate() noexcept { return CompileString{"i64[s:8,a:8]"}; } 
-    };
-    template <SignatureMode Mode> struct TypeSignature<unsigned long long, Mode> { 
-        static consteval auto calculate() noexcept { return CompileString{"u64[s:8,a:8]"}; } 
-    };
-#endif
 
     // Floating point
     template <SignatureMode Mode> struct TypeSignature<float, Mode>    { static consteval auto calculate() noexcept { return CompileString{"f32[s:4,a:4]"}; } };
@@ -190,16 +181,30 @@ namespace typelayout {
             return CompileString{""};
         }
     };
+
+    // Helper: detect single-byte array types that should be treated as bytes[]
+    template <typename T>
+    inline constexpr bool is_byte_element_v =
+        std::is_same_v<T, char> || std::is_same_v<T, signed char> ||
+        std::is_same_v<T, unsigned char> || std::is_same_v<T, int8_t> ||
+        std::is_same_v<T, uint8_t> || std::is_same_v<T, std::byte> ||
+        std::is_same_v<T, char8_t>;
+
     template <typename T, size_t N, SignatureMode Mode>
     struct TypeSignature<T[N], Mode> {
         static consteval auto calculate() noexcept {
-            if constexpr (std::is_same_v<T, char>) {
-                return CompileString{"bytes[s:"} + CompileString<32>::from_number(N) + CompileString{",a:1]"};
-            } else {
-                return CompileString{"array[s:"} + CompileString<32>::from_number(sizeof(T[N])) +
-                       CompileString{",a:"} + CompileString<32>::from_number(alignof(T[N])) +
+            // In Structural mode: all single-byte arrays are treated as bytes[]
+            // This ensures char[N], int8_t[N], uint8_t[N], byte[N], char8_t[N] have identical signatures
+            // guaranteeing: identical layout ⟺ identical signature
+            if constexpr (is_byte_element_v<T>) {
+                return CompileString{"bytes[s:"} + CompileString<NumberBufferSize>::from_number(N) + CompileString{",a:1]"};
+            }
+            // General case: full type information for non-byte arrays
+            else {
+                return CompileString{"array[s:"} + CompileString<NumberBufferSize>::from_number(sizeof(T[N])) +
+                       CompileString{",a:"} + CompileString<NumberBufferSize>::from_number(alignof(T[N])) +
                        CompileString{"]<"} + TypeSignature<T, Mode>::calculate() +
-                       CompileString{","} + CompileString<32>::from_number(N) + CompileString{">"};
+                       CompileString{","} + CompileString<NumberBufferSize>::from_number(N) + CompileString{">"};
             }
         }
     };
@@ -213,13 +218,13 @@ namespace typelayout {
         static consteval auto calculate() noexcept {
             if constexpr (std::is_enum_v<T>) {
                 using U = std::underlying_type_t<T>;
-                return CompileString{"enum[s:"} + CompileString<32>::from_number(sizeof(T)) +
-                       CompileString{",a:"} + CompileString<32>::from_number(alignof(T)) +
+                return CompileString{"enum[s:"} + CompileString<NumberBufferSize>::from_number(sizeof(T)) +
+                       CompileString{",a:"} + CompileString<NumberBufferSize>::from_number(alignof(T)) +
                        CompileString{"]<"} + TypeSignature<U, Mode>::calculate() + CompileString{">"};
             }
             else if constexpr (std::is_union_v<T>) {
-                return CompileString{"union[s:"} + CompileString<32>::from_number(sizeof(T)) +
-                       CompileString{",a:"} + CompileString<32>::from_number(alignof(T)) +
+                return CompileString{"union[s:"} + CompileString<NumberBufferSize>::from_number(sizeof(T)) +
+                       CompileString{",a:"} + CompileString<NumberBufferSize>::from_number(alignof(T)) +
                        CompileString{"]{"} + get_fields_signature<T, Mode>() + CompileString{"}"};
             }
             else if constexpr (std::is_class_v<T> && !std::is_array_v<T>) {
@@ -237,8 +242,8 @@ namespace typelayout {
                     else if constexpr (base) return CompileString{",inherited]{"};
                     else return CompileString{"]{"};
                 }();
-                return prefix + CompileString<32>::from_number(sizeof(T)) +
-                       CompileString{",a:"} + CompileString<32>::from_number(alignof(T)) +
+                return prefix + CompileString<NumberBufferSize>::from_number(sizeof(T)) +
+                       CompileString{",a:"} + CompileString<NumberBufferSize>::from_number(alignof(T)) +
                        suffix + get_layout_content_signature<T, Mode>() + CompileString{"}"};
             }
             else if constexpr (std::is_void_v<T>) {

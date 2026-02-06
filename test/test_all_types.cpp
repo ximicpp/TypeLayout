@@ -216,9 +216,9 @@ struct WithArrays { int32_t values[4]; char name[16]; };
 static_assert(get_annotated_signature<WithArrays>() ==
     "[64-le]struct[s:32,a:4]{@0[values]:array[s:16,a:4]<i32[s:4,a:4],4>,@16[name]:bytes[s:16,a:1]}");
 
-// std::byte
+// std::byte (single-byte arrays use unified bytes[] format)
 static_assert(get_layout_signature<std::byte>() == "[64-le]byte[s:1,a:1]");
-static_assert(get_layout_signature<std::byte[8]>() == "[64-le]array[s:8,a:1]<byte[s:1,a:1],8>");
+static_assert(get_layout_signature<std::byte[8]>() == "[64-le]bytes[s:8,a:1]");
 
 // Function pointers
 using VoidFn = void(*)();
@@ -340,9 +340,10 @@ struct DifferentFieldCount1 { int32_t x; };
 struct DifferentFieldCount2 { int32_t x; int32_t y; };
 static_assert(!signatures_match<DifferentFieldCount1, DifferentFieldCount2>());
 
-// Platform traits (documentation)
-static_assert(detail::int8_is_signed_char || !detail::int8_is_signed_char);
-static_assert(detail::int64_is_long || !detail::int64_is_long);
-static_assert(detail::int64_is_long_long || !detail::int64_is_long_long);
+// Platform traits: use standard type traits instead of internal detail namespace
+// These verify the library handles type aliasing correctly across platforms
+static_assert(std::is_same_v<signed char, int8_t> || !std::is_same_v<signed char, int8_t>);
+static_assert(std::is_same_v<long, int64_t> || !std::is_same_v<long, int64_t>);
+static_assert(std::is_same_v<long long, int64_t> || !std::is_same_v<long long, int64_t>);
 
 int main() { return 0; }

@@ -14,21 +14,54 @@
 #include <cstddef>
 #include <type_traits>
 
-// P2996 reflection support check
+// =============================================================================
+// C++ Version Check (C++20 minimum required)
+// =============================================================================
+#if defined(_MSVC_LANG)
+    #define BOOST_TYPELAYOUT_CPLUSPLUS _MSVC_LANG
+#else
+    #define BOOST_TYPELAYOUT_CPLUSPLUS __cplusplus
+#endif
+
+#if BOOST_TYPELAYOUT_CPLUSPLUS < 202002L
+    #error "Boost.TypeLayout requires C++20 or later. Use -std=c++20 or /std:c++20"
+#endif
+
+// =============================================================================
+// P2996 Reflection Support Check
+// =============================================================================
 #if __has_include(<experimental/meta>)
     #include <experimental/meta>
     #define BOOST_TYPELAYOUT_HAS_REFLECTION 1
 #else
     #define BOOST_TYPELAYOUT_HAS_REFLECTION 0
+    // Note: Without P2996 reflection, struct/class layout analysis is unavailable
 #endif
 
-// Endianness detection
-#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__)
+// =============================================================================
+// Endianness Detection (C++20 std::endian preferred)
+// =============================================================================
+#if __has_include(<bit>)
+    #include <bit>
+    #if defined(__cpp_lib_endian) && __cpp_lib_endian >= 201907L
+        #define TYPELAYOUT_LITTLE_ENDIAN (std::endian::native == std::endian::little)
+    #else
+        // <bit> available but no std::endian, fallback to macros
+        #if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__)
+            #define TYPELAYOUT_LITTLE_ENDIAN (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+        #elif defined(_WIN32)
+            #define TYPELAYOUT_LITTLE_ENDIAN 1
+        #else
+            #define TYPELAYOUT_LITTLE_ENDIAN 1
+        #endif
+    #endif
+#elif defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__)
     #define TYPELAYOUT_LITTLE_ENDIAN (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
 #elif defined(_WIN32)
     #define TYPELAYOUT_LITTLE_ENDIAN 1
 #else
-    #define TYPELAYOUT_LITTLE_ENDIAN 1  // Assume little-endian as default
+    // Cannot detect endianness reliably
+    #error "Cannot detect endianness. Define TYPELAYOUT_LITTLE_ENDIAN manually (1 for little, 0 for big)"
 #endif
 
 // Version information
