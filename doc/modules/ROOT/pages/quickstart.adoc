@@ -3,6 +3,21 @@
 
 Get up and running with Boost.TypeLayout in 5 minutes.
 
+== Why TypeLayout?
+
+[IMPORTANT]
+====
+**The Core Guarantee**: Same Signature ⟺ Same Memory Layout
+
+This enables safe data sharing across:
+
+* 🔄 **Processes** — Shared memory, IPC
+* 🌐 **Machines** — Network protocols, file formats
+* ⏳ **Time** — Binary compatibility across versions
+====
+
+When two programs exchange raw bytes (through shared memory, network, or files), layout mismatches cause *silent data corruption*. TypeLayout prevents this at compile time—before your code even runs.
+
 == Prerequisites
 
 === Compiler

@@ -65,6 +65,87 @@ All computed at compile time, with zero runtime cost.
 
 ---
 
+## Safe Data Sharing Across Three Boundaries
+
+The core guarantee—**Same Signature ⟺ Same Memory Layout**—enables safe data sharing across three critical boundaries:
+
+### 🔄 Cross-Process (Shared Memory / IPC)
+
+Data in shared memory can be safely accessed by multiple processes when signatures match:
+
+```cpp
+// Process A: Writer
+struct SharedData { int32_t id; float value; };
+TYPELAYOUT_BIND(SharedData, "[64-le]struct[s:8,a:4]{...}");
+
+void* shm = create_shared_memory("my_shm", sizeof(SharedData));
+new (shm) SharedData{42, 3.14f};
+```
+
+```cpp
+// Process B: Reader (different compilation unit)
+struct SharedData { int32_t id; float value; };
+TYPELAYOUT_BIND(SharedData, "[64-le]struct[s:8,a:4]{...}");  // Same signature = safe!
+
+auto* data = static_cast<SharedData*>(open_shared_memory("my_shm"));
+assert(data->id == 42);  // Guaranteed correct
+```
+
+### 🌐 Cross-Machine (Network / Files)
+
+Binary data transmitted over networks or stored in files can be safely interpreted when signatures match:
+
+```cpp
+// Server (x86_64 Linux)
+struct Packet { uint32_t seq; uint64_t ts; };
+constexpr auto PACKET_HASH = get_layout_hash<Packet>();
+
+void send(socket, &packet, sizeof(Packet), PACKET_HASH);
+```
+
+```cpp
+// Client (ARM64 macOS)
+struct Packet { uint32_t seq; uint64_t ts; };
+static_assert(get_layout_hash<Packet>() == EXPECTED_HASH,
+    "Binary protocol mismatch!");
+
+recv(socket, &packet, sizeof(Packet));  // Safe if hash matches
+```
+
+### ⏳ Cross-Time (Binary Compatibility / Versioning)
+
+Saved binary data remains valid across software versions when signatures are preserved:
+
+```cpp
+// Version 1.0 (2024) - saved to disk
+struct Config { int32_t flags; float threshold; };
+TYPELAYOUT_BIND(Config, "[64-le]struct[s:8,a:4]{...}");
+save_binary("config.bin", &config);
+```
+
+```cpp
+// Version 2.0 (2026) - loads old files
+struct Config { int32_t flags; float threshold; };
+TYPELAYOUT_BIND(Config, "[64-le]struct[s:8,a:4]{...}");  // Must match v1.0!
+load_binary("config.bin", &config);  // Safe if signature unchanged
+```
+
+---
+
+## What the Signature Guarantees
+
+| If Signatures Match | Guaranteed? |
+|---------------------|-------------|
+| Same `sizeof(T)` | ✅ Yes |
+| Same `alignof(T)` | ✅ Yes |
+| Same member offsets | ✅ Yes |
+| Same padding distribution | ✅ Yes (implicit) |
+| Same bit-field layout | ✅ Yes |
+| Safe `memcpy` / binary copy | ✅ Yes |
+| Safe pointer cast | ✅ Yes |
+
+---
+
 ## Summary
 
 | Aspect | TypeLayout |

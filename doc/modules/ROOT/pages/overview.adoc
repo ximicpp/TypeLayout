@@ -1,4 +1,4 @@
-=======
+= Overview
 :navtitle: Overview
 
 == The Problem: Silent Binary Incompatibility
@@ -63,15 +63,122 @@ private:
 TYPELAYOUT_BIND(GameEntity, "[64-le]struct[s:16,a:8]{@0[id_]:u64[s:8,a:8],@8[active_]:bool[s:1,a:1]}");
 ----
 
-If the layout ever differs‚Äîon any platform, with any compiler‚Äî*compilation fails immediately*.
+If the layout ever differs‚Äîon any platform, with any compiler‚Ä?compilation fails immediately*.
 
 NOTE: TypeLayout is *NOT* limited to `struct` or POD types. It fully supports classes with private members, inheritance, virtual functions, and complex constructors.
+
+== The Core Guarantee
+
+[IMPORTANT]
+====
+**Same Signature ‚ü?Same Memory Layout**
+
+This is not an approximation‚Äîit is mathematically sound. The signature captures `sizeof`, `alignof`, member offsets, types, and platform information. If ANY of these differ, the signature differs.
+====
+
+== Safe Data Sharing Across Three Boundaries
+
+The core guarantee enables safe data sharing across three critical boundaries:
+
+=== üîÑ Cross-Process (Shared Memory / IPC)
+
+When multiple processes access the same memory region, layout mismatches cause silent corruption. TypeLayout prevents this at compile time.
+
+[source,cpp]
+----
+// Process A: Writer
+#include <boost/typelayout.hpp>
+
+struct SharedData { int32_t id; float value; };
+TYPELAYOUT_BIND(SharedData, "[64-le]struct[s:8,a:4]{@0[id]:i32[s:4,a:4],@4[value]:f32[s:4,a:4]}");
+
+void* shm = create_shared_memory("my_shm", sizeof(SharedData));
+new (shm) SharedData{42, 3.14f};
+----
+
+[source,cpp]
+----
+// Process B: Reader (compiled separately)
+struct SharedData { int32_t id; float value; };
+TYPELAYOUT_BIND(SharedData, "[64-le]struct[s:8,a:4]{@0[id]:i32[s:4,a:4],@4[value]:f32[s:4,a:4]}");
+// ‚ú?Compilation succeeds = layouts match = safe to read
+
+auto* data = static_cast<SharedData*>(open_shared_memory("my_shm"));
+assert(data->id == 42);  // Guaranteed correct
+----
+
+=== üåê Cross-Machine (Network / Files)
+
+Binary data transmitted between machines with different architectures requires layout verification.
+
+[source,cpp]
+----
+// Server (x86_64 Linux)
+#include <boost/typelayout.hpp>
+
+struct NetworkHeader {
+    uint32_t magic;
+    uint32_t version;
+    uint64_t timestamp;
+};
+constexpr uint64_t PROTOCOL_HASH = get_layout_hash<NetworkHeader>();
+
+void send_header(int socket, const NetworkHeader& hdr) {
+    // Include hash in protocol for runtime verification
+    send(socket, &PROTOCOL_HASH, sizeof(PROTOCOL_HASH), 0);
+    send(socket, &hdr, sizeof(NetworkHeader), 0);
+}
+----
+
+[source,cpp]
+----
+// Client (ARM64 macOS) - compile-time contract
+TYPELAYOUT_BIND(NetworkHeader, 
+    "[64-le]struct[s:16,a:8]{@0[magic]:u32[s:4,a:4],@4[version]:u32[s:4,a:4],@8[timestamp]:u64[s:8,a:8]}");
+// ‚ù?If ARM client has different layout, compilation fails immediately
+----
+
+=== ‚è?Cross-Time (Binary Compatibility / Versioning)
+
+Saved binary data must remain readable across software versions.
+
+[source,cpp]
+----
+// Version 1.0 (2024) - define the contract
+struct SaveGame {
+    uint32_t version;
+    int32_t player_hp;
+    int32_t player_gold;
+};
+// Save the signature as the "Version 1.0 contract"
+constexpr auto V1_SIGNATURE = 
+    "[64-le]struct[s:12,a:4]{@0[version]:u32[s:4,a:4],@4[player_hp]:i32[s:4,a:4],@8[player_gold]:i32[s:4,a:4]}";
+----
+
+[source,cpp]
+----
+// Version 2.0 (2026) - must honor old saves
+struct SaveGame {
+    uint32_t version;
+    int32_t player_hp;
+    int32_t player_gold;
+    // New fields can be added, but V1 compatibility check uses V1_SIGNATURE
+};
+
+// Load function validates against V1 contract
+template<typename T>
+void load_v1_save(const char* path) {
+    static_assert(get_layout_signature<T>().starts_with("[64-le]struct[s:12"),
+        "Breaking change to V1 save format!");
+    // ... load logic
+}
+====
 
 == Two-Layer Architecture
 
 Boost.TypeLayout is organized into two distinct layers:
 
-=== Layer 1: Core ‚Äî Layout Signature Engine
+=== Layer 1: Core ‚Ä?Layout Signature Engine
 
 **Header**: `<boost/typelayout.hpp>`
 
@@ -82,7 +189,7 @@ The foundation of the library. Provides pure memory layout analysis:
 * **Comparison**: `signatures_match<T, U>()` verifies layout identity between types
 * **Concepts**: `LayoutCompatible`, `LayoutMatch`, `LayoutHashMatch`
 
-=== Layer 2: Utility ‚Äî Serialization Safety Analysis
+=== Layer 2: Utility ‚Ä?Serialization Safety Analysis
 
 **Header**: `<boost/typelayout/typelayout_util.hpp>`
 
@@ -169,49 +276,6 @@ For runtime validation (e.g., protocol headers), the library provides:
 
 * 64-bit FNV-1a hash
 * Dual-hash verification (FNV-1a + DJB2) with ~2^128 collision resistance
-
-== Use Cases
-
-=== Binary Protocol Verification
-
-[source,cpp]
-----
-#include <boost/typelayout.hpp>
-
-struct NetworkHeader {
-    uint32_t magic;
-    uint32_t version;
-    uint64_t timestamp;
-};
-TYPELAYOUT_BIND(NetworkHeader, 
-    "[64-le]struct[s:16,a:8]{@0[magic]:u32[s:4,a:4],@4[version]:u32[s:4,a:4],@8[timestamp]:u64[s:8,a:8]}");
-----
-
-=== Cross-Platform Serialization
-
-[source,cpp]
-----
-#include <boost/typelayout/typelayout_util.hpp>
-
-template<Serializable T>
-void safe_binary_write(std::ostream& os, const T& obj) {
-    os.write(reinterpret_cast<const char*>(&obj), sizeof(T));
-}
-----
-
-=== Shared Memory Verification
-
-[source,cpp]
-----
-#include <boost/typelayout.hpp>
-
-template<typename T>
-    requires LayoutHashMatch<T, EXPECTED_HASH>
-T* map_shared_memory(const char* name) {
-    // Safe to map - layout verified at compile time
-    return static_cast<T*>(shm_open_and_map(name));
-}
-----
 
 == Next Steps
 

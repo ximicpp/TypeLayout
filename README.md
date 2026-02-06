@@ -40,6 +40,90 @@ static_assert(LayoutHashMatch<Message, 0x1234567890ABCDEF>);
 
 **Core guarantee**: *Identical signature ⟺ Identical memory layout*
 
+## Core Value: Safe Data Sharing Across Boundaries
+
+> **Same Signature = Same Memory Layout = Safe to Share**
+
+TypeLayout's core value is enabling **zero-copy data sharing** across three critical boundaries:
+
+### 🔄 Cross-Process (Shared Memory / IPC)
+
+```cpp
+// Process A: Writer
+struct Packet { uint32_t id; uint64_t timestamp; char data[64]; };
+constexpr auto PACKET_SIG = get_layout_signature<Packet>();
+
+void* shm = shm_open("packets", ...);
+auto* packet = new (shm) Packet{42, now(), "hello"};
+
+// Process B: Reader (same signature = safe to read)
+static_assert(get_layout_signature<Packet>() == PACKET_SIG);  // Compile-time guarantee
+auto* packet = static_cast<Packet*>(shm_open("packets", ...));
+// ✅ Safe: Both processes have identical memory layout
+```
+
+**Without TypeLayout**: Layout mismatch causes silent data corruption, crashes, or heisenbugs that only appear in production.
+
+### 🌐 Cross-Machine (Network / Files)
+
+```cpp
+// Machine A: x86_64 Linux
+struct Config { int32_t version; float threshold; };
+constexpr auto sig_a = get_layout_signature<Config>();
+// → "[64-le]struct[s:8,a:4]{@0[version]:i32[s:4,a:4],@4[threshold]:f32[s:4,a:4]}"
+
+// Machine B: ARM64 Linux (same ABI)
+constexpr auto sig_b = get_layout_signature<Config>();
+static_assert(sig_a == sig_b);  // ✅ Safe to transfer binary data
+
+// Machine C: 32-bit Windows (different layout!)
+constexpr auto sig_c = get_layout_signature<Config>();
+// → "[32-le]struct[s:8,a:4]{...}"  // Different prefix!
+static_assert(sig_a != sig_c);  // ⚠️ Build error: Layout mismatch detected
+```
+
+**The signature captures**:
+- Pointer size (32/64-bit)
+- Endianness (little/big)
+- Type sizes and alignments
+- Padding bytes (implicit via offsets)
+
+### ⏳ Cross-Time (Binary Compatibility)
+
+```cpp
+// Version 1.0 (2024)
+struct UserData_v1 { int32_t id; char name[32]; };
+constexpr uint64_t V1_HASH = get_layout_hash<UserData_v1>();
+// Store V1_HASH in file header for future verification
+
+// Version 2.0 (2026) - struct changed!
+struct UserData_v2 { int32_t id; char name[64]; };  // name expanded
+constexpr uint64_t V2_HASH = get_layout_hash<UserData_v2>();
+// V1_HASH != V2_HASH → File format version mismatch detected at compile time
+
+// Safe file reading with version check
+template<typename T, uint64_t ExpectedHash>
+T* read_binary_file(const char* path) {
+    auto header = read_header(path);
+    if (header.layout_hash != ExpectedHash) {
+        throw std::runtime_error("File format version mismatch");
+    }
+    return static_cast<T*>(map_file_data(path));
+}
+```
+
+### Summary: What the Signature Guarantees
+
+| If signatures match | Guaranteed |
+|---------------------|------------|
+| Same `sizeof` | ✅ |
+| Same `alignof` | ✅ |
+| Same member offsets | ✅ |
+| Same padding distribution | ✅ |
+| Same bit-field layout | ✅ |
+| Safe binary copy | ✅ |
+| Safe pointer cast | ✅ |
+
 ## Why TypeLayout vs Alternatives?
 
 | Feature | **TypeLayout** | Boost.Describe | Boost.PFR |

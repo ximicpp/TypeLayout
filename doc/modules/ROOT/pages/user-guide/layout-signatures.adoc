@@ -121,7 +121,9 @@ Breaking it down:
 * `@0[x]:i32[s:4,a:4]` - Member `x` at offset 0, 32-bit signed integer
 * `@4[y]:i32[s:4,a:4]` - Member `y` at offset 4, 32-bit signed integer
 
-== Padding Detection
+== Padding Detection and Implicit Capture
+
+=== How Padding Appears in Signatures
 
 Padding appears as gaps in offsets. Consider:
 
@@ -141,6 +143,46 @@ Signature:
 ----
 
 The gap between offset 0 (size 1) and offset 4 reveals 3 bytes of padding.
+
+=== Why Signatures Implicitly Capture Padding
+
+A common concern: "Does the signature miss padding bytes?"
+
+**Answer: No.** Padding is fully constrained by the combination of:
+
+1. **Total size** (`sizeof(T)`) — captured as `[s:N,...]`
+2. **Member offsets** — captured as `@N[name]:`
+3. **Member sizes** — captured in each field's type signature
+
+[IMPORTANT]
+====
+**Mathematical Proof**: Given `sizeof(T)` and all member offsets/sizes, padding is uniquely determined.
+
+If ANY padding changes:
+
+* Either `sizeof(T)` changes → signature differs at `[s:N,...]`
+* Or a member offset changes → signature differs at `@N[...]`
+
+There is no way to change padding without changing the signature.
+====
+
+=== Example: Equivalent Layouts
+
+[source,cpp]
+----
+// Implicit padding
+struct A { char c; int i; };
+
+// Explicit padding
+struct B { char c; char pad[3]; int i; };
+----
+
+If both have:
+* `sizeof == 8`
+* `c` at offset 0
+* `i` at offset 4
+
+Then their memory layouts ARE identical, and TypeLayout correctly produces the same signature for the `A` and `B` portions that matter for binary compatibility.
 
 == Union Signatures
 

@@ -6,9 +6,62 @@ This document explains the key design decisions and trade-offs made in TypeLayou
 
 TypeLayout is a compile-time type layout verification library built on C++26 static reflection (P2996). This document explains why specific design choices were made.
 
-## 2. Core Design Decisions
+## 2. The Core Guarantee
 
-### 2.1 Signature Format
+### Why Signatures Guarantee Layout Identity
+
+The fundamental theorem of TypeLayout:
+
+> **Same Signature ⟺ Same Memory Layout**
+
+This is not an approximation—it is mathematically sound. Here's why:
+
+#### 2.0.1 What the Signature Captures
+
+| Layout Factor | Signature Encoding | Example |
+|---------------|-------------------|---------|
+| Type size | `[s:N,...]` | `struct[s:16,...]` |
+| Alignment | `[...,a:N]` | `struct[...,a:8]` |
+| Member offsets | `@N[name]:` | `@8[value]:` |
+| Member types | Recursive signatures | `:i32[s:4,a:4]` |
+| Platform | Architecture prefix | `[64-le]` |
+| Bit-fields | Bit offset + width | `@4.2[flag]:bits<3,...>` |
+| Endianness | `le` / `be` suffix | `[64-be]` |
+
+#### 2.0.2 Why Padding is Implicitly Captured
+
+A common concern: "Does the signature miss padding bytes?"
+
+**Answer: No.** Padding is fully constrained by the combination of:
+
+1. **Total size** (`sizeof(T)`) — captured as `[s:N,...]`
+2. **Member offsets** — captured as `@N[name]:`
+3. **Member sizes** — captured in the type signature
+
+**Proof by example:**
+
+```cpp
+struct A { char c; int i; };     // Padding between c and i
+struct B { char c; char pad[3]; int i; };  // Explicit padding
+```
+
+If both have `sizeof == 8`, offset of `i` at 4, and same member types, their signatures are identical—because their memory layouts ARE identical. The padding bytes are in the same locations.
+
+If ANY padding changes (location, amount), either:
+- `sizeof` changes → signature differs
+- Member offset changes → signature differs
+
+#### 2.0.3 Mathematical Foundation
+
+See `doc/analysis/logic_clarity_report.md` Appendix C for formal proofs of:
+- **Uniqueness Theorem**: Different layouts → Different signatures
+- **Equivalence Theorem**: Same signature → Same layout
+
+---
+
+## 3. Core Design Decisions
+
+### 3.1 Signature Format
 
 **Decision**: Use a human-readable string format for layout signatures.
 

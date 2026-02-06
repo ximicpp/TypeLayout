@@ -3,6 +3,17 @@
 
 Using Boost.TypeLayout for binary network protocol validation and versioning.
 
+== The Challenge: Cross-Machine Data Exchange
+
+[IMPORTANT]
+====
+This example demonstrates **🌐 Cross-Machine** data sharing—one of the three boundaries where TypeLayout's core guarantee applies:
+
+**Same Signature ⟺ Same Memory Layout ⟺ Safe to transmit raw bytes**
+
+When two machines exchange binary data over the network, they MUST agree on the exact byte layout. Different compilers, platforms, or library versions can silently break this. TypeLayout catches these issues at compile time.
+====
+
 == Overview
 
 This example demonstrates how to use TypeLayout to:

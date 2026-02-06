@@ -3,6 +3,17 @@
 
 Using Boost.TypeLayout for safe inter-process communication via shared memory.
 
+== The Challenge: Cross-Process Data Sharing
+
+[IMPORTANT]
+====
+This example demonstrates **🔄 Cross-Process** data sharing—one of the three boundaries where TypeLayout's core guarantee applies:
+
+**Same Signature ⟺ Same Memory Layout ⟺ Safe to share raw bytes**
+
+When two processes access the same memory region, they MUST agree on the exact byte layout. TypeLayout verifies this at compile time.
+====
+
 == Overview
 
 Shared memory allows multiple processes to access the same memory region.
