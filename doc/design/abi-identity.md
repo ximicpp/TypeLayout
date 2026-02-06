@@ -102,9 +102,18 @@ The signature captures "can these types be safely exchanged across boundaries" r
 
 The library's core value should be stated as:
 
-> **Signatures encode a type's structural ABI identity. Matching signatures guarantee that types can be safely exchanged across compilation unit boundaries—not merely that their bytes are identical.**
+> **Signatures encode a type's structural layout identity. Matching signatures guarantee that types have field-level layout isomorphism—same offsets, same sizes, same field types—not that they can be safely memcpy'd.**
 >
-> **Signature mismatch does not necessarily mean different byte layouts, but it does mean the types are not directly interchangeable in the C++ object model.**
+> **Layout isomorphism is a NECESSARY but not SUFFICIENT condition for safe data exchange. Sufficient conditions also require trivially copyable types, no address-space-sensitive members (pointers, handles), and no compiler-managed implicit pointers (vtables).**
+
+### What "Layout Isomorphism" Means
+
+If `get_layout_signature<T>() == get_layout_signature<U>()`, then:
+- `sizeof(T) == sizeof(U)`
+- `alignof(T) == alignof(U)`
+- Every field of T has a corresponding field in U at the same offset with the same type
+
+This is a **structural equivalence** guarantee, not a **usage safety** guarantee.
 
 ## Implications for Users
 
@@ -214,11 +223,49 @@ But in Itanium C++ ABI (x86-64 Linux/macOS):
 
 | Scenario | TypeLayout Sufficient? |
 |----------|------------------------|
-| Shared memory data exchange | ✅ Yes |
-| Serialization/deserialization | ✅ Yes |
+| Shared memory data exchange (POD types) | ✅ Yes |
+| Serialization/deserialization (POD types) | ✅ Yes |
 | File format verification | ✅ Yes |
+| Layout stability regression testing | ✅ Yes |
+| Cross-version layout contract verification | ✅ Yes |
+| Type layout documentation | ✅ Yes |
+| Shared memory with pointer members | ⚠️ Necessary, not sufficient |
+| Polymorphic types across boundaries | ⚠️ Necessary, not sufficient |
 | FFI function pointer casting | ❌ No (need calling convention check) |
 | Dynamic linker symbol replacement | ❌ No (need full ABI check) |
 | Cross-compiler binary compatibility | ❌ No (different ABIs possible) |
 
-TypeLayout is a **data compatibility verification tool**, not a complete ABI compatibility tool.
+## Precise Positioning
+
+TypeLayout is a **structural layout introspection and consistency verification tool**.
+
+### Three-Layer Application Model
+
+**Layer 1: Layout Contract Verification** (Primary use case)
+- Compile-time assertions that type layout matches expectations
+- Cross-version layout stability checking
+- Regression detection when layout accidentally changes
+- *No runtime behavior assumed*
+
+**Layer 2: Data Compatibility Precondition** (Derived use case)
+- Layout match as NECESSARY condition for safe data exchange
+- User must additionally verify: trivially copyable, no pointers, no vtables
+- *Layout isomorphism ≠ memcpy safety*
+
+**Layer 3: Diagnostics & Documentation** (Auxiliary use case)
+- Precise, comparable layout description language
+- Human-readable type structure documentation
+- Cross-platform/cross-compiler layout comparison
+
+### What TypeLayout Guarantees
+
+> **If signatures match, every byte at every offset means the same thing in both types.**
+
+This is a **layout identity** guarantee, not a **usage safety** guarantee.
+
+### What TypeLayout Does NOT Guarantee
+
+- Safe memcpy (requires trivially copyable)
+- Safe pointer dereference after copy (requires no address-sensitive members)
+- Safe virtual function calls after copy (requires same vtable)
+- Safe cross-ABI function calls (requires calling convention match)
