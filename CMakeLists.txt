@@ -20,8 +20,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Build options
 option(BOOST_TYPELAYOUT_BUILD_TESTS "Build test suite" ON)
-option(BOOST_TYPELAYOUT_BUILD_EXAMPLES "Build examples" ON)
-option(BOOST_TYPELAYOUT_BUILD_TOOLS "Build tools" ON)
+option(BOOST_TYPELAYOUT_BUILD_EXAMPLES "Build examples" OFF)
+option(BOOST_TYPELAYOUT_BUILD_TOOLS "Build tools" OFF)
 
 # Constexpr step limit configuration
 # Default: 5000000 (supports 100+ struct members)
@@ -79,62 +79,16 @@ include(CTest)
 
 # Test executable (compile-time static_assert tests)
 if(BOOST_TYPELAYOUT_BUILD_TESTS)
-    add_executable(test_all_types test/test_all_types.cpp)
-    target_link_libraries(test_all_types PRIVATE typelayout)
-    
-    # Extended signature tests
-    add_executable(test_signature_extended test/test_signature_extended.cpp)
-    target_link_libraries(test_signature_extended PRIVATE typelayout)
-    
-    # Comprehensive signature tests
-    add_executable(test_signature_comprehensive test/test_signature_comprehensive.cpp)
-    target_link_libraries(test_signature_comprehensive PRIVATE typelayout)
-    
-    # Anonymous member tests
-    add_executable(test_anonymous_member test/test_anonymous_member.cpp)
-    target_link_libraries(test_anonymous_member PRIVATE typelayout)
-    
-    # Alignment completeness tests
-    add_executable(test_alignment test/test_alignment.cpp)
-    target_link_libraries(test_alignment PRIVATE typelayout)
-    
-    # User-defined types tests
-    add_executable(test_user_defined_types test/test_user_defined_types.cpp)
-    target_link_libraries(test_user_defined_types PRIVATE typelayout)
-    
-    # Signature modes tests (validates name independence)
-    add_executable(test_signature_modes test/test_signature_modes.cpp)
-    target_link_libraries(test_signature_modes PRIVATE typelayout)
-    
-    # Stress tests (large struct support >40 members)
-    add_executable(test_stress test/test_stress.cpp)
-    target_link_libraries(test_stress PRIVATE typelayout)
-    
-    # Signature size analysis test (measures signature lengths)
-    add_executable(test_signature_size test/test_signature_size.cpp)
-    target_link_libraries(test_signature_size PRIVATE typelayout)
+    # v2.0 Two-Layer Signature System tests
+    add_executable(test_two_layer test/test_two_layer.cpp)
+    target_link_libraries(test_two_layer PRIVATE typelayout)
     
     # Register tests with CTest
-    # For static_assert tests, successful compilation = test passed
-    add_test(NAME test_all_types COMMAND test_all_types)
-    add_test(NAME test_signature_extended COMMAND test_signature_extended)
-    add_test(NAME test_signature_comprehensive COMMAND test_signature_comprehensive)
-    add_test(NAME test_anonymous_member COMMAND test_anonymous_member)
-    add_test(NAME test_alignment COMMAND test_alignment)
-    add_test(NAME test_user_defined_types COMMAND test_user_defined_types)
-    add_test(NAME test_signature_modes COMMAND test_signature_modes)
-    add_test(NAME test_stress COMMAND test_stress)
+    add_test(NAME test_two_layer COMMAND test_two_layer)
     
     # Set test properties
     set_tests_properties(
-        test_all_types
-        test_signature_extended
-        test_signature_comprehensive
-        test_anonymous_member
-        test_alignment
-        test_user_defined_types
-        test_signature_modes
-        test_stress
+        test_two_layer
         PROPERTIES
             TIMEOUT 120
             LABELS "core"

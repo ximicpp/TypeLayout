@@ -65,12 +65,12 @@
 #endif
 
 // Version information
-#define BOOST_TYPELAYOUT_VERSION_MAJOR 1
+#define BOOST_TYPELAYOUT_VERSION_MAJOR 2
 #define BOOST_TYPELAYOUT_VERSION_MINOR 0
 #define BOOST_TYPELAYOUT_VERSION_PATCH 0
 
 // Combined version: MAJOR * 100000 + MINOR * 100 + PATCH
-#define BOOST_TYPELAYOUT_VERSION 100000
+#define BOOST_TYPELAYOUT_VERSION 200000
 
 namespace boost {
 namespace typelayout {
@@ -85,27 +85,32 @@ namespace typelayout {
     // =========================================================================
 
     /**
-     * @brief Controls what information is included in layout signatures.
+     * @brief Controls the level of detail in layout signatures.
      * 
-     * - Physical:   Pure byte layout - flattens inheritance hierarchy, uses "record" prefix,
-     *               no polymorphic/inherited markers. Guarantees: same bytes → same signature.
-     *               Use for data exchange, serialization, C interop.
+     * Two-layer signature system:
      * 
-     * - Structural: Layout with C++ object model info (offsets, sizes, inheritance markers).
-     *               This is the DEFAULT mode. Preserves struct/class distinction and
-     *               inheritance hierarchy via ~base: prefixes.
+     * - Layout:     Pure byte layout — flattens inheritance, uses "record" prefix,
+     *               no names, no structural markers. Answers: "what primitive type
+     *               lives at each byte offset?" Use for data exchange, shared memory,
+     *               FFI, serialization.
      * 
-     * - Annotated:  Includes member and type names for debugging/diagnostics.
-     *               NOT suitable for layout comparison across different types.
+     * - Definition: Complete type definition tree — preserves inheritance structure,
+     *               includes field names and base class names, uses "record" prefix,
+     *               includes "polymorphic" marker. Answers: "what is this type's
+     *               full structural definition?" Use for plugin ABI verification,
+     *               ODR detection, version evolution.
+     * 
+     * Mathematical relationship:
+     *   Layout = project(Definition)   (many-to-one)
+     *   definition_match(T,U) ⟹ layout_match(T,U)
      */
     enum class SignatureMode {
-        Physical,    ///< Pure byte layout - flattens inheritance, no object model markers
-        Structural,  ///< Layout with inheritance info (default)
-        Annotated    ///< Includes names - for debugging
+        Layout,      ///< Pure byte layout — flattened, no names
+        Definition   ///< Full type definition tree — with names, inheritance, markers
     };
 
     // Default signature mode
-    inline constexpr SignatureMode default_signature_mode = SignatureMode::Structural;
+    inline constexpr SignatureMode default_signature_mode = SignatureMode::Layout;
 
     // Helper template for static_assert(false) in templates
     template <typename...>

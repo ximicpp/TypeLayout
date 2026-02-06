@@ -1,4 +1,4 @@
-// Boost.TypeLayout - Layout Verification (Dual-Hash)
+// Boost.TypeLayout - Two-Layer Verification (v2.0)
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
@@ -23,7 +23,11 @@ namespace typelayout {
         constexpr bool operator==(const LayoutVerification&) const noexcept = default;
     };
 
-    /// Get dual-hash verification for a type
+    // ========================================================
+    // Layer 1: Layout Verification
+    // ========================================================
+
+    /// Get dual-hash verification based on Layout signature
     template <typename T>
     [[nodiscard]] consteval LayoutVerification get_layout_verification() noexcept {
         constexpr auto sig = get_layout_signature<T>();
@@ -34,20 +38,20 @@ namespace typelayout {
         };
     }
 
-    /// Check if two types have matching verification (dual-hash + length)
+    /// Check if two types have matching Layout verification
     template <typename T1, typename T2>
-    [[nodiscard]] consteval bool verifications_match() noexcept {
+    [[nodiscard]] consteval bool layout_verifications_match() noexcept {
         return get_layout_verification<T1>() == get_layout_verification<T2>();
     }
 
     // ========================================================
-    // Physical Mode Verification
+    // Layer 2: Definition Verification
     // ========================================================
 
-    /// Get dual-hash verification based on Physical signature
+    /// Get dual-hash verification based on Definition signature
     template <typename T>
-    [[nodiscard]] consteval LayoutVerification get_physical_verification() noexcept {
-        constexpr auto sig = get_layout_signature<T, SignatureMode::Physical>();
+    [[nodiscard]] consteval LayoutVerification get_definition_verification() noexcept {
+        constexpr auto sig = get_definition_signature<T>();
         return {
             fnv1a_hash(sig.c_str(), sig.length()),
             djb2_hash(sig.c_str(), sig.length()),
@@ -55,17 +59,17 @@ namespace typelayout {
         };
     }
 
-    /// Check if two types have matching physical verification
+    /// Check if two types have matching Definition verification
     template <typename T1, typename T2>
-    [[nodiscard]] consteval bool physical_verifications_match() noexcept {
-        return get_physical_verification<T1>() == get_physical_verification<T2>();
+    [[nodiscard]] consteval bool definition_verifications_match() noexcept {
+        return get_definition_verification<T1>() == get_definition_verification<T2>();
     }
 
     // ========================================================
     // Collision Detection
     // ========================================================
 
-    /// Check no hash collision within a type library (compile-time)
+    /// Check no Layout hash collision within a type library (compile-time)
     template<typename... Types>
     [[nodiscard]] consteval bool no_hash_collision() noexcept {
         if constexpr (sizeof...(Types) <= 1) {
@@ -80,7 +84,7 @@ namespace typelayout {
         }
     }
 
-    /// Check no verification collision (dual-hash + length)
+    /// Check no Layout verification collision (dual-hash + length)
     template<typename... Types>
     [[nodiscard]] consteval bool no_verification_collision() noexcept {
         if constexpr (sizeof...(Types) <= 1) {

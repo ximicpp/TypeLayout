@@ -189,17 +189,9 @@ namespace typelayout {
     struct TypeSignature<T[N], Mode> {
         static consteval auto calculate() noexcept {
             if constexpr (is_byte_element_v<T>) {
-                // Physical and Structural modes: normalize all single-byte arrays to bytes[]
+                // Both Layout and Definition modes: normalize all single-byte arrays to bytes[]
                 // This ensures char[N], int8_t[N], uint8_t[N], byte[N], char8_t[N] have identical signatures
-                // guaranteeing: identical ABI layout → identical signature
-                if constexpr (Mode != SignatureMode::Annotated) {
-                    return CompileString{"bytes[s:"} + CompileString<number_buffer_size>::from_number(N) + CompileString{",a:1]"};
-                }
-                // Annotated mode: preserve element type for debugging/diagnostics
-                else {
-                    return CompileString{""} + TypeSignature<T, Mode>::calculate() + 
-                           CompileString{"["} + CompileString<number_buffer_size>::from_number(N) + CompileString{"]"};
-                }
+                return CompileString{"bytes[s:"} + CompileString<number_buffer_size>::from_number(N) + CompileString{",a:1]"};
             }
             // General case: full type information for non-byte arrays
             else {
@@ -216,17 +208,15 @@ namespace typelayout {
     // Primary template with mode parameter
     // =========================================================================
     //
-    // DESIGN DECISION: struct vs class distinction
+    // DESIGN: Two-layer signature system
     //
-    // Signatures encode "ABI identity" rather than just "byte layout". This means:
-    // - Polymorphic types use "class" prefix with "polymorphic" flag (vtable affects ABI)
-    // - Types with bases use "class" prefix with "inherited" flag (affects ABI on some platforms)
-    // - Plain aggregates use "struct" prefix
+    // Both layers use "record" prefix uniformly (no struct/class distinction).
     //
-    // Consequence: A flat struct and an inherited class with identical byte layouts
-    // will have DIFFERENT signatures. This is intentional—it's conservative ABI safety.
-    // See doc/design/abi-identity.md for detailed rationale.
+    // Layout mode:     Flattened byte layout, no names, no markers.
+    // Definition mode: Full type tree, with field names, base class names,
+    //                  and "polymorphic" marker.
     //
+    // See design.md for rationale.
     // =========================================================================
     template <typename T, SignatureMode Mode>
     struct TypeSignature {
@@ -238,39 +228,38 @@ namespace typelayout {
                        CompileString{"]<"} + TypeSignature<U, Mode>::calculate() + CompileString{">"};
             }
             else if constexpr (std::is_union_v<T>) {
-                return CompileString{"union[s:"} + CompileString<number_buffer_size>::from_number(sizeof(T)) +
-                       CompileString{",a:"} + CompileString<number_buffer_size>::from_number(alignof(T)) +
-                       CompileString{"]{"} + get_fields_signature<T, Mode>() + CompileString{"}"};
+                if constexpr (Mode == SignatureMode::Definition) {
+                    return CompileString{"union[s:"} + CompileString<number_buffer_size>::from_number(sizeof(T)) +
+                           CompileString{",a:"} + CompileString<number_buffer_size>::from_number(alignof(T)) +
+                           CompileString{"]{"} + definition_fields<T>() + CompileString{"}"};
+                } else {
+                    return CompileString{"union[s:"} + CompileString<number_buffer_size>::from_number(sizeof(T)) +
+                           CompileString{",a:"} + CompileString<number_buffer_size>::from_number(alignof(T)) +
+                           CompileString{"]{"} + get_layout_content<T>() + CompileString{"}"};
+                }
             }
             else if constexpr (std::is_class_v<T> && !std::is_array_v<T>) {
-                if constexpr (Mode == SignatureMode::Physical) {
-                    // Physical mode: uniform "record" prefix, no polymorphic/inherited markers,
-                    // flatten inheritance hierarchy
+                if constexpr (Mode == SignatureMode::Layout) {
+                    // Layout mode: "record" prefix, flattened, no markers
                     return CompileString{"record[s:"} +
                            CompileString<number_buffer_size>::from_number(sizeof(T)) +
                            CompileString{",a:"} +
                            CompileString<number_buffer_size>::from_number(alignof(T)) +
                            CompileString{"]{"} +
-                           get_physical_content<T>() +
+                           get_layout_content<T>() +
                            CompileString{"}"};
                 } else {
-                    // Structural and Annotated: existing behavior with struct/class distinction
+                    // Definition mode: "record" prefix, preserve tree, include names + polymorphic marker
                     constexpr bool poly = std::is_polymorphic_v<T>;
-                    constexpr bool base = has_bases<T>();
-                    // Simplified: polymorphic or inherited types use "class", otherwise "struct"
-                    auto prefix = [&]() {
-                        if constexpr (poly || base) return CompileString{"class[s:"};
-                        else return CompileString{"struct[s:"};
-                    }();
                     auto suffix = [&]() {
-                        if constexpr (poly && base) return CompileString{",polymorphic,inherited]{"};
-                        else if constexpr (poly) return CompileString{",polymorphic]{"};
-                        else if constexpr (base) return CompileString{",inherited]{"};
+                        if constexpr (poly) return CompileString{",polymorphic]{"};
                         else return CompileString{"]{"};
                     }();
-                    return prefix + CompileString<number_buffer_size>::from_number(sizeof(T)) +
-                           CompileString{",a:"} + CompileString<number_buffer_size>::from_number(alignof(T)) +
-                           suffix + get_layout_content_signature<T, Mode>() + CompileString{"}"};
+                    return CompileString{"record[s:"} +
+                           CompileString<number_buffer_size>::from_number(sizeof(T)) +
+                           CompileString{",a:"} +
+                           CompileString<number_buffer_size>::from_number(alignof(T)) +
+                           suffix + definition_content<T>() + CompileString{"}"};
                 }
             }
             else if constexpr (std::is_void_v<T>) {
