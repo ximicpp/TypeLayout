@@ -176,10 +176,11 @@ static_assert(get_layout_signature<ScopedI32>() == "[64-le]enum[s:4,a:4]<i32[s:4
 
 // Unions
 union TestUnion { int32_t i; float f; char bytes[4]; };
-static_assert(get_annotated_signature<TestUnion>() == "[64-le]union[s:4,a:4]{@0[i]:i32[s:4,a:4],@0[f]:f32[s:4,a:4],@0[bytes]:bytes[s:4,a:1]}");
+// Annotated mode preserves element type for byte arrays: char[4] instead of bytes[s:4,a:1]
+static_assert(get_annotated_signature<TestUnion>() == "[64-le]union[s:4,a:4]{@0[i]:i32[s:4,a:4],@0[f]:f32[s:4,a:4],@0[bytes]:char[s:1,a:1][4]}");
 
 union BigUnion { double d; uint64_t u; char buf[16]; };
-static_assert(get_annotated_signature<BigUnion>() == "[64-le]union[s:16,a:8]{@0[d]:f64[s:8,a:8],@0[u]:u64[s:8,a:8],@0[buf]:bytes[s:16,a:1]}");
+static_assert(get_annotated_signature<BigUnion>() == "[64-le]union[s:16,a:8]{@0[d]:f64[s:8,a:8],@0[u]:u64[s:8,a:8],@0[buf]:char[s:1,a:1][16]}");
 
 // alignas
 struct alignas(16) Aligned16 { int32_t x; int32_t y; };
@@ -213,8 +214,9 @@ static_assert(get_annotated_signature<WithPointers>() ==
 
 // Struct with arrays
 struct WithArrays { int32_t values[4]; char name[16]; };
+// Annotated mode preserves element type: char[s:1,a:1][16] instead of bytes[s:16,a:1]
 static_assert(get_annotated_signature<WithArrays>() ==
-    "[64-le]struct[s:32,a:4]{@0[values]:array[s:16,a:4]<i32[s:4,a:4],4>,@16[name]:bytes[s:16,a:1]}");
+    "[64-le]struct[s:32,a:4]{@0[values]:array[s:16,a:4]<i32[s:4,a:4],4>,@16[name]:char[s:1,a:1][16]}");
 
 // std::byte (single-byte arrays use unified bytes[] format)
 static_assert(get_layout_signature<std::byte>() == "[64-le]byte[s:1,a:1]");

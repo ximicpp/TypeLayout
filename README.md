@@ -38,9 +38,11 @@ constexpr auto sig = boost::typelayout::get_layout_signature<Message>();
 static_assert(LayoutHashMatch<Message, 0x1234567890ABCDEF>);
 ```
 
-**Core guarantee**: *Identical structural signature ⟺ Identical memory layout*
+**Core guarantee**: *Identical structural signature → Identical ABI layout*
 
-> **Note**: TypeLayout uses **Structural mode** by default, which excludes member names from signatures. This ensures that two types with identical layouts but different field names are considered compatible. Use **Annotated mode** for debugging when you need to see member names.
+> **Note**: TypeLayout uses **Structural mode** by default, which captures **ABI layout** including type structure, inheritance hierarchy, and polymorphism markers. This ensures types are compatible for safe binary data exchange. Member names are excluded so types with identical layouts but different field names are considered compatible. Use **Annotated mode** for debugging when you need to see member names.
+>
+> **Why ABI layout, not pure byte layout?** Two types may have identical byte layouts but different ABI semantics (e.g., a flat struct vs. a derived class). TypeLayout preserves inheritance and polymorphism information because these affect pointer semantics, vtable layout, and type-safe casting—critical for shared memory, IPC, and plugin systems.
 
 ## Core Value: Safe Data Sharing Across Boundaries
 

@@ -10,6 +10,11 @@
 #ifndef BOOST_TYPELAYOUT_CORE_REFLECTION_HELPERS_HPP
 #define BOOST_TYPELAYOUT_CORE_REFLECTION_HELPERS_HPP
 
+// This is an internal header. Include <boost/typelayout/core/type_signature.hpp> instead.
+#ifndef BOOST_TYPELAYOUT_INTERNAL_INCLUDE_
+    #error "Do not include reflection_helpers.hpp directly. Include <boost/typelayout/core/type_signature.hpp> instead."
+#endif
+
 #include <boost/typelayout/core/config.hpp>
 #include <boost/typelayout/core/compile_string.hpp>
 #include <experimental/meta>

@@ -16,20 +16,28 @@ template<typename T>
 concept LayoutSupported = has_determinable_layout_v<T>;
 
 // Two types have identical layout signatures
+// Requires both types to have determinable layouts first (SFINAE-friendly)
 template<typename T, typename U>
-concept LayoutCompatible = signatures_match<T, U>();
+concept LayoutCompatible = LayoutSupported<T> && LayoutSupported<U> 
+                           && signatures_match<T, U>();
 
 // Type matches expected signature string
+// Requires the type to have a determinable layout first
 template<typename T, fixed_string ExpectedSig>
-concept LayoutMatch = (get_layout_signature<T>() == static_cast<const char*>(ExpectedSig));
+concept LayoutMatch = LayoutSupported<T> 
+                      && (get_layout_signature<T>() == static_cast<const char*>(ExpectedSig));
 
 // Type hash matches expected value
+// Requires the type to have a determinable layout first
 template<typename T, uint64_t ExpectedHash>
-concept LayoutHashMatch = (get_layout_hash<T>() == ExpectedHash);
+concept LayoutHashMatch = LayoutSupported<T> 
+                          && (get_layout_hash<T>() == ExpectedHash);
 
 // Two types have identical layout hashes
+// Requires both types to have determinable layouts first (SFINAE-friendly)
 template<typename T, typename U>
-concept LayoutHashCompatible = hashes_match<T, U>();
+concept LayoutHashCompatible = LayoutSupported<T> && LayoutSupported<U> 
+                               && hashes_match<T, U>();
 
 } // namespace typelayout
 } // namespace boost

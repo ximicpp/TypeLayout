@@ -22,10 +22,7 @@
 // Compile-time string utilities
 #include <boost/typelayout/core/compile_string.hpp>
 
-// P2996 reflection helpers
-#include <boost/typelayout/core/reflection_helpers.hpp>
-
-// Type signature generation
+// Type signature generation (includes reflection_helpers internally)
 #include <boost/typelayout/core/type_signature.hpp>
 
 // Primary API: layout signature and hash

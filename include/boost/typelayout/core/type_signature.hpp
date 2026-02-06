@@ -12,7 +12,11 @@
 
 #include <boost/typelayout/core/config.hpp>
 #include <boost/typelayout/core/compile_string.hpp>
+
+// Internal include guard: allows reflection_helpers.hpp to verify it's included correctly
+#define BOOST_TYPELAYOUT_INTERNAL_INCLUDE_
 #include <boost/typelayout/core/reflection_helpers.hpp>
+#undef BOOST_TYPELAYOUT_INTERNAL_INCLUDE_
 #include <type_traits>
 
 namespace boost {
@@ -184,11 +188,18 @@ namespace typelayout {
     template <typename T, size_t N, SignatureMode Mode>
     struct TypeSignature<T[N], Mode> {
         static consteval auto calculate() noexcept {
-            // In Structural mode: all single-byte arrays are treated as bytes[]
-            // This ensures char[N], int8_t[N], uint8_t[N], byte[N], char8_t[N] have identical signatures
-            // guaranteeing: identical layout ⟺ identical signature
             if constexpr (is_byte_element_v<T>) {
-                return CompileString{"bytes[s:"} + CompileString<number_buffer_size>::from_number(N) + CompileString{",a:1]"};
+                // Structural mode: normalize all single-byte arrays to bytes[]
+                // This ensures char[N], int8_t[N], uint8_t[N], byte[N], char8_t[N] have identical signatures
+                // guaranteeing: identical ABI layout → identical signature
+                if constexpr (Mode == SignatureMode::Structural) {
+                    return CompileString{"bytes[s:"} + CompileString<number_buffer_size>::from_number(N) + CompileString{",a:1]"};
+                }
+                // Annotated mode: preserve element type for debugging/diagnostics
+                else {
+                    return CompileString{""} + TypeSignature<T, Mode>::calculate() + 
+                           CompileString{"["} + CompileString<number_buffer_size>::from_number(N) + CompileString{"]"};
+                }
             }
             // General case: full type information for non-byte arrays
             else {
