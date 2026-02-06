@@ -7,20 +7,19 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
-    branches: [main, develop]
+    branches: [main]
   workflow_dispatch:
 
 env:
-  LLVM_P2996_VERSION: "p2996"
   LD_LIBRARY_PATH: /opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu
 
 jobs:
   # =========================================================================
   # Primary Build: Bloomberg Clang P2996
   # =========================================================================
-  build-p2996:
+  build:
     name: Clang P2996 (${{ matrix.build_type }})
     runs-on: ubuntu-latest
     container:
@@ -32,157 +31,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Configure CMake
-        run: |
-          cmake -B build \
-            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
-            -DCMAKE_CXX_FLAGS="-freflection -freflection-latest -stdlib=libc++" \
-            -DTYPELAYOUT_BUILD_TESTS=ON \
-            -DTYPELAYOUT_BUILD_EXAMPLES=ON
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
       
       - name: Build
         run: cmake --build build --parallel
       
-      - name: Run Tests
+      - name: Test
         run: ctest --test-dir build --output-on-failure
       
-      - name: Build Benchmarks
-        if: matrix.build_type == 'Release'
-        run: |
-          cd bench/compile_time
-          cmake -B build -DCMAKE_CXX_FLAGS="-freflection -freflection-latest -stdlib=libc++"
-          cmake --build build
-
-  # =========================================================================
-  # Compile-Time Benchmarks
-  # =========================================================================
-  benchmarks:
-    name: Compile-Time Benchmarks
-    runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/ximicpp/typelayout-p2996:latest
-    needs: build-p2996
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Run Compile-Time Benchmarks
-        run: |
-          cd bench/compile_time
-          chmod +x run_benchmarks.sh
-          ./run_benchmarks.sh 2>&1 | tee benchmark_results.txt
-      
-      - name: Upload Benchmark Results
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-results
-          path: bench/compile_time/benchmark_results.txt
-
-  # =========================================================================
-  # Documentation Build
-  # =========================================================================
-  docs:
-    name: Documentation
-    runs-on: ubuntu-latest
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install Doxygen
-        run: sudo apt-get update && sudo apt-get install -y doxygen graphviz
-      
-      - name: Generate Documentation
-        run: |
-          cd doc
-          doxygen Doxyfile 2>&1 | tee doxygen_output.txt
-      
-      - name: Check for Doxygen Warnings
-        run: |
-          if grep -q "warning:" doc/doxygen_output.txt; then
-            echo "::warning::Doxygen generated warnings"
-            grep "warning:" doc/doxygen_output.txt
-          fi
-      
-      - name: Upload Documentation
-        uses: actions/upload-artifact@v4
-        with:
-          name: documentation
-          path: doc/html/
-
-  # =========================================================================
-  # Static Analysis
-  # =========================================================================
-  analysis:
-    name: Static Analysis
-    runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/ximicpp/typelayout-p2996:latest
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Run clang-tidy
-        run: |
-          # Create compilation database
-          cmake -B build \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-            -DCMAKE_CXX_FLAGS="-freflection -freflection-latest -stdlib=libc++"
-          
-          # Run clang-tidy on source files
-          find include -name "*.hpp" -exec \
-            clang-tidy {} -p build --quiet \
-            --checks="-*,boost-*,modernize-*,performance-*,readability-*" \; \
-            2>&1 | tee clang_tidy_output.txt || true
-      
-      - name: Upload Analysis Results
-        uses: actions/upload-artifact@v4
-        with:
-          name: clang-tidy-results
-          path: clang_tidy_output.txt
-
-  # =========================================================================
-  # Future: GCC P2996 (when available)
-  # =========================================================================
-  # build-gcc:
-  #   name: GCC (P2996 experimental)
-  #   runs-on: ubuntu-latest
-  #   if: false  # Enable when GCC supports P2996
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - name: Build with GCC
-  #       run: echo "GCC P2996 support not yet available"
-
-  # =========================================================================
-  # Future: MSVC P2996 (when available)
-  # =========================================================================
-  # build-msvc:
-  #   name: MSVC (P2996 experimental)
-  #   runs-on: windows-latest
-  #   if: false  # Enable when MSVC supports P2996
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - name: Build with MSVC
-  #       run: echo "MSVC P2996 support not yet available"
-
-  # =========================================================================
-  # Summary
-  # =========================================================================
-  summary:
-    name: CI Summary
-    runs-on: ubuntu-latest
-    needs: [build-p2996, benchmarks, docs, analysis]
-    if: always()
-    
-    steps:
-      - name: Check Results
-        run: |
-          echo "## CI Results Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Build (P2996) | ${{ needs.build-p2996.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Benchmarks | ${{ needs.benchmarks.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Documentation | ${{ needs.docs.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Static Analysis | ${{ needs.analysis.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Note**: Only Bloomberg Clang P2996 fork currently supports C++26 reflection." >> $GITHUB_STEP_SUMMARY
