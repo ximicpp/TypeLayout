@@ -27,6 +27,12 @@ namespace typelayout {
                CompileString{"]"};
     }
 
+    // Mode-aware format_size_align (used for primitives - mode doesn't affect them)
+    template<SignatureMode Mode, size_t N>
+    consteval auto format_size_align_mode(const char (&name)[N], size_t size, size_t align) noexcept {
+        return format_size_align(name, size, align);
+    }
+
     template <typename T>
     inline constexpr bool is_fixed_width_integer_v = 
         std::is_same_v<T, int8_t> || std::is_same_v<T, uint8_t> ||
@@ -43,39 +49,36 @@ namespace typelayout {
         inline constexpr bool int64_is_long_long = std::is_same_v<int64_t, long long>;
     }
 
-    // Fixed-width integers
-    template <> struct TypeSignature<int8_t>   { static consteval auto calculate() noexcept { return CompileString{"i8[s:1,a:1]"}; } };
-    template <> struct TypeSignature<uint8_t>  { static consteval auto calculate() noexcept { return CompileString{"u8[s:1,a:1]"}; } };
-    template <> struct TypeSignature<int16_t>  { static consteval auto calculate() noexcept { return CompileString{"i16[s:2,a:2]"}; } };
-    template <> struct TypeSignature<uint16_t> { static consteval auto calculate() noexcept { return CompileString{"u16[s:2,a:2]"}; } };
-    template <> struct TypeSignature<int32_t>  { static consteval auto calculate() noexcept { return CompileString{"i32[s:4,a:4]"}; } };
-    template <> struct TypeSignature<uint32_t> { static consteval auto calculate() noexcept { return CompileString{"u32[s:4,a:4]"}; } };
-    template <> struct TypeSignature<int64_t>  { static consteval auto calculate() noexcept { return CompileString{"i64[s:8,a:8]"}; } };
-    template <> struct TypeSignature<uint64_t> { static consteval auto calculate() noexcept { return CompileString{"u64[s:8,a:8]"}; } };
+    // Fixed-width integers (mode doesn't affect primitive types)
+    template <SignatureMode Mode> struct TypeSignature<int8_t, Mode>   { static consteval auto calculate() noexcept { return CompileString{"i8[s:1,a:1]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<uint8_t, Mode>  { static consteval auto calculate() noexcept { return CompileString{"u8[s:1,a:1]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<int16_t, Mode>  { static consteval auto calculate() noexcept { return CompileString{"i16[s:2,a:2]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<uint16_t, Mode> { static consteval auto calculate() noexcept { return CompileString{"u16[s:2,a:2]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<int32_t, Mode>  { static consteval auto calculate() noexcept { return CompileString{"i32[s:4,a:4]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<uint32_t, Mode> { static consteval auto calculate() noexcept { return CompileString{"u32[s:4,a:4]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<int64_t, Mode>  { static consteval auto calculate() noexcept { return CompileString{"i64[s:8,a:8]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<uint64_t, Mode> { static consteval auto calculate() noexcept { return CompileString{"u64[s:8,a:8]"}; } };
 
     // Platform-specific: int8_t aliases signed char on macOS/Linux
 #if !defined(__APPLE__) && !defined(__linux__)
-    template <> struct TypeSignature<signed char> { 
+    template <SignatureMode Mode> struct TypeSignature<signed char, Mode> { 
         static consteval auto calculate() noexcept { return CompileString{"i8[s:1,a:1]"}; } 
     };
-    template <> struct TypeSignature<unsigned char> { 
+    template <SignatureMode Mode> struct TypeSignature<unsigned char, Mode> { 
         static consteval auto calculate() noexcept { return CompileString{"u8[s:1,a:1]"}; } 
     };
 #endif
 
     // long: 4 bytes on Windows/32-bit, 8 bytes on LP64 Unix
-    // Linux LP64: long == int64_t, skip to avoid redefinition
-    // macOS LP64: long != int64_t (int64_t == long long), need specialization
-    // Windows LLP64: long == 4 bytes, need specialization
 #if !defined(__linux__) || !defined(__LP64__)
-    template <> struct TypeSignature<long> { 
+    template <SignatureMode Mode> struct TypeSignature<long, Mode> { 
         static consteval auto calculate() noexcept { 
             if constexpr (sizeof(long) == 4) return CompileString{"i32[s:4,a:4]"};
             else return CompileString{"i64[s:8,a:8]"};
         } 
     };
 
-    template <> struct TypeSignature<unsigned long> { 
+    template <SignatureMode Mode> struct TypeSignature<unsigned long, Mode> { 
         static consteval auto calculate() noexcept { 
             if constexpr (sizeof(unsigned long) == 4) return CompileString{"u32[s:4,a:4]"};
             else return CompileString{"u64[s:8,a:8]"};
@@ -83,140 +86,141 @@ namespace typelayout {
     };
 #endif
 
-    // long long: always 8 bytes, but may alias int64_t on some platforms
-    // On macOS/Windows: int64_t == long long, so skip to avoid redefinition
-    // On Linux LP64: int64_t == long, so long long needs its own specialization
+    // long long
 #if defined(__linux__) && defined(__LP64__)
-    template <> struct TypeSignature<long long> { 
+    template <SignatureMode Mode> struct TypeSignature<long long, Mode> { 
         static consteval auto calculate() noexcept { return CompileString{"i64[s:8,a:8]"}; } 
     };
-    template <> struct TypeSignature<unsigned long long> { 
+    template <SignatureMode Mode> struct TypeSignature<unsigned long long, Mode> { 
         static consteval auto calculate() noexcept { return CompileString{"u64[s:8,a:8]"}; } 
     };
 #elif !defined(__APPLE__) && !defined(_WIN64)
-    template <> struct TypeSignature<long long> { 
+    template <SignatureMode Mode> struct TypeSignature<long long, Mode> { 
         static consteval auto calculate() noexcept { return CompileString{"i64[s:8,a:8]"}; } 
     };
-    template <> struct TypeSignature<unsigned long long> { 
+    template <SignatureMode Mode> struct TypeSignature<unsigned long long, Mode> { 
         static consteval auto calculate() noexcept { return CompileString{"u64[s:8,a:8]"}; } 
     };
 #endif
 
     // Floating point
-    template <> struct TypeSignature<float>    { static consteval auto calculate() noexcept { return CompileString{"f32[s:4,a:4]"}; } };
-    template <> struct TypeSignature<double>   { static consteval auto calculate() noexcept { return CompileString{"f64[s:8,a:8]"}; } };
-    template <> struct TypeSignature<long double> { 
+    template <SignatureMode Mode> struct TypeSignature<float, Mode>    { static consteval auto calculate() noexcept { return CompileString{"f32[s:4,a:4]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<double, Mode>   { static consteval auto calculate() noexcept { return CompileString{"f64[s:8,a:8]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<long double, Mode> { 
         static consteval auto calculate() noexcept { return format_size_align("f80", sizeof(long double), alignof(long double)); } 
     };
 
     // Characters
-    template <> struct TypeSignature<char>     { static consteval auto calculate() noexcept { return CompileString{"char[s:1,a:1]"}; } };
-    template <> struct TypeSignature<wchar_t>  { static consteval auto calculate() noexcept { return format_size_align("wchar", sizeof(wchar_t), alignof(wchar_t)); } };
-    template <> struct TypeSignature<char8_t>  { static consteval auto calculate() noexcept { return CompileString{"char8[s:1,a:1]"}; } };
-    template <> struct TypeSignature<char16_t> { static consteval auto calculate() noexcept { return CompileString{"char16[s:2,a:2]"}; } };
-    template <> struct TypeSignature<char32_t> { static consteval auto calculate() noexcept { return CompileString{"char32[s:4,a:4]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<char, Mode>     { static consteval auto calculate() noexcept { return CompileString{"char[s:1,a:1]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<wchar_t, Mode>  { static consteval auto calculate() noexcept { return format_size_align("wchar", sizeof(wchar_t), alignof(wchar_t)); } };
+    template <SignatureMode Mode> struct TypeSignature<char8_t, Mode>  { static consteval auto calculate() noexcept { return CompileString{"char8[s:1,a:1]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<char16_t, Mode> { static consteval auto calculate() noexcept { return CompileString{"char16[s:2,a:2]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<char32_t, Mode> { static consteval auto calculate() noexcept { return CompileString{"char32[s:4,a:4]"}; } };
 
     // Special types
-    template <> struct TypeSignature<bool>     { static consteval auto calculate() noexcept { return CompileString{"bool[s:1,a:1]"}; } };
-    template <> struct TypeSignature<std::nullptr_t> { static consteval auto calculate() noexcept { return format_size_align("nullptr", sizeof(std::nullptr_t), alignof(std::nullptr_t)); } };
-    template <> struct TypeSignature<std::byte> { static consteval auto calculate() noexcept { return CompileString{"byte[s:1,a:1]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<bool, Mode>     { static consteval auto calculate() noexcept { return CompileString{"bool[s:1,a:1]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<std::nullptr_t, Mode> { static consteval auto calculate() noexcept { return format_size_align("nullptr", sizeof(std::nullptr_t), alignof(std::nullptr_t)); } };
+    template <SignatureMode Mode> struct TypeSignature<std::byte, Mode> { static consteval auto calculate() noexcept { return CompileString{"byte[s:1,a:1]"}; } };
 
     // Function pointers
-    template <typename R, typename... Args>
-    struct TypeSignature<R(*)(Args...)> {
+    template <typename R, typename... Args, SignatureMode Mode>
+    struct TypeSignature<R(*)(Args...), Mode> {
         static consteval auto calculate() noexcept {
             return format_size_align("fnptr", sizeof(R(*)(Args...)), alignof(R(*)(Args...)));
         }
     };
     
     // Noexcept function pointer (R(*)(Args...) noexcept)
-    template <typename R, typename... Args>
-    struct TypeSignature<R(*)(Args...) noexcept> {
+    template <typename R, typename... Args, SignatureMode Mode>
+    struct TypeSignature<R(*)(Args...) noexcept, Mode> {
         static consteval auto calculate() noexcept {
             return format_size_align("fnptr", sizeof(R(*)(Args...) noexcept), alignof(R(*)(Args...) noexcept));
         }
     };
     
     // C-style variadic function pointer (R(*)(Args..., ...))
-    template <typename R, typename... Args>
-    struct TypeSignature<R(*)(Args..., ...)> {
+    template <typename R, typename... Args, SignatureMode Mode>
+    struct TypeSignature<R(*)(Args..., ...), Mode> {
         static consteval auto calculate() noexcept {
             return format_size_align("fnptr", sizeof(R(*)(Args..., ...)), alignof(R(*)(Args..., ...)));
         }
     };
 
-    // CV-qualified types: strip qualifiers
-    template <typename T>
-    struct TypeSignature<const T> {
-        static consteval auto calculate() noexcept { return TypeSignature<T>::calculate(); }
+    // CV-qualified types: strip qualifiers and forward mode
+    template <typename T, SignatureMode Mode>
+    struct TypeSignature<const T, Mode> {
+        static consteval auto calculate() noexcept { return TypeSignature<T, Mode>::calculate(); }
     };
-    template <typename T>
-    struct TypeSignature<volatile T> {
-        static consteval auto calculate() noexcept { return TypeSignature<T>::calculate(); }
+    template <typename T, SignatureMode Mode>
+    struct TypeSignature<volatile T, Mode> {
+        static consteval auto calculate() noexcept { return TypeSignature<T, Mode>::calculate(); }
     };
-    template <typename T>
-    struct TypeSignature<const volatile T> {
-        static consteval auto calculate() noexcept { return TypeSignature<T>::calculate(); }
+    template <typename T, SignatureMode Mode>
+    struct TypeSignature<const volatile T, Mode> {
+        static consteval auto calculate() noexcept { return TypeSignature<T, Mode>::calculate(); }
     };
 
     // Pointers and references
-    template <typename T> 
-    struct TypeSignature<T*> { 
+    template <typename T, SignatureMode Mode> 
+    struct TypeSignature<T*, Mode> { 
         static consteval auto calculate() noexcept { return format_size_align("ptr", sizeof(T*), alignof(T*)); } 
     };
-    template <> 
-    struct TypeSignature<void*> { 
+    template <SignatureMode Mode> 
+    struct TypeSignature<void*, Mode> { 
         static consteval auto calculate() noexcept { return format_size_align("ptr", sizeof(void*), alignof(void*)); } 
     };
-    template <typename T> 
-    struct TypeSignature<T&> { 
+    template <typename T, SignatureMode Mode> 
+    struct TypeSignature<T&, Mode> { 
         static consteval auto calculate() noexcept { return format_size_align("ref", sizeof(T*), alignof(T*)); } 
     };
-    template <typename T> 
-    struct TypeSignature<T&&> { 
+    template <typename T, SignatureMode Mode> 
+    struct TypeSignature<T&&, Mode> { 
         static consteval auto calculate() noexcept { return format_size_align("rref", sizeof(T*), alignof(T*)); } 
     };
-    template <typename T, typename C>
-    struct TypeSignature<T C::*> {
+    template <typename T, typename C, SignatureMode Mode>
+    struct TypeSignature<T C::*, Mode> {
         static consteval auto calculate() noexcept { return format_size_align("memptr", sizeof(T C::*), alignof(T C::*)); }
     };
 
     // Arrays
-    template <typename T>
-    struct TypeSignature<T[]> {
+    template <typename T, SignatureMode Mode>
+    struct TypeSignature<T[], Mode> {
         static consteval auto calculate() noexcept {
             static_assert(always_false<T>::value, "Unbounded array T[] has no defined size");
             return CompileString{""};
         }
     };
-    template <typename T, size_t N>
-    struct TypeSignature<T[N]> {
+    template <typename T, size_t N, SignatureMode Mode>
+    struct TypeSignature<T[N], Mode> {
         static consteval auto calculate() noexcept {
             if constexpr (std::is_same_v<T, char>) {
                 return CompileString{"bytes[s:"} + CompileString<32>::from_number(N) + CompileString{",a:1]"};
             } else {
                 return CompileString{"array[s:"} + CompileString<32>::from_number(sizeof(T[N])) +
                        CompileString{",a:"} + CompileString<32>::from_number(alignof(T[N])) +
-                       CompileString{"]<"} + TypeSignature<T>::calculate() +
+                       CompileString{"]<"} + TypeSignature<T, Mode>::calculate() +
                        CompileString{","} + CompileString<32>::from_number(N) + CompileString{">"};
             }
         }
     };
 
+    // =========================================================================
     // Generic: structs, classes, enums, unions
-    template <typename T>
+    // Primary template with mode parameter
+    // =========================================================================
+    template <typename T, SignatureMode Mode>
     struct TypeSignature {
         static consteval auto calculate() noexcept {
             if constexpr (std::is_enum_v<T>) {
                 using U = std::underlying_type_t<T>;
                 return CompileString{"enum[s:"} + CompileString<32>::from_number(sizeof(T)) +
                        CompileString{",a:"} + CompileString<32>::from_number(alignof(T)) +
-                       CompileString{"]<"} + TypeSignature<U>::calculate() + CompileString{">"};
+                       CompileString{"]<"} + TypeSignature<U, Mode>::calculate() + CompileString{">"};
             }
             else if constexpr (std::is_union_v<T>) {
                 return CompileString{"union[s:"} + CompileString<32>::from_number(sizeof(T)) +
                        CompileString{",a:"} + CompileString<32>::from_number(alignof(T)) +
-                       CompileString{"]{"} + get_fields_signature<T>() + CompileString{"}"};
+                       CompileString{"]{"} + get_fields_signature<T, Mode>() + CompileString{"}"};
             }
             else if constexpr (std::is_class_v<T> && !std::is_array_v<T>) {
                 constexpr bool poly = std::is_polymorphic_v<T>;
@@ -235,7 +239,7 @@ namespace typelayout {
                 }();
                 return prefix + CompileString<32>::from_number(sizeof(T)) +
                        CompileString{",a:"} + CompileString<32>::from_number(alignof(T)) +
-                       suffix + get_layout_content_signature<T>() + CompileString{"}"};
+                       suffix + get_layout_content_signature<T, Mode>() + CompileString{"}"};
             }
             else if constexpr (std::is_void_v<T>) {
                 static_assert(always_false<T>::value, "void has no layout; use void*");

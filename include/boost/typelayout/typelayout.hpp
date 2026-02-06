@@ -22,9 +22,6 @@
 // Compile-time string utilities
 #include <boost/typelayout/core/compile_string.hpp>
 
-// Hash computation (used by signatures)
-#include <boost/typelayout/core/hash.hpp>
-
 // P2996 reflection helpers
 #include <boost/typelayout/core/reflection_helpers.hpp>
 

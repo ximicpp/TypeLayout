@@ -9,38 +9,32 @@ Layout signatures provide bit-accurate, human-readable descriptions of type memo
 for same-process and same-platform type verification.
 ## Requirements
 ### Requirement: Layout Signature Architecture
-The library SHALL provide layout signature generation for compile-time memory layout analysis.
+The library SHALL provide layout signature generation for compile-time memory layout analysis with support for large structs.
 
 #### Scenario: Layout Compatibility
 - **GIVEN** a user needs same-process or same-platform type checking
 - **WHEN** using `get_layout_signature<T>()`
 - **THEN** the signature SHALL reflect memory layout (size, alignment, field offsets)
 - **AND** platform SHALL be implicitly the current build platform
+- **AND** structs with up to 200 members SHALL be supported
 
-#### Scenario: Signature format
-- **GIVEN** a type T
+#### Scenario: Scalability
+- **GIVEN** a struct with many members
 - **WHEN** generating layout signature
-- **THEN** the signature SHALL include platform prefix (e.g., `[64-le]`)
-- **AND** the signature SHALL include type category (struct/class/union/enum)
-- **AND** the signature SHALL include size and alignment
-- **AND** for aggregate types, member information SHALL be included
-
-#### Scenario: Platform prefix format
-- **GIVEN** the current build platform
-- **WHEN** generating any layout signature
-- **THEN** the prefix SHALL be `[BITS-ENDIAN]` where BITS is 32 or 64 and ENDIAN is `le` or `be`
-- **AND** example: `[64-le]` for 64-bit little-endian platforms
+- **THEN** the implementation SHALL scale to handle large member counts
+- **AND** constexpr step limits SHALL be managed through chunking
 
 ### Requirement: Layout Hash Generation
-The library SHALL provide 64-bit hash generation for layout signatures.
+The library SHALL provide 64-bit hash generation for structural layout signatures.
 
 #### Scenario: Hash computation
-- **GIVEN** a type T with layout signature S
+- **GIVEN** a type T with structural layout signature S
 - **WHEN** calling `get_layout_hash<T>()`
 - **THEN** the result SHALL be a 64-bit FNV-1a hash of S
+- **AND** the hash SHALL ALWAYS be computed from Structural mode signature
 
 #### Scenario: Hash determinism
-- **GIVEN** two types T and U with identical layout signatures
+- **GIVEN** two types T and U with identical memory layouts (regardless of names)
 - **WHEN** computing hashes
 - **THEN** `get_layout_hash<T>() == get_layout_hash<U>()` SHALL be true
 
@@ -135,23 +129,32 @@ The library SHALL distinguish different type categories in signatures.
 - **AND** underlying type signature SHALL be included
 
 ### Requirement: Field Information
-The library SHALL include detailed field information for aggregate types.
+The library SHALL include detailed field information for aggregate types based on signature mode.
 
-#### Scenario: Field offset and name
+#### Scenario: Structural mode field format
 - **GIVEN** a struct with fields
-- **WHEN** generating signature
+- **WHEN** generating Structural signature
+- **THEN** each field SHALL use format `@OFFSET:TYPE`
+- **AND** OFFSET SHALL match the actual byte offset
+- **AND** member name SHALL NOT be included
+
+#### Scenario: Annotated mode field format
+- **GIVEN** a struct with fields
+- **WHEN** generating Annotated signature
 - **THEN** each field SHALL include `@OFFSET[NAME]:TYPE`
 - **AND** OFFSET SHALL match the actual byte offset
+- **AND** NAME SHALL be the member identifier
 
 #### Scenario: Bit-field format
 - **GIVEN** a struct with bit-fields
 - **WHEN** generating signature
-- **THEN** bit-fields SHALL use format `@BYTE.BIT[NAME]:bits<WIDTH,UNDERLYING>`
+- **THEN** bit-fields SHALL use format `@BYTE.BIT:bits<WIDTH,UNDERLYING>` (Structural)
+- **OR** `@BYTE.BIT[NAME]:bits<WIDTH,UNDERLYING>` (Annotated)
 - **AND** BYTE is byte offset, BIT is bit offset within that byte
 
 #### Scenario: Anonymous members
 - **GIVEN** a struct with anonymous union or struct members
-- **WHEN** generating signature
+- **WHEN** generating Annotated signature
 - **THEN** anonymous members SHALL use `<anon:N>` placeholder
 - **AND** N SHALL be a sequential index
 
@@ -246,4 +249,111 @@ The project SHALL include a logic clarity analysis report documenting:
 - **WHEN** reviewing the project documentation
 - **THEN** `doc/analysis/logic_clarity_report.md` exists
 - **AND** contains sections for structure, flow, boundaries, and recommendations
+
+### Requirement: Large Struct Support
+The library SHALL support generating layout signatures for structs with up to 200 members.
+
+#### Scenario: 50-member struct
+- **GIVEN** a struct with 50 members
+- **WHEN** calling `get_layout_signature<T>()` or `get_layout_hash<T>()`
+- **THEN** compilation SHALL succeed without constexpr step limit errors
+
+#### Scenario: 100-member struct
+- **GIVEN** a struct with 100 members
+- **WHEN** calling `get_layout_signature<T>()` or `get_layout_hash<T>()`
+- **THEN** compilation SHALL succeed without constexpr step limit errors
+
+#### Scenario: 200-member struct
+- **GIVEN** a struct with 200 members
+- **WHEN** calling `get_layout_signature<T>()` or `get_layout_hash<T>()`
+- **THEN** compilation SHALL succeed without constexpr step limit errors
+
+### Requirement: Chunked Signature Generation
+The library SHALL use chunked processing to distribute constexpr evaluation work.
+
+#### Scenario: Chunk size configuration
+- **GIVEN** a user wants to tune chunk size for their compiler
+- **WHEN** defining `BOOST_TYPELAYOUT_CHUNK_SIZE` before including headers
+- **THEN** the library SHALL use that value for member processing chunk size
+- **AND** the default SHALL be 8 if not defined
+
+#### Scenario: Chunk processing isolation
+- **GIVEN** a struct with N members where N > chunk size
+- **WHEN** generating layout signature
+- **THEN** members SHALL be processed in chunks of `BOOST_TYPELAYOUT_CHUNK_SIZE`
+- **AND** each chunk SHALL be processed in a separate consteval context
+
+### Requirement: Incremental Hash Computation
+The library SHALL compute layout hashes incrementally without building full signature strings.
+
+#### Scenario: Direct hash feeding
+- **GIVEN** a type T
+- **WHEN** calling `get_layout_hash<T>()`
+- **THEN** the hash SHALL be computed by feeding layout data directly to the hash function
+- **AND** the implementation SHALL NOT require building the full signature string first
+
+#### Scenario: Hash consistency
+- **GIVEN** any type T
+- **WHEN** computing hash via incremental method
+- **THEN** the result SHALL be consistent with hashing the structural signature
+- **OR** the change in hash algorithm SHALL be documented as breaking change
+
+### Requirement: Pre-sized Buffer Optimization
+The library SHALL optimize string signature generation by pre-calculating required buffer size.
+
+#### Scenario: Length pre-calculation
+- **GIVEN** a type T requiring signature generation
+- **WHEN** generating the layout signature string
+- **THEN** the total signature length SHALL be calculated first
+- **AND** the buffer SHALL be allocated at that size before writing
+
+#### Scenario: Single-pass writing
+- **GIVEN** a pre-sized signature buffer
+- **WHEN** writing member information
+- **THEN** each member SHALL be written directly to the final buffer
+- **AND** no intermediate string copies SHALL be performed
+
+### Requirement: Signature Mode Configuration
+The library SHALL provide a `SignatureMode` enum to control signature content.
+
+#### Scenario: Mode enumeration
+- **GIVEN** a user wants to choose signature content level
+- **WHEN** examining available modes
+- **THEN** `SignatureMode::Structural` SHALL be available (layout-only, no names)
+- **AND** `SignatureMode::Annotated` SHALL be available (includes names)
+- **AND** `Structural` SHALL be the default mode
+
+#### Scenario: API with mode parameter
+- **GIVEN** a type T
+- **WHEN** calling `get_layout_signature<T, SignatureMode::Structural>()`
+- **THEN** the result SHALL exclude member and type names
+- **AND** when calling `get_layout_signature<T, SignatureMode::Annotated>()`
+- **THEN** the result SHALL include member and type names
+
+#### Scenario: Convenience aliases
+- **GIVEN** a type T
+- **WHEN** calling `get_structural_signature<T>()`
+- **THEN** the result SHALL equal `get_layout_signature<T, SignatureMode::Structural>()`
+- **AND** when calling `get_annotated_signature<T>()`
+- **THEN** the result SHALL equal `get_layout_signature<T, SignatureMode::Annotated>()`
+
+### Requirement: Formal Layout Identity Guarantee
+The library SHALL guarantee that identical structural signatures imply identical memory layouts.
+
+#### Scenario: Core guarantee formalization
+- **GIVEN** two types T and U
+- **WHEN** their structural signatures are compared
+- **THEN** `get_layout_signature<T>() == get_layout_signature<U>()` SHALL be true
+- **IF AND ONLY IF** `sizeof(T) == sizeof(U)` AND `alignof(T) == alignof(U)` AND all corresponding member offsets, sizes, and type categories match
+
+#### Scenario: Name independence
+- **GIVEN** two types T and U with identical layouts but different member names
+- **WHEN** comparing their structural signatures
+- **THEN** `signatures_match<T, U>()` SHALL return true
+- **AND** `get_layout_hash<T>() == get_layout_hash<U>()` SHALL be true
+
+#### Scenario: Namespace independence
+- **GIVEN** two types in different namespaces with identical layouts
+- **WHEN** comparing their structural signatures
+- **THEN** `signatures_match<T, U>()` SHALL return true
 

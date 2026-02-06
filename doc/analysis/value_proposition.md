@@ -4,6 +4,8 @@
 
 > **TypeLayout**: Compile-time memory layout verification for C++ using P2996 static reflection.
 
+> 📖 **逻辑推导**：本文档的所有主张均有严密的逻辑支撑，详见 [核心价值推导](core_value_derivation.md)。
+
 ---
 
 ## The Problem

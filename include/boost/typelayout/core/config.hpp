@@ -47,6 +47,28 @@ namespace typelayout {
     inline constexpr bool is_little_endian = TYPELAYOUT_LITTLE_ENDIAN;
     inline constexpr std::size_t bit_width = pointer_size * 8;
 
+    // =========================================================================
+    // Signature Mode Configuration
+    // =========================================================================
+
+    /**
+     * @brief Controls what information is included in layout signatures.
+     * 
+     * - Structural: Layout-only information (offsets, sizes, types). No names.
+     *               This is the DEFAULT mode and guarantees:
+     *               identical signature ⟺ identical memory layout
+     * 
+     * - Annotated:  Includes member and type names for debugging/diagnostics.
+     *               NOT suitable for layout comparison across different types.
+     */
+    enum class SignatureMode {
+        Structural,  ///< Layout-only (default) - names excluded
+        Annotated    ///< Includes names - for debugging
+    };
+
+    // Default signature mode
+    inline constexpr SignatureMode default_signature_mode = SignatureMode::Structural;
+
     // Helper template for static_assert(false) in templates
     template <typename...>
     struct always_false : std::false_type {};

@@ -27,7 +27,8 @@ struct Player {
 };
 
 // Bind types to "golden" layout signatures (compilation fails if layout changes)
-TYPELAYOUT_BIND(Point, "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}");
+// Note: Structural mode omits member names for semantic equivalence
+TYPELAYOUT_BIND(Point, "[64-le]struct[s:8,a:4]{@0:i32[s:4,a:4],@4:i32[s:4,a:4]}");
 
 // ============================================================================
 // Part 2: Classes with private members and constructors (Non-POD)
@@ -130,9 +131,9 @@ static_assert(LayoutSupported<MixedAccess>, "Mixed access class is supported");
 struct Vec2 { int32_t x, y; };
 static_assert(signatures_match<Point, Vec2>(), "Point and Vec2 must have same layout");
 
-// Template constraint using layout signature
+// Template constraint using layout signature (Structural mode - no names)
 template<typename T>
-    requires LayoutMatch<T, "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}">
+    requires LayoutMatch<T, "[64-le]struct[s:8,a:4]{@0:i32[s:4,a:4],@4:i32[s:4,a:4]}">
 void send_point(const T& p) {
     std::cout << "Sending point-like data...\n";
     (void)p;

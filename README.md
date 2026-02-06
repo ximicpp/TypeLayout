@@ -8,7 +8,7 @@
 > Verify that types have identical memory layouts — at compile time, with zero overhead.
 
 ```cpp
-static_assert(get_layout_signature<MyStruct>() == get_layout_signature<TheirStruct>());  // ✓ Safe to share memory
+static_assert(signatures_match<MyStruct, TheirStruct>());  // ✓ Same layout = Safe to share memory
 ```
 
 ## The Problem
@@ -38,7 +38,9 @@ constexpr auto sig = boost::typelayout::get_layout_signature<Message>();
 static_assert(LayoutHashMatch<Message, 0x1234567890ABCDEF>);
 ```
 
-**Core guarantee**: *Identical signature ⟺ Identical memory layout*
+**Core guarantee**: *Identical structural signature ⟺ Identical memory layout*
+
+> **Note**: TypeLayout uses **Structural mode** by default, which excludes member names from signatures. This ensures that two types with identical layouts but different field names are considered compatible. Use **Annotated mode** for debugging when you need to see member names.
 
 ## Core Value: Safe Data Sharing Across Boundaries
 
@@ -171,7 +173,33 @@ TypeLayout generates a **canonical layout signature** that captures every detail
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**If two types have identical signatures, they have identical memory layouts** — regardless of name, namespace, or source file.
+**If two types have identical signatures, they have identical memory layouts** — regardless of member name, namespace, or source file.
+
+### Signature Modes
+
+TypeLayout provides two signature modes:
+
+| Mode | Default | Purpose | Member Names |
+|------|---------|---------|--------------|
+| **Structural** | ✅ Yes | Layout comparison & hashing | Excluded |
+| **Annotated** | No | Debugging & diagnostics | Included |
+
+```cpp
+struct PointA { float x, y; };
+struct PointB { float horizontal, vertical; };  // Same layout, different names
+
+// Structural mode (default) - names excluded
+constexpr auto sig_a = get_structural_signature<PointA>();
+constexpr auto sig_b = get_structural_signature<PointB>();
+static_assert(sig_a == sig_b);  // ✅ PASS: Same layout
+
+// Annotated mode - names included (for debugging)
+constexpr auto ann_a = get_annotated_signature<PointA>();
+constexpr auto ann_b = get_annotated_signature<PointB>();
+static_assert(ann_a != ann_b);  // Different names visible
+```
+
+**Rule**: All comparisons (`signatures_match`, `hashes_match`, concepts) use **Structural mode** internally, ensuring name-independence.
 
 ## Why TypeLayout?
 
@@ -199,10 +227,11 @@ TypeLayout generates a **canonical layout signature** that captures every detail
 
 | Function | Description |
 |----------|-------------|
-| `get_layout_signature<T>()` | Complete layout signature string |
+| `get_layout_signature<T, Mode>()` | Layout signature with mode (default: Structural) |
+| `get_structural_signature<T>()` | Structural signature (no names, for comparison) |
+| `get_annotated_signature<T>()` | Annotated signature (with names, for debugging) |
 | `get_layout_signature_cstr<T>()` | C-string pointer (static storage) |
-| `get_layout_hash<T>()` | 64-bit FNV-1a hash |
-| `get_layout_verification<T>()` | Dual-hash verification struct |
+| `get_layout_hash<T>()` | 64-bit FNV-1a hash (always Structural) |
 | `signatures_match<T, U>()` | Check if two types have identical layouts |
 | `hashes_match<T, U>()` | Fast hash comparison |
 

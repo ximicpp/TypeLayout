@@ -18,6 +18,22 @@ set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Build options
+option(BOOST_TYPELAYOUT_BUILD_TESTS "Build test suite" ON)
+option(BOOST_TYPELAYOUT_BUILD_EXAMPLES "Build examples" ON)
+option(BOOST_TYPELAYOUT_BUILD_TOOLS "Build tools" ON)
+
+# Constexpr step limit configuration
+# Default: 5000000 (supports 100+ struct members)
+# Recommended values:
+#   0       - Use compiler default (~1M, for small projects <50 members)
+#   1500000 - Medium projects (50-80 struct members)
+#   3000000 - Large projects (80-100 struct members)
+#   5000000 - Very large projects (100+ struct members) [DEFAULT]
+#  10000000 - Extreme cases
+set(BOOST_TYPELAYOUT_CONSTEXPR_STEPS "5000000" CACHE STRING
+    "Constexpr evaluation step limit for large structs (5M supports 100+ members)")
+
 # Compiler-specific settings for Clang P2996
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     # Add reflection flags for Bloomberg Clang P2996 fork
@@ -51,10 +67,12 @@ target_include_directories(typelayout INTERFACE
     $<INSTALL_INTERFACE:include>
 )
 
-# Build options
-option(BOOST_TYPELAYOUT_BUILD_TESTS "Build test suite" ON)
-option(BOOST_TYPELAYOUT_BUILD_EXAMPLES "Build examples" ON)
-option(BOOST_TYPELAYOUT_BUILD_TOOLS "Build tools" ON)
+# Apply constexpr step limit to interface (propagates to all consumers)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND BOOST_TYPELAYOUT_CONSTEXPR_STEPS GREATER 0)
+    target_compile_options(typelayout INTERFACE
+        -fconstexpr-steps=${BOOST_TYPELAYOUT_CONSTEXPR_STEPS}
+    )
+endif()
 
 # Enable CTest for test discovery
 include(CTest)
@@ -84,6 +102,18 @@ if(BOOST_TYPELAYOUT_BUILD_TESTS)
     add_executable(test_user_defined_types test/test_user_defined_types.cpp)
     target_link_libraries(test_user_defined_types PRIVATE typelayout)
     
+    # Signature modes tests (validates name independence)
+    add_executable(test_signature_modes test/test_signature_modes.cpp)
+    target_link_libraries(test_signature_modes PRIVATE typelayout)
+    
+    # Stress tests (large struct support >40 members)
+    add_executable(test_stress test/test_stress.cpp)
+    target_link_libraries(test_stress PRIVATE typelayout)
+    
+    # Signature size analysis test (measures signature lengths)
+    add_executable(test_signature_size test/test_signature_size.cpp)
+    target_link_libraries(test_signature_size PRIVATE typelayout)
+    
     # Register tests with CTest
     # For static_assert tests, successful compilation = test passed
     add_test(NAME test_all_types COMMAND test_all_types)
@@ -92,6 +122,8 @@ if(BOOST_TYPELAYOUT_BUILD_TESTS)
     add_test(NAME test_anonymous_member COMMAND test_anonymous_member)
     add_test(NAME test_alignment COMMAND test_alignment)
     add_test(NAME test_user_defined_types COMMAND test_user_defined_types)
+    add_test(NAME test_signature_modes COMMAND test_signature_modes)
+    add_test(NAME test_stress COMMAND test_stress)
     
     # Set test properties
     set_tests_properties(
@@ -101,8 +133,10 @@ if(BOOST_TYPELAYOUT_BUILD_TESTS)
         test_anonymous_member
         test_alignment
         test_user_defined_types
+        test_signature_modes
+        test_stress
         PROPERTIES
-            TIMEOUT 60
+            TIMEOUT 120
             LABELS "core"
     )
     
@@ -196,4 +230,9 @@ message(STATUS "  C++ Compiler Path: ${CMAKE_CXX_COMPILER}")
 message(STATUS "  C++ Standard: C++${CMAKE_CXX_STANDARD}")
 message(STATUS "  Build Type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  Install Prefix: ${CMAKE_INSTALL_PREFIX}")
+if(BOOST_TYPELAYOUT_CONSTEXPR_STEPS GREATER 0)
+    message(STATUS "  Constexpr Steps: ${BOOST_TYPELAYOUT_CONSTEXPR_STEPS}")
+else()
+    message(STATUS "  Constexpr Steps: compiler default (~1M)")
+endif()
 message(STATUS "")

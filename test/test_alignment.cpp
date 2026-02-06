@@ -149,13 +149,13 @@ static_assert(alignof(WithPadding) == 4, "WithPadding should have alignment 4");
 static_assert([]() constexpr {
     constexpr auto sig = get_layout_signature<WithPadding>();
     // Should contain offsets that allow padding derivation:
-    // @0[a_]:... @4[b_]:... @8[c_]:...
+    // Structural mode: @0:... @4:... @8:...
     auto view = to_view(sig);
-    bool has_a_at_0 = view.find("@0[a_]") != std::string_view::npos;
-    bool has_b_at_4 = view.find("@4[b_]") != std::string_view::npos;
-    bool has_c_at_8 = view.find("@8[c_]") != std::string_view::npos;
+    bool has_offset_0 = view.find("@0:") != std::string_view::npos;
+    bool has_offset_4 = view.find("@4:") != std::string_view::npos;
+    bool has_offset_8 = view.find("@8:") != std::string_view::npos;
     bool has_size_12 = view.find("[s:12,") != std::string_view::npos;
-    return has_a_at_0 && has_b_at_4 && has_c_at_8 && has_size_12;
+    return has_offset_0 && has_offset_4 && has_offset_8 && has_size_12;
 }(), "WithPadding signature should contain all offsets for padding derivation");
 
 // ============================================================================
