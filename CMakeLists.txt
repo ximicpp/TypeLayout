@@ -35,3 +35,7 @@ add_executable(test_two_layer test/test_two_layer.cpp)
 target_link_libraries(test_two_layer PRIVATE typelayout)
 add_test(NAME test_two_layer COMMAND test_two_layer)
 set_tests_properties(test_two_layer PROPERTIES TIMEOUT 120 LABELS "core")
+
+# Examples
+add_executable(cross_platform_check example/cross_platform_check.cpp)
+target_link_libraries(cross_platform_check PRIVATE typelayout)
