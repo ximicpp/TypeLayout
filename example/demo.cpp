@@ -1,12 +1,15 @@
-// Boost.TypeLayout - Demo Examples
+// Boost.TypeLayout - Demo Examples (v2.0 Two-Layer Signature System)
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE_1_0.txt or copy at
 // http://www.boost.org/LICENSE_1_0.txt)
 //
-// This demo showcases the core layout signature features.
-// TypeLayout supports ALL C++ types: struct, class, inheritance, polymorphism, etc.
+// This demo showcases the two-layer signature system:
+//   Layer 1 (Layout):     Pure byte layout — flattened, no names
+//   Layer 2 (Definition): Full type definition — with names, inheritance tree
+//
+// Mathematical relationship: Layout = project(Definition)
 
 #include <iostream>
 #include <cstdint>
@@ -26,9 +29,8 @@ struct Player {
     float health;
 };
 
-// Bind types to "golden" layout signatures (compilation fails if layout changes)
-// Note: Structural mode omits member names for semantic equivalence
-TYPELAYOUT_BIND(Point, "[64-le]struct[s:8,a:4]{@0:i32[s:4,a:4],@4:i32[s:4,a:4]}");
+// Bind to Layout signature (compilation fails if layout changes)
+TYPELAYOUT_BIND_LAYOUT(Point, "[64-le]record[s:8,a:4]{@0:i32[s:4,a:4],@4:i32[s:4,a:4]}");
 
 // ============================================================================
 // Part 2: Classes with private members and constructors (Non-POD)
@@ -49,7 +51,7 @@ private:
 static_assert(LayoutSupported<Entity>, "Entity class is supported");
 
 // ============================================================================
-// Part 3: Class Inheritance (Single, Multiple)
+// Part 3: Class Inheritance — Two-Layer Difference
 // ============================================================================
 
 class Base {
@@ -62,8 +64,17 @@ public:
     int32_t derivedValue;
 };
 
-// Inheritance is properly reflected with base class info
-static_assert(LayoutSupported<Derived>, "Derived class with inheritance is supported");
+// A flat struct with identical byte layout to Derived
+struct Flat {
+    int32_t a;
+    int32_t b;
+};
+
+// KEY INSIGHT: Layout matches (same bytes), but Definition differs (inheritance vs flat)
+static_assert(layout_signatures_match<Derived, Flat>(),
+    "Derived and Flat have identical byte layout");
+static_assert(!definition_signatures_match<Derived, Flat>(),
+    "Derived and Flat have different type definitions");
 
 // Multiple inheritance
 class Mixin {
@@ -100,7 +111,7 @@ private:
 };
 
 // Polymorphic classes include vtable pointer in layout
-// Signature will contain "polymorphic" marker
+// Definition signature will contain "polymorphic" marker
 static_assert(LayoutSupported<IShape>, "Abstract polymorphic class is supported");
 static_assert(LayoutSupported<Circle>, "Polymorphic derived class is supported");
 
@@ -125,98 +136,106 @@ private:
 static_assert(LayoutSupported<MixedAccess>, "Mixed access class is supported");
 
 // ============================================================================
-// Part 6: Layout compatibility check
+// Part 6: Layout compatibility check (Two-Layer)
 // ============================================================================
 
 struct Vec2 { int32_t x, y; };
-static_assert(signatures_match<Point, Vec2>(), "Point and Vec2 must have same layout");
 
-// Template constraint using layout signature (Structural mode - no names)
-template<typename T>
-    requires LayoutMatch<T, "[64-le]struct[s:8,a:4]{@0:i32[s:4,a:4],@4:i32[s:4,a:4]}">
-void send_point(const T& p) {
-    std::cout << "Sending point-like data...\n";
-    (void)p;
-}
+// Layout layer: same byte layout
+static_assert(layout_signatures_match<Point, Vec2>(),
+    "Point and Vec2 must have same byte layout");
+
+// Definition layer: different field names → different definition
+static_assert(!definition_signatures_match<Point, Vec2>(),
+    "Point and Vec2 have different field names in Definition layer");
 
 // ============================================================================
 // Part 7: Compile-time hash values
 // ============================================================================
 
 constexpr uint64_t POINT_LAYOUT_HASH = get_layout_hash<Point>();
-static_assert(hashes_match<Point, Vec2>(), "Point and Vec2 must have same layout hash");
+static_assert(layout_hashes_match<Point, Vec2>(),
+    "Point and Vec2 must have same layout hash");
 
 // Dual-hash verification (FNV-1a + DJB2, ~2^128 collision resistance)
 constexpr auto ENTITY_VERIFICATION = get_layout_verification<Entity>();
-static_assert(verifications_match<Point, Vec2>(), "Point and Vec2 must have same verification");
+static_assert(layout_verifications_match<Point, Vec2>(),
+    "Point and Vec2 must have same layout verification");
 
 // Type library collision detection (compile-time guarantee)
 static_assert(no_hash_collision<Point, Entity, Base, Derived>(), 
               "Hash collision in type library!");
 
-// Template constraint using hash
-template<typename T>
-    requires LayoutHashMatch<T, POINT_LAYOUT_HASH>
-void process_point_data(const T& p) {
-    std::cout << "Processing point data (hash validated)...\n";
-    (void)p;
-}
+// ============================================================================
+// Part 8: Primitives — Both layers produce identical signatures
+// ============================================================================
+
+static_assert(get_layout_signature<int32_t>() == get_definition_signature<int32_t>(),
+    "Primitives: Layout == Definition");
+static_assert(get_layout_signature<double>() == get_definition_signature<double>(),
+    "Primitives: Layout == Definition");
 
 // ============================================================================
 // Main - Demo Output
 // ============================================================================
 
 int main() {
-    std::cout << "=== TypeLayout Demo ===\n";
-    std::cout << "Supports: struct, class, inheritance, polymorphism, private members\n\n";
+    std::cout << "=== TypeLayout v2.0 — Two-Layer Signature Demo ===\n";
+    std::cout << "Layer 1 (Layout):     Pure byte layout, flattened, no names\n";
+    std::cout << "Layer 2 (Definition): Full type definition, tree, with names\n\n";
     
     // --- Basic struct ---
     std::cout << "--- Basic Struct (POD-like) ---\n";
-    std::cout << "Point:  " << get_layout_signature_cstr<Point>() << "\n\n";
+    std::cout << "Point Layout:     " << get_layout_signature_cstr<Point>() << "\n";
+    std::cout << "Point Definition: " << get_definition_signature_cstr<Point>() << "\n\n";
     
     // --- Non-POD class with private members ---
     std::cout << "--- Non-POD Class (private members) ---\n";
-    std::cout << "Entity: " << get_layout_signature_cstr<Entity>() << "\n\n";
+    std::cout << "Entity Layout:     " << get_layout_signature_cstr<Entity>() << "\n";
+    std::cout << "Entity Definition: " << get_definition_signature_cstr<Entity>() << "\n\n";
     
-    // --- Inheritance ---
-    std::cout << "--- Class Inheritance ---\n";
-    std::cout << "Base:        " << get_layout_signature_cstr<Base>() << "\n";
-    std::cout << "Derived:     " << get_layout_signature_cstr<Derived>() << "\n";
-    std::cout << "MultiDerived:" << get_layout_signature_cstr<MultiDerived>() << "\n\n";
+    // --- Inheritance (the key two-layer difference) ---
+    std::cout << "--- Inheritance: Two-Layer Difference ---\n";
+    std::cout << "Derived Layout:     " << get_layout_signature_cstr<Derived>() << "\n";
+    std::cout << "Derived Definition: " << get_definition_signature_cstr<Derived>() << "\n";
+    std::cout << "Flat Layout:        " << get_layout_signature_cstr<Flat>() << "\n";
+    std::cout << "Flat Definition:    " << get_definition_signature_cstr<Flat>() << "\n";
+    std::cout << "  Derived == Flat (Layout)?      " 
+              << (layout_signatures_match<Derived, Flat>() ? "YES" : "NO") << "\n";
+    std::cout << "  Derived == Flat (Definition)?   " 
+              << (definition_signatures_match<Derived, Flat>() ? "YES" : "NO") << "\n\n";
     
     // --- Polymorphic classes ---
     std::cout << "--- Polymorphic Classes (virtual functions) ---\n";
-    std::cout << "IShape: " << get_layout_signature_cstr<IShape>() << "\n";
-    std::cout << "Circle: " << get_layout_signature_cstr<Circle>() << "\n\n";
+    std::cout << "IShape Layout:     " << get_layout_signature_cstr<IShape>() << "\n";
+    std::cout << "IShape Definition: " << get_definition_signature_cstr<IShape>() << "\n";
+    std::cout << "Circle Layout:     " << get_layout_signature_cstr<Circle>() << "\n";
+    std::cout << "Circle Definition: " << get_definition_signature_cstr<Circle>() << "\n\n";
     
     // --- Mixed access ---
     std::cout << "--- Mixed Access Specifiers ---\n";
-    std::cout << "MixedAccess: " << get_layout_signature_cstr<MixedAccess>() << "\n\n";
+    std::cout << "MixedAccess Layout:     " << get_layout_signature_cstr<MixedAccess>() << "\n";
+    std::cout << "MixedAccess Definition: " << get_definition_signature_cstr<MixedAccess>() << "\n\n";
     
     // --- Primitives ---
-    std::cout << "--- Primitive Types ---\n";
+    std::cout << "--- Primitive Types (both layers identical) ---\n";
     std::cout << "int32_t: " << get_layout_signature_cstr<int32_t>() << "\n";
     std::cout << "double:  " << get_layout_signature_cstr<double>() << "\n";
     std::cout << "void*:   " << get_layout_signature_cstr<void*>() << "\n\n";
     
     // --- Layout compatibility ---
     std::cout << "--- Layout Compatibility ---\n";
-    std::cout << "Point == Vec2: " << (signatures_match<Point, Vec2>() ? "yes" : "no") << "\n";
-    
-    Point p{10, 20};
-    Vec2 v{30, 40};
-    send_point(p);
-    send_point(v);
+    std::cout << "Point == Vec2 (Layout)?      " 
+              << (layout_signatures_match<Point, Vec2>() ? "YES" : "NO") << "\n";
+    std::cout << "Point == Vec2 (Definition)?  " 
+              << (definition_signatures_match<Point, Vec2>() ? "YES" : "NO") << "\n";
     
     // --- Layout hashes ---
     std::cout << "\n--- Layout Hashes ---\n";
     std::cout << "Point hash:  0x" << std::hex << POINT_LAYOUT_HASH << "\n";
     std::cout << "Entity hash: 0x" << get_layout_hash<Entity>() << std::dec << "\n";
     
-    process_point_data(p);
-    process_point_data(v);
-    
     std::cout << "\n=== All compile-time checks passed! ===\n";
-    std::cout << "TypeLayout fully supports classes, inheritance, and polymorphism.\n";
+    std::cout << "TypeLayout v2.0: Layout=project(Definition)\n";
     return 0;
 }

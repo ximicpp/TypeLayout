@@ -5,32 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-02-07
 
 ### Added
-- Boost 标准差距分析报告
-- CTest 集成支持
-- 贡献指南和 Issue 模板
-- **Signature Modes**: `SignatureMode::Structural` (default) and `SignatureMode::Annotated`
+- **Two-Layer Signature System**: Mathematically grounded architecture
+  - **Layout layer** (`get_layout_signature<T>()`): Pure byte layout, flattened inheritance, no names
+  - **Definition layer** (`get_definition_signature<T>()`): Full type definition tree, with names and inheritance
+- Mathematical relationship: `Layout = project(Definition)`, `definition_match ⟹ layout_match`
 - New API functions:
-  - `get_structural_signature<T>()` - Layout-only signature (no member names)
-  - `get_annotated_signature<T>()` - Includes member/type names for debugging
-  - `get_layout_signature<T, Mode>()` - Signature with explicit mode parameter
-- Test suite: `test_signature_modes.cpp` validating name-independence
+  - `get_layout_signature<T>()` / `get_layout_hash<T>()` / `layout_signatures_match<T, U>()`
+  - `get_definition_signature<T>()` / `get_definition_hash<T>()` / `definition_signatures_match<T, U>()`
+  - `get_layout_verification<T>()` / `get_definition_verification<T>()` — dual-hash verification
+  - `layout_verifications_match<T, U>()` / `definition_verifications_match<T, U>()`
+  - `get_layout_signature_cstr<T>()` / `get_definition_signature_cstr<T>()` — C-string for runtime
+- New concepts: `LayoutCompatible`, `LayoutHashCompatible`, `DefinitionCompatible`, `DefinitionHashCompatible`
+- New macros: `TYPELAYOUT_ASSERT_LAYOUT_COMPATIBLE`, `TYPELAYOUT_BIND_LAYOUT`, `TYPELAYOUT_ASSERT_DEFINITION_COMPATIBLE`, `TYPELAYOUT_BIND_DEFINITION`
+- Variable templates: `layout_signature_v<T>`, `layout_hash_v<T>`, `definition_signature_v<T>`, `definition_hash_v<T>`
+- Comprehensive test suite: `test_two_layer.cpp` with 30+ assertions
+- Tool support: `typelayout-tool generate --layer layout|definition|both`
 
 ### Changed
-- 位域类型现在被允许序列化（基于签名驱动模型）
-- **BREAKING**: Default signature mode changed to `Structural` (excludes member names)
-  - **Migration**: Use `get_annotated_signature<T>()` if you need member names in output
-  - **Impact**: Types with identical layouts but different field names now produce matching signatures
-- `get_layout_hash<T>()` now always uses Structural mode (name-independent)
-- `signatures_match<T, U>()` now always uses Structural mode
-- All `LayoutCompatible` and `LayoutHashCompatible` concepts use Structural mode
+- **BREAKING**: Replaced three-mode system (Structural/Physical/Annotated) with two-layer system (Layout/Definition)
+- **BREAKING**: `SignatureMode` enum changed from `{Structural, Physical, Annotated}` to `{Layout, Definition}`
+- **BREAKING**: Removed all v1.0 API functions:
+  - `signatures_match` → `layout_signatures_match`
+  - `hashes_match` → `layout_hashes_match`
+  - `verifications_match` → `layout_verifications_match`
+  - `physical_signatures_match` → `layout_signatures_match` (Layout layer now does inheritance flattening)
+  - `get_structural_signature` → `get_layout_signature`
+  - `get_annotated_signature` → `get_definition_signature`
+  - `LayoutMatch` concept → removed (use `TYPELAYOUT_BIND_LAYOUT` macro)
+  - `LayoutHashMatch` concept → removed (use direct hash comparison)
+  - `TYPELAYOUT_BIND` → `TYPELAYOUT_BIND_LAYOUT`
+- All class/struct types now use unified `record` prefix (removed `struct`/`class` distinction)
+- Version bumped to 2.0.0
 
-### Fixed
-- **Signature semantics bug**: Previously, member names were included in signatures, causing
-  types with identical memory layouts but different field names to be considered incompatible.
-  This violated the core guarantee "Identical signature ⟺ Identical memory layout".
+### Removed
+- `SignatureMode::Structural` (replaced by `SignatureMode::Layout`)
+- `SignatureMode::Physical` (merged into `SignatureMode::Layout`)
+- `SignatureMode::Annotated` (replaced by `SignatureMode::Definition`)
+- All deprecated v1.0 API functions and concepts
+
+## [Unreleased]
 
 ## [0.1.0] - 2025-01-15
 

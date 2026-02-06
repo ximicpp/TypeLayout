@@ -1,12 +1,13 @@
-// Boost.TypeLayout
+// Boost.TypeLayout v2.0
 //
 // Primary Include Header
 //
-// This header provides the complete layout signature engine:
-// - Compile-time layout signature generation
+// This header provides the two-layer signature engine:
+// - Layer 1 (Layout):     Pure byte layout, flattened, no names
+// - Layer 2 (Definition): Full type definition, tree, with names
 // - P2996 static reflection based type introspection
 // - Binary compatibility verification
-// - Layout concepts (LayoutCompatible, LayoutMatch)
+// - Layout concepts (LayoutCompatible, DefinitionCompatible)
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
@@ -31,7 +32,7 @@
 // Verification utilities
 #include <boost/typelayout/core/verification.hpp>
 
-// Core concepts: LayoutCompatible, LayoutMatch
+// Core concepts: LayoutCompatible, DefinitionCompatible
 #include <boost/typelayout/core/concepts.hpp>
 
 #endif // BOOST_TYPELAYOUT_HPP

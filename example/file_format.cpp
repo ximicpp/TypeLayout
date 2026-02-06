@@ -1,12 +1,16 @@
-// Boost.TypeLayout - File Format Verification Example
+// Boost.TypeLayout - File Format Verification Example (v2.0)
 //
-// This example demonstrates how to use TypeLayout for runtime verification
-// of file data formats, ensuring compatibility between writer and reader.
+// This example demonstrates how to use TypeLayout's Layout layer for runtime
+// verification of file data formats, ensuring compatibility between writer
+// and reader.
 //
 // Key concepts:
-// - Embed layout hash in file header
+// - Embed layout hash in file header (Layout layer — pure byte identity)
 // - Verify hash when loading file
 // - Handle format version upgrades
+//
+// Uses Layout layer because file format cares about byte layout,
+// not type definition structure.
 
 #include <boost/typelayout/typelayout.hpp>
 #include <cstdint>

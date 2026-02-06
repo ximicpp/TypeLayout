@@ -1,12 +1,15 @@
-// Boost.TypeLayout - Network Protocol Verification Example
+// Boost.TypeLayout - Network Protocol Verification Example (v2.0)
 //
-// This example demonstrates how to use TypeLayout for runtime verification
-// of network protocol messages between sender and receiver.
+// This example demonstrates how to use TypeLayout's Layout layer for runtime
+// verification of network protocol messages between sender and receiver.
 //
 // Key concepts:
-// - Embed layout hash in packet header
+// - Embed layout hash in packet header (Layout layer — pure byte identity)
 // - Verify hash at runtime before processing
 // - Handle version mismatches gracefully
+//
+// Uses Layout layer because network protocol cares about byte layout,
+// not type definition structure (inheritance, field names, etc.)
 
 #include <boost/typelayout/typelayout.hpp>
 #include <cstdint>

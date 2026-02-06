@@ -1,6 +1,6 @@
 # ABI Identity: Core Value Analysis
 
-> This document provides a deep analysis of what Boost.TypeLayout's structural signature truly encodes and the precise boundaries of its guarantees.
+> This document provides a deep analysis of what Boost.TypeLayout's two-layer signature system encodes and the precise boundaries of its guarantees.
 
 ## Executive Summary
 
@@ -8,146 +8,190 @@ The core module's fundamental proposition:
 
 > **Encode a C++ type's ABI identity into a compile-time deterministic string, transforming layout compatibility from implicit compiler behavior into an explicit, assertable compile-time property.**
 
-Key insight: Signatures encode **type ABI identity** (layout + structural properties), not just byte-level memory layout. This is stricter than raw byte comparison, but this strictness is exactly what ABI safety requires.
+TypeLayout v2.0 provides two complementary layers of analysis:
+- **Layout Signature**: Pure byte-level identity (flattened, name-erased)
+- **Definition Signature**: Full type structural definition (tree, with names)
+
+Mathematical relationship: `Layout = project(Definition)` — many Definition signatures may project to the same Layout signature.
+
+## Two-Layer Architecture
+
+### Layer 1: Layout Signature
+
+Layout signatures capture pure byte-level identity:
+- Uses `record` prefix for all class/struct types
+- Flattens inheritance hierarchy into absolute offsets
+- Excludes field names, base class names, and structural markers
+- **Guarantee**: Identical byte layout → Identical signature
+
+```
+[64-le]record[s:16,a:8]{@0:i32[s:4,a:4],@8:f64[s:8,a:8]}
+```
+
+### Layer 2: Definition Signature
+
+Definition signatures capture complete type structure:
+- Uses `record` prefix for all class/struct types
+- Preserves inheritance tree with `~base<Name>` / `~vbase<Name>` subtrees
+- Includes field names as `@OFF[name]:TYPE`
+- Includes `polymorphic` marker for types with virtual functions
+- Excludes the outer type's own name (redundant with template parameter)
+
+```
+[64-le]record[s:16,a:8]{~base<Base>:record[s:4,a:4]{@0[x]:i32[s:4,a:4]},@8[y]:f64[s:8,a:8]}
+```
+
+### Projection Relationship
+
+```
+Definition Signature ──project()──→ Layout Signature
+    (many)                              (one)
+
+definition_match(T, U) ⟹ layout_match(T, U)
+layout_match(T, U) ⇏ definition_match(T, U)
+```
 
 ## Core Guarantee
 
-### The Guarantee is Unidirectional
+### Layout Layer Guarantee
 
-**Signatures match → Layouts compatible (Soundness)**: ✅ Holds
+```
+layout_signatures_match<T, U>()
+    ⟹ sizeof(T) == sizeof(U)
+    ∧ alignof(T) == alignof(U)
+    ∧ ∀ corresponding flattened fields: offset, size, type category match
+```
 
-If two types have identical Structural signatures, they have identical size, alignment, field offsets, and field types on the current platform.
+**Completeness**: Layout-identical types will always match (inheritance is flattened, names are erased).
 
-**Layouts identical → Signatures match (Completeness)**: ❌ Does NOT hold
+### Definition Layer Guarantee
 
-Counter-example:
+```
+definition_signatures_match<T, U>()
+    ⟹ layout_signatures_match<T, U>()
+    ∧ inheritance structure is identical
+    ∧ field names match at each position
+    ∧ polymorphism markers match
+```
+
+**Strictness**: Structurally different types (different inheritance, different field names) will not match even if their byte layouts are identical.
+
+### Comparison
+
 ```cpp
 struct Base { int x; };
 struct Derived : Base { double y; };
 struct Flat { int x; double y; };
-```
 
-On LP64 platforms, `Derived` and `Flat` have identical byte layouts (int at offset 0, double at offset 8, total size 16, alignment 8), but different signatures:
-- `Derived`: `class[s:16,a:8,inherited]{@0~base:struct[s:4,a:4]{@0:i32[...]},@8:f64[...]}`
-- `Flat`: `struct[s:16,a:8]{@0:i32[...],@8:f64[...]}`
+// Layout layer: IDENTICAL (same bytes at same offsets)
+static_assert(layout_signatures_match<Derived, Flat>());
 
-### Precise Definition
+// Definition layer: DIFFERENT (inheritance vs flat)
+static_assert(!definition_signatures_match<Derived, Flat>());
 
-```
-get_layout_signature<T>() == get_layout_signature<U>()
-    ⟹ sizeof(T) == sizeof(U)
-    ∧ alignof(T) == alignof(U)
-    ∧ ∀ corresponding fields: offset, size, type category match
-    ∧ structural properties (polymorphic, inherited) match
+struct PointA { float x, y; };
+struct PointB { float horizontal, vertical; };
+
+// Layout layer: IDENTICAL (same bytes)
+static_assert(layout_signatures_match<PointA, PointB>());
+
+// Definition layer: DIFFERENT (different field names)
+static_assert(!definition_signatures_match<PointA, PointB>());
 ```
 
 ## What Signatures Encode
 
-### Layer 1: Platform Context
+### Platform Context
 
 Architecture prefix `[64-le]` encodes pointer width and byte order. Types on platforms with different pointer sizes or endianness will never match.
 
-### Layer 2: Size Characteristics
+### Size Characteristics
 
-Every type node carries `[s:SIZE,a:ALIGN]` annotation. For basic types like `i32`, this is redundant. For platform-dependent types (`long double`, `wchar_t`) and compound types, this is essential.
+Every type node carries `[s:SIZE,a:ALIGN]` annotation. For platform-dependent types (`long double`, `wchar_t`) and compound types, this is essential.
 
-### Layer 3: Internal Structure
+### Internal Structure
 
-For structs and unions, signatures encode:
-- Each field's offset and recursive type signature
-- Base class subobject offsets and signatures
-- Fields in declaration order
+For class/struct types (always prefixed `record`):
 
-### Layer 4: Structural Properties (Beyond Byte Layout)
+**Layout mode** encodes:
+- Each field's absolute offset and recursive type signature
+- Fields from all base classes flattened to absolute offsets
+- Declaration order preserved
 
-Signatures additionally encode:
-- `struct` vs `class` distinction (based on polymorphism or inheritance)
+**Definition mode** additionally encodes:
+- Field names (e.g., `@0[field_name]:type`)
+- Base class subtrees (e.g., `~base<ClassName>:record{...}`)
+- Virtual base subtrees (e.g., `~vbase<ClassName>:record{...}`)
 - `polymorphic` flag for types with virtual functions
-- `inherited` flag for types with base classes
-- `~base:` / `~vbase:` prefixes for base class subobjects
 
-## Design Rationale
+### Byte-Array Normalization
 
-### Why Distinguish struct/class?
+`char[32]`, `int8_t[32]`, `uint8_t[32]`, `std::byte[32]`, `char8_t[32]` are identical in memory. Both layers normalize these to `bytes[s:32,a:1]`.
 
-The distinction captures ABI-relevant properties:
+### CV Qualifier Stripping
 
-1. **Polymorphic types have vtable pointers**: Reinterpreting non-polymorphic memory as polymorphic causes undefined behavior—vtable isn't initialized, virtual calls crash.
+`const T`, `volatile T`, and `T` have identical memory layouts. Both layers strip CV qualifiers.
 
-2. **Inheritance affects ABI**: Some platforms use different parameter passing conventions for inherited vs non-inherited types. The `is_trivially_copyable` trait can be affected by inheritance.
+## When to Use Each Layer
 
-3. **Conservative safety**: For ABI verification, false negatives (rejecting compatible types) are safer than false positives (accepting incompatible types).
+| Use Case | Recommended Layer | Why |
+|----------|------------------|-----|
+| Shared memory IPC | **Layout** | Only byte-level match matters |
+| C interop / FFI | **Layout** | C has no inheritance; flat matching ideal |
+| Network protocol | **Layout** | Wire format is byte-level |
+| Binary file format | **Layout** | On-disk layout is byte-level |
+| Plugin ABI contracts | **Definition** | Structural changes are breaking changes |
+| ODR violation detection | **Definition** | Must match type definition exactly |
+| Version evolution | **Definition** | Field name changes indicate semantic changes |
+| Documentation/debugging | **Definition** | Richer, human-readable output |
 
-### Why Include Inheritance Information?
+## Limitations
 
-Even non-polymorphic, non-virtual inheritance affects:
-- Construction/destruction semantics
-- Slicing behavior
-- Some compiler ABIs treat inherited types differently
+### Virtual Inheritance (Layout Layer)
 
-The signature captures "can these types be safely exchanged across boundaries" rather than "do these types have identical bytes."
+Virtual base classes have **runtime-determined offsets** that depend on the most-derived type. Layout mode **skips virtual bases** during flattening. The `sizeof`/`alignof` remain accurate, but the flattened field list may be incomplete for types with virtual inheritance.
 
-### Why Normalize Byte Arrays?
+Definition mode correctly encodes virtual bases as `~vbase<Name>` subtrees.
 
-`char[32]`, `int8_t[32]`, `uint8_t[32]`, `std::byte[32]`, `char8_t[32]` are identical in memory. Normalizing to `bytes[s:32,a:1]` ensures:
-- A library declaring `char buffer[256]`
-- User code treating it as `uint8_t data[256]`
-- Are recognized as compatible
+### Trivially Copyable Property
 
-### Why Strip CV Qualifiers?
+```cpp
+struct A { int x; double y; };                          // trivially copyable
+struct C { int x; double y; C(const C&) {} };           // NOT trivially copyable
+```
 
-`const T`, `volatile T`, and `T` have identical memory layouts. Ignoring CV qualifiers ensures a struct with `const int x` is recognized as layout-compatible with one having `int x`.
+`A` and `C` have **identical signatures at both layers** — TypeLayout examines non-static data members, not constructors/destructors.
 
-## Accurate Value Statement
+TypeLayout signature match guarantees "data occupies the same bytes" but NOT "functions can be safely called interchangeably."
 
-The library's core value should be stated as:
+## Precise Positioning
 
-> **Signatures encode a type's structural layout identity. Matching signatures guarantee that types have field-level layout isomorphism—same offsets, same sizes, same field types—not that they can be safely memcpy'd.**
->
-> **Layout isomorphism is a NECESSARY but not SUFFICIENT condition for safe data exchange. Sufficient conditions also require trivially copyable types, no address-space-sensitive members (pointers, handles), and no compiler-managed implicit pointers (vtables).**
+TypeLayout is a **structural layout introspection and consistency verification tool**.
 
-### What "Layout Isomorphism" Means
+### Two-Layer Application Model
 
-If `get_layout_signature<T>() == get_layout_signature<U>()`, then:
-- `sizeof(T) == sizeof(U)`
-- `alignof(T) == alignof(U)`
-- Every field of T has a corresponding field in U at the same offset with the same type
+**Layout Layer Use** (Data exchange):
+- Shared memory, FFI, serialization, network protocols
+- Answer: "Do these types occupy memory identically?"
+- Layout match is NECESSARY for safe data exchange
 
-This is a **structural equivalence** guarantee, not a **usage safety** guarantee.
+**Definition Layer Use** (ABI contracts):
+- Plugin systems, cross-version compatibility, ODR detection
+- Answer: "Are these types structurally identical definitions?"
+- Definition match provides stricter guarantees
 
-## Implications for Users
+### What TypeLayout Guarantees
 
-### Safe Use Cases
+> **If Layout signatures match, every byte at every offset means the same thing in both types.**
 
-1. **ABI stability checking**: Compare current type signature against a known baseline
-2. **Cross-compilation-unit verification**: Ensure both sides of an interface agree on layout
-3. **Serialization validation**: Verify serialized data matches current type layout
+> **If Definition signatures match, the types also share identical structural definitions (inheritance, field names, polymorphism).**
 
-### Potential Surprises
+### What TypeLayout Does NOT Guarantee
 
-1. **Flat struct vs inherited struct**: Even with identical fields and layouts, these will have different signatures
-2. **Empty base optimization**: A derived class with an empty base and a flat struct with the same fields will differ
-3. **Type aliases**: Handled correctly—`int32_t` and `int` (when same) produce identical signatures
-
-## Technical Implementation Notes
-
-### P2996 Reflection Limitations
-
-The current implementation calls `nonstatic_data_members_of()` O(n) times for n members due to toolchain limitations (vector return type incompatible with `template for`). This hits constexpr step limits for structs with >40-50 members.
-
-### Platform-Dependent Type Handling
-
-Types like `long double` use `format_size_align()` to encode actual `sizeof`/`alignof` values rather than hardcoded strings. The `f80` prefix may be misleading on platforms where `long double` is 64-bit, but soundness is preserved through the size/alignment suffix.
-
-## Conclusion
-
-Boost.TypeLayout provides a sound, automatic mechanism for ABI identity verification. Its guarantees are:
-
-- **Deterministic**: Same type + same platform → same signature
-- **Sound**: Matching signatures → compatible layouts
-- **Not Complete**: Compatible layouts ↛ matching signatures (by design)
-
-This incompleteness is a feature, not a bug—it provides conservative ABI safety by encoding structural properties that affect type interchangeability beyond raw byte patterns.
+- Safe memcpy (requires trivially copyable)
+- Safe pointer dereference after copy (requires no address-sensitive members)
+- Safe virtual function calls after copy (requires same vtable)
+- Safe cross-ABI function calls (requires calling convention match)
 
 ---
 
@@ -386,4 +430,3 @@ This is a **layout identity** guarantee, not a **usage safety** guarantee.
 - Safe pointer dereference after copy (requires no address-sensitive members)
 - Safe virtual function calls after copy (requires same vtable)
 - Safe cross-ABI function calls (requires calling convention match)
-

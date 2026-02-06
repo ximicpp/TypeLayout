@@ -1,8 +1,8 @@
-// typelayout_tool.cpp
+// typelayout_tool.cpp — v2.0 Two-Layer Signature Tool
 // Signature generation and comparison tool
 //
 // Usage:
-//   typelayout-tool generate [-o FILE]
+//   typelayout-tool generate [--layer layout|definition] [-o FILE]
 //   typelayout-tool compare FILE1 FILE2 [...]
 //
 // Build:
@@ -59,7 +59,8 @@ struct Config {
 
 struct SignatureEntry {
     const char* type_name;
-    const char* signature;
+    const char* layout_sig;
+    const char* definition_sig;
 };
 
 // Get type name using reflection (P2996 Bloomberg fork API)
@@ -74,7 +75,8 @@ constexpr auto make_signatures_impl(std::index_sequence<Is...>) {
     return std::array<SignatureEntry, sizeof...(Is)>{{
         SignatureEntry{
             get_type_name<std::tuple_element_t<Is, Tuple>>().data(),
-            get_layout_signature_cstr<std::tuple_element_t<Is, Tuple>>()
+            get_layout_signature_cstr<std::tuple_element_t<Is, Tuple>>(),
+            get_definition_signature_cstr<std::tuple_element_t<Is, Tuple>>()
         }...
     }};
 }
@@ -104,7 +106,7 @@ constexpr size_t g_signature_count = std::tuple_size_v<ExportTypes>;
 // Generate Command
 // ============================================================================
 
-int cmd_generate(const char* output_file) {
+int cmd_generate(const char* output_file, const std::string& layer) {
     std::ofstream file;
     std::ostream* out = &std::cout;
     
@@ -118,10 +120,19 @@ int cmd_generate(const char* output_file) {
     }
     
     for (const auto& e : g_signatures) {
-        *out << e.type_name << " " << e.signature << "\n";
+        if (layer == "layout") {
+            *out << e.type_name << " " << e.layout_sig << "\n";
+        } else if (layer == "definition") {
+            *out << e.type_name << " " << e.definition_sig << "\n";
+        } else {
+            // Both layers
+            *out << e.type_name << " [layout] " << e.layout_sig << "\n";
+            *out << e.type_name << " [definition] " << e.definition_sig << "\n";
+        }
     }
     
-    std::cerr << "Generated " << g_signature_count << " signatures\n";
+    std::cerr << "Generated " << g_signature_count << " type signatures"
+              << " (layer: " << layer << ")\n";
     return 0;
 }
 
@@ -199,8 +210,13 @@ int cmd_compare(int file_count, char* files[]) {
 
 void print_usage(const char* prog) {
     std::cerr << "Usage:\n";
-    std::cerr << "  " << prog << " generate [-o FILE]\n";
+    std::cerr << "  " << prog << " generate [--layer layout|definition|both] [-o FILE]\n";
     std::cerr << "  " << prog << " compare FILE1 FILE2 [...]\n";
+    std::cerr << "\n";
+    std::cerr << "Layers:\n";
+    std::cerr << "  layout      Pure byte layout (flattened, no names)\n";
+    std::cerr << "  definition  Full type definition (tree, with names)\n";
+    std::cerr << "  both        Output both layers (default)\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -213,10 +229,22 @@ int main(int argc, char* argv[]) {
     
     if (cmd == "generate") {
         const char* output = nullptr;
-        if (argc >= 4 && std::string(argv[2]) == "-o") {
-            output = argv[3];
+        std::string layer = "both";
+        
+        for (int i = 2; i < argc; ++i) {
+            std::string arg = argv[i];
+            if (arg == "-o" && i + 1 < argc) {
+                output = argv[++i];
+            } else if (arg == "--layer" && i + 1 < argc) {
+                layer = argv[++i];
+                if (layer != "layout" && layer != "definition" && layer != "both") {
+                    std::cerr << "Error: invalid layer '" << layer << "'\n";
+                    print_usage(argv[0]);
+                    return 1;
+                }
+            }
         }
-        return cmd_generate(output);
+        return cmd_generate(output, layer);
     }
     
     if (cmd == "compare") {

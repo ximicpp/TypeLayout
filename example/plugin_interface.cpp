@@ -1,9 +1,13 @@
-// Boost.TypeLayout
+// Boost.TypeLayout (v2.0)
 //
 // Plugin/DLL Interface Verification Example
 //
 // This example demonstrates TypeLayout's ability to detect ABI mismatches
 // when loading plugins or dynamic libraries at runtime.
+//
+// Uses Layout layer for byte-level compatibility verification.
+// (For stricter ABI checking, consider Definition layer hashes which
+// also verify field names and inheritance structure.)
 //
 // Problem Solved:
 //   When a host application loads a plugin (DLL/SO), they must agree on

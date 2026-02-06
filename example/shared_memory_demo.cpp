@@ -1,9 +1,11 @@
-// Boost.TypeLayout
+// Boost.TypeLayout (v2.0)
 //
 // Killer Application Demo: Cross-Process Shared Memory Verification
 //
 // This example demonstrates TypeLayout's #1-A killer application:
 // Zero-overhead layout validation for shared memory IPC.
+//
+// Uses Layout layer — pure byte identity for data exchange.
 //
 // Problem Solved:
 //   When two processes share memory, they must agree on the struct layout.

@@ -8,7 +8,7 @@
 > Verify that types have identical memory layouts — at compile time, with zero overhead.
 
 ```cpp
-static_assert(signatures_match<MyStruct, TheirStruct>());  // ✓ Same layout = Safe to share memory
+static_assert(layout_signatures_match<MyStruct, TheirStruct>());  // ✓ Same layout = Safe to share memory
 ```
 
 ## The Problem
@@ -27,106 +27,115 @@ Traditional solutions require tedious manual `static_assert` chains, external co
 
 ```cpp
 #include <boost/typelayout.hpp>
+using namespace boost::typelayout;
 
 struct Message { uint32_t id; uint64_t timestamp; };
 
-// Complete layout captured as a human-readable string
-constexpr auto sig = boost::typelayout::get_layout_signature<Message>();
-// → "[64-le]struct[s:16,a:8]{@0[id]:u32[s:4,a:4],@8[timestamp]:u64[s:8,a:8]}"
+// Layout signature: pure byte-level identity
+constexpr auto layout = get_layout_signature<Message>();
+// → "[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:u64[s:8,a:8]}"
+
+// Definition signature: full type structure with field names
+constexpr auto defn = get_definition_signature<Message>();
+// → "[64-le]record[s:16,a:8]{@0[id]:u32[s:4,a:4],@8[timestamp]:u64[s:8,a:8]}"
 
 // Verify at compile time — mismatches become build errors
-static_assert(LayoutHashMatch<Message, 0x1234567890ABCDEF>);
+TYPELAYOUT_BIND_LAYOUT(Message, "[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:u64[s:8,a:8]}");
 ```
 
-**Core guarantee**: *Identical structural signature → Identical ABI layout*
+## Two-Layer Signature System (v2.0)
 
-> **Note**: TypeLayout provides three signature modes: **Structural** (default) captures ABI layout including inheritance hierarchy and polymorphism markers; **Physical** captures pure byte-level layout with inheritance flattened; **Annotated** includes member names for debugging. Member names are excluded in both Structural and Physical modes so types with identical layouts but different field names are considered compatible.
->
-> **Why three modes?** Structural mode is the safe default — it preserves inheritance and polymorphism information critical for ABI safety (vtable layout, type-safe casting). Physical mode relaxes this by flattening inheritance, making `Derived : Base { int x; }` and `Flat { int x; }` equivalent when they share the same memory layout — ideal for C interop and flat data buffers. Annotated mode adds member names for diagnostics.
+TypeLayout v2.0 introduces a mathematically grounded two-layer architecture:
+
+```
+Definition Signature ──project()──→ Layout Signature
+    (many)                              (one)
+```
+
+| Layer | Purpose | Inheritance | Field Names | Use Case |
+|-------|---------|-------------|-------------|----------|
+| **Layout** | Pure byte identity | Flattened | Excluded | Shared memory, FFI, serialization |
+| **Definition** | Full type definition | Preserved as tree | Included | Plugin ABI, ODR detection, version evolution |
+
+**Mathematical guarantee**: `definition_match(T,U) ⟹ layout_match(T,U)` (but not vice versa)
+
+```cpp
+struct Base { int x; };
+struct Derived : Base { int y; };
+struct Flat { int x; int y; };
+
+// Layout layer: same bytes → match
+static_assert(layout_signatures_match<Derived, Flat>());   // ✅ Same memory layout
+
+// Definition layer: different structure → no match
+static_assert(!definition_signatures_match<Derived, Flat>()); // ❌ Different type definition
+
+// Field names matter in Definition layer
+struct PointA { float x, y; };
+struct PointB { float horizontal, vertical; };
+
+static_assert(layout_signatures_match<PointA, PointB>());       // ✅ Same layout
+static_assert(!definition_signatures_match<PointA, PointB>());  // ❌ Different field names
+```
+
+### Choosing a Layer
+
+| Use Case | Recommended Layer |
+|----------|-----------------|
+| Shared memory IPC | **Layout** (byte-level match is sufficient) |
+| C interop / FFI | **Layout** (C has no inheritance) |
+| Network protocol | **Layout** (byte identity matters) |
+| Plugin ABI contracts | **Definition** (structure changes are breaking) |
+| ODR violation detection | **Definition** (must match exactly) |
+| Version evolution tracking | **Definition** (field names track changes) |
 
 ## Core Value: Safe Data Sharing Across Boundaries
 
 > **Same Signature = Same Memory Layout = Safe to Share**
 
-TypeLayout's core value is enabling **zero-copy data sharing** across three critical boundaries:
-
 ### 🔄 Cross-Process (Shared Memory / IPC)
 
 ```cpp
-// Process A: Writer
 struct Packet { uint32_t id; uint64_t timestamp; char data[64]; };
-constexpr auto PACKET_SIG = get_layout_signature<Packet>();
 
+// Process A: Writer
 void* shm = shm_open("packets", ...);
 auto* packet = new (shm) Packet{42, now(), "hello"};
 
-// Process B: Reader (same signature = safe to read)
-static_assert(get_layout_signature<Packet>() == PACKET_SIG);  // Compile-time guarantee
-auto* packet = static_cast<Packet*>(shm_open("packets", ...));
+// Process B: Reader (same layout hash = safe to read)
+if (header->layout_hash != get_layout_hash<Packet>()) {
+    throw std::runtime_error("Layout mismatch!");
+}
+auto* packet = static_cast<Packet*>(shm_data);
 // ✅ Safe: Both processes have identical memory layout
 ```
-
-**Without TypeLayout**: Layout mismatch causes silent data corruption, crashes, or heisenbugs that only appear in production.
 
 ### 🌐 Cross-Machine (Network / Files)
 
 ```cpp
-// Machine A: x86_64 Linux
 struct Config { int32_t version; float threshold; };
+
+// x86_64 Linux
 constexpr auto sig_a = get_layout_signature<Config>();
-// → "[64-le]struct[s:8,a:4]{@0[version]:i32[s:4,a:4],@4[threshold]:f32[s:4,a:4]}"
+// → "[64-le]record[s:8,a:4]{@0:i32[s:4,a:4],@4:f32[s:4,a:4]}"
 
-// Machine B: ARM64 Linux (same ABI)
-constexpr auto sig_b = get_layout_signature<Config>();
-static_assert(sig_a == sig_b);  // ✅ Safe to transfer binary data
-
-// Machine C: 32-bit Windows (different layout!)
-constexpr auto sig_c = get_layout_signature<Config>();
-// → "[32-le]struct[s:8,a:4]{...}"  // Different prefix!
-static_assert(sig_a != sig_c);  // ⚠️ Build error: Layout mismatch detected
+// 32-bit Windows (different layout!)
+// → "[32-le]record[s:8,a:4]{...}"  // Different prefix!
+// Signature comparison catches this at compile time
 ```
-
-**The signature captures**:
-- Pointer size (32/64-bit)
-- Endianness (little/big)
-- Type sizes and alignments
-- Padding bytes (implicit via offsets)
 
 ### ⏳ Cross-Time (Binary Compatibility)
 
 ```cpp
-// Version 1.0 (2024)
+// Version 1.0
 struct UserData_v1 { int32_t id; char name[32]; };
 constexpr uint64_t V1_HASH = get_layout_hash<UserData_v1>();
-// Store V1_HASH in file header for future verification
 
-// Version 2.0 (2026) - struct changed!
-struct UserData_v2 { int32_t id; char name[64]; };  // name expanded
+// Version 2.0 — struct changed!
+struct UserData_v2 { int32_t id; char name[64]; };
 constexpr uint64_t V2_HASH = get_layout_hash<UserData_v2>();
-// V1_HASH != V2_HASH → File format version mismatch detected at compile time
-
-// Safe file reading with version check
-template<typename T, uint64_t ExpectedHash>
-T* read_binary_file(const char* path) {
-    auto header = read_header(path);
-    if (header.layout_hash != ExpectedHash) {
-        throw std::runtime_error("File format version mismatch");
-    }
-    return static_cast<T*>(map_file_data(path));
-}
+// V1_HASH != V2_HASH → Detected at compile time
 ```
-
-### Summary: What the Signature Guarantees
-
-| If signatures match | Guaranteed |
-|---------------------|------------|
-| Same `sizeof` | ✅ |
-| Same `alignof` | ✅ |
-| Same member offsets | ✅ |
-| Same padding distribution | ✅ |
-| Same bit-field layout | ✅ |
-| Safe binary copy | ✅ |
-| Safe pointer cast | ✅ |
 
 ## Why TypeLayout vs Alternatives?
 
@@ -148,6 +157,7 @@ T* read_binary_file(const char* path) {
 | Feature | Description |
 |---------|-------------|
 | **Zero annotation** | Works with any type—including third-party and STL |
+| **Two-layer signatures** | Layout (bytes) and Definition (structure) |
 | **Complete layout** | Captures offsets, padding, bit-fields, inheritance, vtables |
 | **Zero runtime cost** | All analysis at compile time |
 | **Dual-hash verification** | FNV-1a + DJB2 for robust collision resistance |
@@ -155,125 +165,75 @@ T* read_binary_file(const char* path) {
 
 ## How It Works
 
-<p align="center">
-  <img src="doc/diagrams/signature_guarantee.svg" alt="Same Signature = Same Layout" width="700">
-</p>
-
 TypeLayout generates a **canonical layout signature** that captures every detail affecting memory interpretation:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  [64-le]struct[s:16,a:8]{@0[id]:u32[s:4,a:4],@8[ts]:u64[s:8,a:8]}  │
-│   ▲  ▲    ▲      ▲   ▲   ▲      ▲                                 │
+┌────────────────────────────────────────────────────────────────────┐
+│  [64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:u64[s:8,a:8]}       │
+│   ▲  ▲    ▲      ▲   ▲   ▲      ▲                                │
 │   │  │    │      │   │   │      └── Member type details           │
 │   │  │    │      │   │   └── Field offset                         │
 │   │  │    │      │   └── Overall alignment                        │
 │   │  │    │      └── Overall size                                 │
-│   │  │    └── Type category                                       │
+│   │  │    └── Type category (record for all class/struct)         │
 │   │  └── Endianness (le/be)                                       │
 │   └── Pointer size (32/64)                                        │
-└─────────────────────────────────────────────────────────────────┘
+└────────────────────────────────────────────────────────────────────┘
 ```
 
-**If two types have identical signatures, they have identical memory layouts** — regardless of member name, namespace, or source file.
-
-### Signature Modes
-
-TypeLayout provides three signature modes:
-
-| Mode | Default | Purpose | Inheritance | Member Names |
-|------|---------|---------|-------------|--------------|
-| **Structural** | ✅ Yes | ABI-safe layout comparison | Preserved | Excluded |
-| **Physical** | No | Byte-level layout comparison | Flattened | Excluded |
-| **Annotated** | No | Debugging & diagnostics | Preserved | Included |
-
-```cpp
-struct Base { int x; };
-struct Derived : Base { double y; };
-struct Flat { int x; double y; };
-
-// Structural mode (default) — inheritance preserved
-static_assert(!signatures_match<Derived, Flat>());  // ❌ Different structure
-
-// Physical mode — inheritance flattened, byte-level comparison
-static_assert(physical_signatures_match<Derived, Flat>());  // ✅ Same memory layout
-
-struct PointA { float x, y; };
-struct PointB { float horizontal, vertical; };  // Same layout, different names
-
-// Both Structural and Physical modes exclude names
-constexpr auto sig_a = get_structural_signature<PointA>();
-constexpr auto sig_b = get_structural_signature<PointB>();
-static_assert(sig_a == sig_b);  // ✅ PASS: Same layout
-
-// Annotated mode — names included (for debugging)
-constexpr auto ann_a = get_annotated_signature<PointA>();
-constexpr auto ann_b = get_annotated_signature<PointB>();
-static_assert(ann_a != ann_b);  // Different names visible
-```
-
-#### Choosing a Mode
-
-| Use Case | Recommended Mode |
-|----------|-----------------|
-| Plugin ABI contracts | **Structural** (inheritance changes are breaking) |
-| Shared memory IPC (POD types) | **Structural** or **Physical** |
-| C interop / FFI | **Physical** (C has no inheritance) |
-| Flat buffer / hardware register overlays | **Physical** |
-| Migrating inherited → flat types | **Physical** (verify equivalence) |
-| Debugging layout issues | **Annotated** |
-
-**Rule**: Default comparisons (`signatures_match`, `hashes_match`, concepts) use **Structural mode**. Use `physical_signatures_match` / `physical_hashes_match` for Physical mode comparisons.
-
-## Why TypeLayout?
-
-| Metric | Manual `static_assert` | TypeLayout |
-|--------|------------------------|------------|
-| Coverage | ~60% (easy to miss fields) | 100% |
-| Code per struct | 10-20 lines | 1 line |
-| Maintenance | Update on every change | Automatic |
-| Bug discovery | Runtime crash | Compile time |
-
-**Estimated savings**: ~110 hours/year for a project with 50 critical structures.
-
-## Use Cases
-
-| Priority | Scenario | Why Critical |
-|----------|----------|--------------|
-| 🔴 High | **Shared Memory IPC** | Direct memory access; layout *must* match |
-| 🔴 High | **Plugin Systems** | ABI compatibility prevents crashes |
-| 🟠 Medium | **Network Protocols** | Version mismatch detection |
-| 🟠 Medium | **Binary Files** | Long-term storage compatibility |
+**If two types have identical Layout signatures, they have identical memory layouts** — regardless of member name, namespace, inheritance, or source file.
 
 ## API Reference
 
-### Functions
+### Functions (Layer 1: Layout)
 
 | Function | Description |
 |----------|-------------|
-| `get_layout_signature<T, Mode>()` | Layout signature with mode (default: Structural) |
-| `get_structural_signature<T>()` | Structural signature (no names, for comparison) |
-| `get_physical_signature<T>()` | Physical signature (flattened, byte-level) |
-| `get_annotated_signature<T>()` | Annotated signature (with names, for debugging) |
+| `get_layout_signature<T>()` | Layout signature (flattened, no names) |
 | `get_layout_signature_cstr<T>()` | C-string pointer (static storage) |
-| `get_layout_hash<T>()` | 64-bit FNV-1a hash (always Structural) |
-| `get_physical_hash<T>()` | 64-bit FNV-1a hash (Physical mode) |
-| `signatures_match<T, U>()` | Check structural layout compatibility |
-| `physical_signatures_match<T, U>()` | Check physical (byte-level) layout compatibility |
-| `hashes_match<T, U>()` | Fast structural hash comparison |
-| `physical_hashes_match<T, U>()` | Fast physical hash comparison |
+| `get_layout_hash<T>()` | 64-bit FNV-1a hash |
+| `layout_signatures_match<T, U>()` | Check byte-level layout compatibility |
+| `layout_hashes_match<T, U>()` | Fast hash comparison |
+| `get_layout_verification<T>()` | Dual-hash (FNV-1a + DJB2) verification |
+| `layout_verifications_match<T, U>()` | Dual-hash comparison |
+
+### Functions (Layer 2: Definition)
+
+| Function | Description |
+|----------|-------------|
+| `get_definition_signature<T>()` | Definition signature (tree, with names) |
+| `get_definition_signature_cstr<T>()` | C-string pointer (static storage) |
+| `get_definition_hash<T>()` | 64-bit FNV-1a hash |
+| `definition_signatures_match<T, U>()` | Check structural definition compatibility |
+| `definition_hashes_match<T, U>()` | Fast hash comparison |
+| `get_definition_verification<T>()` | Dual-hash verification |
+| `definition_verifications_match<T, U>()` | Dual-hash comparison |
 
 ### Concepts
 
 | Concept | Description |
 |---------|-------------|
 | `LayoutSupported<T>` | Type can be analyzed |
-| `LayoutCompatible<T, U>` | Types have identical structural layouts |
-| `PhysicalLayoutCompatible<T, U>` | Types have identical physical (byte-level) layouts |
-| `LayoutMatch<T, Sig>` | Layout matches expected signature |
-| `LayoutHashMatch<T, Hash>` | Layout hash matches expected value |
-| `LayoutHashCompatible<T, U>` | Types have matching structural hashes |
-| `PhysicalHashCompatible<T, U>` | Types have matching physical hashes |
+| `LayoutCompatible<T, U>` | Types have identical Layout (byte-level) signatures |
+| `LayoutHashCompatible<T, U>` | Types have matching Layout hashes |
+| `DefinitionCompatible<T, U>` | Types have identical Definition signatures |
+| `DefinitionHashCompatible<T, U>` | Types have matching Definition hashes |
+
+### Macros
+
+| Macro | Description |
+|-------|-------------|
+| `TYPELAYOUT_ASSERT_LAYOUT_COMPATIBLE(T1, T2)` | Assert Layout match |
+| `TYPELAYOUT_BIND_LAYOUT(T, Sig)` | Bind type to expected Layout signature |
+| `TYPELAYOUT_ASSERT_DEFINITION_COMPATIBLE(T1, T2)` | Assert Definition match |
+| `TYPELAYOUT_BIND_DEFINITION(T, Sig)` | Bind type to expected Definition signature |
+
+### Collision Detection
+
+| Function | Description |
+|----------|-------------|
+| `no_hash_collision<Types...>()` | Verify no Layout hash collisions in type library |
+| `no_verification_collision<Types...>()` | Verify no dual-hash collisions |
 
 ## Type Support
 
@@ -313,9 +273,13 @@ cmake --build build
 
 ```cpp
 template<typename T>
-    requires LayoutHashMatch<T, EXPECTED_HASH>
+    requires LayoutSupported<T>
 T* map_shared_memory(const char* name) {
-    return static_cast<T*>(shm_open_and_map(name));
+    auto* hdr = get_shm_header(name);
+    if (hdr->layout_hash != get_layout_hash<T>()) {
+        throw std::runtime_error("Layout mismatch!");
+    }
+    return static_cast<T*>(hdr->data_ptr);
 }
 ```
 
@@ -324,11 +288,10 @@ T* map_shared_memory(const char* name) {
 ```cpp
 extern "C" PluginAPI* load_plugin(const char* path) {
     auto handle = dlopen(path, RTLD_NOW);
-    auto get_sig = dlsym(handle, "get_plugin_api_signature");
-    auto plugin_sig = reinterpret_cast<const char*(*)()>(get_sig)();
+    auto get_hash = dlsym(handle, "get_api_layout_hash");
+    auto plugin_hash = reinterpret_cast<uint64_t(*)()>(get_hash)();
     
-    constexpr auto host_sig = get_layout_signature<PluginAPI>();
-    if (plugin_sig != host_sig) {
+    if (plugin_hash != get_layout_hash<PluginAPI>()) {
         dlclose(handle);
         throw std::runtime_error("Plugin ABI mismatch!");
     }
@@ -347,70 +310,6 @@ extern "C" PluginAPI* load_plugin(const char* path) {
 | Bit-field layout assumptions | High | Very Hard | ✅ |
 | Padding byte reads | Low | Hard | ✅ |
 
-## CI/CD Integration
-
-```yaml
-# .github/workflows/layout-check.yml
-jobs:
-  layout-compatibility:
-    strategy:
-      matrix:
-        compiler: [gcc-13, gcc-14, clang-17, clang-18]
-    steps:
-      - name: Verify layouts match baseline
-        run: |
-          ./layout_dump > current.txt
-          diff baseline.txt current.txt
-```
-
-## Documentation
-
-- **Online**: https://ximicpp.github.io/TypeLayout
-- **GitHub**: https://github.com/ximicpp/TypeLayout
-
-## License
-
-[Boost Software License 1.0](LICENSE_1_0.txt)
-
-## API Stability
-
-TypeLayout follows the Boost Library Guidelines for API stability:
-
-- **Major version** (1.x → 2.x): May include breaking changes (deprecated APIs removed)
-- **Minor version** (1.0 → 1.1): New features only, full backward compatibility
-- **Patch version** (1.0.0 → 1.0.1): Bug fixes only
-
-### Deprecation Policy
-- APIs are marked `[[deprecated]]` for at least **one minor version** before removal
-- Deprecated APIs include migration guidance in the deprecation message
-- Removal only occurs in major version updates
-
-```cpp
-#include <boost/typelayout/core/config.hpp>
-// BOOST_TYPELAYOUT_VERSION = 100000 (1.0.0)
-// BOOST_TYPELAYOUT_VERSION_MAJOR = 1
-// BOOST_TYPELAYOUT_VERSION_MINOR = 0
-// BOOST_TYPELAYOUT_VERSION_PATCH = 0
-```
-
-## Why Boost, Not std::?
-
-TypeLayout implements **layout verification** — a specialized application of reflection that:
-
-1. **Addresses an immediate need**: C++26 P2996 provides reflection primitives, but no standard facility for layout comparison or hashing
-2. **Enables experimentation**: Library-level implementation allows rapid iteration before potential standardization
-3. **Complements, not replaces**: If layout verification becomes part of a future standard, TypeLayout can adapt or gracefully deprecate
-
-### Relationship to P2996
-
-| Aspect | P2996 (Standard) | TypeLayout (This Library) |
-|--------|------------------|---------------------------|
-| Scope | Reflection primitives | Layout verification application |
-| Timeline | C++26 | Available now (Bloomberg Clang) |
-| Evolution | Slow (ISO process) | Fast (Boost release cycle) |
-
-TypeLayout will track P2996 evolution and maintain compatibility as the standard matures.
-
 ## Performance
 
 ### Compile-Time Overhead
@@ -425,19 +324,6 @@ TypeLayout performs all analysis at **compile time**, meaning **zero runtime cos
 
 **Estimated**: ~10ms per member (linear scaling)
 
-### Runtime Cost
-
-```
-┌────────────────────────────────────────────────┐
-│  Runtime overhead:    ZERO                     │
-│  ─────────────────────────────────────────     │
-│  • Hash values are compile-time constants      │
-│  • No dynamic memory allocation                │
-│  • No function calls for comparison            │
-│  • No std::stringstream or std::locale usage   │
-└────────────────────────────────────────────────┘
-```
-
 ### Practical Limits
 
 Due to `constexpr` step limits in current P2996 implementations:
@@ -447,8 +333,33 @@ Due to `constexpr` step limits in current P2996 implementations:
 
 See [full benchmark results](bench/compile_time/RESULTS.md) for detailed methodology.
 
+## API Stability
+
+TypeLayout follows the Boost Library Guidelines for API stability:
+
+- **Major version** (1.x → 2.x): May include breaking changes
+- **Minor version** (2.0 → 2.1): New features only, full backward compatibility
+- **Patch version** (2.0.0 → 2.0.1): Bug fixes only
+
+```cpp
+#include <boost/typelayout/core/config.hpp>
+// BOOST_TYPELAYOUT_VERSION = 200000 (2.0.0)
+// BOOST_TYPELAYOUT_VERSION_MAJOR = 2
+// BOOST_TYPELAYOUT_VERSION_MINOR = 0
+// BOOST_TYPELAYOUT_VERSION_PATCH = 0
+```
+
 ## Related Work
 
 - [P2996 - Reflection for C++26](https://wg21.link/P2996)
 - [Bloomberg Clang P2996](https://github.com/bloomberg/clang-p2996)
 - [Boost.PFR](https://github.com/boostorg/pfr)
+
+## Documentation
+
+- **Online**: https://ximicpp.github.io/TypeLayout
+- **GitHub**: https://github.com/ximicpp/TypeLayout
+
+## License
+
+[Boost Software License 1.0](LICENSE_1_0.txt)
