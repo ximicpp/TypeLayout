@@ -44,6 +44,8 @@ jobs:
       
       - name: Run Tests
         run: ctest --test-dir build --output-on-failure
+        env:
+          LD_LIBRARY_PATH: /opt/llvm-p2996/lib/x86_64-unknown-linux-gnu:/opt/llvm-p2996/lib:$LD_LIBRARY_PATH
       
       - name: Build Benchmarks
         if: matrix.build_type == 'Release'
