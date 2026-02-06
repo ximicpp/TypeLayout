@@ -189,10 +189,10 @@ namespace typelayout {
     struct TypeSignature<T[N], Mode> {
         static consteval auto calculate() noexcept {
             if constexpr (is_byte_element_v<T>) {
-                // Structural mode: normalize all single-byte arrays to bytes[]
+                // Physical and Structural modes: normalize all single-byte arrays to bytes[]
                 // This ensures char[N], int8_t[N], uint8_t[N], byte[N], char8_t[N] have identical signatures
                 // guaranteeing: identical ABI layout → identical signature
-                if constexpr (Mode == SignatureMode::Structural) {
+                if constexpr (Mode != SignatureMode::Annotated) {
                     return CompileString{"bytes[s:"} + CompileString<number_buffer_size>::from_number(N) + CompileString{",a:1]"};
                 }
                 // Annotated mode: preserve element type for debugging/diagnostics
@@ -243,22 +243,35 @@ namespace typelayout {
                        CompileString{"]{"} + get_fields_signature<T, Mode>() + CompileString{"}"};
             }
             else if constexpr (std::is_class_v<T> && !std::is_array_v<T>) {
-                constexpr bool poly = std::is_polymorphic_v<T>;
-                constexpr bool base = has_bases<T>();
-                // Simplified: polymorphic or inherited types use "class", otherwise "struct"
-                auto prefix = [&]() {
-                    if constexpr (poly || base) return CompileString{"class[s:"};
-                    else return CompileString{"struct[s:"};
-                }();
-                auto suffix = [&]() {
-                    if constexpr (poly && base) return CompileString{",polymorphic,inherited]{"};
-                    else if constexpr (poly) return CompileString{",polymorphic]{"};
-                    else if constexpr (base) return CompileString{",inherited]{"};
-                    else return CompileString{"]{"};
-                }();
-                return prefix + CompileString<number_buffer_size>::from_number(sizeof(T)) +
-                       CompileString{",a:"} + CompileString<number_buffer_size>::from_number(alignof(T)) +
-                       suffix + get_layout_content_signature<T, Mode>() + CompileString{"}"};
+                if constexpr (Mode == SignatureMode::Physical) {
+                    // Physical mode: uniform "record" prefix, no polymorphic/inherited markers,
+                    // flatten inheritance hierarchy
+                    return CompileString{"record[s:"} +
+                           CompileString<number_buffer_size>::from_number(sizeof(T)) +
+                           CompileString{",a:"} +
+                           CompileString<number_buffer_size>::from_number(alignof(T)) +
+                           CompileString{"]{"} +
+                           get_physical_content<T>() +
+                           CompileString{"}"};
+                } else {
+                    // Structural and Annotated: existing behavior with struct/class distinction
+                    constexpr bool poly = std::is_polymorphic_v<T>;
+                    constexpr bool base = has_bases<T>();
+                    // Simplified: polymorphic or inherited types use "class", otherwise "struct"
+                    auto prefix = [&]() {
+                        if constexpr (poly || base) return CompileString{"class[s:"};
+                        else return CompileString{"struct[s:"};
+                    }();
+                    auto suffix = [&]() {
+                        if constexpr (poly && base) return CompileString{",polymorphic,inherited]{"};
+                        else if constexpr (poly) return CompileString{",polymorphic]{"};
+                        else if constexpr (base) return CompileString{",inherited]{"};
+                        else return CompileString{"]{"};
+                    }();
+                    return prefix + CompileString<number_buffer_size>::from_number(sizeof(T)) +
+                           CompileString{",a:"} + CompileString<number_buffer_size>::from_number(alignof(T)) +
+                           suffix + get_layout_content_signature<T, Mode>() + CompileString{"}"};
+                }
             }
             else if constexpr (std::is_void_v<T>) {
                 static_assert(always_false<T>::value, "void has no layout; use void*");

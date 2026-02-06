@@ -282,6 +282,130 @@ namespace typelayout {
         }
     }
 
+    // =========================================================================
+    // Physical Mode: Inheritance Flattening
+    // =========================================================================
+    //
+    // Physical mode flattens non-virtual base class sub-objects so that
+    // a derived type and a flat struct with identical byte layout produce
+    // identical signatures.
+    //
+    // Strategy: Every helper returns a comma-PREFIXED string (e.g. ",@0:i32[s:4,a:4]").
+    // The top-level function strips the leading comma at the end.
+    // Empty results (from empty bases) are empty strings, which concatenate harmlessly.
+    //
+    // Limitation (v1): Virtual bases are skipped during recursive flattening
+    // because their offsets within intermediate bases depend on the most-derived
+    // type and cannot be reliably adjusted. The parent type's size/alignment
+    // still accounts for virtual base sub-objects. This is acceptable because
+    // types with virtual inheritance are rarely used in data-exchange scenarios.
+    // =========================================================================
+
+    /// Emit a single direct (non-bitfield) field of T with absolute offset adjustment.
+    /// Always returns a comma-prefixed string: ",@OFFSET:TYPE"
+    template<typename T, std::size_t Index, std::size_t OffsetAdj>
+    consteval auto physical_field_with_comma() noexcept {
+        using namespace std::meta;
+        constexpr auto member = nonstatic_data_members_of(^^T, access_context::unchecked())[Index];
+        using FieldType = [:type_of(member):];
+
+        if constexpr (is_bit_field(member)) {
+            constexpr auto bit_off = offset_of(member);
+            constexpr std::size_t byte_offset = bit_off.bytes + OffsetAdj;
+            constexpr std::size_t bit_offset = bit_off.bits;
+            constexpr std::size_t bit_width = bit_size_of(member);
+
+            return CompileString{",@"} +
+                   CompileString<number_buffer_size>::from_number(byte_offset) +
+                   CompileString{"."} +
+                   CompileString<number_buffer_size>::from_number(bit_offset) +
+                   CompileString{":bits<"} +
+                   CompileString<number_buffer_size>::from_number(bit_width) +
+                   CompileString{","} +
+                   TypeSignature<FieldType, SignatureMode::Physical>::calculate() +
+                   CompileString{">"};
+        } else {
+            constexpr std::size_t offset = offset_of(member).bytes + OffsetAdj;
+
+            return CompileString{",@"} +
+                   CompileString<number_buffer_size>::from_number(offset) +
+                   CompileString{":"} +
+                   TypeSignature<FieldType, SignatureMode::Physical>::calculate();
+        }
+    }
+
+    /// Emit all direct fields of T with offset adjustment (comma-prefixed each).
+    template <typename T, std::size_t OffsetAdj, std::size_t... Indices>
+    consteval auto physical_direct_fields_prefixed(std::index_sequence<Indices...>) noexcept {
+        if constexpr (sizeof...(Indices) == 0) {
+            return CompileString{""};
+        } else {
+            return (physical_field_with_comma<T, Indices, OffsetAdj>() + ...);
+        }
+    }
+
+    // Forward declaration for mutual recursion
+    template <typename T, std::size_t OffsetAdj>
+    consteval auto physical_all_prefixed() noexcept;
+
+    /// Recursively flatten one non-virtual base's fields.
+    template <typename T, std::size_t BaseIndex, std::size_t OffsetAdj>
+    consteval auto physical_one_base_prefixed() noexcept {
+        using namespace std::meta;
+        constexpr auto base_info = bases_of(^^T, access_context::unchecked())[BaseIndex];
+
+        if constexpr (is_virtual(base_info)) {
+            // v1 limitation: skip virtual bases during flattening.
+            // Their fields are not included in the physical flat view.
+            // The type's size/alignment still accounts for them.
+            return CompileString{""};
+        } else {
+            using BaseType = [:type_of(base_info):];
+            constexpr std::size_t abs_offset = offset_of(base_info).bytes + OffsetAdj;
+            return physical_all_prefixed<BaseType, abs_offset>();
+        }
+    }
+
+    /// Emit all bases' flattened fields (comma-prefixed each).
+    template <typename T, std::size_t OffsetAdj, std::size_t... BaseIndices>
+    consteval auto physical_bases_prefixed(std::index_sequence<BaseIndices...>) noexcept {
+        if constexpr (sizeof...(BaseIndices) == 0) {
+            return CompileString{""};
+        } else {
+            return (physical_one_base_prefixed<T, BaseIndices, OffsetAdj>() + ...);
+        }
+    }
+
+    /// Collect ALL flattened fields (recurse into bases, then direct fields).
+    /// Every field is comma-prefixed. Result may start with ',' or be empty.
+    template <typename T, std::size_t OffsetAdj>
+    consteval auto physical_all_prefixed() noexcept {
+        constexpr std::size_t base_count = get_base_count<T>();
+        constexpr std::size_t field_count = get_member_count<T>();
+
+        if constexpr (base_count == 0 && field_count == 0) {
+            return CompileString{""};
+        } else if constexpr (base_count == 0) {
+            return physical_direct_fields_prefixed<T, OffsetAdj>(
+                std::make_index_sequence<field_count>{});
+        } else if constexpr (field_count == 0) {
+            return physical_bases_prefixed<T, OffsetAdj>(
+                std::make_index_sequence<base_count>{});
+        } else {
+            return physical_bases_prefixed<T, OffsetAdj>(
+                       std::make_index_sequence<base_count>{}) +
+                   physical_direct_fields_prefixed<T, OffsetAdj>(
+                       std::make_index_sequence<field_count>{});
+        }
+    }
+
+    /// Top-level entry: get flattened physical content, strip leading comma.
+    template <typename T>
+    consteval auto get_physical_content() noexcept {
+        constexpr auto prefixed = physical_all_prefixed<T, 0>();
+        return prefixed.skip_first();
+    }
+
 } // namespace typelayout
 } // namespace boost
 

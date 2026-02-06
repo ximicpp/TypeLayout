@@ -87,15 +87,20 @@ namespace typelayout {
     /**
      * @brief Controls what information is included in layout signatures.
      * 
-     * - Structural: Layout-only information (offsets, sizes, types). No names.
-     *               This is the DEFAULT mode and guarantees:
-     *               identical signature ⟺ identical memory layout
+     * - Physical:   Pure byte layout - flattens inheritance hierarchy, uses "record" prefix,
+     *               no polymorphic/inherited markers. Guarantees: same bytes → same signature.
+     *               Use for data exchange, serialization, C interop.
+     * 
+     * - Structural: Layout with C++ object model info (offsets, sizes, inheritance markers).
+     *               This is the DEFAULT mode. Preserves struct/class distinction and
+     *               inheritance hierarchy via ~base: prefixes.
      * 
      * - Annotated:  Includes member and type names for debugging/diagnostics.
      *               NOT suitable for layout comparison across different types.
      */
     enum class SignatureMode {
-        Structural,  ///< Layout-only (default) - names excluded
+        Physical,    ///< Pure byte layout - flattens inheritance, no object model markers
+        Structural,  ///< Layout with inheritance info (default)
         Annotated    ///< Includes names - for debugging
     };
 

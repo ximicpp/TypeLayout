@@ -136,6 +136,19 @@ namespace typelayout {
             }
             return len;
         }
+
+        /// Skip the first character (used to strip leading comma in physical flattening).
+        /// Returns a CompileString of the same buffer size with content shifted left by 1.
+        /// If the string is empty, returns an empty string.
+        consteval auto skip_first() const noexcept {
+            char result[N] = {};
+            if (value[0] != '\0') {
+                for (size_t i = 1; i < N; ++i) {
+                    result[i - 1] = value[i];
+                }
+            }
+            return CompileString<N>(result);
+        }
     };
 
     // Fixed string for NTTP (Non-Type Template Parameter)

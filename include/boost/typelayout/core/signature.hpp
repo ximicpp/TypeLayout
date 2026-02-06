@@ -74,6 +74,26 @@ template <typename T>
     return get_layout_signature<T, SignatureMode::Annotated>();
 }
 
+/**
+ * @brief Get the physical signature (pure byte layout).
+ * 
+ * Physical mode:
+ * - Uses "record" prefix uniformly (no struct/class distinction)
+ * - No "polymorphic" or "inherited" markers
+ * - Flattens non-virtual base class sub-objects into the parent's field list
+ * - Guarantees: layout-identical types produce identical signatures,
+ *   even if one uses inheritance and the other is a flat struct
+ * 
+ * Limitation (v1): Virtual bases are skipped during flattening.
+ * 
+ * Use case: data exchange, serialization, shared memory, C/C++ interop
+ * where you need "same bytes ⟺ same signature".
+ */
+template <typename T>
+[[nodiscard]] consteval auto get_physical_signature() noexcept {
+    return get_layout_signature<T, SignatureMode::Physical>();
+}
+
 // =============================================================================
 // Signature comparison (always uses Structural mode)
 // =============================================================================
@@ -86,6 +106,16 @@ template <typename T1, typename T2>
 [[nodiscard]] consteval bool signatures_match() noexcept {
     return get_layout_signature<T1, SignatureMode::Structural>() 
         == get_layout_signature<T2, SignatureMode::Structural>();
+}
+
+/**
+ * @brief Check if two types have identical physical layout signatures.
+ * Uses Physical mode: ignores inheritance structure, compares pure byte layout.
+ */
+template <typename T1, typename T2>
+[[nodiscard]] consteval bool physical_signatures_match() noexcept {
+    return get_layout_signature<T1, SignatureMode::Physical>()
+        == get_layout_signature<T2, SignatureMode::Physical>();
 }
 
 // =============================================================================
@@ -103,6 +133,13 @@ template <typename T>
 template <typename T>
 [[nodiscard]] constexpr const char* get_annotated_signature_cstr() noexcept {
     static constexpr auto sig = get_layout_signature<T, SignatureMode::Annotated>();
+    return sig.c_str();
+}
+
+// Physical signature as C string
+template <typename T>
+[[nodiscard]] constexpr const char* get_physical_signature_cstr() noexcept {
+    static constexpr auto sig = get_layout_signature<T, SignatureMode::Physical>();
     return sig.c_str();
 }
 
@@ -147,6 +184,28 @@ template <typename T1, typename T2>
 }
 
 // =============================================================================
+// Physical hash computation (based on Physical signature)
+// =============================================================================
+
+/**
+ * @brief Get a 64-bit FNV-1a hash of the type's physical byte layout.
+ * Based on Physical signature: ignores inheritance structure.
+ */
+template <typename T>
+[[nodiscard]] consteval uint64_t get_physical_hash() noexcept {
+    constexpr auto sig = get_layout_signature<T, SignatureMode::Physical>();
+    return fnv1a_hash(sig.c_str(), sig.length());
+}
+
+/**
+ * @brief Check if two types have identical physical layout hashes.
+ */
+template <typename T1, typename T2>
+[[nodiscard]] consteval bool physical_hashes_match() noexcept {
+    return get_physical_hash<T1>() == get_physical_hash<T2>();
+}
+
+// =============================================================================
 // Variable templates (modern C++ style)
 // =============================================================================
 
@@ -158,6 +217,12 @@ inline constexpr auto layout_signature_v = get_layout_signature<T, SignatureMode
 
 template <typename T>
 inline constexpr auto annotated_signature_v = get_layout_signature<T, SignatureMode::Annotated>();
+
+template <typename T>
+inline constexpr auto physical_signature_v = get_layout_signature<T, SignatureMode::Physical>();
+
+template <typename T>
+inline constexpr uint64_t physical_hash_v = get_physical_hash<T>();
 
 } // namespace typelayout
 } // namespace boost
@@ -175,5 +240,15 @@ inline constexpr auto annotated_signature_v = get_layout_signature<T, SignatureM
 #define TYPELAYOUT_ASSERT_COMPATIBLE(Type1, Type2) \
     static_assert(::boost::typelayout::signatures_match<Type1, Type2>(), \
                   "Layout mismatch between " #Type1 " and " #Type2)
+
+// Static assertion: verify two types have identical physical (byte-level) layouts
+#define TYPELAYOUT_ASSERT_PHYSICAL_COMPATIBLE(Type1, Type2) \
+    static_assert(::boost::typelayout::physical_signatures_match<Type1, Type2>(), \
+                  "Physical layout mismatch between " #Type1 " and " #Type2)
+
+// Static assertion: bind type to expected physical signature
+#define TYPELAYOUT_BIND_PHYSICAL(Type, ExpectedSig) \
+    static_assert(::boost::typelayout::get_layout_signature<Type, ::boost::typelayout::SignatureMode::Physical>() == ExpectedSig, \
+                  "Physical layout mismatch for " #Type)
 
 #endif // BOOST_TYPELAYOUT_CORE_SIGNATURE_HPP

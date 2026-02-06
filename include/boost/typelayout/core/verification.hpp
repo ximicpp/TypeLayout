@@ -41,6 +41,27 @@ namespace typelayout {
     }
 
     // ========================================================
+    // Physical Mode Verification
+    // ========================================================
+
+    /// Get dual-hash verification based on Physical signature
+    template <typename T>
+    [[nodiscard]] consteval LayoutVerification get_physical_verification() noexcept {
+        constexpr auto sig = get_layout_signature<T, SignatureMode::Physical>();
+        return {
+            fnv1a_hash(sig.c_str(), sig.length()),
+            djb2_hash(sig.c_str(), sig.length()),
+            static_cast<uint32_t>(sig.length())
+        };
+    }
+
+    /// Check if two types have matching physical verification
+    template <typename T1, typename T2>
+    [[nodiscard]] consteval bool physical_verifications_match() noexcept {
+        return get_physical_verification<T1>() == get_physical_verification<T2>();
+    }
+
+    // ========================================================
     // Collision Detection
     // ========================================================
 

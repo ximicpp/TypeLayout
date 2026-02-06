@@ -39,6 +39,20 @@ template<typename T, typename U>
 concept LayoutHashCompatible = LayoutSupported<T> && LayoutSupported<U> 
                                && hashes_match<T, U>();
 
+// =============================================================================
+// Physical layout concepts (ignore inheritance structure)
+// =============================================================================
+
+// Two types have identical physical byte layout (ignores inheritance structure)
+template<typename T, typename U>
+concept PhysicalLayoutCompatible = LayoutSupported<T> && LayoutSupported<U>
+                                   && physical_signatures_match<T, U>();
+
+// Physical hash match
+template<typename T, typename U>
+concept PhysicalHashCompatible = LayoutSupported<T> && LayoutSupported<U>
+                                 && physical_hashes_match<T, U>();
+
 } // namespace typelayout
 } // namespace boost
 
