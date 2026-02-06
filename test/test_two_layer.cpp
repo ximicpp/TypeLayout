@@ -90,10 +90,8 @@ static_assert(layout_signatures_match<test_multiple_inheritance::Multi, test_mul
 static_assert([]() consteval {
     constexpr auto sig = get_layout_signature<test_polymorphic::Poly>();
     // Layout sig should use "record" without "polymorphic"
-    // Just verify it starts correctly and has no "polymorphic" substring
-    constexpr auto str = sig.c_str();
-    for (std::size_t i = 0; str[i] != '\0'; ++i) {
-        if (str[i] == 'p' && str[i+1] == 'o' && str[i+2] == 'l') return false;
+    for (std::size_t i = 0; i < sig.length(); ++i) {
+        if (sig.value[i] == 'p' && sig.value[i+1] == 'o' && sig.value[i+2] == 'l') return false;
     }
     return true;
 }(), "8.5: Polymorphic type Layout should NOT contain 'polymorphic'");
@@ -125,24 +123,20 @@ static_assert([]() consteval {
 // 9.2 Base class subtree preserved: ~base<Name>:record[...]{...}
 static_assert([]() consteval {
     constexpr auto sig = get_definition_signature<test_inheritance::Derived>();
-    // Should contain "~base<Base>:record"
-    constexpr auto str = sig.c_str();
-    bool found = false;
-    for (std::size_t i = 0; str[i] != '\0' && str[i+1] != '\0'; ++i) {
-        if (str[i] == '~' && str[i+1] == 'b' && str[i+2] == 'a' && str[i+3] == 's' && str[i+4] == 'e' && str[i+5] == '<') {
-            found = true;
-            break;
+    for (std::size_t i = 0; i + 6 < sig.length(); ++i) {
+        if (sig.value[i] == '~' && sig.value[i+1] == 'b' && sig.value[i+2] == 'a' 
+            && sig.value[i+3] == 's' && sig.value[i+4] == 'e' && sig.value[i+5] == '<') {
+            return true;
         }
     }
-    return found;
+    return false;
 }(), "9.2: Definition should contain ~base<Name>");
 
 // 9.3 Polymorphic type has 'polymorphic' marker in Definition
 static_assert([]() consteval {
     constexpr auto sig = get_definition_signature<test_polymorphic::Poly>();
-    constexpr auto str = sig.c_str();
-    for (std::size_t i = 0; str[i] != '\0'; ++i) {
-        if (str[i] == 'p' && str[i+1] == 'o' && str[i+2] == 'l') return true;
+    for (std::size_t i = 0; i + 3 < sig.length(); ++i) {
+        if (sig.value[i] == 'p' && sig.value[i+1] == 'o' && sig.value[i+2] == 'l') return true;
     }
     return false;
 }(), "9.3: Polymorphic type Definition should contain 'polymorphic'");
@@ -150,9 +144,8 @@ static_assert([]() consteval {
 // 9.4 Inherited type does NOT have 'inherited' marker
 static_assert([]() consteval {
     constexpr auto sig = get_definition_signature<test_inheritance::Derived>();
-    constexpr auto str = sig.c_str();
-    for (std::size_t i = 0; str[i] != '\0'; ++i) {
-        if (str[i] == 'i' && str[i+1] == 'n' && str[i+2] == 'h' && str[i+3] == 'e') return false;
+    for (std::size_t i = 0; i + 4 < sig.length(); ++i) {
+        if (sig.value[i] == 'i' && sig.value[i+1] == 'n' && sig.value[i+2] == 'h' && sig.value[i+3] == 'e') return false;
     }
     return true;
 }(), "9.4: Inherited type Definition should NOT contain 'inherited'");
