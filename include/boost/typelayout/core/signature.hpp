@@ -6,7 +6,7 @@
 
 #include <boost/typelayout/core/config.hpp>
 #include <boost/typelayout/core/compile_string.hpp>
-#include <boost/typelayout/core/type_signature.hpp>
+#include <boost/typelayout/core/signature_detail.hpp>
 
 namespace boost {
 namespace typelayout {

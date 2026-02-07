@@ -51,7 +51,7 @@ TypeLayout/
 │       └── core/
 │           ├── config.hpp             # 平台检测、SignatureMode 枚举
 │           ├── compile_string.hpp     # CompileString<N> 编译时字符串
-│           ├── type_signature.hpp     # 反射元操作 + 签名引擎 + TypeSignature<T,Mode> 特化
+│           ├── signature_detail.hpp   # 反射元操作 + 签名引擎 + TypeSignature<T,Mode> 特化（内部实现）
 │           └── signature.hpp          # 公共 API（4 个函数）
 ├── test/
 │   └── test_two_layer.cpp             # 两层签名系统测试

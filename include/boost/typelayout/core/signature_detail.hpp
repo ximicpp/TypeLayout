@@ -1,8 +1,8 @@
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
-#ifndef BOOST_TYPELAYOUT_CORE_TYPE_SIGNATURE_HPP
-#define BOOST_TYPELAYOUT_CORE_TYPE_SIGNATURE_HPP
+#ifndef BOOST_TYPELAYOUT_CORE_SIGNATURE_DETAIL_HPP
+#define BOOST_TYPELAYOUT_CORE_SIGNATURE_DETAIL_HPP
 
 #include <boost/typelayout/core/config.hpp>
 #include <boost/typelayout/core/compile_string.hpp>
@@ -562,4 +562,4 @@ namespace typelayout {
 } // namespace typelayout
 } // namespace boost
 
-#endif // BOOST_TYPELAYOUT_CORE_TYPE_SIGNATURE_HPP
+#endif // BOOST_TYPELAYOUT_CORE_SIGNATURE_DETAIL_HPP
