@@ -9,6 +9,24 @@
 
 using namespace boost::typelayout;
 
+// Helper: compile-time substring search inside a FixedString.
+template <size_t N>
+consteval bool contains(const FixedString<N>& haystack, const char* needle) noexcept {
+    size_t nlen = 0;
+    while (needle[nlen] != '\0') ++nlen;
+    if (nlen == 0) return true;
+    size_t hlen = haystack.length();
+    if (nlen > hlen) return false;
+    for (size_t i = 0; i + nlen <= hlen; ++i) {
+        bool match = true;
+        for (size_t j = 0; j < nlen; ++j) {
+            if (haystack.value[i + j] != needle[j]) { match = false; break; }
+        }
+        if (match) return true;
+    }
+    return false;
+}
+
 namespace test_basic {
     struct Simple { int32_t x; double y; };
     struct Simple2 { int32_t a; double b; };  // Same layout, different names
@@ -116,6 +134,45 @@ namespace test_anon {
     };
 }
 
+// --- Deep namespace (>=3 levels) ---
+
+namespace test_deep_ns {
+    namespace a { namespace b { namespace c { struct Tag { int32_t id; }; } } }
+    namespace d { namespace b { namespace c { struct Tag { int32_t id; }; } } }
+    struct FromA : a::b::c::Tag { double v; };
+    struct FromD : d::b::c::Tag { double v; };
+}
+
+// --- Pointer/reference types ---
+
+namespace test_ptr_ref {
+    struct WithPtr { int32_t* p; double* q; };
+    struct WithRef { int32_t x; };
+    struct WithFnPtr { void(*fn)(int); int32_t x; };
+}
+
+// --- Platform-dependent types ---
+
+namespace test_platform_types {
+    struct WithLongDouble { long double ld; };
+    struct WithWchar { wchar_t wc; int32_t x; };
+}
+
+// --- Array fields ---
+
+namespace test_array_fields {
+    struct WithArray { int32_t arr[4]; double d; };
+    struct WithMultiDim { int32_t mat[2][3]; };
+}
+
+// --- CV-qualified fields ---
+
+namespace test_cv_fields {
+    struct WithConst { const int32_t x; double y; };
+    struct WithoutConst { int32_t x; double y; };
+    struct WithVolatile { volatile int32_t x; double y; };
+}
+
 // --- alignas ---
 
 namespace test_alignas {
@@ -141,15 +198,8 @@ static_assert(layout_signatures_match<test_multiple_inheritance::Multi, test_mul
     "Multiple inheritance should flatten to match flat struct");
 
 // Fix #3: Polymorphic types now have vptr marker in Layout
-static_assert([]() consteval {
-    constexpr auto sig = get_layout_signature<test_polymorphic::Poly>();
-    // vptr should appear in Layout signature
-    for (std::size_t i = 0; i + 3 < sig.length(); ++i) {
-        if (sig.value[i] == 'v' && sig.value[i+1] == 'p' && sig.value[i+2] == 't' && sig.value[i+3] == 'r')
-            return true;
-    }
-    return false;
-}(), "Polymorphic type Layout SHOULD contain 'vptr'");
+static_assert(contains(get_layout_signature<test_polymorphic::Poly>(), "vptr"),
+    "Polymorphic type Layout SHOULD contain 'vptr'");
 
 // Fix #3: Polymorphic vs non-polymorphic must NOT match in Layout
 static_assert(!layout_signatures_match<test_polymorphic::Poly, test_polymorphic::NonPoly>(),
@@ -178,24 +228,11 @@ static_assert([]() consteval {
     return sig == expected;
 }(), "Simple struct Definition signature format");
 
-static_assert([]() consteval {
-    constexpr auto sig = get_definition_signature<test_inheritance::Derived>();
-    for (std::size_t i = 0; i + 6 < sig.length(); ++i) {
-        if (sig.value[i] == '~' && sig.value[i+1] == 'b' && sig.value[i+2] == 'a' 
-            && sig.value[i+3] == 's' && sig.value[i+4] == 'e' && sig.value[i+5] == '<') {
-            return true;
-        }
-    }
-    return false;
-}(), "Definition should contain ~base<Name>");
+static_assert(contains(get_definition_signature<test_inheritance::Derived>(), "~base<"),
+    "Definition should contain ~base<Name>");
 
-static_assert([]() consteval {
-    constexpr auto sig = get_definition_signature<test_polymorphic::Poly>();
-    for (std::size_t i = 0; i + 3 < sig.length(); ++i) {
-        if (sig.value[i] == 'p' && sig.value[i+1] == 'o' && sig.value[i+2] == 'l') return true;
-    }
-    return false;
-}(), "Polymorphic type Definition should contain 'polymorphic'");
+static_assert(contains(get_definition_signature<test_polymorphic::Poly>(), "polymorphic"),
+    "Polymorphic type Definition should contain 'polymorphic'");
 
 // Fix #2: Enum identity in Definition mode
 static_assert(!definition_signatures_match<test_enum_identity::Color, test_enum_identity::Shape>(),
@@ -261,50 +298,22 @@ static_assert(layout_signatures_match<test_union::U1, test_union::U2>(),
     "Identical unions should have identical Layout signatures");
 
 // Union Layout signature should contain 'record' (Inner is kept as atomic record, not flattened)
-static_assert([]() consteval {
-    constexpr auto sig = get_layout_signature<test_union::U1>();
-    // Should contain "record" inside the union (the Inner member kept as record)
-    for (std::size_t i = 0; i + 5 < sig.length(); ++i) {
-        if (sig.value[i] == 'r' && sig.value[i+1] == 'e' && sig.value[i+2] == 'c'
-            && sig.value[i+3] == 'o' && sig.value[i+4] == 'r' && sig.value[i+5] == 'd')
-            return true;
-    }
-    return false;
-}(), "Union Layout should keep struct member as 'record' (not flatten)");
+static_assert(contains(get_layout_signature<test_union::U1>(), "record"),
+    "Union Layout should keep struct member as 'record' (not flatten)");
 
 // Bit-field: Layout signature should contain "bits<"
-static_assert([]() consteval {
-    constexpr auto sig = get_layout_signature<test_bitfield::Flags>();
-    for (std::size_t i = 0; i + 4 < sig.length(); ++i) {
-        if (sig.value[i] == 'b' && sig.value[i+1] == 'i' && sig.value[i+2] == 't'
-            && sig.value[i+3] == 's' && sig.value[i+4] == '<')
-            return true;
-    }
-    return false;
-}(), "Bit-field Layout signature should contain 'bits<'");
+static_assert(contains(get_layout_signature<test_bitfield::Flags>(), "bits<"),
+    "Bit-field Layout signature should contain 'bits<'");
 
 // Bit-field: Definition signature should contain field names in brackets
-static_assert([]() consteval {
-    constexpr auto sig = get_definition_signature<test_bitfield::Flags>();
-    // Should contain "[a]" and "[b]" field names
-    bool found_a = false, found_b = false;
-    for (std::size_t i = 0; i + 2 < sig.length(); ++i) {
-        if (sig.value[i] == '[' && sig.value[i+1] == 'a' && sig.value[i+2] == ']') found_a = true;
-        if (sig.value[i] == '[' && sig.value[i+1] == 'b' && sig.value[i+2] == ']') found_b = true;
-    }
-    return found_a && found_b;
-}(), "Bit-field Definition signature should contain field names [a] and [b]");
+static_assert(
+    contains(get_definition_signature<test_bitfield::Flags>(), "[a]") &&
+    contains(get_definition_signature<test_bitfield::Flags>(), "[b]"),
+    "Bit-field Definition signature should contain field names [a] and [b]");
 
 // Anonymous member: Definition should contain "<anon:"
-static_assert([]() consteval {
-    constexpr auto sig = get_definition_signature<test_anon::WithAnon>();
-    for (std::size_t i = 0; i + 5 < sig.length(); ++i) {
-        if (sig.value[i] == '<' && sig.value[i+1] == 'a' && sig.value[i+2] == 'n'
-            && sig.value[i+3] == 'o' && sig.value[i+4] == 'n' && sig.value[i+5] == ':')
-            return true;
-    }
-    return false;
-}(), "Anonymous member Definition signature should contain '<anon:'");
+static_assert(contains(get_definition_signature<test_anon::WithAnon>(), "<anon:"),
+    "Anonymous member Definition signature should contain '<anon:'");
 
 // alignas: captured via alignof(T)
 static_assert(layout_signatures_match<test_alignas::Aligned, test_alignas::Aligned2>(),
@@ -312,6 +321,85 @@ static_assert(layout_signatures_match<test_alignas::Aligned, test_alignas::Align
 
 static_assert(!layout_signatures_match<test_basic::Simple, test_alignas::Aligned>(),
     "Different alignment should cause Layout mismatch");
+
+// --- Additional Definition-layer tests ---
+
+// Task 1.2: Deep namespace (>=3 levels) qualified name correctness
+static_assert(contains(get_definition_signature<test_deep_ns::FromA>(), "a::b::c::Tag"),
+    "Deep namespace base should include full path a::b::c::Tag");
+static_assert(contains(get_definition_signature<test_deep_ns::FromD>(), "d::b::c::Tag"),
+    "Deep namespace base should include full path d::b::c::Tag");
+static_assert(!definition_signatures_match<test_deep_ns::FromA, test_deep_ns::FromD>(),
+    "Types inheriting from different deep-namespace bases must NOT match in Definition");
+static_assert(layout_signatures_match<test_deep_ns::FromA, test_deep_ns::FromD>(),
+    "Types inheriting from different deep-namespace bases SHOULD match in Layout");
+
+// Task 2.1: Virtual inheritance ~vbase<> in Definition
+static_assert(contains(get_definition_signature<test_virtual_inherit::Derived>(), "~vbase<"),
+    "Virtual base should appear as ~vbase<> in Definition signature");
+
+// Task 2.2: Multiple inheritance Definition format
+static_assert(
+    contains(get_definition_signature<test_multiple_inheritance::Multi>(), "~base<") &&
+    contains(get_definition_signature<test_multiple_inheritance::Multi>(), "Base1") &&
+    contains(get_definition_signature<test_multiple_inheritance::Multi>(), "Base2"),
+    "Multiple inheritance Definition should contain ~base<> for both bases");
+static_assert(!definition_signatures_match<test_multiple_inheritance::Multi, test_multiple_inheritance::Flat>(),
+    "Multiple inheritance should NOT match flat struct in Definition");
+
+// Task 2.3: Deeply nested struct Definition preserves tree
+static_assert(
+    contains(get_definition_signature<test_composition_flatten::Outer>(), "[m]:record") &&
+    contains(get_definition_signature<test_composition_flatten::Outer>(), "[d]:record"),
+    "Deeply nested struct Definition should preserve tree structure with field names");
+
+// Task 2.4: Union Definition field names
+static_assert(
+    contains(get_definition_signature<test_union::U1>(), "[x]:") &&
+    contains(get_definition_signature<test_union::U1>(), "[y]:"),
+    "Union Definition signature should include field names [x] and [y]");
+
+// --- Layout-specific type tests ---
+
+// Pointer types: all pointers produce ptr[s:8,a:8] regardless of pointee
+static_assert(contains(get_layout_signature<test_ptr_ref::WithPtr>(), "ptr[s:8,a:8]"),
+    "Pointer field should produce ptr[s:SIZE,a:ALIGN]");
+
+// Two struct with pointer fields at same offsets should match
+// (int32_t* and double* both produce ptr[s:8,a:8])
+static_assert([]() consteval {
+    constexpr auto sig = get_layout_signature<test_ptr_ref::WithPtr>();
+    // Should contain two ptr fields at @0 and @8
+    return contains(sig, "ptr[s:8,a:8]");
+}(), "Pointer fields should be encoded as ptr");
+
+// Function pointer: should produce fnptr
+static_assert(contains(get_layout_signature<test_ptr_ref::WithFnPtr>(), "fnptr[s:8,a:8]"),
+    "Function pointer field should produce fnptr[s:SIZE,a:ALIGN]");
+
+// Platform types: long double and wchar_t
+static_assert(contains(get_layout_signature<test_platform_types::WithLongDouble>(), "f80[s:"),
+    "long double field should produce f80 signature");
+static_assert(contains(get_layout_signature<test_platform_types::WithWchar>(), "wchar[s:"),
+    "wchar_t field should produce wchar signature");
+
+// Anonymous member Layout: should flatten (no field names in Layout)
+static_assert(!contains(get_layout_signature<test_anon::WithAnon>(), "<anon:"),
+    "Anonymous member should NOT have <anon:> in Layout signature (no names in Layout)");
+
+// Array field: should contain array<> syntax
+static_assert(contains(get_layout_signature<test_array_fields::WithArray>(), "array[s:"),
+    "Array field should produce array signature");
+
+// Multidimensional array: int[2][3] should be array of arrays
+static_assert(contains(get_layout_signature<test_array_fields::WithMultiDim>(), "array[s:"),
+    "Multidimensional array field should produce nested array signature");
+
+// CV-qualified fields: const/volatile should not affect Layout
+static_assert(layout_signatures_match<test_cv_fields::WithConst, test_cv_fields::WithoutConst>(),
+    "const-qualified fields should match non-const in Layout");
+static_assert(layout_signatures_match<test_cv_fields::WithVolatile, test_cv_fields::WithoutConst>(),
+    "volatile-qualified fields should match non-volatile in Layout");
 
 int main() {
     std::cout << "=== Two-Layer Signature Tests ===\n\n";
@@ -339,6 +427,12 @@ int main() {
     print_sig("Shape:      ", get_definition_signature<test_enum_identity::Shape>());
     print_sig("BaseNs1:    ", get_definition_signature<test_base_collision::A>());
     print_sig("BaseNs2:    ", get_definition_signature<test_base_collision::B>());
+    print_sig("DeepNsA:    ", get_definition_signature<test_deep_ns::FromA>());
+    print_sig("DeepNsD:    ", get_definition_signature<test_deep_ns::FromD>());
+    print_sig("VirtInh:    ", get_definition_signature<test_virtual_inherit::Derived>());
+    print_sig("MultiInh:   ", get_definition_signature<test_multiple_inheritance::Multi>());
+    print_sig("UnionDef:   ", get_definition_signature<test_union::U1>());
+    print_sig("NestedDef:  ", get_definition_signature<test_composition_flatten::Outer>());
 
     std::cout << "\n--- Projection ---\n";
     std::cout << "  Derived == Flat (Layout)?      " << (layout_signatures_match<test_inheritance::Derived, test_inheritance::Flat>() ? "YES" : "NO") << "\n";

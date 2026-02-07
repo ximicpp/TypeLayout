@@ -1,4 +1,4 @@
-// Copyright (c) 2024-2026 TypeLayout Development Team
+ï»¿// Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
 #ifndef BOOST_TYPELAYOUT_CORE_SIGNATURE_DETAIL_HPP
@@ -6,6 +6,7 @@
 
 #include <boost/typelayout/core/fwd.hpp>
 #include <experimental/meta>
+#include <type_traits>
 
 namespace boost {
 namespace typelayout {
@@ -18,7 +19,7 @@ namespace typelayout {
     // Part 1: P2996 Reflection Meta-Operations
     // =========================================================================
 
-    // Qualified name builder â€?P2996 Bloomberg toolchain lacks
+    // Qualified name builder -- P2996 Bloomberg toolchain lacks
     // qualified_name_of, so we walk parent_of chains and join with "::".
 
     template<std::meta::info R>
@@ -27,17 +28,9 @@ namespace typelayout {
         constexpr auto parent = parent_of(R);
         constexpr std::string_view self = identifier_of(R);
         if constexpr (is_namespace(parent) && has_identifier(parent)) {
-            constexpr std::string_view pname = identifier_of(parent);
-            constexpr auto grandparent = parent_of(parent);
-            if constexpr (is_namespace(grandparent) && has_identifier(grandparent)) {
-                return qualified_name_for<parent>() +
-                       FixedString{"::"} +
-                       FixedString<self.size() + 1>(self);
-            } else {
-                return FixedString<pname.size() + 1>(pname) +
-                       FixedString{"::"} +
-                       FixedString<self.size() + 1>(self);
-            }
+            return qualified_name_for<parent>() +
+                   FixedString{"::"} +
+                   FixedString<self.size() + 1>(self);
         } else {
             return FixedString<self.size() + 1>(self);
         }
@@ -62,7 +55,7 @@ namespace typelayout {
             return FixedString<NameLen>(name);
         } else {
             return FixedString{"<anon:"} +
-                   FixedString<number_buffer_size>::from_number(Index) +
+                   to_fixed_string(Index) +
                    FixedString{">"};
         }
     }
@@ -92,18 +85,18 @@ namespace typelayout {
         if constexpr (is_bit_field(member)) {
             constexpr auto bit_off = offset_of(member);
             return FixedString{"@"} +
-                   FixedString<number_buffer_size>::from_number(bit_off.bytes) +
+                   to_fixed_string(bit_off.bytes) +
                    FixedString{"."} +
-                   FixedString<number_buffer_size>::from_number(bit_off.bits) +
+                   to_fixed_string(bit_off.bits) +
                    FixedString{"["} + get_member_name<member, Index>() +
                    FixedString{"]:bits<"} +
-                   FixedString<number_buffer_size>::from_number(bit_size_of(member)) +
+                   to_fixed_string(bit_size_of(member)) +
                    FixedString{","} +
                    TypeSignature<FieldType, SignatureMode::Definition>::calculate() +
                    FixedString{">"};
         } else {
             return FixedString{"@"} +
-                   FixedString<number_buffer_size>::from_number(offset_of(member).bytes) +
+                   to_fixed_string(offset_of(member).bytes) +
                    FixedString{"["} + get_member_name<member, Index>() +
                    FixedString{"]:"} +
                    TypeSignature<FieldType, SignatureMode::Definition>::calculate();
@@ -201,11 +194,11 @@ namespace typelayout {
         if constexpr (is_bit_field(member)) {
             constexpr auto bit_off = offset_of(member);
             return FixedString{",@"} +
-                   FixedString<number_buffer_size>::from_number(bit_off.bytes + OffsetAdj) +
+                   to_fixed_string(bit_off.bytes + OffsetAdj) +
                    FixedString{"."} +
-                   FixedString<number_buffer_size>::from_number(bit_off.bits) +
+                   to_fixed_string(bit_off.bits) +
                    FixedString{":bits<"} +
-                   FixedString<number_buffer_size>::from_number(bit_size_of(member)) +
+                   to_fixed_string(bit_size_of(member)) +
                    FixedString{","} +
                    TypeSignature<FieldType, SignatureMode::Layout>::calculate() +
                    FixedString{">"};
@@ -214,7 +207,7 @@ namespace typelayout {
             return layout_all_prefixed<FieldType, field_offset>();
         } else {
             return FixedString{",@"} +
-                   FixedString<number_buffer_size>::from_number(offset_of(member).bytes + OffsetAdj) +
+                   to_fixed_string(offset_of(member).bytes + OffsetAdj) +
                    FixedString{":"} +
                    TypeSignature<FieldType, SignatureMode::Layout>::calculate();
         }
@@ -267,17 +260,17 @@ namespace typelayout {
         if constexpr (is_bit_field(member)) {
             constexpr auto bit_off = offset_of(member);
             return FixedString{"@"} +
-                   FixedString<number_buffer_size>::from_number(bit_off.bytes) +
+                   to_fixed_string(bit_off.bytes) +
                    FixedString{"."} +
-                   FixedString<number_buffer_size>::from_number(bit_off.bits) +
+                   to_fixed_string(bit_off.bits) +
                    FixedString{":bits<"} +
-                   FixedString<number_buffer_size>::from_number(bit_size_of(member)) +
+                   to_fixed_string(bit_size_of(member)) +
                    FixedString{","} +
                    TypeSignature<FieldType, SignatureMode::Layout>::calculate() +
                    FixedString{">"};
         } else {
             return FixedString{"@"} +
-                   FixedString<number_buffer_size>::from_number(offset_of(member).bytes) +
+                   to_fixed_string(offset_of(member).bytes) +
                    FixedString{":"} +
                    TypeSignature<FieldType, SignatureMode::Layout>::calculate();
         }
@@ -312,9 +305,9 @@ namespace typelayout {
     template<size_t N>
     consteval auto format_size_align(const char (&name)[N], size_t size, size_t align) noexcept {
         return FixedString{name} + FixedString{"[s:"} +
-               FixedString<number_buffer_size>::from_number(size) +
+               to_fixed_string(size) +
                FixedString{",a:"} +
-               FixedString<number_buffer_size>::from_number(align) +
+               to_fixed_string(align) +
                FixedString{"]"};
     }
 
@@ -412,6 +405,13 @@ namespace typelayout {
         }
     };
 
+    template <typename R, typename... Args, SignatureMode Mode>
+    struct TypeSignature<R(*)(Args..., ...) noexcept, Mode> {
+        static consteval auto calculate() noexcept {
+            return format_size_align("fnptr", sizeof(R(*)(Args..., ...) noexcept), alignof(R(*)(Args..., ...) noexcept));
+        }
+    };
+
     // CV-qualified: strip and forward
     template <typename T, SignatureMode Mode>
     struct TypeSignature<const T, Mode> {
@@ -464,12 +464,12 @@ namespace typelayout {
     struct TypeSignature<T[N], Mode> {
         static consteval auto calculate() noexcept {
             if constexpr (is_byte_element_v<T>) {
-                return FixedString{"bytes[s:"} + FixedString<number_buffer_size>::from_number(N) + FixedString{",a:1]"};
+                return FixedString{"bytes[s:"} + to_fixed_string(N) + FixedString{",a:1]"};
             } else {
-                return FixedString{"array[s:"} + FixedString<number_buffer_size>::from_number(sizeof(T[N])) +
-                       FixedString{",a:"} + FixedString<number_buffer_size>::from_number(alignof(T[N])) +
+                return FixedString{"array[s:"} + to_fixed_string(sizeof(T[N])) +
+                       FixedString{",a:"} + to_fixed_string(alignof(T[N])) +
                        FixedString{"]<"} + TypeSignature<T, Mode>::calculate() +
-                       FixedString{","} + FixedString<number_buffer_size>::from_number(N) + FixedString{">"};
+                       FixedString{","} + to_fixed_string(N) + FixedString{">"};
             }
         }
     };
@@ -484,26 +484,26 @@ namespace typelayout {
                     return FixedString{"enum<"} +
                            get_type_qualified_name<T>() +
                            FixedString{">[s:"} +
-                           FixedString<number_buffer_size>::from_number(sizeof(T)) +
+                           to_fixed_string(sizeof(T)) +
                            FixedString{",a:"} +
-                           FixedString<number_buffer_size>::from_number(alignof(T)) +
+                           to_fixed_string(alignof(T)) +
                            FixedString{"]<"} + TypeSignature<U, Mode>::calculate() + FixedString{">"};
                 } else {
                     return FixedString{"enum[s:"} +
-                           FixedString<number_buffer_size>::from_number(sizeof(T)) +
+                           to_fixed_string(sizeof(T)) +
                            FixedString{",a:"} +
-                           FixedString<number_buffer_size>::from_number(alignof(T)) +
+                           to_fixed_string(alignof(T)) +
                            FixedString{"]<"} + TypeSignature<U, Mode>::calculate() + FixedString{">"};
                 }
             }
             else if constexpr (std::is_union_v<T>) {
                 if constexpr (Mode == SignatureMode::Definition) {
-                    return FixedString{"union[s:"} + FixedString<number_buffer_size>::from_number(sizeof(T)) +
-                           FixedString{",a:"} + FixedString<number_buffer_size>::from_number(alignof(T)) +
+                    return FixedString{"union[s:"} + to_fixed_string(sizeof(T)) +
+                           FixedString{",a:"} + to_fixed_string(alignof(T)) +
                            FixedString{"]{"} + definition_fields<T>() + FixedString{"}"};
                 } else {
-                    return FixedString{"union[s:"} + FixedString<number_buffer_size>::from_number(sizeof(T)) +
-                           FixedString{",a:"} + FixedString<number_buffer_size>::from_number(alignof(T)) +
+                    return FixedString{"union[s:"} + to_fixed_string(sizeof(T)) +
+                           FixedString{",a:"} + to_fixed_string(alignof(T)) +
                            FixedString{"]{"} + get_layout_union_content<T>() + FixedString{"}"};
                 }
             }
@@ -513,17 +513,17 @@ namespace typelayout {
                     if constexpr (poly) {
                         // vptr occupies pointer_size bytes at an implementation-defined position
                         return FixedString{"record[s:"} +
-                               FixedString<number_buffer_size>::from_number(sizeof(T)) +
+                               to_fixed_string(sizeof(T)) +
                                FixedString{",a:"} +
-                               FixedString<number_buffer_size>::from_number(alignof(T)) +
+                               to_fixed_string(alignof(T)) +
                                FixedString{",vptr]{"} +
                                get_layout_content<T>() +
                                FixedString{"}"};
                     } else {
                         return FixedString{"record[s:"} +
-                               FixedString<number_buffer_size>::from_number(sizeof(T)) +
+                               to_fixed_string(sizeof(T)) +
                                FixedString{",a:"} +
-                               FixedString<number_buffer_size>::from_number(alignof(T)) +
+                               to_fixed_string(alignof(T)) +
                                FixedString{"]{"} +
                                get_layout_content<T>() +
                                FixedString{"}"};
@@ -536,9 +536,9 @@ namespace typelayout {
                         else return FixedString{"]{"};
                     }();
                     return FixedString{"record[s:"} +
-                           FixedString<number_buffer_size>::from_number(sizeof(T)) +
+                           to_fixed_string(sizeof(T)) +
                            FixedString{",a:"} +
-                           FixedString<number_buffer_size>::from_number(alignof(T)) +
+                           to_fixed_string(alignof(T)) +
                            suffix + definition_content<T>() + FixedString{"}"};
                 }
             }

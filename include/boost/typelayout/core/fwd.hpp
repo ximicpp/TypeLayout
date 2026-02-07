@@ -14,14 +14,6 @@
 // Part 1: Platform Configuration
 // =========================================================================
 
-// P2996 reflection support
-#if __has_include(<experimental/meta>)
-    #include <experimental/meta>
-    #define BOOST_TYPELAYOUT_HAS_REFLECTION 1
-#else
-    #define BOOST_TYPELAYOUT_HAS_REFLECTION 0
-#endif
-
 // Endianness detection
 #if __has_include(<bit>)
     #include <bit>
@@ -57,9 +49,6 @@ namespace typelayout {
     // Part 2: FixedString<N> — Compile-Time Fixed-Size String
     // =========================================================================
 
-    // Buffer size for compile-time number-to-string conversion (uint64_t max = 20 digits + '\0').
-    inline constexpr std::size_t number_buffer_size = 21;
-
     template <size_t N>
     struct FixedString {
         char value[N];
@@ -75,43 +64,6 @@ namespace typelayout {
         constexpr FixedString(std::string_view sv) : value{} {
             for (size_t i = 0; i < N - 1 && i < sv.size(); ++i)
                 value[i] = sv[i];
-        }
-
-        template <typename T>
-        static constexpr FixedString<21> from_number(T num) noexcept {
-            char buf[21] = {};
-            constexpr int last = 19; // rightmost digit position (buf[20] = '\0')
-
-            if (num == 0) {
-                buf[last] = '0';
-                // shift to front
-                char result[21] = {};
-                result[0] = '0';
-                return FixedString<21>(result);
-            }
-
-            bool negative = std::is_signed_v<T> && num < 0;
-            using UnsignedT = std::make_unsigned_t<T>;
-            UnsignedT abs_num = negative
-                ? UnsignedT(-(std::make_signed_t<T>(num)))
-                : UnsignedT(num);
-
-            // Write digits right-to-left (no reversal needed)
-            int pos = last;
-            while (abs_num > 0) {
-                buf[pos--] = '0' + char(abs_num % 10);
-                abs_num /= 10;
-            }
-            if (negative)
-                buf[pos--] = '-';
-
-            // Shift to front to avoid leading zeros in buffer
-            int start = pos + 1;
-            int len = last - start + 1;
-            char result[21] = {};
-            for (int i = 0; i < len; ++i)
-                result[i] = buf[start + i];
-            return FixedString<21>(result);
         }
 
         template <size_t M>
@@ -176,6 +128,42 @@ namespace typelayout {
     template<size_t N>
     std::ostream& operator<<(std::ostream& os, const FixedString<N>& str) {
         return os << str.value;
+    }
+
+    // Free function: integer to FixedString<21> (uint64_t max = 20 digits + '\0').
+    // Writes digits right-to-left, no reversal needed.
+    template <typename T>
+    constexpr FixedString<21> to_fixed_string(T num) noexcept {
+        constexpr int last = 19; // rightmost digit position (buf[20] = '\0')
+
+        if (num == 0) {
+            char result[21] = {};
+            result[0] = '0';
+            return FixedString<21>(result);
+        }
+
+        bool negative = std::is_signed_v<T> && num < 0;
+        using UnsignedT = std::make_unsigned_t<T>;
+        UnsignedT abs_num = negative
+            ? UnsignedT(-(std::make_signed_t<T>(num)))
+            : UnsignedT(num);
+
+        char buf[21] = {};
+        int pos = last;
+        while (abs_num > 0) {
+            buf[pos--] = '0' + char(abs_num % 10);
+            abs_num /= 10;
+        }
+        if (negative)
+            buf[pos--] = '-';
+
+        // Shift to front
+        int start = pos + 1;
+        int len = last - start + 1;
+        char result[21] = {};
+        for (int i = 0; i < len; ++i)
+            result[i] = buf[start + i];
+        return FixedString<21>(result);
     }
 
 } // namespace typelayout

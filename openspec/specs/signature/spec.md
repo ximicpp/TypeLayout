@@ -34,9 +34,7 @@ the same type?".
 | Serialization version check | Definition | Detects field renames and structural changes |
 | API compatibility check | Definition | Semantic-level structural consistency |
 | ODR violation detection | Definition | Requires full structural information |
-
 ## Requirements
-
 ### Requirement: Two-Layer Signature Architecture
 The library SHALL provide two complementary layers of compile-time type signatures.
 
@@ -121,6 +119,8 @@ The library SHALL distinguish polymorphic from non-polymorphic types in Layout s
 
 ### Requirement: Qualified Names in Definition
 The Definition layer SHALL use fully qualified names for disambiguation.
+Qualified names SHALL include the complete namespace path from the global namespace,
+regardless of nesting depth.
 
 #### Scenario: Base class qualified names
 - **GIVEN** `namespace ns1 { struct Tag { int id; }; }` and `namespace ns2 { struct Tag { int id; }; }`
@@ -133,6 +133,14 @@ The Definition layer SHALL use fully qualified names for disambiguation.
 - **WHEN** Definition signatures are compared
 - **THEN** `definition_signatures_match<Color, Shape>()` SHALL return false
 - **AND** `layout_signatures_match<Color, Shape>()` SHALL return true
+
+#### Scenario: Deep namespace qualified names
+- **GIVEN** `namespace a { namespace b { namespace c { struct T { int x; }; } } }`
+- **AND** `namespace d { namespace b { namespace c { struct T { int x; }; } } }`
+- **WHEN** Definition signatures are compared
+- **THEN** the qualified name for the first SHALL contain `a::b::c::T`
+- **AND** the qualified name for the second SHALL contain `d::b::c::T`
+- **AND** `definition_signatures_match` between types using these as bases SHALL return false
 
 ### Requirement: Type Categories
 The library SHALL support the following type categories in signatures.
@@ -176,6 +184,11 @@ The library SHALL support the following type categories in signatures.
 - **WHEN** Definition signature is generated
 - **THEN** anonymous members SHALL use `<anon:N>` placeholder
 
+#### Scenario: Function pointer types
+- **GIVEN** any function pointer type including noexcept and variadic variants
+- **WHEN** signature is generated
+- **THEN** all variants SHALL produce `fnptr[s:SIZE,a:ALIGN]`
+
 ### Requirement: Architecture Prefix
 Every signature SHALL include an architecture prefix.
 
@@ -204,3 +217,4 @@ The library SHALL capture alignment information in signatures.
 - **GIVEN** `struct alignas(16) Aligned { int a; int b; };`
 - **WHEN** signature is generated
 - **THEN** the signature SHALL reflect `a:16` alignment
+

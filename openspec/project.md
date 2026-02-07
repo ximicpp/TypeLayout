@@ -515,7 +515,7 @@ rm -f test_output
 - `consteval` 构造函数（字符数组、`string_view`）
 - `operator+` 连接（返回 `FixedString<N+M-1>`）
 - `operator==` 比较（支持不同 N/M 之间比较）
-- `from_number()` 整数转字符串（返回紧凑的 `FixedString<21>`，从右往左写入无需反转）
+- `to_fixed_string(num)` 自由函数：整数转字符串（返回紧凑的 `FixedString<21>`，从右往左写入无需反转）
 - `skip_first()` 去除前导逗号（展平折叠表达式产物）
 
 ### 签名生成流程
