@@ -1,17 +1,13 @@
-// Boost.TypeLayout - Two-Layer Signature System Tests (v2.0 Minimal Core)
-// Tests Layout (byte-level) and Definition (type definition) signatures
+// Two-layer signature system tests.
 //
-// Compile: clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ -I./include test/test_two_layer.cpp
+// Copyright (c) 2024-2026 TypeLayout Development Team
+// Distributed under the Boost Software License, Version 1.0.
 
 #include <boost/typelayout/typelayout.hpp>
 #include <iostream>
 #include <cstdint>
 
 using namespace boost::typelayout;
-
-// =============================================================================
-// Test types
-// =============================================================================
 
 namespace test_basic {
     struct Simple { int32_t x; double y; };
@@ -55,30 +51,23 @@ namespace test_nested {
     struct Outer2 { Inner inner; double d; };
 }
 
-// =============================================================================
-// Layout Signature Tests
-// =============================================================================
+// --- Layout signature tests ---
 
-// Simple struct Layout signature — uses "record" prefix, no names
 static_assert([]() consteval {
     constexpr auto sig = get_layout_signature<test_basic::Simple>();
     constexpr auto expected = CompileString{"[64-le]record[s:16,a:8]{@0:i32[s:4,a:4],@8:f64[s:8,a:8]}"};
     return sig == expected;
 }(), "Simple struct Layout signature format");
 
-// Inherited vs flat: Layout signatures MATCH (inheritance flattened)
 static_assert(layout_signatures_match<test_inheritance::Derived, test_inheritance::Flat>(),
     "Derived and Flat should have identical Layout signatures");
 
-// Multi-level inheritance flattening
 static_assert(layout_signatures_match<test_multilevel::C, test_multilevel::Flat>(),
     "Multi-level inheritance should flatten to match flat struct");
 
-// Multiple inheritance flattening
 static_assert(layout_signatures_match<test_multiple_inheritance::Multi, test_multiple_inheritance::Flat>(),
     "Multiple inheritance should flatten to match flat struct");
 
-// Polymorphic type Layout has NO polymorphic marker
 static_assert([]() consteval {
     constexpr auto sig = get_layout_signature<test_polymorphic::Poly>();
     for (std::size_t i = 0; i < sig.length(); ++i) {
@@ -87,7 +76,6 @@ static_assert([]() consteval {
     return true;
 }(), "Polymorphic type Layout should NOT contain 'polymorphic'");
 
-// Byte array normalization
 struct ByteArrayChar { char buf[32]; };
 struct ByteArrayU8 { uint8_t buf[32]; };
 struct ByteArrayByte { std::byte buf[32]; };
@@ -96,18 +84,14 @@ static_assert(layout_signatures_match<ByteArrayChar, ByteArrayU8>(),
 static_assert(layout_signatures_match<ByteArrayChar, ByteArrayByte>(),
     "char[] and std::byte[] should normalize to same Layout signature");
 
-// =============================================================================
-// Definition Signature Tests
-// =============================================================================
+// --- Definition signature tests ---
 
-// Simple struct Definition signature — uses "record" prefix, WITH names
 static_assert([]() consteval {
     constexpr auto sig = get_definition_signature<test_basic::Simple>();
     constexpr auto expected = CompileString{"[64-le]record[s:16,a:8]{@0[x]:i32[s:4,a:4],@8[y]:f64[s:8,a:8]}"};
     return sig == expected;
 }(), "Simple struct Definition signature format");
 
-// Base class subtree preserved: ~base<Name>
 static_assert([]() consteval {
     constexpr auto sig = get_definition_signature<test_inheritance::Derived>();
     for (std::size_t i = 0; i + 6 < sig.length(); ++i) {
@@ -119,7 +103,6 @@ static_assert([]() consteval {
     return false;
 }(), "Definition should contain ~base<Name>");
 
-// Polymorphic type has 'polymorphic' marker in Definition
 static_assert([]() consteval {
     constexpr auto sig = get_definition_signature<test_polymorphic::Poly>();
     for (std::size_t i = 0; i + 3 < sig.length(); ++i) {
@@ -128,36 +111,29 @@ static_assert([]() consteval {
     return false;
 }(), "Polymorphic type Definition should contain 'polymorphic'");
 
-// =============================================================================
-// Projection Relationship Tests
-// =============================================================================
+// --- Projection relationship tests ---
 
-// Definition match ⟹ Layout match
 static_assert([]() consteval {
     constexpr bool def_match = definition_signatures_match<test_nested::Outer1, test_nested::Outer2>();
     constexpr bool lay_match = layout_signatures_match<test_nested::Outer1, test_nested::Outer2>();
     return !def_match || lay_match;  // def_match ⟹ lay_match
 }(), "Definition match implies Layout match");
 
-// Layout match but Definition differs (inheritance vs flat)
 static_assert(layout_signatures_match<test_inheritance::Derived, test_inheritance::Flat>(),
     "Layout should match for Derived vs Flat");
 static_assert(!definition_signatures_match<test_inheritance::Derived, test_inheritance::Flat>(),
     "Definition should NOT match for Derived vs Flat");
 
-// Layout match but Definition differs (field names)
 static_assert(layout_signatures_match<test_basic::Simple, test_basic::Simple2>(),
     "Layout should match for types with different field names");
 static_assert(!definition_signatures_match<test_basic::Simple, test_basic::Simple2>(),
     "Definition should NOT match for types with different field names");
 
-// Basic types produce identical Layout and Definition signatures
 static_assert(get_layout_signature<int32_t>() == get_definition_signature<int32_t>(),
     "i32 Layout == Definition");
 static_assert(get_layout_signature<double>() == get_definition_signature<double>(),
     "f64 Layout == Definition");
 
-// Enum
 enum class Color : uint8_t { Red, Green, Blue };
 static_assert([]() consteval {
     constexpr auto sig = get_layout_signature<Color>();
@@ -165,16 +141,11 @@ static_assert([]() consteval {
     return sig == expected;
 }(), "Enum signature correct");
 
-// Empty base optimization
 static_assert(layout_signatures_match<test_empty_base::WithEmpty, test_empty_base::Plain>(),
     "Empty base class should not affect Layout signature");
 
-// =============================================================================
-// Main: runtime diagnostics
-// =============================================================================
-
 int main() {
-    std::cout << "=== Two-Layer Signature System Tests ===\n\n";
+    std::cout << "=== Two-Layer Signature Tests ===\n\n";
 
     auto print_sig = [](const char* label, const auto& sig) {
         std::cout << "  " << label << sig << "\n";

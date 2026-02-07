@@ -1,4 +1,3 @@
-// Boost.TypeLayout - Two-Layer Signature API (v2.0 Minimal Core)
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
@@ -12,21 +11,16 @@
 namespace boost {
 namespace typelayout {
 
-// Architecture prefix: "[64-le]", "[64-be]", "[32-le]", "[32-be]"
 [[nodiscard]] consteval auto get_arch_prefix() noexcept {
-    if constexpr (sizeof(void*) == 8) {
+    if constexpr (sizeof(void*) == 8)
         return CompileString{TYPELAYOUT_LITTLE_ENDIAN ? "[64-le]" : "[64-be]"};
-    } else if constexpr (sizeof(void*) == 4) {
+    else if constexpr (sizeof(void*) == 4)
         return CompileString{TYPELAYOUT_LITTLE_ENDIAN ? "[32-le]" : "[32-be]"};
-    } else {
-        auto bits = CompileString<32>::from_number(sizeof(void*) * 8);
-        return CompileString{"["} + bits + CompileString{TYPELAYOUT_LITTLE_ENDIAN ? "-le]" : "-be]"};
-    }
+    else
+        static_assert(sizeof(void*) == 4 || sizeof(void*) == 8, "Unsupported pointer size");
 }
 
-// =============================================================================
-// Layer 1: Layout Signature — Pure byte layout (flattened, no names)
-// =============================================================================
+// Layer 1: Layout — pure byte identity (flattened, no names)
 
 template <typename T>
 [[nodiscard]] consteval auto get_layout_signature() noexcept {
@@ -38,9 +32,7 @@ template <typename T1, typename T2>
     return get_layout_signature<T1>() == get_layout_signature<T2>();
 }
 
-// =============================================================================
-// Layer 2: Definition Signature — Full type definition (tree, with names)
-// =============================================================================
+// Layer 2: Definition — full type structure (tree, with names)
 
 template <typename T>
 [[nodiscard]] consteval auto get_definition_signature() noexcept {

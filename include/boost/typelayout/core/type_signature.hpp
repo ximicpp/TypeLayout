@@ -1,11 +1,5 @@
-// Boost.TypeLayout
-//
-// Type Signature Specializations
-//
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
-// (See accompanying file LICENSE_1_0.txt or copy at
-// http://www.boost.org/LICENSE_1_0.txt)
 
 #ifndef BOOST_TYPELAYOUT_CORE_TYPE_SIGNATURE_HPP
 #define BOOST_TYPELAYOUT_CORE_TYPE_SIGNATURE_HPP
@@ -13,7 +7,6 @@
 #include <boost/typelayout/core/config.hpp>
 #include <boost/typelayout/core/compile_string.hpp>
 
-// Internal include guard: allows reflection_helpers.hpp to verify it's included correctly
 #define BOOST_TYPELAYOUT_INTERNAL_INCLUDE_
 #include <boost/typelayout/core/reflection_helpers.hpp>
 #undef BOOST_TYPELAYOUT_INTERNAL_INCLUDE_
@@ -31,9 +24,7 @@ namespace typelayout {
                CompileString{"]"};
     }
 
-    // =============================================================================
-    // Fixed-width integers (canonical, always defined)
-    // =============================================================================
+    // Fixed-width integers
     template <SignatureMode Mode> struct TypeSignature<int8_t, Mode>   { static consteval auto calculate() noexcept { return CompileString{"i8[s:1,a:1]"}; } };
     template <SignatureMode Mode> struct TypeSignature<uint8_t, Mode>  { static consteval auto calculate() noexcept { return CompileString{"u8[s:1,a:1]"}; } };
     template <SignatureMode Mode> struct TypeSignature<int16_t, Mode>  { static consteval auto calculate() noexcept { return CompileString{"i16[s:2,a:2]"}; } };
@@ -43,12 +34,7 @@ namespace typelayout {
     template <SignatureMode Mode> struct TypeSignature<int64_t, Mode>  { static consteval auto calculate() noexcept { return CompileString{"i64[s:8,a:8]"}; } };
     template <SignatureMode Mode> struct TypeSignature<uint64_t, Mode> { static consteval auto calculate() noexcept { return CompileString{"u64[s:8,a:8]"}; } };
 
-    // =============================================================================
-    // Fundamental types: use requires clauses to avoid duplicate specializations
-    // Only specialize when the type is distinct from fixed-width integers
-    // =============================================================================
-
-    // signed char / unsigned char: only if distinct from int8_t/uint8_t
+    // Fundamental types (only when distinct from fixed-width aliases)
     template <SignatureMode Mode>
         requires (!std::is_same_v<signed char, int8_t>)
     struct TypeSignature<signed char, Mode> {
@@ -61,7 +47,6 @@ namespace typelayout {
         static consteval auto calculate() noexcept { return CompileString{"u8[s:1,a:1]"}; }
     };
 
-    // long / unsigned long: only if distinct from int32_t AND int64_t
     template <SignatureMode Mode>
         requires (!std::is_same_v<long, int32_t> && !std::is_same_v<long, int64_t>)
     struct TypeSignature<long, Mode> {
@@ -80,7 +65,6 @@ namespace typelayout {
         }
     };
 
-    // long long / unsigned long long: only if distinct from int64_t/uint64_t
     template <SignatureMode Mode>
         requires (!std::is_same_v<long long, int64_t>)
     struct TypeSignature<long long, Mode> {
@@ -93,26 +77,22 @@ namespace typelayout {
         static consteval auto calculate() noexcept { return CompileString{"u64[s:8,a:8]"}; }
     };
 
-    // Floating point
     template <SignatureMode Mode> struct TypeSignature<float, Mode>    { static consteval auto calculate() noexcept { return CompileString{"f32[s:4,a:4]"}; } };
     template <SignatureMode Mode> struct TypeSignature<double, Mode>   { static consteval auto calculate() noexcept { return CompileString{"f64[s:8,a:8]"}; } };
-    template <SignatureMode Mode> struct TypeSignature<long double, Mode> { 
-        static consteval auto calculate() noexcept { return format_size_align("f80", sizeof(long double), alignof(long double)); } 
+    template <SignatureMode Mode> struct TypeSignature<long double, Mode> {
+        static consteval auto calculate() noexcept { return format_size_align("f80", sizeof(long double), alignof(long double)); }
     };
 
-    // Characters
     template <SignatureMode Mode> struct TypeSignature<char, Mode>     { static consteval auto calculate() noexcept { return CompileString{"char[s:1,a:1]"}; } };
     template <SignatureMode Mode> struct TypeSignature<wchar_t, Mode>  { static consteval auto calculate() noexcept { return format_size_align("wchar", sizeof(wchar_t), alignof(wchar_t)); } };
     template <SignatureMode Mode> struct TypeSignature<char8_t, Mode>  { static consteval auto calculate() noexcept { return CompileString{"char8[s:1,a:1]"}; } };
     template <SignatureMode Mode> struct TypeSignature<char16_t, Mode> { static consteval auto calculate() noexcept { return CompileString{"char16[s:2,a:2]"}; } };
     template <SignatureMode Mode> struct TypeSignature<char32_t, Mode> { static consteval auto calculate() noexcept { return CompileString{"char32[s:4,a:4]"}; } };
 
-    // Special types
     template <SignatureMode Mode> struct TypeSignature<bool, Mode>     { static consteval auto calculate() noexcept { return CompileString{"bool[s:1,a:1]"}; } };
     template <SignatureMode Mode> struct TypeSignature<std::nullptr_t, Mode> { static consteval auto calculate() noexcept { return format_size_align("nullptr", sizeof(std::nullptr_t), alignof(std::nullptr_t)); } };
     template <SignatureMode Mode> struct TypeSignature<std::byte, Mode> { static consteval auto calculate() noexcept { return CompileString{"byte[s:1,a:1]"}; } };
 
-    // Function pointers
     template <typename R, typename... Args, SignatureMode Mode>
     struct TypeSignature<R(*)(Args...), Mode> {
         static consteval auto calculate() noexcept {
@@ -120,7 +100,6 @@ namespace typelayout {
         }
     };
     
-    // Noexcept function pointer (R(*)(Args...) noexcept)
     template <typename R, typename... Args, SignatureMode Mode>
     struct TypeSignature<R(*)(Args...) noexcept, Mode> {
         static consteval auto calculate() noexcept {
@@ -128,7 +107,6 @@ namespace typelayout {
         }
     };
     
-    // C-style variadic function pointer (R(*)(Args..., ...))
     template <typename R, typename... Args, SignatureMode Mode>
     struct TypeSignature<R(*)(Args..., ...), Mode> {
         static consteval auto calculate() noexcept {
@@ -136,7 +114,7 @@ namespace typelayout {
         }
     };
 
-    // CV-qualified types: strip qualifiers and forward mode
+    // CV-qualified: strip and forward
     template <typename T, SignatureMode Mode>
     struct TypeSignature<const T, Mode> {
         static consteval auto calculate() noexcept { return TypeSignature<T, Mode>::calculate(); }
@@ -150,25 +128,24 @@ namespace typelayout {
         static consteval auto calculate() noexcept { return TypeSignature<T, Mode>::calculate(); }
     };
 
-    // Pointers and references (void* covered by T* specialization)
-    template <typename T, SignatureMode Mode> 
-    struct TypeSignature<T*, Mode> { 
-        static consteval auto calculate() noexcept { return format_size_align("ptr", sizeof(T*), alignof(T*)); } 
+    // Pointers and references
+    template <typename T, SignatureMode Mode>
+    struct TypeSignature<T*, Mode> {
+        static consteval auto calculate() noexcept { return format_size_align("ptr", sizeof(T*), alignof(T*)); }
     };
-    template <typename T, SignatureMode Mode> 
-    struct TypeSignature<T&, Mode> { 
-        static consteval auto calculate() noexcept { return format_size_align("ref", sizeof(T*), alignof(T*)); } 
+    template <typename T, SignatureMode Mode>
+    struct TypeSignature<T&, Mode> {
+        static consteval auto calculate() noexcept { return format_size_align("ref", sizeof(T*), alignof(T*)); }
     };
-    template <typename T, SignatureMode Mode> 
-    struct TypeSignature<T&&, Mode> { 
-        static consteval auto calculate() noexcept { return format_size_align("rref", sizeof(T*), alignof(T*)); } 
+    template <typename T, SignatureMode Mode>
+    struct TypeSignature<T&&, Mode> {
+        static consteval auto calculate() noexcept { return format_size_align("rref", sizeof(T*), alignof(T*)); }
     };
     template <typename T, typename C, SignatureMode Mode>
     struct TypeSignature<T C::*, Mode> {
         static consteval auto calculate() noexcept { return format_size_align("memptr", sizeof(T C::*), alignof(T C::*)); }
     };
 
-    // Arrays
     template <typename T, SignatureMode Mode>
     struct TypeSignature<T[], Mode> {
         static consteval auto calculate() noexcept {
@@ -177,7 +154,6 @@ namespace typelayout {
         }
     };
 
-    // Helper: detect single-byte array types that should be treated as bytes[]
     template <typename T>
     inline constexpr bool is_byte_element_v =
         std::is_same_v<T, char> || std::is_same_v<T, signed char> ||
@@ -189,12 +165,8 @@ namespace typelayout {
     struct TypeSignature<T[N], Mode> {
         static consteval auto calculate() noexcept {
             if constexpr (is_byte_element_v<T>) {
-                // Both Layout and Definition modes: normalize all single-byte arrays to bytes[]
-                // This ensures char[N], int8_t[N], uint8_t[N], byte[N], char8_t[N] have identical signatures
                 return CompileString{"bytes[s:"} + CompileString<number_buffer_size>::from_number(N) + CompileString{",a:1]"};
-            }
-            // General case: full type information for non-byte arrays
-            else {
+            } else {
                 return CompileString{"array[s:"} + CompileString<number_buffer_size>::from_number(sizeof(T[N])) +
                        CompileString{",a:"} + CompileString<number_buffer_size>::from_number(alignof(T[N])) +
                        CompileString{"]<"} + TypeSignature<T, Mode>::calculate() +
@@ -203,21 +175,7 @@ namespace typelayout {
         }
     };
 
-    // =========================================================================
     // Generic: structs, classes, enums, unions
-    // Primary template with mode parameter
-    // =========================================================================
-    //
-    // DESIGN: Two-layer signature system
-    //
-    // Both layers use "record" prefix uniformly (no struct/class distinction).
-    //
-    // Layout mode:     Flattened byte layout, no names, no markers.
-    // Definition mode: Full type tree, with field names, base class names,
-    //                  and "polymorphic" marker.
-    //
-    // See design.md for rationale.
-    // =========================================================================
     template <typename T, SignatureMode Mode>
     struct TypeSignature {
         static consteval auto calculate() noexcept {

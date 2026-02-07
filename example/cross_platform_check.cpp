@@ -1,15 +1,5 @@
-// Boost.TypeLayout — Cross-Platform Serialization-Free Compatibility Check
-//
-// This program extracts layout and definition signatures for a set of
-// representative types and outputs them as JSON. By compiling and running
-// this on multiple target platforms, you can diff the outputs to determine
-// which types can be shared directly (via shared memory, mmap, network,
-// file I/O) WITHOUT serialization.
-//
-// Workflow:
-//   1. Compile & run on Platform A → signatures_x86_64_linux.json
-//   2. Compile & run on Platform B → signatures_arm64_linux.json
-//   3. python3 scripts/compare_signatures.py signatures_*.json
+// Cross-platform signature extraction tool.
+// Outputs layout/definition signatures as JSON for comparison across platforms.
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
@@ -20,11 +10,8 @@
 
 using namespace boost::typelayout;
 
-// =============================================================================
-// Representative Types — things users actually share across platforms
-// =============================================================================
+// --- Representative types ---
 
-// 1. Network packet header (fixed-width, should be portable)
 struct PacketHeader {
     uint32_t magic;       // Protocol magic number
     uint16_t version;     // Protocol version
@@ -33,7 +20,6 @@ struct PacketHeader {
     uint32_t checksum;    // CRC32
 };
 
-// 2. Shared-memory region descriptor (fixed-width, should be portable)
 struct SharedMemRegion {
     uint64_t offset;      // Byte offset into shared segment
     uint64_t size;        // Region size in bytes
@@ -41,7 +27,6 @@ struct SharedMemRegion {
     uint32_t owner_pid;   // Owner process ID
 };
 
-// 3. File format header (fixed-width, should be portable)
 struct FileHeader {
     char     magic[4];    // "TLAY"
     uint32_t version;
@@ -50,7 +35,6 @@ struct FileHeader {
     uint32_t reserved;
 };
 
-// 4. Sensor data record (fixed-width + float, should be portable via IEEE 754)
 struct SensorRecord {
     uint64_t timestamp_ns;  // Nanoseconds since epoch
     float    temperature;   // Celsius
@@ -59,7 +43,6 @@ struct SensorRecord {
     uint32_t sensor_id;
 };
 
-// 5. IPC command (mixed fixed-width, should be portable)
 struct IpcCommand {
     uint32_t  cmd_id;
     uint32_t  flags;
@@ -68,33 +51,28 @@ struct IpcCommand {
     char      payload[64];
 };
 
-// 6. ⚠️ UNSAFE: type with platform-dependent members
+// Platform-dependent members (expected to differ across platforms)
 struct UnsafeStruct {
-    long        a;          // 4 bytes on Windows, 8 bytes on Linux x86_64
-    void*       ptr;        // 4 bytes on 32-bit, 8 bytes on 64-bit
-    wchar_t     wc;         // 2 bytes on Windows, 4 bytes on Linux
-    long double ld;         // 8/10/12/16 bytes depending on platform
+    long        a;
+    void*       ptr;
+    wchar_t     wc;
+    long double ld;
 };
 
-// 7. ⚠️ UNSAFE: type with pointer members
 struct UnsafeWithPointer {
     uint32_t  id;
-    char*     name;        // Pointer — size depends on architecture
+    char*     name;
     uint64_t  timestamp;
 };
 
-// 8. Mixed: mostly safe but contains one risky field
 struct MixedSafety {
     uint32_t  id;
     double    value;
-    int       count;        // int is typically 4 bytes everywhere, but not guaranteed
+    int       count;
 };
 
-// =============================================================================
-// JSON Output
-// =============================================================================
+// --- JSON output ---
 
-// Helper: print a compile-time string as a JSON-escaped string
 template <typename Sig>
 void print_json_string(const Sig& sig) {
     std::cout << '"';
@@ -107,7 +85,6 @@ void print_json_string(const Sig& sig) {
     std::cout << '"';
 }
 
-// Helper: output one type entry as JSON
 template <typename T>
 void emit_type_entry(const char* name, bool& first) {
     if (!first) std::cout << ",\n";
@@ -130,7 +107,6 @@ void emit_type_entry(const char* name, bool& first) {
 }
 
 int main() {
-    // Platform identification
     constexpr auto arch_prefix = get_arch_prefix();
 
     std::cout << "{\n";
@@ -148,18 +124,15 @@ int main() {
     std::cout << "  \"types\": [\n";
     bool first = true;
 
-    // Safe types (expected to be portable across all platforms)
     emit_type_entry<PacketHeader>("PacketHeader", first);
     emit_type_entry<SharedMemRegion>("SharedMemRegion", first);
     emit_type_entry<FileHeader>("FileHeader", first);
     emit_type_entry<SensorRecord>("SensorRecord", first);
     emit_type_entry<IpcCommand>("IpcCommand", first);
 
-    // Unsafe types (expected to differ across platforms)
     emit_type_entry<UnsafeStruct>("UnsafeStruct", first);
     emit_type_entry<UnsafeWithPointer>("UnsafeWithPointer", first);
 
-    // Mixed
     emit_type_entry<MixedSafety>("MixedSafety", first);
 
     std::cout << "\n  ]\n";
