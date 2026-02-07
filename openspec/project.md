@@ -51,7 +51,9 @@ TypeLayout/
 │       └── core/
 │           ├── config.hpp             # 平台检测、SignatureMode 枚举
 │           ├── compile_string.hpp     # CompileString<N> 编译时字符串
-│           ├── reflection_helpers.hpp # P2996 反射辅助、展平逻辑
+│           ├── reflection_meta.hpp    # P2996 反射元操作（限定名、成员枚举）
+│           ├── definition_engine.hpp  # Definition 签名内容生成引擎
+│           ├── layout_engine.hpp      # Layout 签名内容生成引擎（含 union）
 │           ├── type_signature.hpp     # TypeSignature<T,Mode> 特化
 │           └── signature.hpp          # 公共 API（4 个函数）
 ├── test/

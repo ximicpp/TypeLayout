@@ -6,10 +6,8 @@
 
 #include <boost/typelayout/core/config.hpp>
 #include <boost/typelayout/core/compile_string.hpp>
-
-#define BOOST_TYPELAYOUT_INTERNAL_INCLUDE_
-#include <boost/typelayout/core/reflection_helpers.hpp>
-#undef BOOST_TYPELAYOUT_INTERNAL_INCLUDE_
+#include <boost/typelayout/core/definition_engine.hpp>
+#include <boost/typelayout/core/layout_engine.hpp>
 #include <type_traits>
 
 namespace boost {
