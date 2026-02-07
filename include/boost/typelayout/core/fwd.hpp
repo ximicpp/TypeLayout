@@ -57,8 +57,8 @@ namespace typelayout {
     // Part 2: FixedString<N> — Compile-Time Fixed-Size String
     // =========================================================================
 
-    // Buffer size for compile-time number-to-string conversion (uint64_t max = 20 digits).
-    inline constexpr std::size_t number_buffer_size = 22;
+    // Buffer size for compile-time number-to-string conversion (uint64_t max = 20 digits + '\0').
+    inline constexpr std::size_t number_buffer_size = 21;
 
     template <size_t N>
     struct FixedString {
@@ -78,39 +78,40 @@ namespace typelayout {
         }
 
         template <typename T>
-        static constexpr FixedString<32> from_number(T num) noexcept {
-            char result[32] = {};
-            int idx = 0;
+        static constexpr FixedString<21> from_number(T num) noexcept {
+            char buf[21] = {};
+            constexpr int last = 19; // rightmost digit position (buf[20] = '\0')
 
             if (num == 0) {
+                buf[last] = '0';
+                // shift to front
+                char result[21] = {};
                 result[0] = '0';
-                idx = 1;
-            } else {
-                bool negative = std::is_signed_v<T> && num < 0;
-                using UnsignedT = std::make_unsigned_t<T>;
-                UnsignedT abs_num;
-
-                if (negative)
-                    abs_num = UnsignedT(-(std::make_signed_t<T>(num)));
-                else
-                    abs_num = UnsignedT(num);
-
-                while (abs_num > 0) {
-                    result[idx++] = '0' + char(abs_num % 10);
-                    abs_num /= 10;
-                }
-
-                if (negative)
-                    result[idx++] = '-';
-
-                for (int i = 0; i < idx / 2; ++i) {
-                    char temp = result[i];
-                    result[i] = result[idx - 1 - i];
-                    result[idx - 1 - i] = temp;
-                }
+                return FixedString<21>(result);
             }
-            result[idx] = '\0';
-            return FixedString<32>(result);
+
+            bool negative = std::is_signed_v<T> && num < 0;
+            using UnsignedT = std::make_unsigned_t<T>;
+            UnsignedT abs_num = negative
+                ? UnsignedT(-(std::make_signed_t<T>(num)))
+                : UnsignedT(num);
+
+            // Write digits right-to-left (no reversal needed)
+            int pos = last;
+            while (abs_num > 0) {
+                buf[pos--] = '0' + char(abs_num % 10);
+                abs_num /= 10;
+            }
+            if (negative)
+                buf[pos--] = '-';
+
+            // Shift to front to avoid leading zeros in buffer
+            int start = pos + 1;
+            int len = last - start + 1;
+            char result[21] = {};
+            for (int i = 0; i < len; ++i)
+                result[i] = buf[start + i];
+            return FixedString<21>(result);
         }
 
         template <size_t M>
@@ -150,7 +151,9 @@ namespace typelayout {
                 if (value[i] != other[i]) return false;
                 if (value[i] == '\0') return true;
             }
-            return other[N] == '\0';
+            // FixedString always contains '\0' within N bytes,
+            // so this point is unreachable in practice.
+            return true;
         }
 
         constexpr size_t length() const noexcept {

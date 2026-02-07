@@ -512,10 +512,10 @@ rm -f test_output
 
 ### FixedString<N> 模板
 编译时固定大小字符串缓冲区，签名生成的核心基础设施：
-- `consteval` 构造函数
-- `operator+` 连接
-- `operator==` 比较
-- `from_number()` 数字转字符串
+- `consteval` 构造函数（字符数组、`string_view`）
+- `operator+` 连接（返回 `FixedString<N+M-1>`）
+- `operator==` 比较（支持不同 N/M 之间比较）
+- `from_number()` 整数转字符串（返回紧凑的 `FixedString<21>`，从右往左写入无需反转）
 - `skip_first()` 去除前导逗号（展平折叠表达式产物）
 
 ### 签名生成流程
