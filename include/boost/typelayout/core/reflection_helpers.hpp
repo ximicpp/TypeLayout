@@ -18,6 +18,36 @@ namespace typelayout {
     template <typename T, SignatureMode Mode = SignatureMode::Layout>
     struct TypeSignature;
 
+    // --- Qualified name builder ---
+    //
+    // P2996 Bloomberg toolchain lacks qualified_name_of, so we walk
+    // parent_of chains and join with "::".
+
+    template<std::meta::info R>
+    consteval auto qualified_name_for() noexcept {
+        using namespace std::meta;
+        constexpr auto parent = parent_of(R);
+        constexpr std::string_view self = identifier_of(R);
+        if constexpr (is_namespace(parent) && has_identifier(parent)) {
+            constexpr std::string_view pname = identifier_of(parent);
+            // Check grandparent to recurse further
+            constexpr auto grandparent = parent_of(parent);
+            if constexpr (is_namespace(grandparent) && has_identifier(grandparent)) {
+                return qualified_name_for<parent>() +
+                       CompileString{"::"} +
+                       CompileString<self.size() + 1>(self);
+            } else {
+                return CompileString<pname.size() + 1>(pname) +
+                       CompileString{"::"} +
+                       CompileString<self.size() + 1>(self);
+            }
+        } else {
+            return CompileString<self.size() + 1>(self);
+        }
+    }
+
+    // --- Basic reflection helpers ---
+
     template <typename T>
     consteval std::size_t get_member_count() noexcept {
         return std::meta::nonstatic_data_members_of(^^T, std::meta::access_context::unchecked()).size();
@@ -50,9 +80,13 @@ namespace typelayout {
 
     template<std::meta::info BaseInfo>
     consteval auto get_base_name() noexcept {
-        constexpr std::string_view name = std::meta::identifier_of(std::meta::type_of(BaseInfo));
-        constexpr size_t NameLen = name.size() + 1;
-        return CompileString<NameLen>(name);
+        return qualified_name_for<std::meta::type_of(BaseInfo)>();
+    }
+
+    // Qualified name for a type T (used for enums in Definition mode)
+    template<typename T>
+    consteval auto get_type_qualified_name() noexcept {
+        return qualified_name_for<^^T>();
     }
 
     // --- Definition mode: fields ---
@@ -156,10 +190,14 @@ namespace typelayout {
         else return definition_bases<T>() + CompileString{","} + definition_fields<T>();
     }
 
-    // --- Layout mode: inheritance flattening ---
+    // --- Layout mode: inheritance and composition flattening ---
     //
     // Every helper returns a comma-PREFIXED string. The top-level function
     // strips the leading comma via skip_first().
+
+    // Forward declarations for mutual recursion
+    template <typename T, std::size_t OffsetAdj>
+    consteval auto layout_all_prefixed() noexcept;
 
     template<typename T, std::size_t Index, std::size_t OffsetAdj>
     consteval auto layout_field_with_comma() noexcept {
@@ -178,6 +216,10 @@ namespace typelayout {
                    CompileString{","} +
                    TypeSignature<FieldType, SignatureMode::Layout>::calculate() +
                    CompileString{">"};
+        } else if constexpr (std::is_class_v<FieldType> && !std::is_union_v<FieldType>) {
+            // Flatten nested class/struct: recursively expand its fields at the adjusted offset
+            constexpr std::size_t field_offset = offset_of(member).bytes + OffsetAdj;
+            return layout_all_prefixed<FieldType, field_offset>();
         } else {
             return CompileString{",@"} +
                    CompileString<number_buffer_size>::from_number(offset_of(member).bytes + OffsetAdj) +
@@ -191,9 +233,6 @@ namespace typelayout {
         if constexpr (sizeof...(Is) == 0) return CompileString{""};
         else return (layout_field_with_comma<T, Is, OffsetAdj>() + ...);
     }
-
-    template <typename T, std::size_t OffsetAdj>
-    consteval auto layout_all_prefixed() noexcept;
 
     template <typename T, std::size_t BaseIndex, std::size_t OffsetAdj>
     consteval auto layout_one_base_prefixed() noexcept {

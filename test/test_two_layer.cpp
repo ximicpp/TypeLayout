@@ -51,6 +51,36 @@ namespace test_nested {
     struct Outer2 { Inner inner; double d; };
 }
 
+// --- Composition flattening (Fix #4) ---
+
+namespace test_composition_flatten {
+    struct Inner { int32_t a; int32_t b; };
+    struct Composed { Inner x; };
+    struct Flat { int32_t a; int32_t b; };
+
+    struct Deep { int32_t p; int32_t q; };
+    struct Mid { Deep d; int32_t r; };
+    struct Outer { Mid m; };
+    struct DeepFlat { int32_t p; int32_t q; int32_t r; };
+}
+
+// --- Enum identity (Fix #2) ---
+
+namespace test_enum_identity {
+    enum class Color : uint8_t { Red, Green, Blue };
+    enum class Shape : uint8_t { Circle, Square, Triangle };
+}
+
+// --- Base class namespace collision (Fix #1) ---
+
+namespace test_base_ns1 { struct Tag { int32_t id; }; }
+namespace test_base_ns2 { struct Tag { int32_t id; }; }
+
+namespace test_base_collision {
+    struct A : test_base_ns1::Tag { double v; };
+    struct B : test_base_ns2::Tag { double v; };
+}
+
 // --- Layout signature tests ---
 
 static_assert([]() consteval {
@@ -68,13 +98,27 @@ static_assert(layout_signatures_match<test_multilevel::C, test_multilevel::Flat>
 static_assert(layout_signatures_match<test_multiple_inheritance::Multi, test_multiple_inheritance::Flat>(),
     "Multiple inheritance should flatten to match flat struct");
 
+// Fix #3: Polymorphic types now have vptr marker in Layout
 static_assert([]() consteval {
     constexpr auto sig = get_layout_signature<test_polymorphic::Poly>();
-    for (std::size_t i = 0; i < sig.length(); ++i) {
-        if (sig.value[i] == 'p' && sig.value[i+1] == 'o' && sig.value[i+2] == 'l') return false;
+    // vptr should appear in Layout signature
+    for (std::size_t i = 0; i + 3 < sig.length(); ++i) {
+        if (sig.value[i] == 'v' && sig.value[i+1] == 'p' && sig.value[i+2] == 't' && sig.value[i+3] == 'r')
+            return true;
     }
-    return true;
-}(), "Polymorphic type Layout should NOT contain 'polymorphic'");
+    return false;
+}(), "Polymorphic type Layout SHOULD contain 'vptr'");
+
+// Fix #3: Polymorphic vs non-polymorphic must NOT match in Layout
+static_assert(!layout_signatures_match<test_polymorphic::Poly, test_polymorphic::NonPoly>(),
+    "Polymorphic and non-polymorphic types must NOT match in Layout");
+
+// Fix #4: Composition flattening
+static_assert(layout_signatures_match<test_composition_flatten::Composed, test_composition_flatten::Flat>(),
+    "Composed struct should flatten to match flat struct in Layout");
+
+static_assert(layout_signatures_match<test_composition_flatten::Outer, test_composition_flatten::DeepFlat>(),
+    "Deep composition should flatten to match flat struct in Layout");
 
 struct ByteArrayChar { char buf[32]; };
 struct ByteArrayU8 { uint8_t buf[32]; };
@@ -111,12 +155,26 @@ static_assert([]() consteval {
     return false;
 }(), "Polymorphic type Definition should contain 'polymorphic'");
 
+// Fix #2: Enum identity in Definition mode
+static_assert(!definition_signatures_match<test_enum_identity::Color, test_enum_identity::Shape>(),
+    "Different enums with same underlying type must NOT match in Definition");
+
+static_assert(layout_signatures_match<test_enum_identity::Color, test_enum_identity::Shape>(),
+    "Different enums with same underlying type SHOULD match in Layout");
+
+// Fix #1: Base class qualified names prevent namespace collision
+static_assert(!definition_signatures_match<test_base_collision::A, test_base_collision::B>(),
+    "Structs inheriting from different-namespace same-name bases must NOT match in Definition");
+
+static_assert(layout_signatures_match<test_base_collision::A, test_base_collision::B>(),
+    "Structs inheriting from different-namespace same-name bases SHOULD match in Layout");
+
 // --- Projection relationship tests ---
 
 static_assert([]() consteval {
     constexpr bool def_match = definition_signatures_match<test_nested::Outer1, test_nested::Outer2>();
     constexpr bool lay_match = layout_signatures_match<test_nested::Outer1, test_nested::Outer2>();
-    return !def_match || lay_match;  // def_match ⟹ lay_match
+    return !def_match || lay_match;  // def_match => lay_match
 }(), "Definition match implies Layout match");
 
 static_assert(layout_signatures_match<test_inheritance::Derived, test_inheritance::Flat>(),
@@ -139,7 +197,7 @@ static_assert([]() consteval {
     constexpr auto sig = get_layout_signature<Color>();
     constexpr auto expected = CompileString{"[64-le]enum[s:1,a:1]<u8[s:1,a:1]>"};
     return sig == expected;
-}(), "Enum signature correct");
+}(), "Enum Layout signature correct");
 
 static_assert(layout_signatures_match<test_empty_base::WithEmpty, test_empty_base::Plain>(),
     "Empty base class should not affect Layout signature");
@@ -152,18 +210,32 @@ int main() {
     };
 
     std::cout << "--- Layout Signatures ---\n";
-    print_sig("Simple:  ", get_layout_signature<test_basic::Simple>());
-    print_sig("Derived: ", get_layout_signature<test_inheritance::Derived>());
-    print_sig("Flat:    ", get_layout_signature<test_inheritance::Flat>());
+    print_sig("Simple:     ", get_layout_signature<test_basic::Simple>());
+    print_sig("Derived:    ", get_layout_signature<test_inheritance::Derived>());
+    print_sig("Flat:       ", get_layout_signature<test_inheritance::Flat>());
+    print_sig("Poly:       ", get_layout_signature<test_polymorphic::Poly>());
+    print_sig("NonPoly:    ", get_layout_signature<test_polymorphic::NonPoly>());
+    print_sig("Composed:   ", get_layout_signature<test_composition_flatten::Composed>());
+    print_sig("CompFlat:   ", get_layout_signature<test_composition_flatten::Flat>());
+    print_sig("DeepOuter:  ", get_layout_signature<test_composition_flatten::Outer>());
+    print_sig("DeepFlat:   ", get_layout_signature<test_composition_flatten::DeepFlat>());
 
     std::cout << "\n--- Definition Signatures ---\n";
-    print_sig("Simple:  ", get_definition_signature<test_basic::Simple>());
-    print_sig("Derived: ", get_definition_signature<test_inheritance::Derived>());
-    print_sig("Flat:    ", get_definition_signature<test_inheritance::Flat>());
+    print_sig("Simple:     ", get_definition_signature<test_basic::Simple>());
+    print_sig("Derived:    ", get_definition_signature<test_inheritance::Derived>());
+    print_sig("Flat:       ", get_definition_signature<test_inheritance::Flat>());
+    print_sig("Color:      ", get_definition_signature<test_enum_identity::Color>());
+    print_sig("Shape:      ", get_definition_signature<test_enum_identity::Shape>());
+    print_sig("BaseNs1:    ", get_definition_signature<test_base_collision::A>());
+    print_sig("BaseNs2:    ", get_definition_signature<test_base_collision::B>());
 
     std::cout << "\n--- Projection ---\n";
     std::cout << "  Derived == Flat (Layout)?      " << (layout_signatures_match<test_inheritance::Derived, test_inheritance::Flat>() ? "YES" : "NO") << "\n";
     std::cout << "  Derived == Flat (Definition)?   " << (definition_signatures_match<test_inheritance::Derived, test_inheritance::Flat>() ? "YES" : "NO") << "\n";
+    std::cout << "  Poly == NonPoly (Layout)?       " << (layout_signatures_match<test_polymorphic::Poly, test_polymorphic::NonPoly>() ? "YES" : "NO") << "\n";
+    std::cout << "  Color == Shape (Layout)?        " << (layout_signatures_match<test_enum_identity::Color, test_enum_identity::Shape>() ? "YES" : "NO") << "\n";
+    std::cout << "  Color == Shape (Definition)?    " << (definition_signatures_match<test_enum_identity::Color, test_enum_identity::Shape>() ? "YES" : "NO") << "\n";
+    std::cout << "  Composed == Flat (Layout)?      " << (layout_signatures_match<test_composition_flatten::Composed, test_composition_flatten::Flat>() ? "YES" : "NO") << "\n";
 
     std::cout << "\nAll tests passed!\n";
     return 0;

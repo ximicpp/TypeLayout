@@ -181,9 +181,21 @@ namespace typelayout {
         static consteval auto calculate() noexcept {
             if constexpr (std::is_enum_v<T>) {
                 using U = std::underlying_type_t<T>;
-                return CompileString{"enum[s:"} + CompileString<number_buffer_size>::from_number(sizeof(T)) +
-                       CompileString{",a:"} + CompileString<number_buffer_size>::from_number(alignof(T)) +
-                       CompileString{"]<"} + TypeSignature<U, Mode>::calculate() + CompileString{">"};
+                if constexpr (Mode == SignatureMode::Definition) {
+                    return CompileString{"enum<"} +
+                           get_type_qualified_name<T>() +
+                           CompileString{">[s:"} +
+                           CompileString<number_buffer_size>::from_number(sizeof(T)) +
+                           CompileString{",a:"} +
+                           CompileString<number_buffer_size>::from_number(alignof(T)) +
+                           CompileString{"]<"} + TypeSignature<U, Mode>::calculate() + CompileString{">"};
+                } else {
+                    return CompileString{"enum[s:"} +
+                           CompileString<number_buffer_size>::from_number(sizeof(T)) +
+                           CompileString{",a:"} +
+                           CompileString<number_buffer_size>::from_number(alignof(T)) +
+                           CompileString{"]<"} + TypeSignature<U, Mode>::calculate() + CompileString{">"};
+                }
             }
             else if constexpr (std::is_union_v<T>) {
                 if constexpr (Mode == SignatureMode::Definition) {
@@ -198,14 +210,25 @@ namespace typelayout {
             }
             else if constexpr (std::is_class_v<T> && !std::is_array_v<T>) {
                 if constexpr (Mode == SignatureMode::Layout) {
-                    // Layout mode: "record" prefix, flattened, no markers
-                    return CompileString{"record[s:"} +
-                           CompileString<number_buffer_size>::from_number(sizeof(T)) +
-                           CompileString{",a:"} +
-                           CompileString<number_buffer_size>::from_number(alignof(T)) +
-                           CompileString{"]{"} +
-                           get_layout_content<T>() +
-                           CompileString{"}"};
+                    constexpr bool poly = std::is_polymorphic_v<T>;
+                    if constexpr (poly) {
+                        // vptr occupies pointer_size bytes at an implementation-defined position
+                        return CompileString{"record[s:"} +
+                               CompileString<number_buffer_size>::from_number(sizeof(T)) +
+                               CompileString{",a:"} +
+                               CompileString<number_buffer_size>::from_number(alignof(T)) +
+                               CompileString{",vptr]{"} +
+                               get_layout_content<T>() +
+                               CompileString{"}"};
+                    } else {
+                        return CompileString{"record[s:"} +
+                               CompileString<number_buffer_size>::from_number(sizeof(T)) +
+                               CompileString{",a:"} +
+                               CompileString<number_buffer_size>::from_number(alignof(T)) +
+                               CompileString{"]{"} +
+                               get_layout_content<T>() +
+                               CompileString{"}"};
+                    }
                 } else {
                     // Definition mode: "record" prefix, preserve tree, include names + polymorphic marker
                     constexpr bool poly = std::is_polymorphic_v<T>;
