@@ -4,10 +4,8 @@
 #ifndef BOOST_TYPELAYOUT_CORE_SIGNATURE_DETAIL_HPP
 #define BOOST_TYPELAYOUT_CORE_SIGNATURE_DETAIL_HPP
 
-#include <boost/typelayout/core/config.hpp>
-#include <boost/typelayout/core/compile_string.hpp>
+#include <boost/typelayout/core/fwd.hpp>
 #include <experimental/meta>
-#include <type_traits>
 
 namespace boost {
 namespace typelayout {
@@ -20,7 +18,7 @@ namespace typelayout {
     // Part 1: P2996 Reflection Meta-Operations
     // =========================================================================
 
-    // Qualified name builder â€” P2996 Bloomberg toolchain lacks
+    // Qualified name builder â€?P2996 Bloomberg toolchain lacks
     // qualified_name_of, so we walk parent_of chains and join with "::".
 
     template<std::meta::info R>
@@ -33,15 +31,15 @@ namespace typelayout {
             constexpr auto grandparent = parent_of(parent);
             if constexpr (is_namespace(grandparent) && has_identifier(grandparent)) {
                 return qualified_name_for<parent>() +
-                       CompileString{"::"} +
-                       CompileString<self.size() + 1>(self);
+                       FixedString{"::"} +
+                       FixedString<self.size() + 1>(self);
             } else {
-                return CompileString<pname.size() + 1>(pname) +
-                       CompileString{"::"} +
-                       CompileString<self.size() + 1>(self);
+                return FixedString<pname.size() + 1>(pname) +
+                       FixedString{"::"} +
+                       FixedString<self.size() + 1>(self);
             }
         } else {
-            return CompileString<self.size() + 1>(self);
+            return FixedString<self.size() + 1>(self);
         }
     }
 
@@ -61,11 +59,11 @@ namespace typelayout {
         if constexpr (has_identifier(Member)) {
             constexpr std::string_view name = identifier_of(Member);
             constexpr size_t NameLen = name.size() + 1;
-            return CompileString<NameLen>(name);
+            return FixedString<NameLen>(name);
         } else {
-            return CompileString{"<anon:"} +
-                   CompileString<number_buffer_size>::from_number(Index) +
-                   CompileString{">"};
+            return FixedString{"<anon:"} +
+                   FixedString<number_buffer_size>::from_number(Index) +
+                   FixedString{">"};
         }
     }
 
@@ -93,21 +91,21 @@ namespace typelayout {
 
         if constexpr (is_bit_field(member)) {
             constexpr auto bit_off = offset_of(member);
-            return CompileString{"@"} +
-                   CompileString<number_buffer_size>::from_number(bit_off.bytes) +
-                   CompileString{"."} +
-                   CompileString<number_buffer_size>::from_number(bit_off.bits) +
-                   CompileString{"["} + get_member_name<member, Index>() +
-                   CompileString{"]:bits<"} +
-                   CompileString<number_buffer_size>::from_number(bit_size_of(member)) +
-                   CompileString{","} +
+            return FixedString{"@"} +
+                   FixedString<number_buffer_size>::from_number(bit_off.bytes) +
+                   FixedString{"."} +
+                   FixedString<number_buffer_size>::from_number(bit_off.bits) +
+                   FixedString{"["} + get_member_name<member, Index>() +
+                   FixedString{"]:bits<"} +
+                   FixedString<number_buffer_size>::from_number(bit_size_of(member)) +
+                   FixedString{","} +
                    TypeSignature<FieldType, SignatureMode::Definition>::calculate() +
-                   CompileString{">"};
+                   FixedString{">"};
         } else {
-            return CompileString{"@"} +
-                   CompileString<number_buffer_size>::from_number(offset_of(member).bytes) +
-                   CompileString{"["} + get_member_name<member, Index>() +
-                   CompileString{"]:"} +
+            return FixedString{"@"} +
+                   FixedString<number_buffer_size>::from_number(offset_of(member).bytes) +
+                   FixedString{"["} + get_member_name<member, Index>() +
+                   FixedString{"]:"} +
                    TypeSignature<FieldType, SignatureMode::Definition>::calculate();
         }
     }
@@ -117,7 +115,7 @@ namespace typelayout {
         if constexpr (IsFirst)
             return definition_field_signature<T, Index>();
         else
-            return CompileString{","} + definition_field_signature<T, Index>();
+            return FixedString{","} + definition_field_signature<T, Index>();
     }
 
     template<typename T, std::size_t... Is>
@@ -129,7 +127,7 @@ namespace typelayout {
     consteval auto definition_fields() noexcept {
         constexpr std::size_t count = get_member_count<T>();
         if constexpr (count == 0)
-            return CompileString{""};
+            return FixedString{""};
         else
             return concatenate_definition_fields<T>(std::make_index_sequence<count>{});
     }
@@ -143,10 +141,10 @@ namespace typelayout {
         using BaseType = [:type_of(base_info):];
 
         if constexpr (is_virtual(base_info))
-            return CompileString{"~vbase<"} + get_base_name<base_info>() + CompileString{">:"} +
+            return FixedString{"~vbase<"} + get_base_name<base_info>() + FixedString{">:"} +
                    TypeSignature<BaseType, SignatureMode::Definition>::calculate();
         else
-            return CompileString{"~base<"} + get_base_name<base_info>() + CompileString{">:"} +
+            return FixedString{"~base<"} + get_base_name<base_info>() + FixedString{">:"} +
                    TypeSignature<BaseType, SignatureMode::Definition>::calculate();
     }
 
@@ -155,7 +153,7 @@ namespace typelayout {
         if constexpr (IsFirst)
             return definition_base_signature<T, Index>();
         else
-            return CompileString{","} + definition_base_signature<T, Index>();
+            return FixedString{","} + definition_base_signature<T, Index>();
     }
 
     template<typename T, std::size_t... Is>
@@ -167,7 +165,7 @@ namespace typelayout {
     consteval auto definition_bases() noexcept {
         constexpr std::size_t count = get_base_count<T>();
         if constexpr (count == 0)
-            return CompileString{""};
+            return FixedString{""};
         else
             return concatenate_definition_bases<T>(std::make_index_sequence<count>{});
     }
@@ -178,10 +176,10 @@ namespace typelayout {
     consteval auto definition_content() noexcept {
         constexpr std::size_t bc = get_base_count<T>();
         constexpr std::size_t fc = get_member_count<T>();
-        if constexpr (bc == 0 && fc == 0) return CompileString{""};
+        if constexpr (bc == 0 && fc == 0) return FixedString{""};
         else if constexpr (bc == 0) return definition_fields<T>();
         else if constexpr (fc == 0) return definition_bases<T>();
-        else return definition_bases<T>() + CompileString{","} + definition_fields<T>();
+        else return definition_bases<T>() + FixedString{","} + definition_fields<T>();
     }
 
     // =========================================================================
@@ -202,29 +200,29 @@ namespace typelayout {
 
         if constexpr (is_bit_field(member)) {
             constexpr auto bit_off = offset_of(member);
-            return CompileString{",@"} +
-                   CompileString<number_buffer_size>::from_number(bit_off.bytes + OffsetAdj) +
-                   CompileString{"."} +
-                   CompileString<number_buffer_size>::from_number(bit_off.bits) +
-                   CompileString{":bits<"} +
-                   CompileString<number_buffer_size>::from_number(bit_size_of(member)) +
-                   CompileString{","} +
+            return FixedString{",@"} +
+                   FixedString<number_buffer_size>::from_number(bit_off.bytes + OffsetAdj) +
+                   FixedString{"."} +
+                   FixedString<number_buffer_size>::from_number(bit_off.bits) +
+                   FixedString{":bits<"} +
+                   FixedString<number_buffer_size>::from_number(bit_size_of(member)) +
+                   FixedString{","} +
                    TypeSignature<FieldType, SignatureMode::Layout>::calculate() +
-                   CompileString{">"};
+                   FixedString{">"};
         } else if constexpr (std::is_class_v<FieldType> && !std::is_union_v<FieldType>) {
             constexpr std::size_t field_offset = offset_of(member).bytes + OffsetAdj;
             return layout_all_prefixed<FieldType, field_offset>();
         } else {
-            return CompileString{",@"} +
-                   CompileString<number_buffer_size>::from_number(offset_of(member).bytes + OffsetAdj) +
-                   CompileString{":"} +
+            return FixedString{",@"} +
+                   FixedString<number_buffer_size>::from_number(offset_of(member).bytes + OffsetAdj) +
+                   FixedString{":"} +
                    TypeSignature<FieldType, SignatureMode::Layout>::calculate();
         }
     }
 
     template <typename T, std::size_t OffsetAdj, std::size_t... Is>
     consteval auto layout_direct_fields_prefixed(std::index_sequence<Is...>) noexcept {
-        if constexpr (sizeof...(Is) == 0) return CompileString{""};
+        if constexpr (sizeof...(Is) == 0) return FixedString{""};
         else return (layout_field_with_comma<T, Is, OffsetAdj>() + ...);
     }
 
@@ -238,7 +236,7 @@ namespace typelayout {
 
     template <typename T, std::size_t OffsetAdj, std::size_t... Is>
     consteval auto layout_bases_prefixed(std::index_sequence<Is...>) noexcept {
-        if constexpr (sizeof...(Is) == 0) return CompileString{""};
+        if constexpr (sizeof...(Is) == 0) return FixedString{""};
         else return (layout_one_base_prefixed<T, Is, OffsetAdj>() + ...);
     }
 
@@ -246,7 +244,7 @@ namespace typelayout {
     consteval auto layout_all_prefixed() noexcept {
         constexpr std::size_t bc = get_base_count<T>();
         constexpr std::size_t fc = get_member_count<T>();
-        if constexpr (bc == 0 && fc == 0) return CompileString{""};
+        if constexpr (bc == 0 && fc == 0) return FixedString{""};
         else if constexpr (bc == 0) return layout_direct_fields_prefixed<T, OffsetAdj>(std::make_index_sequence<fc>{});
         else if constexpr (fc == 0) return layout_bases_prefixed<T, OffsetAdj>(std::make_index_sequence<bc>{});
         else return layout_bases_prefixed<T, OffsetAdj>(std::make_index_sequence<bc>{}) +
@@ -268,19 +266,19 @@ namespace typelayout {
 
         if constexpr (is_bit_field(member)) {
             constexpr auto bit_off = offset_of(member);
-            return CompileString{"@"} +
-                   CompileString<number_buffer_size>::from_number(bit_off.bytes) +
-                   CompileString{"."} +
-                   CompileString<number_buffer_size>::from_number(bit_off.bits) +
-                   CompileString{":bits<"} +
-                   CompileString<number_buffer_size>::from_number(bit_size_of(member)) +
-                   CompileString{","} +
+            return FixedString{"@"} +
+                   FixedString<number_buffer_size>::from_number(bit_off.bytes) +
+                   FixedString{"."} +
+                   FixedString<number_buffer_size>::from_number(bit_off.bits) +
+                   FixedString{":bits<"} +
+                   FixedString<number_buffer_size>::from_number(bit_size_of(member)) +
+                   FixedString{","} +
                    TypeSignature<FieldType, SignatureMode::Layout>::calculate() +
-                   CompileString{">"};
+                   FixedString{">"};
         } else {
-            return CompileString{"@"} +
-                   CompileString<number_buffer_size>::from_number(offset_of(member).bytes) +
-                   CompileString{":"} +
+            return FixedString{"@"} +
+                   FixedString<number_buffer_size>::from_number(offset_of(member).bytes) +
+                   FixedString{":"} +
                    TypeSignature<FieldType, SignatureMode::Layout>::calculate();
         }
     }
@@ -290,7 +288,7 @@ namespace typelayout {
         if constexpr (IsFirst)
             return layout_union_field<T, Index>();
         else
-            return CompileString{","} + layout_union_field<T, Index>();
+            return FixedString{","} + layout_union_field<T, Index>();
     }
 
     template<typename T, std::size_t... Is>
@@ -302,7 +300,7 @@ namespace typelayout {
     consteval auto get_layout_union_content() noexcept {
         constexpr std::size_t count = get_member_count<T>();
         if constexpr (count == 0)
-            return CompileString{""};
+            return FixedString{""};
         else
             return concatenate_layout_union_fields<T>(std::make_index_sequence<count>{});
     }
@@ -313,42 +311,42 @@ namespace typelayout {
 
     template<size_t N>
     consteval auto format_size_align(const char (&name)[N], size_t size, size_t align) noexcept {
-        return CompileString{name} + CompileString{"[s:"} +
-               CompileString<number_buffer_size>::from_number(size) +
-               CompileString{",a:"} +
-               CompileString<number_buffer_size>::from_number(align) +
-               CompileString{"]"};
+        return FixedString{name} + FixedString{"[s:"} +
+               FixedString<number_buffer_size>::from_number(size) +
+               FixedString{",a:"} +
+               FixedString<number_buffer_size>::from_number(align) +
+               FixedString{"]"};
     }
 
     // Fixed-width integers
-    template <SignatureMode Mode> struct TypeSignature<int8_t, Mode>   { static consteval auto calculate() noexcept { return CompileString{"i8[s:1,a:1]"}; } };
-    template <SignatureMode Mode> struct TypeSignature<uint8_t, Mode>  { static consteval auto calculate() noexcept { return CompileString{"u8[s:1,a:1]"}; } };
-    template <SignatureMode Mode> struct TypeSignature<int16_t, Mode>  { static consteval auto calculate() noexcept { return CompileString{"i16[s:2,a:2]"}; } };
-    template <SignatureMode Mode> struct TypeSignature<uint16_t, Mode> { static consteval auto calculate() noexcept { return CompileString{"u16[s:2,a:2]"}; } };
-    template <SignatureMode Mode> struct TypeSignature<int32_t, Mode>  { static consteval auto calculate() noexcept { return CompileString{"i32[s:4,a:4]"}; } };
-    template <SignatureMode Mode> struct TypeSignature<uint32_t, Mode> { static consteval auto calculate() noexcept { return CompileString{"u32[s:4,a:4]"}; } };
-    template <SignatureMode Mode> struct TypeSignature<int64_t, Mode>  { static consteval auto calculate() noexcept { return CompileString{"i64[s:8,a:8]"}; } };
-    template <SignatureMode Mode> struct TypeSignature<uint64_t, Mode> { static consteval auto calculate() noexcept { return CompileString{"u64[s:8,a:8]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<int8_t, Mode>   { static consteval auto calculate() noexcept { return FixedString{"i8[s:1,a:1]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<uint8_t, Mode>  { static consteval auto calculate() noexcept { return FixedString{"u8[s:1,a:1]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<int16_t, Mode>  { static consteval auto calculate() noexcept { return FixedString{"i16[s:2,a:2]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<uint16_t, Mode> { static consteval auto calculate() noexcept { return FixedString{"u16[s:2,a:2]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<int32_t, Mode>  { static consteval auto calculate() noexcept { return FixedString{"i32[s:4,a:4]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<uint32_t, Mode> { static consteval auto calculate() noexcept { return FixedString{"u32[s:4,a:4]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<int64_t, Mode>  { static consteval auto calculate() noexcept { return FixedString{"i64[s:8,a:8]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<uint64_t, Mode> { static consteval auto calculate() noexcept { return FixedString{"u64[s:8,a:8]"}; } };
 
     // Fundamental types (only when distinct from fixed-width aliases)
     template <SignatureMode Mode>
         requires (!std::is_same_v<signed char, int8_t>)
     struct TypeSignature<signed char, Mode> {
-        static consteval auto calculate() noexcept { return CompileString{"i8[s:1,a:1]"}; }
+        static consteval auto calculate() noexcept { return FixedString{"i8[s:1,a:1]"}; }
     };
 
     template <SignatureMode Mode>
         requires (!std::is_same_v<unsigned char, uint8_t>)
     struct TypeSignature<unsigned char, Mode> {
-        static consteval auto calculate() noexcept { return CompileString{"u8[s:1,a:1]"}; }
+        static consteval auto calculate() noexcept { return FixedString{"u8[s:1,a:1]"}; }
     };
 
     template <SignatureMode Mode>
         requires (!std::is_same_v<long, int32_t> && !std::is_same_v<long, int64_t>)
     struct TypeSignature<long, Mode> {
         static consteval auto calculate() noexcept {
-            if constexpr (sizeof(long) == 4) return CompileString{"i32[s:4,a:4]"};
-            else return CompileString{"i64[s:8,a:8]"};
+            if constexpr (sizeof(long) == 4) return FixedString{"i32[s:4,a:4]"};
+            else return FixedString{"i64[s:8,a:8]"};
         }
     };
 
@@ -356,41 +354,41 @@ namespace typelayout {
         requires (!std::is_same_v<unsigned long, uint32_t> && !std::is_same_v<unsigned long, uint64_t>)
     struct TypeSignature<unsigned long, Mode> {
         static consteval auto calculate() noexcept {
-            if constexpr (sizeof(unsigned long) == 4) return CompileString{"u32[s:4,a:4]"};
-            else return CompileString{"u64[s:8,a:8]"};
+            if constexpr (sizeof(unsigned long) == 4) return FixedString{"u32[s:4,a:4]"};
+            else return FixedString{"u64[s:8,a:8]"};
         }
     };
 
     template <SignatureMode Mode>
         requires (!std::is_same_v<long long, int64_t>)
     struct TypeSignature<long long, Mode> {
-        static consteval auto calculate() noexcept { return CompileString{"i64[s:8,a:8]"}; }
+        static consteval auto calculate() noexcept { return FixedString{"i64[s:8,a:8]"}; }
     };
 
     template <SignatureMode Mode>
         requires (!std::is_same_v<unsigned long long, uint64_t>)
     struct TypeSignature<unsigned long long, Mode> {
-        static consteval auto calculate() noexcept { return CompileString{"u64[s:8,a:8]"}; }
+        static consteval auto calculate() noexcept { return FixedString{"u64[s:8,a:8]"}; }
     };
 
     // Floating point
-    template <SignatureMode Mode> struct TypeSignature<float, Mode>    { static consteval auto calculate() noexcept { return CompileString{"f32[s:4,a:4]"}; } };
-    template <SignatureMode Mode> struct TypeSignature<double, Mode>   { static consteval auto calculate() noexcept { return CompileString{"f64[s:8,a:8]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<float, Mode>    { static consteval auto calculate() noexcept { return FixedString{"f32[s:4,a:4]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<double, Mode>   { static consteval auto calculate() noexcept { return FixedString{"f64[s:8,a:8]"}; } };
     template <SignatureMode Mode> struct TypeSignature<long double, Mode> {
         static consteval auto calculate() noexcept { return format_size_align("f80", sizeof(long double), alignof(long double)); }
     };
 
     // Character types
-    template <SignatureMode Mode> struct TypeSignature<char, Mode>     { static consteval auto calculate() noexcept { return CompileString{"char[s:1,a:1]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<char, Mode>     { static consteval auto calculate() noexcept { return FixedString{"char[s:1,a:1]"}; } };
     template <SignatureMode Mode> struct TypeSignature<wchar_t, Mode>  { static consteval auto calculate() noexcept { return format_size_align("wchar", sizeof(wchar_t), alignof(wchar_t)); } };
-    template <SignatureMode Mode> struct TypeSignature<char8_t, Mode>  { static consteval auto calculate() noexcept { return CompileString{"char8[s:1,a:1]"}; } };
-    template <SignatureMode Mode> struct TypeSignature<char16_t, Mode> { static consteval auto calculate() noexcept { return CompileString{"char16[s:2,a:2]"}; } };
-    template <SignatureMode Mode> struct TypeSignature<char32_t, Mode> { static consteval auto calculate() noexcept { return CompileString{"char32[s:4,a:4]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<char8_t, Mode>  { static consteval auto calculate() noexcept { return FixedString{"char8[s:1,a:1]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<char16_t, Mode> { static consteval auto calculate() noexcept { return FixedString{"char16[s:2,a:2]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<char32_t, Mode> { static consteval auto calculate() noexcept { return FixedString{"char32[s:4,a:4]"}; } };
 
     // Other fundamentals
-    template <SignatureMode Mode> struct TypeSignature<bool, Mode>     { static consteval auto calculate() noexcept { return CompileString{"bool[s:1,a:1]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<bool, Mode>     { static consteval auto calculate() noexcept { return FixedString{"bool[s:1,a:1]"}; } };
     template <SignatureMode Mode> struct TypeSignature<std::nullptr_t, Mode> { static consteval auto calculate() noexcept { return format_size_align("nullptr", sizeof(std::nullptr_t), alignof(std::nullptr_t)); } };
-    template <SignatureMode Mode> struct TypeSignature<std::byte, Mode> { static consteval auto calculate() noexcept { return CompileString{"byte[s:1,a:1]"}; } };
+    template <SignatureMode Mode> struct TypeSignature<std::byte, Mode> { static consteval auto calculate() noexcept { return FixedString{"byte[s:1,a:1]"}; } };
 
     // Function pointers
     template <typename R, typename... Args, SignatureMode Mode>
@@ -451,7 +449,7 @@ namespace typelayout {
     struct TypeSignature<T[], Mode> {
         static consteval auto calculate() noexcept {
             static_assert(always_false<T>::value, "Unbounded array T[] has no defined size");
-            return CompileString{""};
+            return FixedString{""};
         }
     };
 
@@ -466,12 +464,12 @@ namespace typelayout {
     struct TypeSignature<T[N], Mode> {
         static consteval auto calculate() noexcept {
             if constexpr (is_byte_element_v<T>) {
-                return CompileString{"bytes[s:"} + CompileString<number_buffer_size>::from_number(N) + CompileString{",a:1]"};
+                return FixedString{"bytes[s:"} + FixedString<number_buffer_size>::from_number(N) + FixedString{",a:1]"};
             } else {
-                return CompileString{"array[s:"} + CompileString<number_buffer_size>::from_number(sizeof(T[N])) +
-                       CompileString{",a:"} + CompileString<number_buffer_size>::from_number(alignof(T[N])) +
-                       CompileString{"]<"} + TypeSignature<T, Mode>::calculate() +
-                       CompileString{","} + CompileString<number_buffer_size>::from_number(N) + CompileString{">"};
+                return FixedString{"array[s:"} + FixedString<number_buffer_size>::from_number(sizeof(T[N])) +
+                       FixedString{",a:"} + FixedString<number_buffer_size>::from_number(alignof(T[N])) +
+                       FixedString{"]<"} + TypeSignature<T, Mode>::calculate() +
+                       FixedString{","} + FixedString<number_buffer_size>::from_number(N) + FixedString{">"};
             }
         }
     };
@@ -483,30 +481,30 @@ namespace typelayout {
             if constexpr (std::is_enum_v<T>) {
                 using U = std::underlying_type_t<T>;
                 if constexpr (Mode == SignatureMode::Definition) {
-                    return CompileString{"enum<"} +
+                    return FixedString{"enum<"} +
                            get_type_qualified_name<T>() +
-                           CompileString{">[s:"} +
-                           CompileString<number_buffer_size>::from_number(sizeof(T)) +
-                           CompileString{",a:"} +
-                           CompileString<number_buffer_size>::from_number(alignof(T)) +
-                           CompileString{"]<"} + TypeSignature<U, Mode>::calculate() + CompileString{">"};
+                           FixedString{">[s:"} +
+                           FixedString<number_buffer_size>::from_number(sizeof(T)) +
+                           FixedString{",a:"} +
+                           FixedString<number_buffer_size>::from_number(alignof(T)) +
+                           FixedString{"]<"} + TypeSignature<U, Mode>::calculate() + FixedString{">"};
                 } else {
-                    return CompileString{"enum[s:"} +
-                           CompileString<number_buffer_size>::from_number(sizeof(T)) +
-                           CompileString{",a:"} +
-                           CompileString<number_buffer_size>::from_number(alignof(T)) +
-                           CompileString{"]<"} + TypeSignature<U, Mode>::calculate() + CompileString{">"};
+                    return FixedString{"enum[s:"} +
+                           FixedString<number_buffer_size>::from_number(sizeof(T)) +
+                           FixedString{",a:"} +
+                           FixedString<number_buffer_size>::from_number(alignof(T)) +
+                           FixedString{"]<"} + TypeSignature<U, Mode>::calculate() + FixedString{">"};
                 }
             }
             else if constexpr (std::is_union_v<T>) {
                 if constexpr (Mode == SignatureMode::Definition) {
-                    return CompileString{"union[s:"} + CompileString<number_buffer_size>::from_number(sizeof(T)) +
-                           CompileString{",a:"} + CompileString<number_buffer_size>::from_number(alignof(T)) +
-                           CompileString{"]{"} + definition_fields<T>() + CompileString{"}"};
+                    return FixedString{"union[s:"} + FixedString<number_buffer_size>::from_number(sizeof(T)) +
+                           FixedString{",a:"} + FixedString<number_buffer_size>::from_number(alignof(T)) +
+                           FixedString{"]{"} + definition_fields<T>() + FixedString{"}"};
                 } else {
-                    return CompileString{"union[s:"} + CompileString<number_buffer_size>::from_number(sizeof(T)) +
-                           CompileString{",a:"} + CompileString<number_buffer_size>::from_number(alignof(T)) +
-                           CompileString{"]{"} + get_layout_union_content<T>() + CompileString{"}"};
+                    return FixedString{"union[s:"} + FixedString<number_buffer_size>::from_number(sizeof(T)) +
+                           FixedString{",a:"} + FixedString<number_buffer_size>::from_number(alignof(T)) +
+                           FixedString{"]{"} + get_layout_union_content<T>() + FixedString{"}"};
                 }
             }
             else if constexpr (std::is_class_v<T> && !std::is_array_v<T>) {
@@ -514,47 +512,47 @@ namespace typelayout {
                     constexpr bool poly = std::is_polymorphic_v<T>;
                     if constexpr (poly) {
                         // vptr occupies pointer_size bytes at an implementation-defined position
-                        return CompileString{"record[s:"} +
-                               CompileString<number_buffer_size>::from_number(sizeof(T)) +
-                               CompileString{",a:"} +
-                               CompileString<number_buffer_size>::from_number(alignof(T)) +
-                               CompileString{",vptr]{"} +
+                        return FixedString{"record[s:"} +
+                               FixedString<number_buffer_size>::from_number(sizeof(T)) +
+                               FixedString{",a:"} +
+                               FixedString<number_buffer_size>::from_number(alignof(T)) +
+                               FixedString{",vptr]{"} +
                                get_layout_content<T>() +
-                               CompileString{"}"};
+                               FixedString{"}"};
                     } else {
-                        return CompileString{"record[s:"} +
-                               CompileString<number_buffer_size>::from_number(sizeof(T)) +
-                               CompileString{",a:"} +
-                               CompileString<number_buffer_size>::from_number(alignof(T)) +
-                               CompileString{"]{"} +
+                        return FixedString{"record[s:"} +
+                               FixedString<number_buffer_size>::from_number(sizeof(T)) +
+                               FixedString{",a:"} +
+                               FixedString<number_buffer_size>::from_number(alignof(T)) +
+                               FixedString{"]{"} +
                                get_layout_content<T>() +
-                               CompileString{"}"};
+                               FixedString{"}"};
                     }
                 } else {
                     // Definition mode: "record" prefix, preserve tree, include names + polymorphic marker
                     constexpr bool poly = std::is_polymorphic_v<T>;
                     auto suffix = [&]() {
-                        if constexpr (poly) return CompileString{",polymorphic]{"};
-                        else return CompileString{"]{"};
+                        if constexpr (poly) return FixedString{",polymorphic]{"};
+                        else return FixedString{"]{"};
                     }();
-                    return CompileString{"record[s:"} +
-                           CompileString<number_buffer_size>::from_number(sizeof(T)) +
-                           CompileString{",a:"} +
-                           CompileString<number_buffer_size>::from_number(alignof(T)) +
-                           suffix + definition_content<T>() + CompileString{"}"};
+                    return FixedString{"record[s:"} +
+                           FixedString<number_buffer_size>::from_number(sizeof(T)) +
+                           FixedString{",a:"} +
+                           FixedString<number_buffer_size>::from_number(alignof(T)) +
+                           suffix + definition_content<T>() + FixedString{"}"};
                 }
             }
             else if constexpr (std::is_void_v<T>) {
                 static_assert(always_false<T>::value, "void has no layout; use void*");
-                return CompileString{""};
+                return FixedString{""};
             }
             else if constexpr (std::is_function_v<T>) {
                 static_assert(always_false<T>::value, "function types have no size; use function pointer");
-                return CompileString{""};
+                return FixedString{""};
             }
             else {
                 static_assert(always_false<T>::value, "unsupported type for layout signature");
-                return CompileString{""};
+                return FixedString{""};
             }
         }
     };

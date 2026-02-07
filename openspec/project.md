@@ -49,9 +49,8 @@ TypeLayout/
 │   └── typelayout/
 │       ├── typelayout.hpp             # 入口头文件
 │       └── core/
-│           ├── config.hpp             # 平台检测、SignatureMode 枚举
-│           ├── compile_string.hpp     # CompileString<N> 编译时字符串
-│           ├── signature_detail.hpp   # 反射元操作 + 签名引擎 + TypeSignature<T,Mode> 特化（内部实现）
+│           ├── fwd.hpp                # 基础层：平台配置 + FixedString<N> 编译时字符串
+│           ├── signature_detail.hpp   # 内部实现：反射元操作 + 签名引擎 + TypeSignature<T,Mode> 特化
 │           └── signature.hpp          # 公共 API（4 个函数）
 ├── test/
 │   └── test_two_layer.cpp             # 两层签名系统测试
@@ -237,7 +236,7 @@ clang++ ... -fconstexpr-steps=5000000 ...
 ```
 
 **步数消耗的根本原因**:
-1. `CompileString::operator+` 在每次连接时逐字符复制
+1. `FixedString::operator+` 在每次连接时逐字符复制
 2. 字段签名使用 fold expression 展开，产生 O(n²) 复制开销
 3. 5000字符的签名 × 100次连接 = 大量循环迭代
 
@@ -264,7 +263,7 @@ target_compile_options(your_target PRIVATE
 struct NetworkHeader { uint32_t magic; uint64_t timestamp; };
 // 编译时确保布局与预期一致
 static_assert(get_layout_signature<NetworkHeader>() ==
-    CompileString{"[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:u64[s:8,a:8]}"});
+    FixedString{"[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:u64[s:8,a:8]}"});
 ```
 
 ### 2. 共享内存验证
@@ -489,8 +488,8 @@ rm -f test_output
 
 ## Implementation Details
 
-### CompileString<N> 模板
-编译时字符串操作的核心：
+### FixedString<N> 模板
+编译时固定大小字符串缓冲区，签名生成的核心基础设施：
 - `consteval` 构造函数
 - `operator+` 连接
 - `operator==` 比较

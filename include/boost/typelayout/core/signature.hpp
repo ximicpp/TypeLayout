@@ -4,8 +4,6 @@
 #ifndef BOOST_TYPELAYOUT_CORE_SIGNATURE_HPP
 #define BOOST_TYPELAYOUT_CORE_SIGNATURE_HPP
 
-#include <boost/typelayout/core/config.hpp>
-#include <boost/typelayout/core/compile_string.hpp>
 #include <boost/typelayout/core/signature_detail.hpp>
 
 namespace boost {
@@ -13,9 +11,9 @@ namespace typelayout {
 
 [[nodiscard]] consteval auto get_arch_prefix() noexcept {
     if constexpr (sizeof(void*) == 8)
-        return CompileString{TYPELAYOUT_LITTLE_ENDIAN ? "[64-le]" : "[64-be]"};
+        return FixedString{TYPELAYOUT_LITTLE_ENDIAN ? "[64-le]" : "[64-be]"};
     else if constexpr (sizeof(void*) == 4)
-        return CompileString{TYPELAYOUT_LITTLE_ENDIAN ? "[32-le]" : "[32-be]"};
+        return FixedString{TYPELAYOUT_LITTLE_ENDIAN ? "[32-le]" : "[32-be]"};
     else
         static_assert(sizeof(void*) == 4 || sizeof(void*) == 8, "Unsupported pointer size");
 }

@@ -127,7 +127,7 @@ namespace test_alignas {
 
 static_assert([]() consteval {
     constexpr auto sig = get_layout_signature<test_basic::Simple>();
-    constexpr auto expected = CompileString{"[64-le]record[s:16,a:8]{@0:i32[s:4,a:4],@8:f64[s:8,a:8]}"};
+    constexpr auto expected = FixedString{"[64-le]record[s:16,a:8]{@0:i32[s:4,a:4],@8:f64[s:8,a:8]}"};
     return sig == expected;
 }(), "Simple struct Layout signature format");
 
@@ -174,7 +174,7 @@ static_assert(layout_signatures_match<ByteArrayChar, ByteArrayByte>(),
 
 static_assert([]() consteval {
     constexpr auto sig = get_definition_signature<test_basic::Simple>();
-    constexpr auto expected = CompileString{"[64-le]record[s:16,a:8]{@0[x]:i32[s:4,a:4],@8[y]:f64[s:8,a:8]}"};
+    constexpr auto expected = FixedString{"[64-le]record[s:16,a:8]{@0[x]:i32[s:4,a:4],@8[y]:f64[s:8,a:8]}"};
     return sig == expected;
 }(), "Simple struct Definition signature format");
 
@@ -237,7 +237,7 @@ static_assert(get_layout_signature<double>() == get_definition_signature<double>
 enum class Color : uint8_t { Red, Green, Blue };
 static_assert([]() consteval {
     constexpr auto sig = get_layout_signature<Color>();
-    constexpr auto expected = CompileString{"[64-le]enum[s:1,a:1]<u8[s:1,a:1]>"};
+    constexpr auto expected = FixedString{"[64-le]enum[s:1,a:1]<u8[s:1,a:1]>"};
     return sig == expected;
 }(), "Enum Layout signature correct");
 

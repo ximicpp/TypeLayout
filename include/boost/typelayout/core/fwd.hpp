@@ -1,38 +1,87 @@
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
-#ifndef BOOST_TYPELAYOUT_CORE_COMPILE_STRING_HPP
-#define BOOST_TYPELAYOUT_CORE_COMPILE_STRING_HPP
+#ifndef BOOST_TYPELAYOUT_CORE_FWD_HPP
+#define BOOST_TYPELAYOUT_CORE_FWD_HPP
 
-#include <boost/typelayout/core/config.hpp>
+#include <cstdint>
+#include <cstddef>
+#include <type_traits>
 #include <string_view>
 #include <ostream>
+
+// =========================================================================
+// Part 1: Platform Configuration
+// =========================================================================
+
+// P2996 reflection support
+#if __has_include(<experimental/meta>)
+    #include <experimental/meta>
+    #define BOOST_TYPELAYOUT_HAS_REFLECTION 1
+#else
+    #define BOOST_TYPELAYOUT_HAS_REFLECTION 0
+#endif
+
+// Endianness detection
+#if __has_include(<bit>)
+    #include <bit>
+    #if defined(__cpp_lib_endian) && __cpp_lib_endian >= 201907L
+        #define TYPELAYOUT_LITTLE_ENDIAN (std::endian::native == std::endian::little)
+    #elif defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__)
+        #define TYPELAYOUT_LITTLE_ENDIAN (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+    #elif defined(_WIN32)
+        #define TYPELAYOUT_LITTLE_ENDIAN 1
+    #else
+        #define TYPELAYOUT_LITTLE_ENDIAN 1
+    #endif
+#elif defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__)
+    #define TYPELAYOUT_LITTLE_ENDIAN (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+#elif defined(_WIN32)
+    #define TYPELAYOUT_LITTLE_ENDIAN 1
+#else
+    #error "Cannot detect endianness. Define TYPELAYOUT_LITTLE_ENDIAN manually."
+#endif
 
 namespace boost {
 namespace typelayout {
 
+    enum class SignatureMode {
+        Layout,
+        Definition
+    };
+
+    template <typename...>
+    struct always_false : std::false_type {};
+
+    // =========================================================================
+    // Part 2: FixedString<N> — Compile-Time Fixed-Size String
+    // =========================================================================
+
+    // Buffer size for compile-time number-to-string conversion (uint64_t max = 20 digits).
+    inline constexpr std::size_t number_buffer_size = 22;
+
     template <size_t N>
-    struct CompileString {
+    struct FixedString {
         char value[N];
         static constexpr size_t size = N - 1;
 
-        constexpr CompileString() : value{} {}
+        constexpr FixedString() : value{} {}
 
-        constexpr CompileString(const char (&str)[N]) {
+        constexpr FixedString(const char (&str)[N]) {
             for (size_t i = 0; i < N; ++i)
                 value[i] = str[i];
         }
 
-        constexpr CompileString(std::string_view sv) : value{} {
+        constexpr FixedString(std::string_view sv) : value{} {
             for (size_t i = 0; i < N - 1 && i < sv.size(); ++i)
                 value[i] = sv[i];
         }
 
         template <typename T>
-        static constexpr CompileString<32> from_number(T num) noexcept {
+        static constexpr FixedString<32> from_number(T num) noexcept {
             char result[32] = {};
             int idx = 0;
-            
+
             if (num == 0) {
                 result[0] = '0';
                 idx = 1;
@@ -61,11 +110,11 @@ namespace typelayout {
                 }
             }
             result[idx] = '\0';
-            return CompileString<32>(result);
+            return FixedString<32>(result);
         }
 
         template <size_t M>
-        constexpr auto operator+(const CompileString<M>& other) const noexcept {
+        constexpr auto operator+(const FixedString<M>& other) const noexcept {
             constexpr size_t new_size = N + M - 1;
             char result[new_size] = {};
             size_t pos = 0;
@@ -79,12 +128,12 @@ namespace typelayout {
             while (j < M) {
                 result[pos++] = other.value[j++];
             }
-            
-            return CompileString<new_size>(result);
+
+            return FixedString<new_size>(result);
         }
 
         template <size_t M>
-        constexpr bool operator==(const CompileString<M>& other) const noexcept {
+        constexpr bool operator==(const FixedString<M>& other) const noexcept {
             size_t i = 0;
             while (i < N && i < M) {
                 if (value[i] != other.value[i]) return false;
@@ -117,16 +166,16 @@ namespace typelayout {
                 for (size_t i = 1; i < N; ++i)
                     result[i - 1] = value[i];
             }
-            return CompileString<N>(result);
+            return FixedString<N>(result);
         }
     };
 
     template<size_t N>
-    std::ostream& operator<<(std::ostream& os, const CompileString<N>& str) {
+    std::ostream& operator<<(std::ostream& os, const FixedString<N>& str) {
         return os << str.value;
     }
 
 } // namespace typelayout
 } // namespace boost
 
-#endif // BOOST_TYPELAYOUT_CORE_COMPILE_STRING_HPP
+#endif // BOOST_TYPELAYOUT_CORE_FWD_HPP

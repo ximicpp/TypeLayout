@@ -4,8 +4,7 @@
 #ifndef BOOST_TYPELAYOUT_HPP
 #define BOOST_TYPELAYOUT_HPP
 
-#include <boost/typelayout/core/config.hpp>
-#include <boost/typelayout/core/compile_string.hpp>
+#include <boost/typelayout/core/fwd.hpp>
 #include <boost/typelayout/core/signature_detail.hpp>
 #include <boost/typelayout/core/signature.hpp>
 
