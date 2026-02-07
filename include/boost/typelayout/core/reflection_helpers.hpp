@@ -58,12 +58,6 @@ namespace typelayout {
         return std::meta::bases_of(^^T, std::meta::access_context::unchecked()).size();
     }
 
-    template<typename T, size_t Index>
-    consteval size_t get_field_offset() noexcept {
-        auto members = std::meta::nonstatic_data_members_of(^^T, std::meta::access_context::unchecked());
-        return std::meta::offset_of(members[Index]).bytes;
-    }
-
     template<std::meta::info Member, std::size_t Index>
     consteval auto get_member_name() noexcept {
         using namespace std::meta;

@@ -21,6 +21,7 @@ The library SHALL provide two complementary layers of compile-time type signatur
 - **AND** composition SHALL be flattened (nested struct fields are recursively expanded)
 - **AND** field names SHALL NOT be included
 - **AND** polymorphic types SHALL include a `,vptr` marker
+- **AND** union members SHALL NOT be recursively flattened (each member retains its type signature as an atomic unit)
 
 #### Scenario: Definition signature (Layer 2)
 - **GIVEN** a type T
@@ -36,6 +37,7 @@ The library SHALL provide two complementary layers of compile-time type signatur
 - **GIVEN** two types T and U
 - **WHEN** `definition_signatures_match<T,U>()` returns true
 - **THEN** `layout_signatures_match<T,U>()` SHALL also return true
+- **NOTE** The reverse does not hold: layout match does not imply definition match
 
 ### Requirement: Signature Comparison
 The library SHALL provide compile-time signature comparison functions.
@@ -75,6 +77,11 @@ The Layout layer SHALL flatten all structural hierarchy to pure byte identity.
 - **GIVEN** a type with virtual base classes
 - **WHEN** Layout signature is generated
 - **THEN** virtual base class fields SHALL be included at their correct offsets
+
+#### Scenario: Union members not flattened
+- **GIVEN** `struct Inner { int a; int b; }; union U { Inner x; double y; };`
+- **WHEN** Layout signature is generated
+- **THEN** union member `x` SHALL appear as its complete type signature (e.g., `record[s:8,a:4]{...}`) rather than being recursively flattened into individual fields
 
 ### Requirement: Polymorphic Type Safety
 The library SHALL distinguish polymorphic from non-polymorphic types in Layout signatures.
@@ -117,6 +124,8 @@ The library SHALL support the following type categories in signatures.
 - **GIVEN** an enum type with underlying type U
 - **WHEN** Layout signature is generated
 - **THEN** the format SHALL be `enum[s:SIZE,a:ALIGN]<underlying_sig>`
+- **WHEN** Definition signature is generated
+- **THEN** the format SHALL be `enum<QualifiedName>[s:SIZE,a:ALIGN]<underlying_sig>`
 
 #### Scenario: Union types
 - **GIVEN** a union type

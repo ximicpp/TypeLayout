@@ -98,6 +98,24 @@ namespace test_union {
     // Inner member should appear as record{...}, not be flattened
 }
 
+// --- Bit-fields ---
+
+namespace test_bitfield {
+    struct Flags {
+        uint8_t a : 3;
+        uint8_t b : 5;
+    };
+}
+
+// --- Anonymous members ---
+
+namespace test_anon {
+    struct WithAnon {
+        int32_t x;
+        struct { int32_t y; };  // anonymous struct member
+    };
+}
+
 // --- alignas ---
 
 namespace test_alignas {
@@ -253,6 +271,40 @@ static_assert([]() consteval {
     }
     return false;
 }(), "Union Layout should keep struct member as 'record' (not flatten)");
+
+// Bit-field: Layout signature should contain "bits<"
+static_assert([]() consteval {
+    constexpr auto sig = get_layout_signature<test_bitfield::Flags>();
+    for (std::size_t i = 0; i + 4 < sig.length(); ++i) {
+        if (sig.value[i] == 'b' && sig.value[i+1] == 'i' && sig.value[i+2] == 't'
+            && sig.value[i+3] == 's' && sig.value[i+4] == '<')
+            return true;
+    }
+    return false;
+}(), "Bit-field Layout signature should contain 'bits<'");
+
+// Bit-field: Definition signature should contain field names in brackets
+static_assert([]() consteval {
+    constexpr auto sig = get_definition_signature<test_bitfield::Flags>();
+    // Should contain "[a]" and "[b]" field names
+    bool found_a = false, found_b = false;
+    for (std::size_t i = 0; i + 2 < sig.length(); ++i) {
+        if (sig.value[i] == '[' && sig.value[i+1] == 'a' && sig.value[i+2] == ']') found_a = true;
+        if (sig.value[i] == '[' && sig.value[i+1] == 'b' && sig.value[i+2] == ']') found_b = true;
+    }
+    return found_a && found_b;
+}(), "Bit-field Definition signature should contain field names [a] and [b]");
+
+// Anonymous member: Definition should contain "<anon:"
+static_assert([]() consteval {
+    constexpr auto sig = get_definition_signature<test_anon::WithAnon>();
+    for (std::size_t i = 0; i + 5 < sig.length(); ++i) {
+        if (sig.value[i] == '<' && sig.value[i+1] == 'a' && sig.value[i+2] == 'n'
+            && sig.value[i+3] == 'o' && sig.value[i+4] == 'n' && sig.value[i+5] == ':')
+            return true;
+    }
+    return false;
+}(), "Anonymous member Definition signature should contain '<anon:'");
 
 // alignas: captured via alignof(T)
 static_assert(layout_signatures_match<test_alignas::Aligned, test_alignas::Aligned2>(),
