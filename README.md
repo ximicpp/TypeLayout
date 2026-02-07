@@ -44,9 +44,15 @@ Definition Signature ──project()──→ Layout Signature
 | **Layout** | Pure byte identity | Flattened | No | Binary compatibility |
 | **Definition** | Full type structure | Preserved | Yes | API/ABI identity |
 
-**Mathematical guarantee**: `definition_match(T,U) ⟹ layout_match(T,U)`
+**Core Values**:
 
-The converse does not hold — two types can be byte-identical (Layout match) yet
+| # | Promise | Formal Guarantee |
+|---|---------|-----------------|
+| V1 | Layout **reliability** | `layout_sig(T) == layout_sig(U) ⟹ memcmp-compatible(T, U)` |
+| V2 | Definition **precision** | `def_sig(T) == def_sig(U) ⟹ identical field names, types, hierarchy` |
+| V3 | **Projection** relationship | `definition_match(T, U) ⟹ layout_match(T, U)` |
+
+The converse of V3 does not hold — two types can be byte-identical (Layout match) yet
 structurally different (Definition mismatch):
 
 ```cpp
@@ -85,6 +91,35 @@ namespace boost::typelayout {
 | Inheritance | single, multiple, multi-level, empty base optimization |
 | Polymorphic types | `virtual` marker in Definition layer |
 | Unions | member-level signatures |
+
+## Design Philosophy
+
+TypeLayout performs **Structural Analysis**, not Nominal Analysis. Two differently-named
+types with identical field names, types, and layout will produce identical Definition
+signatures. The signature **does not include the type's own name** — by design, TypeLayout
+answers *"are these two types structurally equivalent?"*, not *"are they the same type?"*.
+
+## When to Use Which Layer
+
+| Use Case | Layer | Why |
+|----------|-------|-----|
+| Shared memory / IPC | **Layout** | Only byte-layout compatibility matters |
+| Network protocols | **Layout** | Only byte alignment and offsets matter |
+| ABI verification | **Layout** | Binary compatibility check |
+| Serialization versioning | **Definition** | Detects field renames and structural changes |
+| API compatibility | **Definition** | Semantic-level structural consistency |
+| ODR violation detection | **Definition** | Requires full structural information |
+
+## Known Design Limits
+
+These are intentional choices, not bugs:
+
+| Limit | Rationale |
+|-------|-----------|
+| Signature match is `⟹` not `⟺` | Conservative — `int[3]` and `int,int,int` are byte-identical but semantically distinct |
+| Type's own name not in signature | Structural analysis, not nominal |
+| Union members not recursively flattened | Flattening would collide overlapping members |
+| Arrays not expanded to discrete fields | Preserves semantic boundary; signatures stay precise |
 
 ## Applications
 
