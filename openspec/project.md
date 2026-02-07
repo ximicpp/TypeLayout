@@ -74,6 +74,28 @@ TypeLayout/
 - 所有核心功能使用 `consteval` 实现编译时计算
 - 使用 `[[nodiscard]]` 标记返回值重要的函数
 
+### Naming Conventions
+
+**词汇用途边界**:
+| 词 | 限用于 | 不应用于 |
+|----|--------|---------|
+| `typelayout` | 库名、命名空间、目录路径、入口头文件 | 代码内的类名/函数名 |
+| `signature` | 核心类型、函数、文件名、枚举 | 库品牌标识 |
+
+**代码命名规则**:
+| 类别 | 约定 | 示例 |
+|------|------|------|
+| 类/结构体 | PascalCase | `TypeSignature`, `FixedString`, `SignatureMode` |
+| 公共 API 函数 | snake_case | `get_layout_signature`, `layout_signatures_match` |
+| 内部函数 | snake_case + 层前缀 | `definition_field_signature`, `layout_field_with_comma` |
+| 文件名 | snake_case | `signature.hpp`, `signature_detail.hpp`, `fwd.hpp` |
+| 宏 | UPPER_SNAKE_CASE + 库前缀 | `TYPELAYOUT_LITTLE_ENDIAN`, `BOOST_TYPELAYOUT_HAS_REFLECTION` |
+
+**内部函数前缀**:
+- `definition_*` — Definition 层（保留结构树）的签名生成
+- `layout_*` — Layout 层（展平字节身份）的签名生成
+- `get_*` — 公共 API 入口
+
 ### Architecture Patterns
 - **Header-only 设计**: 所有实现在头文件中
 - **编译时计算优先**: 零运行时开销
