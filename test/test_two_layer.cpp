@@ -88,6 +88,16 @@ namespace test_virtual_inherit {
     struct Derived : virtual VBase { int32_t y; };
 }
 
+// --- Union non-flattening ---
+
+namespace test_union {
+    struct Inner { int32_t a; int32_t b; };
+    union U1 { Inner x; double y; };
+    union U2 { Inner x; double y; };
+    // U1 and U2 should have identical Layout signatures
+    // Inner member should appear as record{...}, not be flattened
+}
+
 // --- alignas ---
 
 namespace test_alignas {
@@ -227,6 +237,22 @@ static_assert([]() consteval {
     }
     return count >= 2;  // both x and y
 }(), "Virtual base fields must appear in Layout signature");
+
+// Union non-flattening: two identical unions should match
+static_assert(layout_signatures_match<test_union::U1, test_union::U2>(),
+    "Identical unions should have identical Layout signatures");
+
+// Union Layout signature should contain 'record' (Inner is kept as atomic record, not flattened)
+static_assert([]() consteval {
+    constexpr auto sig = get_layout_signature<test_union::U1>();
+    // Should contain "record" inside the union (the Inner member kept as record)
+    for (std::size_t i = 0; i + 5 < sig.length(); ++i) {
+        if (sig.value[i] == 'r' && sig.value[i+1] == 'e' && sig.value[i+2] == 'c'
+            && sig.value[i+3] == 'o' && sig.value[i+4] == 'r' && sig.value[i+5] == 'd')
+            return true;
+    }
+    return false;
+}(), "Union Layout should keep struct member as 'record' (not flatten)");
 
 // alignas: captured via alignof(T)
 static_assert(layout_signatures_match<test_alignas::Aligned, test_alignas::Aligned2>(),

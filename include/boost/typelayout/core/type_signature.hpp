@@ -203,9 +203,10 @@ namespace typelayout {
                            CompileString{",a:"} + CompileString<number_buffer_size>::from_number(alignof(T)) +
                            CompileString{"]{"} + definition_fields<T>() + CompileString{"}"};
                 } else {
+                    // Union members are NOT flattened — each kept as atomic type signature
                     return CompileString{"union[s:"} + CompileString<number_buffer_size>::from_number(sizeof(T)) +
                            CompileString{",a:"} + CompileString<number_buffer_size>::from_number(alignof(T)) +
-                           CompileString{"]{"} + get_layout_content<T>() + CompileString{"}"};
+                           CompileString{"]{"} + get_layout_union_content<T>() + CompileString{"}"};
                 }
             }
             else if constexpr (std::is_class_v<T> && !std::is_array_v<T>) {

@@ -3,9 +3,9 @@
 ## Purpose
 Boost.TypeLayout 是一个 C++26 header-only 库，使用 P2996 静态反射提供编译时内存布局分析和验证。通过两层签名系统（Layout / Definition）唯一标识类型的内存布局和结构。
 
-**核心保证**: `Identical signature ⟺ Identical memory layout`（相同签名等价于相同内存布局）
+**核心保证**: `Identical layout signature ⟹ Identical memory layout`（相同签名→相同内存布局；反之不一定成立，如数组 vs 散字段）
 
-**数学关系**: `definition_match(T, U) ⟹ layout_match(T, U)`（反之不成立）
+**投影关系**: `definition_match(T, U) ⟹ layout_match(T, U)`（反之不成立）
 
 ## Tech Stack
 - **语言**: C++26
@@ -38,13 +38,9 @@ TypeLayout/
 └── README.md
 ```
 
-### 分层架构说明
+### 架构说明
 
-**核心价值定位**: Layout Signature（布局签名）是核心产品，Serialization Safety（序列化安全）是基于核心的实用工具。
-
-- **Core Layer (`core/`)**: 纯粹的内存布局分析引擎，无序列化策略依赖
-- **Utility Layer (`util/`)**: 基于 Core 构建的序列化安全检查功能
-- **detail/**: 保留用于内部实现，旧头文件提供向后兼容重定向
+- **Core Layer (`core/`)**: 两层签名引擎——Layout（字节身份）和 Definition（结构身份）
 
 ## Project Conventions
 
@@ -52,7 +48,6 @@ TypeLayout/
 - 遵循 Boost 库代码风格
 - 使用 `boost::typelayout` 命名空间
 - 所有核心功能使用 `consteval` 实现编译时计算
-- 优先使用 C++20 Concepts 进行类型约束
 - 使用 `[[nodiscard]]` 标记返回值重要的函数
 
 ### Architecture Patterns
@@ -60,7 +55,7 @@ TypeLayout/
 - **编译时计算优先**: 零运行时开销
 - **静态反射**: 使用 P2996 API 进行类型分析
 - **递归类型签名**: 支持嵌套结构体和继承层次
-- **双哈希验证**: FNV-1a + DJB2 提供 ~2^128 抗碰撞性
+- **两层签名**: Layout（展平字节身份）+ Definition（保留结构树）
 
 ### Testing Strategy
 - **编译时测试**: 使用 `static_assert` 进行编译时测试（编译成功=测试通过）
@@ -74,23 +69,39 @@ TypeLayout/
 
 ## Core Components
 
-### 1. 布局签名格式 (Layout Signature Format)
-签名格式设计为人类可读、机器可比较：
+### 1. 两层签名格式
+
+**Layout 签名**（Layer 1）— 纯字节身份，展平所有层次，不含字段名：
 ```
-[ARCH]type[s:SIZE,a:ALIGN]{@OFFSET[name]:type_sig,...}
+[ARCH]record[s:SIZE,a:ALIGN]{@OFFSET:type_sig,...}
 ```
 
-**示例**:
+示例：
 ```cpp
 struct Point { int32_t x, y; };
-// 签名: "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}"
+// Layout:     "[64-le]record[s:8,a:4]{@0:i32[s:4,a:4],@4:i32[s:4,a:4]}"
 ```
 
-**组成部分**:
-- `[64-le]` - 架构前缀（64位小端序）
-- `struct[s:8,a:4]` - 类型类别、大小8字节、对齐4
-- `@0[x]` - 偏移0、字段名"x"
-- `:i32[s:4,a:4]` - 类型签名（含大小/对齐）
+- 继承展平：基类字段以绝对偏移出现
+- 组合展平：嵌套 struct 递归展开为叶字段
+- 多态类型：`record[s:SIZE,a:ALIGN,vptr]{...}`
+- union 成员：不展平，保持每个成员的完整类型签名
+
+**Definition 签名**（Layer 2）— 保留结构树，含字段名和限定名：
+```
+[ARCH]record[s:SIZE,a:ALIGN]{~base<ns::Base>:record{...},@OFFSET[name]:type_sig,...}
+```
+
+示例：
+```cpp
+struct Point { int32_t x, y; };
+// Definition: "[64-le]record[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}"
+```
+
+- 继承保留：`~base<QualifiedName>:record{...}`
+- 虚继承：`~vbase<QualifiedName>:record{...}`
+- 多态标记：`record[s:SIZE,a:ALIGN,polymorphic]{...}`
+- 枚举含限定名：`enum<ns::Color>[s:1,a:1]<u8[s:1,a:1]>`
 
 ### 2. 支持的类型签名
 | 类型 | 签名格式 | 示例 |
@@ -103,49 +114,20 @@ struct Point { int32_t x, y; };
 | 字符数组 | `bytes` | `bytes[s:16,a:1]` |
 | 普通数组 | `array<element,N>` | `array[s:16,a:4]<i32[s:4,a:4],4>` |
 | 枚举 | `enum<underlying>` | `enum[s:1,a:1]<u8[s:1,a:1]>` |
-| 联合体 | `union` | `union[s:4,a:4]` |
-| 结构体 | `struct{...}` | `struct[s:8,a:4]{...}` |
-| 继承类 | `class[...,inherited]{...}` | 包含 `@0[base]:...` |
-| 多态类 | `class[...,polymorphic]{...}` | 包含虚表指针 |
-| 位域 | `bits<width,type>` | `@4.2[flags]:bits<3,u8[s:1,a:1]>` |
-| 智能指针 | `unique_ptr/shared_ptr/weak_ptr` | `shared_ptr[s:16,a:8]` |
+| 联合体 | `union{...}` | `union[s:8,a:8]{...}` |
+| 记录类型 | `record{...}` | `record[s:8,a:4]{...}` |
+| 位域 | `bits<width,type>` | `@4.2:bits<3,u8[s:1,a:1]>` |
 
-### 3. 分层 API 架构
+### 3. 核心 API
 
-Boost.TypeLayout 采用分层架构设计：
+4 个函数，全部 `consteval`，定义在 `signature.hpp`：
 
-**Layer 1: Layout Signature（布局签名层）**
-- 完整的类型内存布局描述（bit-level）
-- 用于 ABI 兼容性和二进制协议验证
-
-**Layer 2: Serialization Status（序列化状态层）**
-- 类型是否可安全序列化的审计结果
-- 检测指针、引用、位域、平台相关类型等
-
-### 4. 核心 API
 | 函数 | 说明 |
 |------|------|
-| `get_layout_signature<T>()` | 获取带架构前缀的编译时布局签名 |
-| `get_layout_hash<T>()` | 获取64位 FNV-1a 哈希 |
-| `get_layout_verification<T>()` | 获取双哈希验证（FNV-1a + DJB2 + 长度） |
-| `signatures_match<T1, T2>()` | 检查两个类型是否有相同布局签名 |
-| `is_serializable_v<T, P>` | 检查类型是否可在指定平台集上序列化 |
-| `has_bitfields<T>()` | 检查类型是否包含位域 |
-| `serialization_status<T, P>()` | 获取序列化状态指示符（如 `[64-le]serial` 或 `!serial:ptr`） |
-
-### 5. C++20 Concepts
-| Concept | 说明 |
-|---------|------|
-| `Serializable<T>` | 类型可安全序列化（无指针、引用、位域、平台相关类型） |
-| `ZeroCopyTransmittable<T>` | 类型可零拷贝传输（Serializable + trivially copyable + standard layout） |
-| `LayoutCompatible<T, U>` | 两个类型有相同内存布局 |
-| `LayoutMatch<T, Sig>` | 类型布局匹配预期签名字符串 |
-| `LayoutHashMatch<T, Hash>` | 类型布局哈希匹配预期值 |
-
-### 6. 关键宏
-```cpp
-TYPELAYOUT_BIND(Type, ExpectedSig)  // 静态断言布局匹配
-```
+| `get_layout_signature<T>()` | 获取 Layout 签名（展平，无字段名） |
+| `layout_signatures_match<T1, T2>()` | 比较两个类型的 Layout 签名是否相同 |
+| `get_definition_signature<T>()` | 获取 Definition 签名（保留层次，含字段名） |
+| `definition_signatures_match<T1, T2>()` | 比较两个类型的 Definition 签名是否相同 |
 
 ## Domain Context
 
@@ -243,34 +225,35 @@ target_compile_options(your_target PRIVATE
 ### 1. 二进制协议验证
 ```cpp
 struct NetworkHeader { uint32_t magic; uint64_t timestamp; };
-TYPELAYOUT_BIND(NetworkHeader, "[64-le]struct[s:16,a:8]{...}");
+// 编译时确保布局与预期一致
+static_assert(get_layout_signature<NetworkHeader>() ==
+    CompileString{"[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:u64[s:8,a:8]}"});
 ```
 
-### 2. 跨平台序列化
+### 2. 共享内存验证
 ```cpp
-template<Serializable T>
-void safe_binary_write(std::ostream& os, const T& obj) {
-    os.write(reinterpret_cast<const char*>(&obj), sizeof(T));
-}
+// 确保两侧使用的类型具有相同内存布局
+static_assert(layout_signatures_match<ShmWriter::Header, ShmReader::Header>(),
+    "Shared memory header layout mismatch!");
 ```
 
-### 3. 共享内存验证
-```cpp
-template<LayoutHashMatch<T, EXPECTED_HASH> T>
-T* map_shared_memory(const char* name) { ... }
-```
-
-### 4. 模板约束
+### 3. 模板约束
 ```cpp
 template<typename T>
-    requires LayoutMatch<T, "[64-le]struct[s:8,a:4]{@0[x]:i32[s:4,a:4],@4[y]:i32[s:4,a:4]}">
-void process_point(const T& p) { ... }
+    requires layout_signatures_match<T, ExpectedType>()
+void process(const T& data) { ... }
+```
+
+### 4. 版本兼容检查
+```cpp
+// Definition 签名区分结构变更（字段名、继承关系）
+static_assert(definition_signatures_match<ConfigV1, ConfigV2>(),
+    "Config struct definition changed — update serialization logic");
 ```
 
 ## External Dependencies
 - **Bloomberg Clang P2996**: 唯一支持 P2996 的编译器实现
 - **Boost License**: 使用 Boost Software License 1.0
-- **可选**: Boost.Interprocess（提供 `offset_ptr` 特化）
 
 ## 构建与测试指南
 
@@ -475,21 +458,9 @@ rm -f test_output
 - `operator+` 连接
 - `operator==` 比较
 - `from_number()` 数字转字符串
+- `skip_first()` 去除前导逗号（展平折叠表达式产物）
 
-### 递归签名生成
-使用折叠表达式和索引序列生成所有字段签名：
-```cpp
-template<typename T, std::size_t... Indices>
-consteval auto concatenate_field_signatures(std::index_sequence<Indices...>) noexcept {
-    return (build_field_with_comma<T, Indices, (Indices == 0)>() + ...);
-}
-```
-
-### 双哈希验证
-```cpp
-struct LayoutVerification {
-    uint64_t fnv1a;   // FNV-1a 64位哈希
-    uint64_t djb2;    // DJB2 64位哈希（独立算法）
-    uint32_t length;  // 签名长度
-};
-```
+### 签名生成流程
+1. **Layout 模式**：`layout_all_prefixed<T, 0>()` 递归展平基类和嵌套 struct，所有字段以逗号前缀形式累积，最终 `skip_first()` 去掉前导逗号
+2. **Definition 模式**：`definition_content<T>()` 保留继承树和字段名，基类以 `~base<>` / `~vbase<>` 前缀出现
+3. 两种模式共享 `TypeSignature<T, Mode>` 特化，基础类型签名两层通用
