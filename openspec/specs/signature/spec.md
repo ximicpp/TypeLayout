@@ -8,6 +8,33 @@ Defines the two-layer signature generation system — the core capability of Boo
 Signatures provide deterministic, human-readable descriptions of type memory layouts
 for compile-time type identity verification.
 
+## Core Values
+
+| # | Value | Formal Expression | Description |
+|---|-------|-------------------|-------------|
+| V1 | Layout signature **reliability** | `layout_sig(T) == layout_sig(U) ⟹ memcmp-compatible(T, U)` | Same signature → same byte layout (conservative: reverse does not hold) |
+| V2 | Definition signature **precision** | `def_sig(T) == def_sig(U) ⟹ identical field names, types, and hierarchy` | Distinguishes all structural differences |
+| V3 | Two-layer **projection** | `def_match(T, U) ⟹ layout_match(T, U)` | Definition is a refinement of Layout; reverse does not hold |
+
+## Design Philosophy
+
+TypeLayout performs **Structural Analysis**, not Nominal Analysis.
+Two differently-named types (`struct Point`, `struct Coord`) with identical field names, types, and layout
+will have identical Definition signatures. The signature **does not include the type's own name** — this is
+an intentional design choice because TypeLayout answers "are two types structurally equivalent?", not "are they
+the same type?".
+
+## Usage Guidance
+
+| Use Case | Recommended Layer | Rationale |
+|----------|-------------------|-----------|
+| Shared memory / IPC | Layout | Only byte-layout compatibility matters |
+| Network protocol verification | Layout | Only byte alignment and offsets matter |
+| Compiler ABI verification | Layout | Binary compatibility check |
+| Serialization version check | Definition | Detects field renames and structural changes |
+| API compatibility check | Definition | Semantic-level structural consistency |
+| ODR violation detection | Definition | Requires full structural information |
+
 ## Requirements
 
 ### Requirement: Two-Layer Signature Architecture

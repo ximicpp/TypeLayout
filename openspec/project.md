@@ -7,6 +7,32 @@ Boost.TypeLayout 是一个 C++26 header-only 库，使用 P2996 静态反射提�
 
 **投影关系**: `definition_match(T, U) ⟹ layout_match(T, U)`（反之不成立）
 
+### 核心价值（V1/V2/V3）
+
+| # | 承诺 | 形式化表达 | 说明 |
+|---|------|-----------|------|
+| V1 | 布局签名的**可靠性** | `layout_sig(T) == layout_sig(U) ⟹ memcmp-compatible(T, U)` | 签名相同→字节布局相同，方向正确且保守 |
+| V2 | 结构签名的**精确性** | `def_sig(T) == def_sig(U) ⟹ T 和 U 的字段名、类型、层次完全一致` | 区分所有结构差异（名称、类型、继承、命名空间） |
+| V3 | 两层的**投影关系** | `def_match(T, U) ⟹ layout_match(T, U)` | Definition 是 Layout 的细化（refinement），反之不成立 |
+
+### 设计哲学：结构分析 vs 名义分析
+
+TypeLayout 执行**结构分析（Structural Analysis）**而非名义分析（Nominal Analysis）。
+两个不同名称的类型（`struct Point` 和 `struct Coord`），如果它们的字段名、类型、布局完全相同，
+则 Definition 签名相同。签名**不包含类型自身的名称**——这是有意的设计选择，
+因为 TypeLayout 关注的是"两个类型的结构是否等价"，而非"它们是否是同一个类型"。
+
+### 两层签名使用场景指导
+
+| 场景 | 推荐层 | 理由 |
+|------|--------|------|
+| 共享内存 / IPC | Layout | 只关心字节布局是否 memcpy 兼容 |
+| 网络协议验证 | Layout | 只关心字节对齐和偏移 |
+| 编译器 ABI 验证 | Layout | 验证二进制兼容性 |
+| 序列化版本检查 | Definition | 需要检测字段名变更等结构变化 |
+| API 兼容检查 | Definition | 关心语义级结构一致性 |
+| ODR 违规检测 | Definition | 需要完整结构信息 |
+
 ## Tech Stack
 - **语言**: C++26
 - **反射**: P2996 静态反射 (`<experimental/meta>`)
@@ -168,6 +194,18 @@ struct Point { int32_t x, y; };
 - 指针大小编码在签名中（4或8字节）
 
 ## Known Limitations (已知限制)
+
+### 设计性限制（非缺陷）
+
+以下限制是有意的设计选择，不属于缺陷：
+
+| 限制 | 原因 | 是否需要修复 |
+|------|------|------------|
+| 签名匹配是 `⟹` 而非 `⟺` | 保守设计——签名相同保证布局相同，但布局相同不保证签名相同（如 `int[3]` vs `int,int,int`） | 否 |
+| 不包含类型自身名称 | 结构分析（Structural）而非名义分析（Nominal），关注结构等价而非类型身份 | 否 |
+| union 成员不递归展平 | 展平会混合重叠成员导致签名碰撞，保持原子性是正确策略 | 否 |
+| 数组不展开为散字段 | `int[3]` 与 `int a,b,c` 字节相同但语义不同，保留数组边界使签名更精确 | 否 |
+| 仅支持 Bloomberg Clang P2996 fork | P2996 标准化后自然解除，非库本身的限制 | 否 |
 
 ### Constexpr Step Limits (编译器步数限制)
 
