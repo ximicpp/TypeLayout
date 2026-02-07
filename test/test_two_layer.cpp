@@ -81,6 +81,20 @@ namespace test_base_collision {
     struct B : test_base_ns2::Tag { double v; };
 }
 
+// --- Virtual inheritance ---
+
+namespace test_virtual_inherit {
+    struct VBase { int32_t x; };
+    struct Derived : virtual VBase { int32_t y; };
+}
+
+// --- alignas ---
+
+namespace test_alignas {
+    struct alignas(16) Aligned { int32_t a; int32_t b; };
+    struct alignas(16) Aligned2 { int32_t c; int32_t d; };
+}
+
 // --- Layout signature tests ---
 
 static_assert([]() consteval {
@@ -201,6 +215,25 @@ static_assert([]() consteval {
 
 static_assert(layout_signatures_match<test_empty_base::WithEmpty, test_empty_base::Plain>(),
     "Empty base class should not affect Layout signature");
+
+// Virtual inheritance: VBase fields should appear in Layout signature
+static_assert([]() consteval {
+    constexpr auto sig = get_layout_signature<test_virtual_inherit::Derived>();
+    // Must contain i32 field from VBase (x) in addition to direct field (y)
+    int count = 0;
+    for (std::size_t i = 0; i + 2 < sig.length(); ++i) {
+        if (sig.value[i] == 'i' && sig.value[i+1] == '3' && sig.value[i+2] == '2')
+            ++count;
+    }
+    return count >= 2;  // both x and y
+}(), "Virtual base fields must appear in Layout signature");
+
+// alignas: captured via alignof(T)
+static_assert(layout_signatures_match<test_alignas::Aligned, test_alignas::Aligned2>(),
+    "Two alignas(16) structs with same field layout should match");
+
+static_assert(!layout_signatures_match<test_basic::Simple, test_alignas::Aligned>(),
+    "Different alignment should cause Layout mismatch");
 
 int main() {
     std::cout << "=== Two-Layer Signature Tests ===\n\n";

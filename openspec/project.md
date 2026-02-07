@@ -1,15 +1,17 @@
 # Project Context
 
 ## Purpose
-Boost.TypeLayout 是一个 C++26 header-only 库，使用 P2996 静态反射提供编译时内存布局分析和验证。它生成人类可读的布局签名 (Layout Signature) 来唯一标识类型的内存布局，支持健壮的二进制接口验证和 ABI 兼容性检查。
+Boost.TypeLayout 是一个 C++26 header-only 库，使用 P2996 静态反射提供编译时内存布局分析和验证。通过两层签名系统（Layout / Definition）唯一标识类型的内存布局和结构。
 
 **核心保证**: `Identical signature ⟺ Identical memory layout`（相同签名等价于相同内存布局）
+
+**数学关系**: `definition_match(T, U) ⟹ layout_match(T, U)`（反之不成立）
 
 ## Tech Stack
 - **语言**: C++26
 - **反射**: P2996 静态反射 (`<experimental/meta>`)
-- **编译器**: Bloomberg Clang P2996 fork（目前唯一支持 P2996 的编译器）
-- **构建系统**: CMake, B2 (Boost.Build)
+- **编译器**: Bloomberg Clang P2996 fork
+- **构建系统**: CMake
 - **库类型**: Header-only
 - **编译选项**: `-std=c++26 -freflection -freflection-latest -stdlib=libc++`
 
@@ -17,39 +19,22 @@ Boost.TypeLayout 是一个 C++26 header-only 库，使用 P2996 静态反射提�
 ```
 TypeLayout/
 ├── include/boost/
-│   ├── typelayout.hpp                 # 便捷头文件（转发到 typelayout/ 内部）
+│   ├── typelayout.hpp                 # 便捷头文件
 │   └── typelayout/
-│       ├── typelayout.hpp             # Core 层入口
-│       ├── typelayout_util.hpp        # Utility 层入口（含 Core）
-│       ├── typelayout_all.hpp         # 完整功能入口
-│       ├── core/                      # Layer 1: 布局签名核心
-│       │   ├── config.hpp             # 编译器检测
-│       │   ├── compile_string.hpp     # CompileString<N>, fixed_string<N>
-│       │   ├── hash.hpp               # FNV-1a, DJB2 哈希
-│       │   ├── reflection_helpers.hpp # P2996 反射辅助
-│       │   ├── type_signature.hpp     # TypeSignature<T> 特化
-│       │   ├── signature.hpp          # get_layout_signature<T>()
-│       │   ├── verification.hpp       # LayoutVerification
-│       │   └── concepts.hpp           # LayoutCompatible, LayoutMatch
-│       ├── util/                      # Layer 2: 序列化实用工具
-│       │   ├── platform_set.hpp       # PlatformSet, SerializationBlocker
-│       │   ├── serialization_check.hpp# is_serializable<T, P>
-│       │   └── concepts.hpp           # Serializable, ZeroCopyTransmittable
-│       └── detail/                    # 已废弃的兼容头文件
+│       ├── typelayout.hpp             # 入口头文件
+│       └── core/
+│           ├── config.hpp             # 平台检测、SignatureMode 枚举
+│           ├── compile_string.hpp     # CompileString<N> 编译时字符串
+│           ├── reflection_helpers.hpp # P2996 反射辅助、展平逻辑
+│           ├── type_signature.hpp     # TypeSignature<T,Mode> 特化
+│           └── signature.hpp          # 公共 API（4 个函数）
 ├── test/
-│   └── test_all_types.cpp             # 全面的编译时测试
+│   └── test_two_layer.cpp             # 两层签名系统测试
 ├── example/
-│   ├── demo.cpp                       # 完整功能示例
-│   ├── core_demo.cpp                  # 纯核心层示例
-│   └── util_demo.cpp                  # 序列化工具示例
-├── doc/
-│   ├── api_reference.md
-│   ├── quickstart.md
-│   └── technical_overview.md          # 技术演讲大纲
-├── meta/
-│   └── libraries.json                 # Boost 元数据
-├── build.jam                          # B2 构建文件
-├── CMakeLists.txt                     # CMake 构建文件
+│   └── cross_platform_check.cpp       # 跨平台兼容性检查 demo
+├── scripts/
+│   └── compare_signatures.py          # 多平台签名对比工具
+├── CMakeLists.txt
 └── README.md
 ```
 
@@ -194,7 +179,7 @@ TYPELAYOUT_BIND(Type, ExpectedSig)  // 静态断言布局匹配
 - `[:type:]` - 拼接语法用于实例化类型
 
 ## Important Constraints
-- 需要支持 P2996 的编译器（目前仅 Bloomberg Clang fork）
+- 需要 Bloomberg Clang P2996 fork（唯一支持 P2996 的编译器）
 - 必须是 header-only 以符合 Boost 库要求
 - 所有分析必须在编译时完成（零运行时开销）
 - 需要支持 IEEE 754 浮点数

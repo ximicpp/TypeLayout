@@ -238,12 +238,10 @@ namespace typelayout {
     consteval auto layout_one_base_prefixed() noexcept {
         using namespace std::meta;
         constexpr auto base_info = bases_of(^^T, access_context::unchecked())[BaseIndex];
-        if constexpr (is_virtual(base_info))
-            return CompileString{""};  // virtual bases skipped during flattening
-        else {
-            using BaseType = [:type_of(base_info):];
-            return layout_all_prefixed<BaseType, offset_of(base_info).bytes + OffsetAdj>();
-        }
+        using BaseType = [:type_of(base_info):];
+        // Include both virtual and non-virtual bases.
+        // offset_of gives the correct offset for the type being reflected.
+        return layout_all_prefixed<BaseType, offset_of(base_info).bytes + OffsetAdj>();
     }
 
     template <typename T, std::size_t OffsetAdj, std::size_t... Is>
