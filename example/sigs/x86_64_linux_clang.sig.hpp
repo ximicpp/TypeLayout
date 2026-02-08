@@ -8,7 +8,7 @@
 #ifndef BOOST_TYPELAYOUT_SIG_X86_64_LINUX_CLANG_HPP
 #define BOOST_TYPELAYOUT_SIG_X86_64_LINUX_CLANG_HPP
 
-#include <cstddef>
+#include <boost/typelayout/tools/sig_types.hpp>
 
 namespace boost { namespace typelayout { namespace platform {
 namespace x86_64_linux_clang {
@@ -73,15 +73,9 @@ inline constexpr const char MixedSafety_layout[] =
 inline constexpr const char MixedSafety_definition[] =
     "[64-le]record[s:24,a:8]{@0[id]:u32[s:4,a:4],@8[value]:f64[s:8,a:8],@16[count]:i32[s:4,a:4]}";
 
-// ---- Type Registry (for runtime iteration) ----
+// ---- Type Registry ----
 
-struct TypeEntry {
-    const char* name;
-    const char* layout_sig;
-    const char* definition_sig;
-};
-
-inline constexpr TypeEntry types[] = {
+inline constexpr ::boost::typelayout::TypeEntry types[] = {
     {"PacketHeader", PacketHeader_layout, PacketHeader_definition},
     {"SharedMemRegion", SharedMemRegion_layout, SharedMemRegion_definition},
     {"FileHeader", FileHeader_layout, FileHeader_definition},
@@ -93,6 +87,14 @@ inline constexpr TypeEntry types[] = {
 };
 
 inline constexpr int type_count = 8;
+
+// ---- Platform Info Accessor ----
+
+inline constexpr ::boost::typelayout::PlatformInfo get_platform_info() {
+    return { platform_name, arch_prefix, types, type_count,
+             pointer_size, sizeof_long, sizeof_wchar_t,
+             sizeof_long_double, max_align };
+}
 
 }}}} // namespace boost::typelayout::platform::x86_64_linux_clang
 

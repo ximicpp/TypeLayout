@@ -13,6 +13,7 @@
 
 #include <boost/typelayout/typelayout.hpp>
 #include <boost/typelayout/tools/platform_detect.hpp>
+#include <boost/typelayout/tools/sig_types.hpp>
 
 #include <string>
 #include <vector>
@@ -21,6 +22,7 @@
 #include <chrono>
 #include <ctime>
 #include <algorithm>
+#include <filesystem>
 
 namespace boost {
 namespace typelayout {
@@ -87,6 +89,7 @@ public:
         write_platform_metadata(out);
         write_type_signatures(out);
         write_type_registry(out);
+        write_platform_info(out);
         write_footer(out);
 
         out.close();
@@ -101,6 +104,7 @@ public:
         write_platform_metadata(std::cout);
         write_type_signatures(std::cout);
         write_type_registry(std::cout);
+        write_platform_info(std::cout);
         write_footer(std::cout);
     }
 
@@ -152,7 +156,7 @@ private:
         os << "#ifndef " << guard << "\n";
         os << "#define " << guard << "\n";
         os << "\n";
-        os << "#include <cstddef>\n";
+        os << "#include <boost/typelayout/tools/sig_types.hpp>\n";
         os << "\n";
         os << "namespace boost { namespace typelayout { namespace platform {\n";
         os << "namespace " << platform_name_ << " {\n";
@@ -196,15 +200,9 @@ private:
     }
 
     void write_type_registry(std::ostream& os) const {
-        os << "// ---- Type Registry (for runtime iteration) ----\n";
+        os << "// ---- Type Registry ----\n";
         os << "\n";
-        os << "struct TypeEntry {\n";
-        os << "    const char* name;\n";
-        os << "    const char* layout_sig;\n";
-        os << "    const char* definition_sig;\n";
-        os << "};\n";
-        os << "\n";
-        os << "inline constexpr TypeEntry types[] = {\n";
+        os << "inline constexpr ::boost::typelayout::TypeEntry types[] = {\n";
         for (const auto& e : entries_) {
             os << "    {\"" << escape(e.name) << "\", "
                << e.name << "_layout, "
@@ -214,6 +212,17 @@ private:
         os << "\n";
         os << "inline constexpr int type_count = "
            << entries_.size() << ";\n";
+        os << "\n";
+    }
+
+    void write_platform_info(std::ostream& os) const {
+        os << "// ---- Platform Info Accessor ----\n";
+        os << "\n";
+        os << "inline constexpr ::boost::typelayout::PlatformInfo get_platform_info() {\n";
+        os << "    return { platform_name, arch_prefix, types, type_count,\n";
+        os << "             pointer_size, sizeof_long, sizeof_wchar_t,\n";
+        os << "             sizeof_long_double, max_align };\n";
+        os << "}\n";
         os << "\n";
     }
 
@@ -227,5 +236,96 @@ private:
 
 } // namespace typelayout
 } // namespace boost
+
+// =========================================================================
+// TYPELAYOUT_EXPORT_TYPES(...) — Declarative Phase 1 macro
+//
+// Usage (entire .cpp file):
+//   #include <boost/typelayout/tools/sig_export.hpp>
+//   #include "my_types.hpp"
+//   TYPELAYOUT_EXPORT_TYPES(PacketHeader, SensorRecord, MyType)
+//
+// Generates a complete main() that exports signatures to a .sig.hpp file.
+// Compile with P2996 Clang, run with: ./export sigs/
+// =========================================================================
+
+// --- FOR_EACH machinery (supports up to 32 arguments) ---
+
+#define TYPELAYOUT_DETAIL_EXPAND(x) x
+#define TYPELAYOUT_DETAIL_CAT_(a, b) a##b
+#define TYPELAYOUT_DETAIL_CAT(a, b) TYPELAYOUT_DETAIL_CAT_(a, b)
+
+#define TYPELAYOUT_DETAIL_NARG_(...) \
+    TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_ARG_N(__VA_ARGS__))
+#define TYPELAYOUT_DETAIL_ARG_N( \
+     _1, _2, _3, _4, _5, _6, _7, _8, _9,_10, \
+    _11,_12,_13,_14,_15,_16,_17,_18,_19,_20, \
+    _21,_22,_23,_24,_25,_26,_27,_28,_29,_30, \
+    _31,_32, N, ...) N
+#define TYPELAYOUT_DETAIL_RSEQ_N() \
+    32,31,30,29,28,27,26,25,24,23, \
+    22,21,20,19,18,17,16,15,14,13, \
+    12,11,10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
+#define TYPELAYOUT_DETAIL_NARG(...) \
+    TYPELAYOUT_DETAIL_NARG_(__VA_ARGS__, TYPELAYOUT_DETAIL_RSEQ_N())
+
+#define TYPELAYOUT_DETAIL_FE_1(m, x)      m(x)
+#define TYPELAYOUT_DETAIL_FE_2(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_1(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_3(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_2(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_4(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_3(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_5(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_4(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_6(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_5(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_7(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_6(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_8(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_7(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_9(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_8(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_10(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_9(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_11(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_10(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_12(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_11(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_13(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_12(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_14(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_13(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_15(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_14(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_16(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_15(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_17(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_16(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_18(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_17(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_19(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_18(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_20(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_19(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_21(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_20(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_22(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_21(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_23(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_22(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_24(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_23(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_25(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_24(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_26(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_25(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_27(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_26(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_28(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_27(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_29(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_28(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_30(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_29(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_31(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_30(m, __VA_ARGS__))
+#define TYPELAYOUT_DETAIL_FE_32(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_31(m, __VA_ARGS__))
+
+#define TYPELAYOUT_DETAIL_FOR_EACH(macro, ...)                          \
+    TYPELAYOUT_DETAIL_EXPAND(                                           \
+        TYPELAYOUT_DETAIL_CAT(TYPELAYOUT_DETAIL_FE_,                    \
+            TYPELAYOUT_DETAIL_NARG(__VA_ARGS__))(macro, __VA_ARGS__))
+
+// --- Export macro ---
+
+#define TYPELAYOUT_DETAIL_ADD_TYPE(T) ex.add<T>(#T);
+
+#define TYPELAYOUT_EXPORT_TYPES(...)                                    \
+    int main(int argc, char* argv[]) {                                  \
+        ::boost::typelayout::SigExporter ex;                            \
+        TYPELAYOUT_DETAIL_FOR_EACH(TYPELAYOUT_DETAIL_ADD_TYPE,          \
+                                   __VA_ARGS__)                         \
+        if (argc >= 2) {                                                \
+            std::string dir = argv[1];                                  \
+            std::filesystem::create_directories(dir);                   \
+            std::string path = dir;                                     \
+            if (path.back() != '/') path += '/';                        \
+            path += ex.platform_name() + ".sig.hpp";                    \
+            return ex.write(path);                                      \
+        }                                                               \
+        ex.write_stdout();                                              \
+        return 0;                                                       \
+    }
 
 #endif // BOOST_TYPELAYOUT_TOOLS_SIG_EXPORT_HPP

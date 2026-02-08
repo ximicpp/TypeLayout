@@ -13,6 +13,8 @@
 #ifndef BOOST_TYPELAYOUT_TOOLS_COMPAT_CHECK_HPP
 #define BOOST_TYPELAYOUT_TOOLS_COMPAT_CHECK_HPP
 
+#include <boost/typelayout/tools/sig_types.hpp>
+
 #include <string_view>
 #include <string>
 #include <vector>
@@ -45,35 +47,8 @@ constexpr bool definition_match(const char* a, const char* b) noexcept {
 }
 
 // =========================================================================
-// TypeEntry — shared with generated .sig.hpp headers
-// =========================================================================
-
-/// Type entry for runtime iteration. Must match the TypeEntry in generated
-/// .sig.hpp headers.
-struct TypeEntry {
-    const char* name;
-    const char* layout_sig;
-    const char* definition_sig;
-};
-
-// =========================================================================
 // Runtime Compatibility Reporter
 // =========================================================================
-
-/// Platform data registered for comparison.
-struct PlatformData {
-    std::string       name;
-    const TypeEntry*  types;
-    int               type_count;
-
-    // Optional metadata (set to 0 if unknown)
-    std::size_t pointer_size      = 0;
-    std::size_t sizeof_long       = 0;
-    std::size_t sizeof_wchar_t    = 0;
-    std::size_t sizeof_long_double = 0;
-    std::size_t max_align         = 0;
-    const char* arch_prefix       = "";
-};
 
 /// Per-type comparison result.
 struct TypeResult {
@@ -94,18 +69,40 @@ struct TypeResult {
 ///   r.add_platform("x86_64_linux_clang", plat_a::types, plat_a::type_count);
 ///   r.add_platform("arm64_linux_clang",  plat_b::types, plat_b::type_count);
 ///   r.print_report();
+/// Platform data for the reporter (runtime, owns strings).
+struct PlatformData {
+    std::string       name;
+    const TypeEntry*  types;
+    int               type_count;
+    std::size_t       pointer_size      = 0;
+    std::size_t       sizeof_long       = 0;
+    std::size_t       sizeof_wchar_t    = 0;
+    std::size_t       sizeof_long_double = 0;
+    std::size_t       max_align         = 0;
+    const char*       arch_prefix       = "";
+};
+
 class CompatReporter {
 public:
+    /// Register from PlatformInfo (constexpr, from .sig.hpp get_platform_info()).
+    void add_platform(const PlatformInfo& pi) {
+        platforms_.push_back({
+            pi.platform_name, pi.types, pi.type_count,
+            pi.pointer_size, pi.sizeof_long, pi.sizeof_wchar_t,
+            pi.sizeof_long_double, pi.max_align, pi.arch_prefix
+        });
+    }
+
+    /// Register with explicit fields (legacy).
+    void add_platform(const PlatformData& pd) {
+        platforms_.push_back(pd);
+    }
+
     /// Register a platform's signature data (basic form).
     void add_platform(const std::string& name,
                       const TypeEntry* types,
                       int count) {
         platforms_.push_back({name, types, count});
-    }
-
-    /// Register a platform's signature data (with metadata).
-    void add_platform(const PlatformData& pd) {
-        platforms_.push_back(pd);
     }
 
     /// Compute comparison results.
