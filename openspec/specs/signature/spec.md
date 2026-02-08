@@ -350,6 +350,7 @@ The library SHALL provide formally proven accuracy guarantees for both signature
 - **WHEN** `definition_signatures_match<T, U>()` returns true
 - **THEN** `layout_signatures_match<T, U>()` SHALL also return true
 - **AND** there SHALL exist a deterministic erasure function π that maps any Definition signature to its corresponding Layout signature
+- **AND** π SHALL be well-defined: each transformation step (name removal, inheritance flattening, marker replacement, qualified name removal) is a deterministic syntactic operation
 - **AND** the Definition signature's equivalence kernel SHALL be a strict subset of the Layout signature's equivalence kernel
 
 #### Scenario: Per-category accuracy classification
@@ -358,6 +359,17 @@ The library SHALL provide formally proven accuracy guarantees for both signature
   - Fixed-width scalars: exact on all platforms
   - Platform-dependent scalars (long, wchar_t): exact per-platform, signatures naturally differ cross-platform
   - POD structs, inheritance, arrays, unions, enums: exact
-  - Polymorphic types: existence marking (vptr presence, not vtable layout)
+  - Polymorphic types: existence marking (vptr presence, not vtable layout); vptr space is included in sizeof but not enumerated as a leaf field
   - Bit-fields: exact within same compiler, impl-defined across compilers
+
+#### Scenario: Signature grammar unambiguity
+- **GIVEN** the signature string follows a deterministic grammar with unique prefix keywords and balanced delimiters
+- **THEN** each valid signature string SHALL have exactly one parse tree
+- **AND** the encoding SHALL be injective on strings: different data produces different strings
+
+#### Scenario: CV-qualification erasure
+- **GIVEN** a type T with const or volatile qualifiers
+- **WHEN** a signature is generated for const T, volatile T, or const volatile T
+- **THEN** the signature SHALL be identical to the signature of the unqualified type T
+- **AND** this is correct because CV qualifiers do not affect memory layout
 
