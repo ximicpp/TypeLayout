@@ -2,33 +2,34 @@
 #
 # Cross-Platform Compatibility Check - Reusable Workflow
 #
-# This workflow can be called from external repositories to verify
-# type layout compatibility across multiple platforms.
+# Two-phase pipeline:
+#   Phase 1: Export type signatures on each target platform (requires P2996 Clang)
+#   Phase 2: Compare .sig.hpp headers at compile time (any C++17 compiler)
 #
 # Usage in your repository:
 #   jobs:
 #     compat-check:
 #       uses: aspect-labs/typelayout/.github/workflows/compat-check.yml@v1
 #       with:
-#         config: 'typelayout.config.hpp'  # optional, this is the default
-#         platforms: 'linux-x64,windows-x64'  # optional, this is the default
+#         types_header: 'include/my_types.hpp'
+#         platforms: 'x86_64-linux-clang,arm64-linux-clang'
 #
 # Copyright (c) 2024-2026 TypeLayout Development Team
+# Distributed under the Boost Software License, Version 1.0.
 
 name: Cross-Platform Type Compatibility Check
 
 on:
   workflow_call:
     inputs:
-      config:
-        description: 'Path to TypeLayout configuration header file'
-        required: false
-        default: 'typelayout.config.hpp'
+      types_header:
+        description: 'Path to C++ header with struct/class definitions to check'
+        required: true
         type: string
       platforms:
-        description: 'Comma-separated list of target platforms (linux-x64,windows-x64,macos-arm64,linux-arm64)'
+        description: 'Comma-separated list of target platforms (see tools/platforms.conf)'
         required: false
-        default: 'linux-x64,windows-x64'
+        default: 'x86_64-linux-clang,arm64-linux-clang'
         type: string
       typelayout_ref:
         description: 'TypeLayout repository reference (branch/tag/sha)'
@@ -37,7 +38,9 @@ on:
         type: string
 
 jobs:
-  # Parse platforms and create matrix
+  # =====================================================================
+  # Parse platform list into a matrix
+  # =====================================================================
   setup:
     runs-on: ubuntu-latest
     outputs:
@@ -47,165 +50,287 @@ jobs:
         id: parse
         run: |
           platforms="${{ inputs.platforms }}"
-          
-          # Build JSON matrix
+
+          # Build JSON matrix from comma-separated platform list
           matrix='{"include":['
           first=true
-          
+
           IFS=',' read -ra PLATFORMS <<< "$platforms"
           for platform in "${PLATFORMS[@]}"; do
             platform=$(echo "$platform" | xargs)  # trim whitespace
-            
-            # Map platform to runner
-            case "$platform" in
-              "linux-x64")
-                os="ubuntu-latest"
-                ;;
-              "linux-arm64")
-                os="ubuntu-latest"  # Uses QEMU
-                ;;
-              "windows-x64")
-                os="windows-latest"
-                ;;
-              "macos-arm64")
-                os="macos-latest"
-                ;;
-              "macos-x64")
-                os="macos-13"  # Last Intel macOS runner
-                ;;
-              *)
-                echo "Warning: Unknown platform $platform, using ubuntu-latest"
-                os="ubuntu-latest"
-                ;;
-            esac
-            
+
             if [ "$first" = true ]; then
               first=false
             else
               matrix+=','
             fi
-            
-            matrix+="{\"platform\":\"$platform\",\"os\":\"$os\"}"
+
+            matrix+="{\"platform\":\"$platform\"}"
           done
-          
+
           matrix+=']}'
           echo "matrix=$matrix" >> $GITHUB_OUTPUT
           echo "Generated matrix: $matrix"
 
-  # Generate signatures on each platform
-  generate:
+  # =====================================================================
+  # Phase 1: Export signatures on each platform (requires P2996 Clang)
+  # =====================================================================
+  export-signatures:
     needs: setup
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
-    runs-on: ${{ matrix.os }}
-    
+    runs-on: ubuntu-latest
+
     steps:
       - name: Checkout user repository
         uses: actions/checkout@v4
-      
+
       - name: Checkout TypeLayout
         uses: actions/checkout@v4
         with:
           repository: aspect-labs/typelayout
           ref: ${{ inputs.typelayout_ref }}
           path: _typelayout
-      
-      - name: Setup P2996 Clang (Linux)
-        if: runner.os == 'Linux'
+
+      - name: Read platform config
+        id: config
         run: |
-          # Download pre-built P2996 Clang
-          echo "Setting up P2996 Clang for Linux..."
-          
-          # Use Docker image with P2996 Clang
-          docker pull aspectlabs/clang-p2996:latest || {
-            echo "Docker image not available, falling back to local build check"
-            exit 0
+          CONF="_typelayout/tools/platforms.conf"
+          PLATFORM="${{ matrix.platform }}"
+
+          # Extract fields from INI-style platforms.conf
+          get_field() {
+            local platform="$1" field="$2" in_section=false
+            while IFS= read -r line; do
+              [[ "$line" =~ ^[[:space:]]*# ]] && continue
+              [[ -z "${line// /}" ]] && continue
+              if [[ "$line" =~ ^\[([^\]]+)\] ]]; then
+                [[ "${BASH_REMATCH[1]}" == "$platform" ]] && in_section=true || { $in_section && break; }
+                continue
+              fi
+              if $in_section && [[ "$line" =~ ^[[:space:]]*${field}[[:space:]]*=[[:space:]]*(.*) ]]; then
+                echo "${BASH_REMATCH[1]}" | sed 's/[[:space:]]*$//'
+                return 0
+              fi
+            done < "$CONF"
+            return 1
           }
-      
-      - name: Generate signatures (Linux)
-        if: runner.os == 'Linux'
+
+          IMAGE=$(get_field "$PLATFORM" "docker_image" || echo "")
+          COMPILER=$(get_field "$PLATFORM" "compiler" || echo "clang++")
+          FLAGS=$(get_field "$PLATFORM" "flags" || echo "")
+          LINK_FLAGS=$(get_field "$PLATFORM" "link_flags" || echo "")
+
+          echo "docker_image=$IMAGE" >> $GITHUB_OUTPUT
+          echo "compiler=$COMPILER" >> $GITHUB_OUTPUT
+          echo "flags=$FLAGS" >> $GITHUB_OUTPUT
+          echo "link_flags=$LINK_FLAGS" >> $GITHUB_OUTPUT
+
+      - name: Generate export source
         run: |
+          # Auto-detect struct/class definitions and generate export .cpp
+          TYPES_HEADER="${{ inputs.types_header }}"
+          HEADER_BASENAME=$(basename "$TYPES_HEADER")
+
+          mkdir -p _build
+
+          # Build type registrations
+          REGISTRATIONS=""
+          while IFS= read -r line; do
+            if echo "$line" | grep -qP '^\s*(struct|class)\s+([A-Za-z_]\w*)\s*\{'; then
+              TYPENAME=$(echo "$line" | grep -oP '(?:struct|class)\s+\K[A-Za-z_]\w*')
+              REGISTRATIONS+="    ex.add<${TYPENAME}>(\"${TYPENAME}\");"$'\n'
+            fi
+          done < "$TYPES_HEADER"
+
+          # Generate from template
+          sed \
+            -e "s|@TYPES_HEADER@|${HEADER_BASENAME}|g" \
+            -e "s|@TYPE_REGISTRATIONS@|${REGISTRATIONS}|g" \
+            _typelayout/tools/sig_export_template.cpp.in > _build/sig_export.cpp
+
+      - name: Export signatures via Docker
+        if: steps.config.outputs.docker_image != ''
+        run: |
+          TYPES_DIR=$(dirname "${{ inputs.types_header }}")
+          TYPES_DIR=$(cd "$TYPES_DIR" && pwd)
+
           docker run --rm \
-            -v "${{ github.workspace }}:/workspace" \
-            -w /workspace \
-            aspectlabs/clang-p2996:latest \
-            sh -c "clang++ -std=c++26 -freflection \
-              -DTYPELAYOUT_USER_CONFIG='\"${{ inputs.config }}\"' \
-              -I _typelayout/include \
-              -I . \
-              _typelayout/tools/siggen.cpp \
-              -o siggen && ./siggen"
-          > sig_${{ matrix.platform }}.txt
-      
-      - name: Generate signatures (Windows)
-        if: runner.os == 'Windows'
+            -v "${{ github.workspace }}/_typelayout:/typelayout:ro" \
+            -v "${TYPES_DIR}:/user_types:ro" \
+            -v "${{ github.workspace }}/_build:/build" \
+            -w /tmp/work \
+            "${{ steps.config.outputs.docker_image }}" \
+            bash -c "
+              cp /build/sig_export.cpp .
+              cp /user_types/$(basename ${{ inputs.types_header }}) .
+              ${{ steps.config.outputs.compiler }} \
+                ${{ steps.config.outputs.flags }} \
+                -I/typelayout/include -I. \
+                ${{ steps.config.outputs.link_flags }} \
+                -o sig_export sig_export.cpp && \
+              ./sig_export /build/
+            "
+
+      - name: Export signatures locally (fallback)
+        if: steps.config.outputs.docker_image == ''
         run: |
-          # Note: Windows P2996 support is experimental
-          # For now, output a placeholder that will cause comparison to detect differences
-          echo "__PLATFORM__ ${{ matrix.platform }}" > sig_${{ matrix.platform }}.txt
-          echo "__ARCH__ [64-le]" >> sig_${{ matrix.platform }}.txt
-          echo "# Windows P2996 Clang not yet available in CI" >> sig_${{ matrix.platform }}.txt
-      
-      - name: Generate signatures (macOS)
-        if: runner.os == 'macOS'
+          TYPES_DIR=$(dirname "${{ inputs.types_header }}")
+          TYPES_DIR=$(cd "$TYPES_DIR" && pwd)
+
+          ${{ steps.config.outputs.compiler }} \
+            ${{ steps.config.outputs.flags }} \
+            -I _typelayout/include \
+            -I "$TYPES_DIR" \
+            ${{ steps.config.outputs.link_flags }} \
+            -o _build/sig_export \
+            _build/sig_export.cpp
+
+          _build/sig_export _build/
+
+      - name: Verify signature output
         run: |
-          # Note: macOS P2996 support is experimental
-          echo "__PLATFORM__ ${{ matrix.platform }}" > sig_${{ matrix.platform }}.txt
-          echo "__ARCH__ [64-le]" >> sig_${{ matrix.platform }}.txt
-          echo "# macOS P2996 Clang not yet available in CI" >> sig_${{ matrix.platform }}.txt
-      
+          echo "Generated signature files:"
+          ls -la _build/*.sig.hpp
+          echo ""
+          echo "Contents:"
+          for f in _build/*.sig.hpp; do
+            echo "=== $(basename $f) ==="
+            head -30 "$f"
+            echo "..."
+            echo ""
+          done
+
       - name: Upload signature artifact
         uses: actions/upload-artifact@v4
         with:
           name: sig-${{ matrix.platform }}
-          path: sig_${{ matrix.platform }}.txt
-          retention-days: 1
+          path: _build/*.sig.hpp
+          retention-days: 7
 
-  # Compare all signatures
-  compare:
-    needs: generate
+  # =====================================================================
+  # Phase 2: Compare all signatures (C++17, no P2996 needed)
+  # =====================================================================
+  compare-signatures:
+    needs: export-signatures
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout TypeLayout
         uses: actions/checkout@v4
         with:
           repository: aspect-labs/typelayout
           ref: ${{ inputs.typelayout_ref }}
-      
+
       - name: Download all signature artifacts
         uses: actions/download-artifact@v4
         with:
-          path: signatures
+          path: _sigs
           pattern: sig-*
           merge-multiple: true
-      
+
       - name: List downloaded signatures
         run: |
           echo "Downloaded signatures:"
-          ls -la signatures/
+          ls -la _sigs/
           echo ""
-          echo "Contents:"
-          for f in signatures/*.txt; do
-            echo "=== $f ==="
-            cat "$f"
+          for f in _sigs/*.sig.hpp; do
+            echo "=== $(basename $f) ==="
+            head -25 "$f"
+            echo "..."
             echo ""
           done
-      
-      - name: Build comparison tool
+
+      - name: Generate Phase 2 checker
         run: |
-          g++ -std=c++17 -O2 tools/compare_signatures.cpp -o compare_signatures
-      
-      - name: Compare signatures
+          mkdir -p _build
+
+          # Collect all sig files and their namespaces
+          SIG_FILES=(_sigs/*.sig.hpp)
+          NAMESPACES=()
+
+          for f in "${SIG_FILES[@]}"; do
+            NS=$(grep -oP 'namespace\s+\K[a-z0-9_]+(?=\s*\{)' "$f" | tail -1)
+            NAMESPACES+=("$NS")
+            echo "Found: $(basename $f) → namespace $NS"
+          done
+
+          # Generate checker source directly
+          {
+            echo "// AUTO-GENERATED Phase 2 checker"
+            echo "#include <cstddef>"
+            echo ""
+
+            for f in "${SIG_FILES[@]}"; do
+              echo "#include \"$(realpath "$f")\""
+            done
+            echo ""
+            echo "#include <boost/typelayout/tools/compat_check.hpp>"
+            echo "#include <iostream>"
+            echo ""
+            echo "int main() {"
+            echo "    using namespace boost::typelayout::compat;"
+            echo "    CompatReporter reporter;"
+            echo ""
+
+            for ns in "${NAMESPACES[@]}"; do
+              echo "    reporter.add_platform({"
+              echo "        boost::typelayout::platform::${ns}::platform_name,"
+              echo "        reinterpret_cast<const TypeEntry*>(boost::typelayout::platform::${ns}::types),"
+              echo "        boost::typelayout::platform::${ns}::type_count,"
+              echo "        boost::typelayout::platform::${ns}::pointer_size,"
+              echo "        boost::typelayout::platform::${ns}::sizeof_long,"
+              echo "        boost::typelayout::platform::${ns}::sizeof_wchar_t,"
+              echo "        boost::typelayout::platform::${ns}::sizeof_long_double,"
+              echo "        boost::typelayout::platform::${ns}::max_align,"
+              echo "        boost::typelayout::platform::${ns}::arch_prefix"
+              echo "    });"
+            done
+            echo ""
+            echo "    reporter.print_report();"
+            echo "    return 0;"
+            echo "}"
+          } > _build/compat_check.cpp
+
+          echo ""
+          echo "Generated checker source:"
+          cat _build/compat_check.cpp
+
+      - name: Compile and run Phase 2
         run: |
-          ./compare_signatures signatures/*.txt
-      
-      - name: Upload comparison report
+          g++ -std=c++17 -I include \
+            -o _build/compat_check _build/compat_check.cpp
+
+          echo ""
+          echo "Running compatibility report..."
+          echo ""
+          _build/compat_check | tee _build/report.txt
+
+      - name: Check results
+        run: |
+          REPORT="_build/report.txt"
+
+          # Extract summary line
+          if grep -q "ALL.*serialization-free" "$REPORT"; then
+            echo "✅ All types are compatible across all platforms!"
+          else
+            INCOMPATIBLE=$(grep -oP '\d+(?= type\(s\) need serialization)' "$REPORT" || echo "0")
+            if [ "$INCOMPATIBLE" -gt 0 ]; then
+              echo "⚠️  $INCOMPATIBLE type(s) have different layouts across platforms."
+              echo "   This is an informational warning — review the report for details."
+              echo ""
+              echo "Types with layout differences:"
+              grep '\[DIFFER\]' "$REPORT" || true
+            fi
+          fi
+
+      - name: Upload compatibility report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: compatibility-report
           path: |
-            signatures/*.txt
-          retention-days: 7
+            _build/report.txt
+            _sigs/*.sig.hpp
+          retention-days: 30

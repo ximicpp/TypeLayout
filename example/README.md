@@ -208,6 +208,23 @@ The platform is auto-detected from compiler macros. You can override it:
 SigExporter ex("my_custom_platform");
 ```
 
+## Automated Toolchain
+
+For production use, the `typelayout-compat` CLI automates the entire pipeline:
+
+```bash
+# One-command cross-platform check (Docker-based)
+./tools/typelayout-compat check \
+    --types example/cross_platform_types.hpp \
+    --platforms x86_64-linux-clang,arm64-linux-clang
+
+# Or compare pre-exported signatures (no Docker needed)
+./tools/typelayout-compat compare --sigs example/sigs/
+```
+
+See [tools/README.md](../tools/README.md) for full toolchain documentation,
+including CI/CD integration with GitHub Actions.
+
 ## Why This Matters
 
 Traditional approaches to cross-platform data sharing require:
