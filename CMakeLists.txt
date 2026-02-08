@@ -36,6 +36,26 @@ target_link_libraries(test_two_layer PRIVATE typelayout)
 add_test(NAME test_two_layer COMMAND test_two_layer)
 set_tests_properties(test_two_layer PROPERTIES TIMEOUT 120 LABELS "core")
 
-# Examples
-add_executable(cross_platform_check example/cross_platform_check.cpp)
-target_link_libraries(cross_platform_check PRIVATE typelayout)
+# Cross-platform compatibility CMake module
+include(cmake/TypeLayoutCompat.cmake)
+
+# Examples — Phase 1: Signature export (requires P2996)
+add_executable(sig_export example/cross_platform_check.cpp)
+target_link_libraries(sig_export PRIVATE typelayout)
+
+# Examples — Phase 2: Compatibility check (C++17 only, no P2996 needed)
+add_executable(compat_check example/compat_check.cpp)
+target_include_directories(compat_check PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/example
+)
+target_compile_options(compat_check PRIVATE -std=c++17 -stdlib=libc++)
+target_link_options(compat_check PRIVATE -stdlib=libc++)
+
+# Test — compatibility check utilities (C++17 only)
+add_executable(test_compat_check test/test_compat_check.cpp)
+target_include_directories(test_compat_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_options(test_compat_check PRIVATE -std=c++17 -stdlib=libc++)
+target_link_options(test_compat_check PRIVATE -stdlib=libc++)
+add_test(NAME test_compat_check COMMAND test_compat_check)
+set_tests_properties(test_compat_check PROPERTIES TIMEOUT 30 LABELS "tools")

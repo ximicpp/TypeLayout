@@ -1,16 +1,29 @@
-// Cross-platform signature extraction tool.
-// Outputs layout/definition signatures as JSON for comparison across platforms.
+// Cross-Platform Signature Export Tool (Phase 1)
+//
+// Compile and run this on each target platform to produce a .sig.hpp header.
+// The generated header can then be used in Phase 2 for compile-time
+// compatibility checking across platforms.
+//
+// Usage:
+//   ./sig_export                           # auto-detect platform, write to stdout
+//   ./sig_export sigs/                     # auto-detect platform, write to sigs/<platform>.sig.hpp
+//   ./sig_export sigs/ my_custom_platform  # manual platform name
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
-#include <boost/typelayout/typelayout.hpp>
-#include <iostream>
+#include <boost/typelayout/tools/sig_export.hpp>
 #include <cstdint>
+#include <string>
+#include <filesystem>
 
 using namespace boost::typelayout;
 
-// --- Representative types ---
+// =========================================================================
+// Representative types for cross-platform testing
+// =========================================================================
+
+// --- Safe types (fixed-width only, expected portable) ---
 
 struct PacketHeader {
     uint32_t magic;       // Protocol magic number
@@ -51,7 +64,8 @@ struct IpcCommand {
     char      payload[64];
 };
 
-// Platform-dependent members (expected to differ across platforms)
+// --- Unsafe types (platform-dependent members) ---
+
 struct UnsafeStruct {
     long        a;
     void*       ptr;
@@ -71,72 +85,49 @@ struct MixedSafety {
     int       count;
 };
 
-// --- JSON output ---
+// =========================================================================
+// Main
+// =========================================================================
 
-template <typename Sig>
-void print_json_string(const Sig& sig) {
-    std::cout << '"';
-    for (std::size_t i = 0; i < sig.length(); ++i) {
-        char c = sig.value[i];
-        if (c == '"') std::cout << "\\\"";
-        else if (c == '\\') std::cout << "\\\\";
-        else std::cout << c;
+int main(int argc, char* argv[]) {
+    // Parse arguments
+    std::string output_dir;
+    std::string custom_platform;
+
+    if (argc >= 2) output_dir = argv[1];
+    if (argc >= 3) custom_platform = argv[2];
+
+    // Create exporter
+    SigExporter ex;
+    if (!custom_platform.empty()) {
+        ex = SigExporter(custom_platform);
     }
-    std::cout << '"';
-}
 
-template <typename T>
-void emit_type_entry(const char* name, bool& first) {
-    if (!first) std::cout << ",\n";
-    first = false;
+    // Register types — safe
+    ex.add<PacketHeader>("PacketHeader");
+    ex.add<SharedMemRegion>("SharedMemRegion");
+    ex.add<FileHeader>("FileHeader");
+    ex.add<SensorRecord>("SensorRecord");
+    ex.add<IpcCommand>("IpcCommand");
 
-    constexpr auto layout = get_layout_signature<T>();
-    constexpr auto defn   = get_definition_signature<T>();
+    // Register types — unsafe (platform-dependent)
+    ex.add<UnsafeStruct>("UnsafeStruct");
+    ex.add<UnsafeWithPointer>("UnsafeWithPointer");
+    ex.add<MixedSafety>("MixedSafety");
 
-    std::cout << "    {\n";
-    std::cout << "      \"name\": \"" << name << "\",\n";
-    std::cout << "      \"size\": " << sizeof(T) << ",\n";
-    std::cout << "      \"align\": " << alignof(T) << ",\n";
-    std::cout << "      \"layout_signature\": ";
-    print_json_string(layout);
-    std::cout << ",\n";
-    std::cout << "      \"definition_signature\": ";
-    print_json_string(defn);
-    std::cout << "\n";
-    std::cout << "    }";
-}
+    // Output
+    if (output_dir.empty()) {
+        // Write to stdout
+        ex.write_stdout();
+        return 0;
+    } else {
+        // Create directory if needed
+        std::filesystem::create_directories(output_dir);
 
-int main() {
-    constexpr auto arch_prefix = get_arch_prefix();
-
-    std::cout << "{\n";
-    std::cout << "  \"platform\": {\n";
-    std::cout << "    \"arch_prefix\": ";
-    print_json_string(arch_prefix);
-    std::cout << ",\n";
-    std::cout << "    \"pointer_size\": " << sizeof(void*) << ",\n";
-    std::cout << "    \"sizeof_long\": " << sizeof(long) << ",\n";
-    std::cout << "    \"sizeof_wchar_t\": " << sizeof(wchar_t) << ",\n";
-    std::cout << "    \"sizeof_long_double\": " << sizeof(long double) << ",\n";
-    std::cout << "    \"max_align\": " << alignof(std::max_align_t) << "\n";
-    std::cout << "  },\n";
-
-    std::cout << "  \"types\": [\n";
-    bool first = true;
-
-    emit_type_entry<PacketHeader>("PacketHeader", first);
-    emit_type_entry<SharedMemRegion>("SharedMemRegion", first);
-    emit_type_entry<FileHeader>("FileHeader", first);
-    emit_type_entry<SensorRecord>("SensorRecord", first);
-    emit_type_entry<IpcCommand>("IpcCommand", first);
-
-    emit_type_entry<UnsafeStruct>("UnsafeStruct", first);
-    emit_type_entry<UnsafeWithPointer>("UnsafeWithPointer", first);
-
-    emit_type_entry<MixedSafety>("MixedSafety", first);
-
-    std::cout << "\n  ]\n";
-    std::cout << "}\n";
-
-    return 0;
+        // Write to file
+        std::string path = output_dir;
+        if (path.back() != '/' && path.back() != '\\') path += '/';
+        path += ex.platform_name() + ".sig.hpp";
+        return ex.write(path);
+    }
 }

@@ -48,16 +48,25 @@ TypeLayout/
 │   ├── typelayout.hpp                 # 便捷头文件
 │   └── typelayout/
 │       ├── typelayout.hpp             # 入口头文件
-│       └── core/
-│           ├── fwd.hpp                # 基础层：平台配置 + FixedString<N> 编译时字符串
-│           ├── signature_detail.hpp   # 内部实现：反射元操作 + 签名引擎 + TypeSignature<T,Mode> 特化
-│           └── signature.hpp          # 公共 API（4 个函数）
+│       ├── core/
+│       │   ├── fwd.hpp                # 基础层：平台配置 + FixedString<N> 编译时字符串
+│       │   ├── signature_detail.hpp   # 内部实现：反射元操作 + 签名引擎 + TypeSignature<T,Mode> 特化
+│       │   └── signature.hpp          # 公共 API（4 个函数）
+│       └── tools/
+│           ├── platform_detect.hpp    # 平台自动检测（arch_os_compiler）
+│           ├── sig_export.hpp         # Phase 1: 签名导出工具（SigExporter）
+│           └── compat_check.hpp       # Phase 2: 编译时兼容性检查 + 运行时报告
+├── cmake/
+│   └── TypeLayoutCompat.cmake         # CMake 跨平台兼容性管线模块
 ├── test/
-│   └── test_two_layer.cpp             # 两层签名系统测试
+│   ├── test_two_layer.cpp             # 两层签名系统测试
+│   └── test_compat_check.cpp          # 兼容性检查工具测试（C++17）
 ├── example/
-│   └── cross_platform_check.cpp       # 跨平台兼容性检查 demo
-├── scripts/
-│   └── compare_signatures.py          # 多平台签名对比工具
+│   ├── cross_platform_check.cpp       # Phase 1: 签名导出示例
+│   ├── compat_check.cpp              # Phase 2: 兼容性检查示例
+│   └── sigs/                          # 预生成的 .sig.hpp 签名头文件
+│       ├── x86_64_linux_clang.sig.hpp
+│       └── x86_64_windows_msvc.sig.hpp
 ├── CMakeLists.txt
 └── README.md
 ```
@@ -65,6 +74,7 @@ TypeLayout/
 ### 架构说明
 
 - **Core Layer (`core/`)**: 两层签名引擎——Layout（字节身份）和 Definition（结构身份）
+- **Tools Layer (`tools/`)**: 跨平台兼容性管线——Phase 1 签名导出 + Phase 2 编译时比对（不依赖 P2996）
 
 ## Project Conventions
 
