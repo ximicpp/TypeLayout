@@ -273,3 +273,75 @@ README SHALL be concise and focused on getting started quickly.
 - **THEN** it SHOULD be under 200 lines
 - **AND** detailed information links to online documentation
 
+### Requirement: Example Coverage Principle
+The documentation SHALL maintain examples that cover all core value dimensions (V1/V2/V3).
+
+#### Scenario: Minimum coverage per core value
+- **GIVEN** the library has three core values V1 (Layout reliability), V2 (Definition precision), V3 (Projection)
+- **THEN** the example suite SHALL include at least one type that demonstrates each value
+- **AND** each value SHALL have both a "positive case" (value confirmed) and a "boundary case" (value limitation)
+
+#### Scenario: V2 demonstration requirement
+- **GIVEN** V2 distinguishes structural differences invisible to Layout
+- **THEN** the examples SHALL include at least one pair of types where Layout matches but Definition differs
+- **AND** the documentation SHALL explain why Definition is needed for that scenario
+
+#### Scenario: Safety classification coverage
+- **GIVEN** the safety classification system (Safe/Warning/Risk)
+- **THEN** the examples SHALL include at least one type at each safety level
+- **AND** the documentation SHALL explain why each type received its rating
+
+### Requirement: IPC Application Scenario Documentation
+The documentation SHALL include a dedicated section analyzing the shared memory / IPC application scenario.
+
+#### Scenario: End-to-end IPC workflow
+- **GIVEN** two processes sharing memory via mmap or POSIX shared memory
+- **THEN** the documentation SHALL demonstrate the complete workflow from type definition through signature export to compile-time verification
+- **AND** the documentation SHALL show that verified types can be used with zero-copy transfer (direct memcpy/mmap access)
+
+#### Scenario: IPC comparison with alternatives
+- **GIVEN** alternative approaches to cross-process data sharing (manual serialization, boost::interprocess, protobuf)
+- **THEN** the documentation SHALL provide a comparison matrix covering: verification timing, runtime overhead, code complexity, and cross-platform safety
+- **AND** the documentation SHALL position TypeLayout as complementary to serialization frameworks for dynamic-size data
+
+### Requirement: Network Protocol Application Scenario Documentation
+The documentation SHALL include a dedicated section analyzing the network protocol wire-format verification scenario.
+
+#### Scenario: Wire-format verification workflow
+- **GIVEN** a binary network protocol with fixed-size header structures
+- **THEN** the documentation SHALL demonstrate how TypeLayout verifies wire-format consistency between client and server platforms
+- **AND** the documentation SHALL contrast this with manual offsetof/sizeof assertions showing TypeLayout's automatic completeness
+
+#### Scenario: Byte order boundary documentation
+- **GIVEN** TypeLayout encodes endianness in the architecture prefix
+- **THEN** the documentation SHALL explain that endianness mismatch is detected (signatures differ) but byte-order conversion is the user's responsibility
+- **AND** the documentation SHALL describe this as intentional separation of concerns
+
+### Requirement: File Format Application Scenario Documentation
+The documentation SHALL include a dedicated section analyzing the file format compatibility scenario.
+
+#### Scenario: Cross-platform file header verification
+- **GIVEN** a binary file format with a fixed-size header structure
+- **THEN** the documentation SHALL demonstrate how TypeLayout verifies that files written on one platform can be read on another
+- **AND** the documentation SHALL show that Layout signature match guarantees safe fread/fwrite of the entire header
+
+#### Scenario: Version evolution detection with Definition signatures
+- **GIVEN** a file format header that evolves across versions (field renames, semantic changes)
+- **THEN** the documentation SHALL demonstrate that Layout signatures may still match (same byte layout) while Definition signatures correctly detect structural changes
+- **AND** the documentation SHALL present this as a key advantage of the two-layer system for file format maintenance
+
+### Requirement: Plugin ABI Application Scenario Documentation
+The documentation SHALL include a dedicated section analyzing the plugin system ABI compatibility scenario.
+
+#### Scenario: Plugin load-time signature verification
+- **GIVEN** a host application dynamically loading plugins via dlopen/LoadLibrary
+- **THEN** the documentation SHALL demonstrate two verification modes:
+  - Compile-time: TYPELAYOUT_ASSERT_COMPAT when host and plugin are built together
+  - Runtime: Signature string comparison at plugin load time via dlsym
+- **AND** the documentation SHALL explain that signature mismatch prevents undefined behavior from ABI incompatibility
+
+#### Scenario: ODR violation detection
+- **GIVEN** host and plugin may independently define structs with the same name but different layouts
+- **THEN** the documentation SHALL demonstrate how Definition signatures detect ODR violations that compilers and linkers typically miss
+- **AND** the documentation SHALL position this as a unique safety benefit for plugin architectures
+

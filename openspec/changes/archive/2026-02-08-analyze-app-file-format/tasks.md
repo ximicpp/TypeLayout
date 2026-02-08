@@ -14,4 +14,4 @@
 - [x] 3.3 识别变长记录和压缩格式的限制
 
 ## 4. 文档记录
-- [ ] 4.1 将文件格式场景分析记录到 documentation spec
+- [x] 4.1 将文件格式场景分析记录到 documentation spec

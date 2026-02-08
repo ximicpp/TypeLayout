@@ -14,4 +14,4 @@
 - [x] 3.3 设计互补使用模式 (TypeLayout + protobuf)
 
 ## 4. 文档记录
-- [ ] 4.1 将 IPC 场景分析记录到 documentation spec
+- [x] 4.1 将 IPC 场景分析记录到 documentation spec

@@ -13,4 +13,4 @@
 - [x] 3.3 制作插件类型适用性矩阵
 
 ## 4. 文档记录
-- [ ] 4.1 将插件 ABI 场景分析记录到 documentation spec
+- [x] 4.1 将插件 ABI 场景分析记录到 documentation spec
