@@ -110,6 +110,19 @@ answers *"are these two types structurally equivalent?"*, not *"are they the sam
 | API compatibility | **Definition** | Semantic-level structural consistency |
 | ODR violation detection | **Definition** | Requires full structural information |
 
+## Formal Proofs
+
+The correctness of the two-layer signature system is formally proven in
+[`PROOFS.md`](PROOFS.md). Key results:
+
+| Theorem | Statement |
+|---------|-----------|
+| **Soundness** | Signature match ⟹ identical byte layout (zero false positives) |
+| **Injectivity** | Different layouts ⟹ different signatures |
+| **Conservativeness** | Same layout may produce different signatures (safe direction) |
+| **Projection** | `definition_match ⟹ layout_match` (strict refinement) |
+| **Compiler-verified** | All offsets from P2996 intrinsics, not manual calculation |
+
 ## Known Design Limits
 
 These are intentional choices, not bugs:
