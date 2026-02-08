@@ -29,6 +29,7 @@ CMakeFiles/
 cmake_install.cmake
 Makefile
 *.cmake
+!cmake/*.cmake
 !cmake/*.cmake.in
 
 # Old library structure (migrated to root)

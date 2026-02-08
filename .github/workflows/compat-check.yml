@@ -6,12 +6,17 @@
 #   Phase 1: Export type signatures on each target platform (requires P2996 Clang)
 #   Phase 2: Compare .sig.hpp headers at compile time (any C++17 compiler)
 #
+# The user provides two .cpp source files:
+#   - export_source: uses TYPELAYOUT_EXPORT_TYPES(...) macro  → Phase 1
+#   - check_source:  uses TYPELAYOUT_CHECK_COMPAT(...)        → Phase 2
+#
 # Usage in your repository:
 #   jobs:
 #     compat-check:
 #       uses: aspect-labs/typelayout/.github/workflows/compat-check.yml@v1
 #       with:
-#         types_header: 'include/my_types.hpp'
+#         export_source: 'src/export_types.cpp'
+#         check_source:  'src/check_compat.cpp'
 #         platforms: 'x86_64-linux-clang,arm64-linux-clang'
 #
 # Copyright (c) 2024-2026 TypeLayout Development Team
@@ -22,9 +27,25 @@ name: Cross-Platform Type Compatibility Check
 on:
   workflow_call:
     inputs:
-      types_header:
-        description: 'Path to C++ header with struct/class definitions to check'
+      export_source:
+        description: >
+          Path to C++ source file using TYPELAYOUT_EXPORT_TYPES(...) macro.
+          This file is compiled with P2996 Clang on each target platform.
         required: true
+        type: string
+      check_source:
+        description: >
+          Path to C++ source file using TYPELAYOUT_CHECK_COMPAT(...) or
+          TYPELAYOUT_ASSERT_COMPAT(...) macro.
+          This file is compiled with a standard C++17 compiler in Phase 2.
+        required: true
+        type: string
+      include_dirs:
+        description: >
+          Comma-separated list of additional include directories
+          (relative to repository root) for user type headers.
+        required: false
+        default: ''
         type: string
       platforms:
         description: 'Comma-separated list of target platforms (see tools/platforms.conf)'
@@ -127,65 +148,69 @@ jobs:
           echo "flags=$FLAGS" >> $GITHUB_OUTPUT
           echo "link_flags=$LINK_FLAGS" >> $GITHUB_OUTPUT
 
-      - name: Generate export source
+      - name: Build include flags
+        id: includes
         run: |
-          # Auto-detect struct/class definitions and generate export .cpp
-          TYPES_HEADER="${{ inputs.types_header }}"
-          HEADER_BASENAME=$(basename "$TYPES_HEADER")
-
-          mkdir -p _build
-
-          # Build type registrations
-          REGISTRATIONS=""
-          while IFS= read -r line; do
-            if echo "$line" | grep -qP '^\s*(struct|class)\s+([A-Za-z_]\w*)\s*\{'; then
-              TYPENAME=$(echo "$line" | grep -oP '(?:struct|class)\s+\K[A-Za-z_]\w*')
-              REGISTRATIONS+="    ex.add<${TYPENAME}>(\"${TYPENAME}\");"$'\n'
-            fi
-          done < "$TYPES_HEADER"
-
-          # Generate from template
-          sed \
-            -e "s|@TYPES_HEADER@|${HEADER_BASENAME}|g" \
-            -e "s|@TYPE_REGISTRATIONS@|${REGISTRATIONS}|g" \
-            _typelayout/tools/sig_export_template.cpp.in > _build/sig_export.cpp
+          # Build -I flags from comma-separated include_dirs input
+          INCLUDE_FLAGS=""
+          if [ -n "${{ inputs.include_dirs }}" ]; then
+            IFS=',' read -ra DIRS <<< "${{ inputs.include_dirs }}"
+            for dir in "${DIRS[@]}"; do
+              dir=$(echo "$dir" | xargs)  # trim whitespace
+              [ -n "$dir" ] && INCLUDE_FLAGS+=" -I/user_src/$dir"
+            done
+          fi
+          echo "flags=$INCLUDE_FLAGS" >> $GITHUB_OUTPUT
 
       - name: Export signatures via Docker
         if: steps.config.outputs.docker_image != ''
         run: |
-          TYPES_DIR=$(dirname "${{ inputs.types_header }}")
-          TYPES_DIR=$(cd "$TYPES_DIR" && pwd)
+          EXPORT_SRC="${{ inputs.export_source }}"
+          SRC_DIR=$(cd "$(dirname "$EXPORT_SRC")" && pwd)
+          SRC_FILE=$(basename "$EXPORT_SRC")
 
           docker run --rm \
             -v "${{ github.workspace }}/_typelayout:/typelayout:ro" \
-            -v "${TYPES_DIR}:/user_types:ro" \
+            -v "${{ github.workspace }}:/user_src:ro" \
             -v "${{ github.workspace }}/_build:/build" \
             -w /tmp/work \
             "${{ steps.config.outputs.docker_image }}" \
             bash -c "
-              cp /build/sig_export.cpp .
-              cp /user_types/$(basename ${{ inputs.types_header }}) .
               ${{ steps.config.outputs.compiler }} \
                 ${{ steps.config.outputs.flags }} \
-                -I/typelayout/include -I. \
+                -I/typelayout/include \
+                -I/user_src \
+                ${{ steps.includes.outputs.flags }} \
                 ${{ steps.config.outputs.link_flags }} \
-                -o sig_export sig_export.cpp && \
+                -o sig_export /user_src/$EXPORT_SRC && \
               ./sig_export /build/
             "
 
       - name: Export signatures locally (fallback)
         if: steps.config.outputs.docker_image == ''
         run: |
-          TYPES_DIR=$(dirname "${{ inputs.types_header }}")
-          TYPES_DIR=$(cd "$TYPES_DIR" && pwd)
+          EXPORT_SRC="${{ inputs.export_source }}"
+
+          # Build local include flags
+          INCLUDE_FLAGS=""
+          if [ -n "${{ inputs.include_dirs }}" ]; then
+            IFS=',' read -ra DIRS <<< "${{ inputs.include_dirs }}"
+            for dir in "${DIRS[@]}"; do
+              dir=$(echo "$dir" | xargs)
+              [ -n "$dir" ] && INCLUDE_FLAGS+=" -I $dir"
+            done
+          fi
+
+          mkdir -p _build
 
           ${{ steps.config.outputs.compiler }} \
             ${{ steps.config.outputs.flags }} \
             -I _typelayout/include \
-            -I "$TYPES_DIR" \
+            -I . \
+            $INCLUDE_FLAGS \
             ${{ steps.config.outputs.link_flags }} \
             -o _build/sig_export \
-            _build/sig_export.cpp
+            "$EXPORT_SRC"
 
           _build/sig_export _build/
 
@@ -217,11 +242,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout user repository
+        uses: actions/checkout@v4
+
       - name: Checkout TypeLayout
         uses: actions/checkout@v4
         with:
           repository: aspect-labs/typelayout
           ref: ${{ inputs.typelayout_ref }}
+          path: _typelayout
 
       - name: Download all signature artifacts
         uses: actions/download-artifact@v4
@@ -242,65 +271,29 @@ jobs:
             echo ""
           done
 
-      - name: Generate Phase 2 checker
-        run: |
-          mkdir -p _build
-
-          # Collect all sig files and their namespaces
-          SIG_FILES=(_sigs/*.sig.hpp)
-          NAMESPACES=()
-
-          for f in "${SIG_FILES[@]}"; do
-            NS=$(grep -oP 'namespace\s+\K[a-z0-9_]+(?=\s*\{)' "$f" | tail -1)
-            NAMESPACES+=("$NS")
-            echo "Found: $(basename $f) → namespace $NS"
-          done
-
-          # Generate checker source directly
-          {
-            echo "// AUTO-GENERATED Phase 2 checker"
-            echo "#include <cstddef>"
-            echo ""
-
-            for f in "${SIG_FILES[@]}"; do
-              echo "#include \"$(realpath "$f")\""
-            done
-            echo ""
-            echo "#include <boost/typelayout/tools/compat_check.hpp>"
-            echo "#include <iostream>"
-            echo ""
-            echo "int main() {"
-            echo "    using namespace boost::typelayout::compat;"
-            echo "    CompatReporter reporter;"
-            echo ""
-
-            for ns in "${NAMESPACES[@]}"; do
-              echo "    reporter.add_platform({"
-              echo "        boost::typelayout::platform::${ns}::platform_name,"
-              echo "        reinterpret_cast<const TypeEntry*>(boost::typelayout::platform::${ns}::types),"
-              echo "        boost::typelayout::platform::${ns}::type_count,"
-              echo "        boost::typelayout::platform::${ns}::pointer_size,"
-              echo "        boost::typelayout::platform::${ns}::sizeof_long,"
-              echo "        boost::typelayout::platform::${ns}::sizeof_wchar_t,"
-              echo "        boost::typelayout::platform::${ns}::sizeof_long_double,"
-              echo "        boost::typelayout::platform::${ns}::max_align,"
-              echo "        boost::typelayout::platform::${ns}::arch_prefix"
-              echo "    });"
-            done
-            echo ""
-            echo "    reporter.print_report();"
-            echo "    return 0;"
-            echo "}"
-          } > _build/compat_check.cpp
-
-          echo ""
-          echo "Generated checker source:"
-          cat _build/compat_check.cpp
-
       - name: Compile and run Phase 2
         run: |
-          g++ -std=c++17 -I include \
-            -o _build/compat_check _build/compat_check.cpp
+          CHECK_SRC="${{ inputs.check_source }}"
+
+          # Build local include flags
+          INCLUDE_FLAGS=""
+          if [ -n "${{ inputs.include_dirs }}" ]; then
+            IFS=',' read -ra DIRS <<< "${{ inputs.include_dirs }}"
+            for dir in "${DIRS[@]}"; do
+              dir=$(echo "$dir" | xargs)
+              [ -n "$dir" ] && INCLUDE_FLAGS+=" -I $dir"
+            done
+          fi
+
+          mkdir -p _build
+
+          g++ -std=c++17 \
+            -I _typelayout/include \
+            -I _sigs \
+            -I . \
+            $INCLUDE_FLAGS \
+            -o _build/compat_check \
+            "$CHECK_SRC"
 
           echo ""
           echo "Running compatibility report..."

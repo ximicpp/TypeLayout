@@ -14,39 +14,68 @@ The toolchain implements a **two-phase pipeline**:
 2. **Phase 2 (Compare)**: Include all `.sig.hpp` headers in a single C++17 program
    and compare signatures. No P2996 required — any standard compiler works.
 
-This design means Phase 2 can run on any machine, even without access to the
-target platforms.
+**Key design**: Both phases use declarative C++ macros. You write two small `.cpp`
+files — the toolchain compiles and runs them. No header scanning, no code
+generation, no templates.
 
 ## Quick Start
 
-```bash
-# List available target platforms
-./tools/typelayout-compat list-platforms
+### 1. Write the Export Source (Phase 1)
 
-# Full pipeline: export + compare across platforms
+Create a `.cpp` file that lists your types:
+
+```cpp
+// export_types.cpp
+#include <boost/typelayout/tools/sig_export.hpp>
+#include "my_types.hpp"
+
+TYPELAYOUT_EXPORT_TYPES(PacketHeader, SensorRecord, SharedMemRegion)
+```
+
+### 2. Write the Check Source (Phase 2)
+
+Create a `.cpp` file that lists the platforms to compare:
+
+```cpp
+// check_compat.cpp
+#include "sigs/x86_64_linux_clang.sig.hpp"
+#include "sigs/arm64_linux_clang.sig.hpp"
+#include <boost/typelayout/tools/compat_auto.hpp>
+
+TYPELAYOUT_CHECK_COMPAT(x86_64_linux_clang, arm64_linux_clang)
+```
+
+### 3. Run the Pipeline
+
+```bash
+# Full pipeline: export on each platform + compare
 ./tools/typelayout-compat check \
-    --types include/protocol/types.hpp \
+    --export-source export_types.cpp \
+    --check-source check_compat.cpp \
     --platforms x86_64-linux-clang,arm64-linux-clang
 
-# Export signatures for the current platform only
+# Export only (on one platform)
 ./tools/typelayout-compat export \
-    --types include/protocol/types.hpp \
+    --source export_types.cpp \
     --output sigs/
 
-# Compare previously exported signature files
-./tools/typelayout-compat compare --sigs sigs/
+# Compare only (from pre-exported signatures)
+./tools/typelayout-compat compare \
+    --source check_compat.cpp \
+    --sigs sigs/
 ```
 
 ## Commands
 
 ### `check` — Full Pipeline
 
-Runs both phases automatically: exports signatures on each specified platform
-(via Docker or locally) and then compares them all.
+Runs both phases: exports signatures on each platform (via Docker or locally),
+then compiles and runs the Phase 2 check source.
 
 ```bash
 typelayout-compat check \
-    --types <header.hpp> \
+    --export-source <export.cpp> \
+    --check-source <check.cpp> \
     --platforms <platform1,platform2,...> \
     [--output <dir>] \
     [--include <dir>]
@@ -54,29 +83,31 @@ typelayout-compat check \
 
 | Option | Description |
 |--------|-------------|
-| `--types`, `-t` | Path to C++ header with struct/class definitions |
+| `--export-source` | Phase 1 source (uses `TYPELAYOUT_EXPORT_TYPES(...)`) |
+| `--check-source` | Phase 2 source (uses `TYPELAYOUT_CHECK_COMPAT(...)`) |
 | `--platforms`, `-p` | Comma-separated list of target platforms |
 | `--output`, `-o` | Output directory for `.sig.hpp` files (default: `./typelayout-sigs`) |
 | `--include`, `-I` | Additional include directory |
 
 ### `export` — Export Current Platform
 
-Compiles and runs the signature exporter for the current platform only.
+Compiles and runs the Phase 1 export source for a single platform.
 Requires a P2996-capable Clang compiler.
 
 ```bash
 typelayout-compat export \
-    --types <header.hpp> \
+    --source <export.cpp> \
     [--output <dir>]
 ```
 
 ### `compare` — Compare Existing Signatures
 
-Compares pre-exported `.sig.hpp` files from a directory. Useful when signature
-files were generated separately (e.g., in CI or on remote machines).
+Compiles and runs the Phase 2 check source against pre-exported signatures.
 
 ```bash
-typelayout-compat compare --sigs <directory>
+typelayout-compat compare \
+    --source <check.cpp> \
+    --sigs <directory>
 ```
 
 ### `list-platforms` — Show Available Platforms
@@ -85,6 +116,46 @@ Lists all platforms defined in `platforms.conf`.
 
 ```bash
 typelayout-compat list-platforms
+```
+
+## Declarative Macros
+
+### Phase 1: `TYPELAYOUT_EXPORT_TYPES(...)`
+
+Generates a complete `main()` that exports type signatures to a `.sig.hpp` file.
+
+```cpp
+#include <boost/typelayout/tools/sig_export.hpp>
+#include "my_types.hpp"
+
+TYPELAYOUT_EXPORT_TYPES(PacketHeader, SensorRecord, MyStruct)
+// → Compile with P2996, run with: ./export sigs/
+```
+
+### Phase 2: `TYPELAYOUT_CHECK_COMPAT(...)` (Runtime Report)
+
+Generates a `main()` that prints a detailed compatibility report.
+
+```cpp
+#include "sigs/x86_64_linux_clang.sig.hpp"
+#include "sigs/arm64_linux_clang.sig.hpp"
+#include <boost/typelayout/tools/compat_auto.hpp>
+
+TYPELAYOUT_CHECK_COMPAT(x86_64_linux_clang, arm64_linux_clang)
+// → Compile with any C++17 compiler. Run for report.
+```
+
+### Phase 2: `TYPELAYOUT_ASSERT_COMPAT(...)` (Compile-Time Assert)
+
+Emits `static_assert` checks — compilation fails if layouts differ.
+
+```cpp
+#include "sigs/x86_64_linux_clang.sig.hpp"
+#include "sigs/arm64_linux_clang.sig.hpp"
+#include <boost/typelayout/tools/compat_auto.hpp>
+
+TYPELAYOUT_ASSERT_COMPAT(x86_64_linux_clang, arm64_linux_clang)
+// → Compilation succeeds iff all types match.
 ```
 
 ## Platform Registry (`platforms.conf`)
@@ -125,28 +196,7 @@ compiler = clang++
 flags = -std=c++26 -freflection -freflection-latest -stdlib=libc++
 ```
 
-## How It Works
-
-### Auto-Detection
-
-The toolchain automatically scans your types header for `struct` and `class`
-definitions:
-
-```cpp
-// my_types.hpp
-struct PacketHeader {        // ← auto-detected
-    uint32_t magic;
-    uint16_t version;
-    uint16_t type;
-    uint32_t payload_len;
-    uint32_t checksum;
-};
-```
-
-Each detected type is registered with `SigExporter::add<T>()` in the generated
-export program.
-
-### Signature Format
+## Signature Format
 
 Exported `.sig.hpp` files contain `inline constexpr const char[]` arrays with
 normalized layout strings:
@@ -160,7 +210,7 @@ This format captures:
 - Total size and alignment (`s:16,a:4`)
 - Each field's offset, type, size, and alignment (`@0:u32[s:4,a:4]`)
 
-### Comparison Report
+## Comparison Report
 
 The compatibility report shows which types are safe for zero-copy transfer:
 
@@ -204,15 +254,17 @@ jobs:
   compat-check:
     uses: aspect-labs/typelayout/.github/workflows/compat-check.yml@v1
     with:
-      types_header: 'include/protocol/types.hpp'
+      export_source: 'src/export_types.cpp'
+      check_source: 'src/check_compat.cpp'
       platforms: 'x86_64-linux-clang,arm64-linux-clang'
 ```
 
 The workflow:
 1. Parses the platform list into a GitHub Actions matrix
-2. Exports signatures in parallel (one job per platform)
-3. Downloads all `.sig.hpp` artifacts and runs the comparison
-4. Uploads a compatibility report artifact
+2. Compiles and runs your `export_source` on each platform (via Docker)
+3. Downloads all `.sig.hpp` artifacts
+4. Compiles and runs your `check_source` with all signatures available
+5. Uploads a compatibility report artifact
 
 ### Custom CI Pipeline
 
@@ -221,11 +273,41 @@ For non-GitHub CI systems, use the CLI directly:
 ```bash
 # On each build agent (Phase 1):
 ./tools/typelayout-compat export \
-    --types include/types.hpp \
+    --source src/export_types.cpp \
     --output /shared/sigs/
 
 # On any machine (Phase 2):
-./tools/typelayout-compat compare --sigs /shared/sigs/
+./tools/typelayout-compat compare \
+    --source src/check_compat.cpp \
+    --sigs /shared/sigs/
+```
+
+## CMake Integration
+
+```cmake
+include(cmake/TypeLayoutCompat.cmake)
+
+# Option A: High-level one-liner
+typelayout_add_compat_pipeline(
+    NAME            myproject_compat
+    EXPORT_SOURCE   src/export_types.cpp
+    CHECK_SOURCE    src/check_compat.cpp
+    SIGS_DIR        ${CMAKE_SOURCE_DIR}/sigs
+    ADD_TEST
+)
+
+# Option B: Fine-grained control
+typelayout_add_sig_export(
+    TARGET sig_export
+    SOURCE src/export_types.cpp
+    OUTPUT_DIR ${CMAKE_BINARY_DIR}/sigs
+)
+
+typelayout_add_compat_check(
+    TARGET compat_check
+    SOURCE src/check_compat.cpp
+    SIGS_DIR ${CMAKE_SOURCE_DIR}/sigs
+)
 ```
 
 ## Requirements
@@ -241,8 +323,9 @@ For non-GitHub CI systems, use the CLI directly:
 |------|-------------|
 | `tools/typelayout-compat` | Main CLI orchestration script |
 | `tools/platforms.conf` | Platform registry (INI format) |
-| `tools/sig_export_template.cpp.in` | Phase 1 export program template |
-| `tools/compat_check_template.cpp.in` | Phase 2 checker program template |
-| `include/boost/typelayout/tools/sig_export.hpp` | `SigExporter` class (P2996) |
-| `include/boost/typelayout/tools/compat_check.hpp` | `CompatReporter` class (C++17) |
+| `include/boost/typelayout/tools/sig_export.hpp` | `SigExporter` class + `TYPELAYOUT_EXPORT_TYPES` macro |
+| `include/boost/typelayout/tools/compat_auto.hpp` | `TYPELAYOUT_CHECK_COMPAT` / `TYPELAYOUT_ASSERT_COMPAT` macros |
+| `include/boost/typelayout/tools/compat_check.hpp` | `CompatReporter` class + `layout_match()` |
+| `include/boost/typelayout/tools/sig_types.hpp` | Shared `TypeEntry` / `PlatformInfo` types |
+| `cmake/TypeLayoutCompat.cmake` | CMake integration functions |
 | `.github/workflows/compat-check.yml` | GitHub Actions reusable workflow |

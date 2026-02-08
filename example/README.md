@@ -24,20 +24,34 @@ Phase 1: Export (per-platform, requires P2996)
          ▼
 Phase 2: Check (any platform, C++17 only — no P2996 needed)
 ┌───────────────────────────────────────┐
-│ #include both .sig.hpp headers        │
+│ #include all .sig.hpp headers         │
 │                                       │
-│ static_assert(layout_match(           │
-│   linux::PacketHeader_layout,         │
-│   windows::PacketHeader_layout));     │
+│ TYPELAYOUT_CHECK_COMPAT(              │
+│   x86_64_linux_clang,                 │
+│   x86_64_windows_msvc)                │
 │                                       │
-│ // Compiles = binary-compatible ✅    │
-│ // Fails = layout mismatch ❌        │
+│ // Compiles + runs = report ✅        │
+│ // Or use TYPELAYOUT_ASSERT_COMPAT    │
+│ // for compile-time proof ✅          │
 └───────────────────────────────────────┘
 ```
 
 ## Quick Start
 
-### Step 1: Export Signatures (Phase 1)
+### Step 1: Write the Export Source (Phase 1)
+
+```cpp
+// cross_platform_check.cpp — 3 lines of user code
+#include <boost/typelayout/tools/sig_export.hpp>
+#include "my_types.hpp"    // your struct definitions
+
+TYPELAYOUT_EXPORT_TYPES(PacketHeader, SensorRecord, SharedMemRegion)
+```
+
+The `TYPELAYOUT_EXPORT_TYPES(...)` macro generates a complete `main()` function.
+No boilerplate needed.
+
+### Step 2: Compile & Run on Each Platform
 
 ```bash
 # Build the signature exporter on each target platform
@@ -59,7 +73,32 @@ docker run --rm -v $(pwd):/workspace -w /workspace \
         ./sig_export sigs/'
 ```
 
-### Step 2: Compatibility Check (Phase 2)
+### Step 3: Write the Check Source (Phase 2)
+
+```cpp
+// compat_check.cpp
+#include "sigs/x86_64_linux_clang.sig.hpp"
+#include "sigs/arm64_macos_clang.sig.hpp"
+#include "sigs/x86_64_windows_msvc.sig.hpp"
+#include <boost/typelayout/tools/compat_auto.hpp>
+
+// Option A: Runtime report
+TYPELAYOUT_CHECK_COMPAT(x86_64_linux_clang, arm64_macos_clang, x86_64_windows_msvc)
+```
+
+Or for compile-time verification:
+
+```cpp
+// compat_assert.cpp
+#include "sigs/x86_64_linux_clang.sig.hpp"
+#include "sigs/arm64_linux_clang.sig.hpp"
+#include <boost/typelayout/tools/compat_auto.hpp>
+
+// Option B: Compile-time — fails if any type differs
+TYPELAYOUT_ASSERT_COMPAT(x86_64_linux_clang, arm64_linux_clang)
+```
+
+### Step 4: Compile & Run the Check
 
 ```bash
 # Compile the checker — any C++17 compiler works!
@@ -78,9 +117,11 @@ clang++ -std=c++17 -stdlib=libc++ -I./include -I./example \
   Boost.TypeLayout — Cross-Platform Compatibility Report
 ========================================================================
 
-Platforms compared: 2
+Platforms compared: 3
   * x86_64_linux_clang [64-le]
     pointer=8B, long=8B, wchar_t=4B, long_double=16B, max_align=16B
+  * arm64_macos_clang [64-le]
+    pointer=8B, long=8B, wchar_t=4B, long_double=8B, max_align=16B
   * x86_64_windows_msvc [64-le]
     pointer=8B, long=4B, wchar_t=2B, long_double=8B, max_align=16B
 
@@ -107,67 +148,47 @@ Platforms compared: 2
 ========================================================================
 ```
 
-## How It Works
-
-### Phase 1: Signature Export
-
-The `SigExporter` uses TypeLayout's `consteval` signature engine to extract
-real signatures at compile time, then writes them to a `.sig.hpp` header file:
-
-```cpp
-#include <boost/typelayout/tools/sig_export.hpp>
-
-int main() {
-    boost::typelayout::SigExporter ex;  // auto-detects platform name
-    ex.add<MyType>("MyType");
-    ex.write("sigs/");
-}
-```
-
-The generated `.sig.hpp` contains `constexpr const char[]` variables:
-
-```cpp
-namespace boost::typelayout::platform::x86_64_linux_clang {
-    inline constexpr const char MyType_layout[] = "[64-le]record[s:8,a:4]{...}";
-    inline constexpr const char MyType_definition[] = "[64-le]record[s:8,a:4]{...}";
-}
-```
-
-### Phase 2: Compile-Time Check
-
-Include `.sig.hpp` files from all target platforms and use `static_assert`:
-
-```cpp
-#include "sigs/x86_64_linux_clang.sig.hpp"
-#include "sigs/arm64_linux_clang.sig.hpp"
-#include <boost/typelayout/tools/compat_check.hpp>
-
-namespace pa = boost::typelayout::platform::x86_64_linux_clang;
-namespace pb = boost::typelayout::platform::arm64_linux_clang;
-
-// Compilation succeeds only if types are binary-compatible
-static_assert(boost::typelayout::compat::layout_match(
-    pa::MyType_layout, pb::MyType_layout),
-    "MyType is NOT compatible across these platforms!");
-```
-
-**Key insight**: Phase 2 does NOT require P2996 — the `.sig.hpp` files are
-plain C++17 `constexpr` data. You can run this check with GCC, MSVC, or
-any standard compiler.
-
 ## Adding Your Own Types
 
-Edit `cross_platform_check.cpp` and register your types:
+Create your own export source — just list the types:
 
 ```cpp
+// my_export.cpp
+#include <boost/typelayout/tools/sig_export.hpp>
+#include "my_protocol.hpp"
+
 struct MyProtocolMessage {
     uint32_t msg_id;
     uint64_t timestamp;
     float    data[8];
 };
 
-// In main():
-ex.add<MyProtocolMessage>("MyProtocolMessage");
+TYPELAYOUT_EXPORT_TYPES(MyProtocolMessage)
+```
+
+Types can be defined inline in the file or included from headers.
+
+## Fine-Grained Compile-Time Checks
+
+You can also mix macros with manual `static_assert` for fine-grained control:
+
+```cpp
+#include "sigs/x86_64_linux_clang.sig.hpp"
+#include "sigs/arm64_macos_clang.sig.hpp"
+#include <boost/typelayout/tools/compat_auto.hpp>
+
+namespace linux_plat = boost::typelayout::platform::x86_64_linux_clang;
+namespace macos_plat = boost::typelayout::platform::arm64_macos_clang;
+
+using boost::typelayout::compat::layout_match;
+
+// Check individual types
+static_assert(layout_match(linux_plat::PacketHeader_layout,
+                           macos_plat::PacketHeader_layout),
+    "PacketHeader: Linux/macOS layout mismatch!");
+
+// Use the macro for the runtime report
+TYPELAYOUT_CHECK_COMPAT(x86_64_linux_clang, arm64_macos_clang)
 ```
 
 ## CMake Integration
@@ -175,20 +196,43 @@ ex.add<MyProtocolMessage>("MyProtocolMessage");
 ```cmake
 include(cmake/TypeLayoutCompat.cmake)
 
-# Phase 1: export signatures
+# One-liner: creates both export and check targets
+typelayout_add_compat_pipeline(
+    NAME          my_compat
+    EXPORT_SOURCE example/cross_platform_check.cpp
+    CHECK_SOURCE  example/compat_check.cpp
+    SIGS_DIR      ${CMAKE_SOURCE_DIR}/example/sigs
+    ADD_TEST
+)
+
+# Or fine-grained:
 typelayout_add_sig_export(
     TARGET sig_export
-    SOURCE export_sigs.cpp
+    SOURCE example/cross_platform_check.cpp
     OUTPUT_DIR ${CMAKE_BINARY_DIR}/sigs
 )
 
-# Phase 2: compatibility check
 typelayout_add_compat_check(
     TARGET compat_check
-    SOURCE check_compat.cpp
-    SIGS_DIR ${CMAKE_SOURCE_DIR}/sigs
+    SOURCE example/compat_check.cpp
+    SIGS_DIR ${CMAKE_SOURCE_DIR}/example/sigs
 )
 ```
+
+## Automated Toolchain
+
+For production use, the `typelayout-compat` CLI automates the entire pipeline:
+
+```bash
+# One-command cross-platform check (Docker-based)
+./tools/typelayout-compat check \
+    --export-source example/cross_platform_check.cpp \
+    --check-source example/compat_check.cpp \
+    --platforms x86_64-linux-clang,arm64-linux-clang
+```
+
+See [tools/README.md](../tools/README.md) for full toolchain documentation,
+including CI/CD integration with GitHub Actions.
 
 ## Platform Naming Convention
 
@@ -205,25 +249,8 @@ Platform names follow the format `{arch}_{os}_{compiler}`:
 The platform is auto-detected from compiler macros. You can override it:
 
 ```cpp
-SigExporter ex("my_custom_platform");
+boost::typelayout::SigExporter ex("my_custom_platform");
 ```
-
-## Automated Toolchain
-
-For production use, the `typelayout-compat` CLI automates the entire pipeline:
-
-```bash
-# One-command cross-platform check (Docker-based)
-./tools/typelayout-compat check \
-    --types example/cross_platform_types.hpp \
-    --platforms x86_64-linux-clang,arm64-linux-clang
-
-# Or compare pre-exported signatures (no Docker needed)
-./tools/typelayout-compat compare --sigs example/sigs/
-```
-
-See [tools/README.md](../tools/README.md) for full toolchain documentation,
-including CI/CD integration with GitHub Actions.
 
 ## Why This Matters
 
@@ -237,3 +264,11 @@ With TypeLayout's two-phase pipeline, you get:
 - **Zero runtime overhead** — no serialization needed for compatible types
 - **Pure C++** — no external tools or languages
 - **Detailed diagnostics** — know exactly which types differ and why
+
+## File Reference
+
+| File | Description |
+|------|-------------|
+| `cross_platform_check.cpp` | Phase 1: Export types using `TYPELAYOUT_EXPORT_TYPES(...)` |
+| `compat_check.cpp` | Phase 2: Check/report using `TYPELAYOUT_CHECK_COMPAT(...)` |
+| `sigs/*.sig.hpp` | Pre-generated signature files for 3 platforms |
