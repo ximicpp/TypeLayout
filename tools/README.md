@@ -310,6 +310,36 @@ typelayout_add_compat_check(
 )
 ```
 
+## Correctness Boundary
+
+TypeLayout guarantees that if two platforms produce identical Layout signatures for a type,
+then `sizeof`, `alignof`, and all field offsets are identical on both platforms.
+
+**What this means in practice:**
+
+| Type Category | Signature Match → Safe? | Notes |
+|---------------|------------------------|-------|
+| Fixed-width integers (`uint32_t`, `int64_t`, ...) | ✅ **Yes** | Zero-copy via `memcpy` is safe |
+| IEEE 754 floats (`float`, `double`) | ✅ **Yes** | Assumes both platforms use IEEE 754 (all mainstream platforms do) |
+| Enums with fixed underlying type | ✅ **Yes** | Signature encodes underlying type size |
+| Byte arrays (`char[]`, `uint8_t[]`) | ✅ **Yes** | Signature encodes exact size |
+| Platform-dependent types (`long`, `wchar_t`) | ✅ **Correctly detected** | Signatures naturally differ, reported as DIFFER |
+| Pointer types | ⚠️ **Layout OK, values not portable** | Pointer *size* matches but *values* are address-space-specific |
+| Bit-fields | ⚠️ **Risk** | Ordering is implementation-defined; may differ across compilers |
+| Padding bytes | ✅ **Layout OK** | Field offsets match; padding byte *values* may differ |
+
+**Safety classification** in the compatibility report:
+
+| Rating | Meaning |
+|--------|---------|
+| `***` Safe | Only fixed-width scalars — safe for zero-copy transfer |
+| `**-` Warn | Layout matches but contains pointers or vptr — values not portable |
+| `*--` Risk | Contains bit-fields or platform-dependent types — verify manually |
+
+**Assumptions:**
+- IEEE 754 floating-point representation (satisfied by all mainstream platforms: x86, ARM, RISC-V)
+- Same endianness across compared platforms (encoded in the `[64-le]`/`[64-be]` architecture prefix)
+
 ## Requirements
 
 - **Phase 1**: Bloomberg Clang P2996 (or compatible fork) with `-freflection`

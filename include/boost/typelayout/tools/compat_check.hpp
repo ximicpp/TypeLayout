@@ -50,11 +50,82 @@ constexpr bool definition_match(const char* a, const char* b) noexcept {
 // Runtime Compatibility Reporter
 // =========================================================================
 
+// =========================================================================
+// Safety Classification
+// =========================================================================
+
+/// Safety level for a type in cross-platform context.
+/// Determined by scanning the layout signature for unsafe patterns.
+enum class SafetyLevel {
+    Safe,       // ★★★ Only fixed-width scalars (u32, f64, bytes, enum, etc.)
+    Warning,    // ★★☆ Layout matches but contains pointers or vptr
+    Risk        // ★☆☆ Contains bit-fields or platform-dependent types
+};
+
+/// Classify a layout signature's safety for cross-platform transfer.
+/// Scans the signature string for patterns indicating unsafe member types.
+inline SafetyLevel classify_safety(std::string_view sig) noexcept {
+    // Risk: bit-fields (impl-defined ordering)
+    if (sig.find("bits<") != std::string_view::npos)
+        return SafetyLevel::Risk;
+
+    // Risk: platform-dependent sizes
+    // i64/i32 markers for long are indistinguishable from int64_t/int32_t,
+    // but wchar is a unique marker for wchar_t
+    if (sig.find("wchar[") != std::string_view::npos)
+        return SafetyLevel::Risk;
+
+    // Warning: pointers (values not transferable across address spaces)
+    if (sig.find("ptr[") != std::string_view::npos ||
+        sig.find("fnptr[") != std::string_view::npos ||
+        sig.find("memptr[") != std::string_view::npos ||
+        sig.find("ref[") != std::string_view::npos ||
+        sig.find("rref[") != std::string_view::npos)
+        return SafetyLevel::Warning;
+
+    // Warning: polymorphic types (vptr)
+    if (sig.find(",vptr") != std::string_view::npos)
+        return SafetyLevel::Warning;
+
+    return SafetyLevel::Safe;
+}
+
+/// Get a display string for the safety level.
+inline const char* safety_label(SafetyLevel level) noexcept {
+    switch (level) {
+        case SafetyLevel::Safe:    return "Safe";
+        case SafetyLevel::Warning: return "Warn";
+        case SafetyLevel::Risk:    return "Risk";
+    }
+    return "?";
+}
+
+/// Get a star rating for the safety level.
+inline const char* safety_stars(SafetyLevel level) noexcept {
+    switch (level) {
+        case SafetyLevel::Safe:    return "***";
+        case SafetyLevel::Warning: return "**-";
+        case SafetyLevel::Risk:    return "*--";
+    }
+    return "???";
+}
+
+/// Get a brief explanation for the safety classification.
+inline const char* safety_reason(SafetyLevel level) noexcept {
+    switch (level) {
+        case SafetyLevel::Safe:    return "fixed-width scalars only";
+        case SafetyLevel::Warning: return "contains pointers or vptr";
+        case SafetyLevel::Risk:    return "bit-fields or platform-dependent types";
+    }
+    return "";
+}
+
 /// Per-type comparison result.
 struct TypeResult {
     std::string name;
     bool        layout_match;
     bool        definition_match;
+    SafetyLevel safety;                       // cross-platform safety classification
     std::vector<std::string> layout_sigs;     // one per platform
     std::vector<std::string> definition_sigs; // one per platform
 };
@@ -120,6 +191,9 @@ public:
             tr.layout_match = true;
             tr.definition_match = true;
 
+            // Classify safety based on worst case across all platforms
+            SafetyLevel worst_safety = SafetyLevel::Safe;
+
             for (const auto& plat : platforms_) {
                 // Find the matching type by name in this platform
                 const TypeEntry* entry = find_type(plat, tr.name);
@@ -141,7 +215,13 @@ public:
                     std::string_view(ref.types[i].definition_sig)) {
                     tr.definition_match = false;
                 }
+
+                // Track worst safety level across platforms
+                auto level = classify_safety(entry->layout_sig);
+                if (static_cast<int>(level) > static_cast<int>(worst_safety))
+                    worst_safety = level;
             }
+            tr.safety = worst_safety;
             results.push_back(std::move(tr));
         }
         return results;
@@ -174,13 +254,19 @@ public:
         }
         os << "\n";
 
+        // Safety assumptions
+        os << "Assumptions: IEEE 754 floats, same endianness across platforms.\n";
+        os << "Safety: *** = safe for zero-copy, **- = layout ok but has\n";
+        os << "        pointers/vptr, *-- = bit-fields or platform-dependent types.\n\n";
+
         // Type matrix
-        os << std::string(72, '-') << "\n";
-        os << "  " << std::left << std::setw(28) << "Type"
-           << std::right << std::setw(10) << "Layout"
-           << std::setw(13) << "Definition"
+        os << std::string(80, '-') << "\n";
+        os << "  " << std::left << std::setw(24) << "Type"
+           << std::right << std::setw(8) << "Layout"
+           << std::setw(12) << "Definition"
+           << std::setw(8) << "Safety"
            << "  Verdict\n";
-        os << std::string(72, '-') << "\n";
+        os << std::string(80, '-') << "\n";
 
         for (const auto& r : results) {
             std::string layout_str  = r.layout_match     ? "MATCH" : "DIFFER";
@@ -188,19 +274,25 @@ public:
             std::string verdict;
 
             if (r.layout_match) {
-                verdict = "Serialization-free";
                 ++compatible;
+                if (r.safety == SafetyLevel::Safe)
+                    verdict = "Serialization-free";
+                else if (r.safety == SafetyLevel::Warning)
+                    verdict = "Layout OK (pointer values not portable)";
+                else
+                    verdict = "Layout OK (verify bit-fields manually)";
             } else {
                 verdict = "Needs serialization";
             }
 
-            os << "  " << std::left << std::setw(28) << r.name
-               << std::right << std::setw(10) << layout_str
-               << std::setw(13) << defn_str
+            os << "  " << std::left << std::setw(24) << r.name
+               << std::right << std::setw(8) << layout_str
+               << std::setw(12) << defn_str
+               << "    " << safety_stars(r.safety)
                << "  " << verdict << "\n";
         }
 
-        os << std::string(72, '-') << "\n\n";
+        os << std::string(80, '-') << "\n\n";
 
         // Mismatched details
         for (const auto& r : results) {
@@ -213,6 +305,20 @@ public:
                 os << "\n";
             }
         }
+
+        // Safety warnings
+        bool has_warnings = false;
+        for (const auto& r : results) {
+            if (r.layout_match && r.safety != SafetyLevel::Safe) {
+                if (!has_warnings) {
+                    os << "  Safety warnings:\n";
+                    has_warnings = true;
+                }
+                os << "  [" << safety_stars(r.safety) << "] "
+                   << r.name << " — " << safety_reason(r.safety) << "\n";
+            }
+        }
+        if (has_warnings) os << "\n";
 
         // Summary
         os << std::string(72, '=') << "\n";
