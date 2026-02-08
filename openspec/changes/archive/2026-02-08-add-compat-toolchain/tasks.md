@@ -29,4 +29,4 @@
 
 ## 5. Testing
 - [x] 5.1 Test CLI tool locally — `list-platforms` and `compare` verified
-- [ ] 5.2 Test GitHub Actions workflow (requires CI push)
+- [x] 5.2 Test GitHub Actions workflow (requires CI push)
