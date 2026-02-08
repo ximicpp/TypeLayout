@@ -14,6 +14,7 @@
 #include <iostream>
 #include <cstring>
 
+using namespace boost::typelayout;
 using namespace boost::typelayout::compat;
 
 // =========================================================================
