@@ -66,14 +66,16 @@ The library SHALL provide constexpr functions for comparing signatures across pl
 ### Requirement: Runtime Compatibility Report
 The library SHALL provide a runtime reporter for human-readable compatibility analysis.
 
-#### Scenario: Multi-platform report
-- **GIVEN** signature data from N platforms registered via `CompatReporter::add_platform()`
-- **WHEN** calling `CompatReporter::print_report()`
-- **THEN** the output SHALL include:
-  - A list of compared platforms with their metadata
-  - A per-type compatibility matrix showing MATCH/DIFFER for layout and definition
-  - A verdict per type: "Serialization-free" or "Needs serialization"
-  - Summary statistics: count and percentage of compatible types
+#### Scenario: Example output reflects ZST model
+- **GIVEN** the example `compat_check.cpp` with 8 types including Safe, Conditional, and Unsafe types
+- **WHEN** the `CompatReporter::print_report()` is executed across 3 platforms
+- **THEN** the example output SHALL demonstrate all four verdicts:
+  - "Serialization-free" for types with C1 (Layout MATCH) AND C2 (Safety = Safe)
+  - "Layout OK (pointer values not portable)" for types with C1 AND Safety = Warning
+  - "Layout OK (verify bit-fields manually)" for types with C1 AND Safety = Risk
+  - "Needs serialization" for types without C1 (Layout DIFFER)
+- **AND** the summary SHALL show separate counts for serialization-free (C1 ∧ C2) and layout-compatible (C1 only)
+- **AND** the example comments SHALL distinguish between layout-match verification (C1) and zero-serialization safety (C1 ∧ C2)
 
 ### Requirement: CMake Integration
 The library SHALL provide CMake utilities for automating the two-phase pipeline.
@@ -126,4 +128,26 @@ The library SHALL provide a reusable GitHub Actions workflow for CI/CD compatibi
 - **THEN** the workflow SHALL export signatures on each specified platform
 - **AND** compare all signatures in a final job
 - **AND** report results as a GitHub Actions job summary
+
+### Requirement: Zero-Serialization Transfer Verification Workflow
+The compatibility checking toolchain SHALL support a complete verification workflow for determining whether a type collection qualifies for zero-serialization transfer across platforms.
+
+#### Scenario: Collection-level zero-serialization verdict
+- **GIVEN** a set of types registered across N platforms via `CompatReporter`
+- **WHEN** calling `CompatReporter::print_report()`
+- **THEN** the report SHALL include a per-type zero-serialization verdict based on:
+  - Layout signature match status (MATCH/DIFFER)
+  - Safety classification (Safe/Warning/Risk mapped to Safe/Conditional/Unsafe)
+  - Combined verdict: "Zero-copy safe", "Zero-copy conditional", or "Serialization required"
+- **AND** the report SHALL include a collection-level summary indicating whether the entire collection qualifies for zero-serialization
+
+#### Scenario: Network protocol verification workflow
+- **GIVEN** a set of types representing network protocol messages
+- **WHEN** verifying zero-serialization eligibility for network transmission
+- **THEN** the workflow SHALL verify four conditions in sequence:
+  - Architecture prefix match (same pointer width and endianness)
+  - Layout signature match for every type in the protocol
+  - Safety classification check (no Risk-classified types)
+  - Pointer field semantic check (pointer values not transmitted)
+- **AND** failure at any step SHALL produce a clear diagnostic indicating which condition failed and remediation steps
 

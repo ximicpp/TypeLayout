@@ -38,38 +38,15 @@ the same type?".
 ### Requirement: Two-Layer Signature Architecture
 The library SHALL provide two complementary layers of compile-time type signatures.
 
-#### Scenario: Layout signature (Layer 1)
-- **GIVEN** a type T
-- **WHEN** calling `get_layout_signature<T>()`
-- **THEN** the result SHALL encode size, alignment, architecture prefix, and all leaf fields at their absolute byte offsets
-- **AND** inheritance SHALL be flattened (base class fields appear at absolute offsets)
-- **AND** composition SHALL be flattened (nested struct fields are recursively expanded)
-- **AND** field names SHALL NOT be included
-- **AND** polymorphic types SHALL include a `,vptr` marker
-- **AND** union members SHALL NOT be recursively flattened (each member retains its type signature as an atomic unit)
-
-#### Scenario: Definition signature (Layer 2)
-- **GIVEN** a type T
-- **WHEN** calling `get_definition_signature<T>()`
-- **THEN** the result SHALL encode size, alignment, architecture prefix, field names, and type structure
-- **AND** inheritance SHALL be preserved as `~base<QualifiedName>:record{...}`
-- **AND** virtual bases SHALL be marked as `~vbase<QualifiedName>:record{...}`
-- **AND** polymorphic types SHALL include a `,polymorphic` marker
-- **AND** base class names SHALL use fully qualified names (namespace::Name)
-- **AND** enum types SHALL include their fully qualified name
-
-#### Scenario: Projection relationship
-- **GIVEN** two types T and U
-- **WHEN** `definition_signatures_match<T,U>()` returns true
-- **THEN** `layout_signatures_match<T,U>()` SHALL also return true
-- **NOTE** The reverse does not hold: layout match does not imply definition match
-
 #### Scenario: Cross-platform correctness guarantee
 - **GIVEN** the same type T compiled on platforms A and B
 - **WHEN** `layout_sig(T@A) == layout_sig(T@B)`
 - **THEN** `sizeof(T)`, `alignof(T)`, and all field offsets SHALL be identical on both platforms
-- **AND** for POD types with only scalar fields (fixed-width integers, IEEE 754 floats, enums, byte arrays), `memcpy` transfer between platforms SHALL be safe
-- **NOTE** This guarantee assumes IEEE 754 floating-point representation on both platforms
+- **AND** for types classified as Safe by `classify_safety()` (no pointer fields, no bit-fields, no platform-dependent types), `memcpy` transfer between platforms SHALL be safe under the IEEE 754 assumption
+- **AND** for types classified as Warning (contains pointers or vptr), the memory layout SHALL be compatible but pointer values SHALL NOT be valid across address spaces
+- **AND** for types classified as Risk (contains bit-fields), the layout signature match SHALL NOT guarantee identical bit-level semantics across different compilers
+- **NOTE** The zero-serialization transfer condition is: Layout Signature Match (C1) AND Safety Classification = Safe (C2), under the IEEE 754 axiom (A1)
+- **NOTE** C1 already subsumes endianness and pointer width verification because the architecture prefix is part of the signature string
 - **NOTE** Pointer values are not transferable across address spaces even if layout matches
 - **NOTE** Bit-field ordering is implementation-defined and may differ across compilers
 
@@ -235,12 +212,14 @@ guarantees binary compatibility for cross-platform data transfer.
 - **GIVEN** a struct containing only fixed-width integer fields (`uint32_t`, `int64_t`, etc.)
 - **WHEN** Layout signatures match across two platforms
 - **THEN** the type SHALL be safe for zero-copy transfer via `memcpy`
+- **AND** the type SHALL be classified as "Safe" in the zero-serialization taxonomy
 
 #### Scenario: IEEE 754 floating-point types
 - **GIVEN** a struct containing `float` or `double` fields
 - **WHEN** Layout signatures match across two platforms that both use IEEE 754
 - **THEN** the type SHALL be safe for zero-copy transfer
 - **AND** the library SHALL document the IEEE 754 assumption
+- **AND** the type SHALL be classified as "Safe" in the zero-serialization taxonomy (assuming IEEE 754)
 
 #### Scenario: Pointer-containing types
 - **GIVEN** a struct containing pointer fields (`ptr`, `fnptr`, `memptr`)
@@ -248,18 +227,21 @@ guarantees binary compatibility for cross-platform data transfer.
 - **THEN** the memory layout SHALL be compatible
 - **BUT** pointer values SHALL NOT be valid across different address spaces
 - **AND** the compatibility report SHOULD warn about pointer fields
+- **AND** the type SHALL be classified as "Conditional" in the zero-serialization taxonomy
 
 #### Scenario: Bit-field types
 - **GIVEN** a struct containing bit-field members
 - **WHEN** Layout signatures are compared across platforms
 - **THEN** the library SHALL warn that bit-field ordering is implementation-defined
 - **AND** matching signatures do not guarantee identical bit-level layout across different compilers
+- **AND** the type SHALL be classified as "Unsafe" in the zero-serialization taxonomy
 
 #### Scenario: Platform-dependent types
 - **GIVEN** a struct containing `long`, `wchar_t`, or `long double`
 - **WHEN** Layout signatures are compared across platforms with different ABI conventions
 - **THEN** signatures SHALL naturally differ reflecting the actual size differences
 - **AND** the compatibility report SHALL correctly identify these as layout mismatches
+- **AND** the type SHALL be classified as "Conditional" in the zero-serialization taxonomy
 
 ### Requirement: Core Value Correctness Boundary
 The library SHALL document the correctness boundary and assumptions for each core value (V1/V2/V3).
@@ -297,7 +279,8 @@ The library SHALL document its differentiated positioning relative to alternativ
 - **GIVEN** serialization frameworks (protobuf, FlatBuffers) generate serialization code
 - **THEN** the library SHALL document that TypeLayout is complementary, not competitive
 - **AND** TypeLayout's role is to determine "whether serialization is needed" while serialization frameworks determine "how to serialize"
-- **AND** when layout signatures match, users MAY skip serialization entirely for zero-copy transfer
+- **AND** when layout signatures match AND safety classification is Safe (C1 ∧ C2), users MAY skip serialization entirely for zero-copy transfer
+- **AND** the decision criterion SHALL be documented as: C1 ∧ C2 → zero-copy; otherwise → serialize
 
 ### Requirement: Architecture Decision Documentation
 The library SHALL document the rationale for key architectural decisions.
@@ -370,4 +353,67 @@ The library SHALL provide formally proven accuracy guarantees for both signature
 - **AND** it SHALL use refinement theory for the V3 projection relationship
 - **AND** it SHALL use structural induction for per-category verification
 - **AND** it SHALL reference established formal verification methodologies (CompCert semantic preservation, seL4 refinement)
+
+### Requirement: Cross-Platform Collection Compatibility Analysis
+The project SHALL provide a formal analysis document demonstrating how the two-layer
+signature system enables batch cross-platform compatibility verification for type collections.
+
+#### Scenario: Collection-level compatibility matrix
+- **GIVEN** a set of N types exported on M platforms via SigExporter
+- **WHEN** the analysis evaluates all N×M signatures
+- **THEN** the document SHALL present a per-type compatibility matrix showing Layout and Definition match status across all platform pairs
+- **AND** the document SHALL classify each type into a safety level based on signature pattern analysis
+
+#### Scenario: Formal reasoning from signatures to safety
+- **GIVEN** real .sig.hpp data from Linux x86_64, Windows x86_64, and macOS ARM64
+- **WHEN** the analysis applies the V1/V2/V3 theorems
+- **THEN** each compatibility judgment SHALL be traceable to a specific theorem (Thm 3.1, 3.2, 4.2, 4.3)
+- **AND** the root cause of each incompatibility SHALL be identified (data model, ABI, architecture)
+
+#### Scenario: Collection-level soundness theorem
+- **GIVEN** a type collection C = {T₁, ..., Tₙ}
+- **WHEN** all types in C have matching Layout signatures across platforms A and B
+- **THEN** the document SHALL prove that the entire collection is zero-copy transferable between A and B
+- **AND** the proof SHALL extend the per-type V1 guarantee to the collection level
+
+### Requirement: Zero-Serialization Transfer Conditions Analysis
+The signature system SHALL provide a formal analysis document defining the necessary and sufficient conditions for zero-serialization (zero-copy) binary data transfer across platforms, based on the two-layer signature architecture and formal verification theory.
+
+#### Scenario: Formal definition of zero-serialization transfer
+- **GIVEN** a type T and two platforms P₁ and P₂
+- **WHEN** determining whether T can be transmitted via raw `memcpy`/`send`/`recv` without serialization
+- **THEN** the analysis SHALL define the zero-serialization predicate ZST(T, P₁, P₂) as the conjunction of:
+  - Layout signature match: `sig_layout(T, P₁) == sig_layout(T, P₂)`
+  - IEEE 754 compliance on both platforms (for float/double fields)
+  - No pointer-valued fields requiring cross-address-space validity
+  - No bit-fields with implementation-defined ordering that differs across compilers
+- **AND** the analysis SHALL prove that these conditions are jointly sufficient for binary-safe transfer
+
+#### Scenario: Type taxonomy for zero-serialization eligibility
+- **GIVEN** the full space of C++ types
+- **WHEN** classifying types by zero-serialization eligibility
+- **THEN** the analysis SHALL define three categories:
+  - **Safe**: Types composed exclusively of fixed-width integers, IEEE 754 floats, enums with fixed underlying type, and byte arrays — these satisfy ZST on all conforming platforms without modification
+  - **Conditional**: Types containing pointers, vtables, or platform-dependent scalars (`long`, `wchar_t`, `long double`) — these MAY satisfy ZST on specific platform pairs but not universally
+  - **Unsafe**: Types containing bit-fields, flexible array members, or types with compiler-specific padding behavior — these require structural redesign before zero-serialization is viable
+- **AND** the classification SHALL be formally grounded in the signature encoding grammar
+
+#### Scenario: Network transmission safety chain
+- **GIVEN** a collection of types used in a network protocol
+- **WHEN** determining whether the entire collection can use zero-copy `send()/recv()`
+- **THEN** the analysis SHALL define the complete safety chain:
+  - Step 1: Layout signature match across all communicating platforms (V1 guarantee)
+  - Step 2: Same endianness (verified by architecture prefix comparison)
+  - Step 3: No semantic pointer fields (verified by Safety Classification)
+  - Step 4: Packed/aligned correctly for wire-format (no hidden padding dependencies)
+- **AND** the analysis SHALL demonstrate that all four steps are machine-verifiable using TypeLayout's existing toolchain
+
+#### Scenario: Decision tree for serialization vs zero-copy
+- **GIVEN** a user deciding between zero-copy transfer and serialization frameworks
+- **WHEN** consulting the analysis
+- **THEN** the analysis SHALL provide a decision tree mapping:
+  - Layout MATCH + Safe → zero-copy recommended
+  - Layout MATCH + Conditional → zero-copy possible with documented caveats
+  - Layout DIFFER or Unsafe → serialization framework required
+- **AND** the analysis SHALL position TypeLayout as the diagnostic tool that answers "do I need to serialize?" before the user chooses a serialization framework
 
