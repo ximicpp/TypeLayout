@@ -1,4 +1,4 @@
-# CppCon 2026 Session Submission
+# Conference Session Proposal
 
 ---
 
@@ -142,7 +142,7 @@ We'll explore the two-layer signature system (Layout for byte identity, Definiti
 - Basic understanding of memory layout (padding, alignment)
 - No P2996 knowledge required (will be explained)
 
-## Why This Talk Matters for CppCon 2026
+## Why This Talk Matters
 
 1. **P2996 is coming**: C++26 static reflection is the most anticipated feature. This talk shows a real, working application — not a toy demo.
 
