@@ -49,7 +49,7 @@ The library SHALL provide a tool to export TypeLayout signatures to C++ header f
 - **AND** the stored definition signature SHALL be identical to `get_definition_signature<T>()`
 
 ### Requirement: Compile-Time Compatibility Check
-The library SHALL provide constexpr functions (`sig_match`, `layout_match`, `definition_match`) for comparing signatures across platforms. The `layout_match` and `definition_match` functions SHALL delegate to `sig_match` and serve as semantic aliases. All shared preprocessor machinery (FOR_EACH macros) SHALL be defined in a single `detail/foreach.hpp` header, included by both `sig_export.hpp` and `compat_auto.hpp`.
+The library SHALL provide constexpr functions (`sig_match`, `layout_match`, `definition_match`) for comparing signatures across platforms. The `layout_match` and `definition_match` functions SHALL delegate to `sig_match` and serve as semantic aliases. All shared preprocessor machinery (FOR_EACH macros) SHALL be defined in a single `detail/foreach.hpp` header, included by both `sig_export.hpp` and `compat_auto.hpp`. Code comments SHALL use terse, developer-oriented style without marketing language or academic jargon.
 
 #### Scenario: Layout match check
 - **GIVEN** two `constexpr const char[]` layout signatures from different platforms
@@ -61,7 +61,10 @@ The library SHALL provide constexpr functions (`sig_match`, `layout_match`, `def
 - **GIVEN** `.sig.hpp` headers from platform A and platform B
 - **WHEN** both are `#include`-d in a single translation unit
 - **THEN** `static_assert(sig_match(plat_a::Type_layout, plat_b::Type_layout))` SHALL compile if and only if the signatures match
-- **AND** a clear error message SHALL be provided on mismatch
+
+#### Scenario: Comment style
+- **WHEN** a developer reads any tool header file
+- **THEN** comments SHALL be terse and factual, without decorative separator lines (`=====`), marketing phrases, or over-explanatory phrasing
 
 #### Scenario: Macro deduplication
 - **WHEN** both `sig_export.hpp` and `compat_auto.hpp` are included in the same translation unit
