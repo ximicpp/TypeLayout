@@ -1,8 +1,5 @@
-// Declarative Cross-Platform Compatibility Macros
-//
-// Provides TYPELAYOUT_CHECK_COMPAT (runtime report) and
-// TYPELAYOUT_ASSERT_COMPAT (compile-time static_assert).
-// C++17 compatible. No P2996 dependency.
+// Convenience macros: TYPELAYOUT_CHECK_COMPAT (runtime report) and
+// TYPELAYOUT_ASSERT_COMPAT (compile-time static_assert). C++17 only.
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
@@ -14,7 +11,6 @@
 #include <boost/typelayout/tools/compat_check.hpp>
 #include <boost/typelayout/tools/detail/foreach.hpp>
 
-// ---- TYPELAYOUT_CHECK_COMPAT(...) — Runtime report ----
 // Generates main() that prints a compatibility report.
 
 #define TYPELAYOUT_DETAIL_ADD_PLATFORM(ns)                              \
@@ -30,16 +26,13 @@
         return 0;                                                       \
     }
 
-// ---- TYPELAYOUT_ASSERT_COMPAT(...) — Compile-time static_assert ----
-// Asserts that ALL types have identical layout signatures across all
-// listed platforms. First platform is the reference.
+// static_assert that all types match across listed platforms.
 
 namespace boost {
 namespace typelayout {
 namespace compat {
 namespace detail {
 
-/// Constexpr comparison of all types between two platforms.
 inline constexpr bool all_layouts_match(const PlatformInfo& a,
                                         const PlatformInfo& b) {
     if (a.type_count != b.type_count) return false;
@@ -68,7 +61,6 @@ inline constexpr bool all_layouts_match(const PlatformInfo& a,
             ::boost::typelayout::platform::other::get_platform_info()),          \
         "TypeLayout: layout mismatch between " #ref " and " #other);
 
-// Expansion helpers: assert each platform against the reference.
 #define TYPELAYOUT_DETAIL_ASSERT_COMPAT_EACH_1(ref, x) \
     TYPELAYOUT_DETAIL_ASSERT_PAIR(ref, x)
 #define TYPELAYOUT_DETAIL_ASSERT_COMPAT_EACH_2(ref, x, ...) \
@@ -100,8 +92,6 @@ inline constexpr bool all_layouts_match(const PlatformInfo& a,
             TYPELAYOUT_DETAIL_ASSERT_NARG_(__VA_ARGS__, 7,6,5,4,3,2,1)          \
         )(ref, __VA_ARGS__))
 
-/// TYPELAYOUT_ASSERT_COMPAT(plat1, plat2, ...)
-/// First platform is the reference; all others are compared against it.
 #define TYPELAYOUT_ASSERT_COMPAT(first, ...)                                    \
     TYPELAYOUT_DETAIL_ASSERT_COMPAT_EACH(first, __VA_ARGS__)
 

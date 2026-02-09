@@ -1,7 +1,4 @@
-// Preprocessor FOR_EACH machinery (supports up to 32 arguments).
-//
-// Shared by sig_export.hpp and compat_auto.hpp. Include this header
-// instead of duplicating the macro definitions.
+// FOR_EACH(macro, ...) — up to 32 args. Used by sig_export.hpp and compat_auto.hpp.
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.

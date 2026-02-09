@@ -1,12 +1,8 @@
-# Cross-Platform Compatibility Check — Pure C++
+# Cross-Platform Compatibility Check
 
-## What It Does
-
-Determines whether your C++ types can be shared **directly** across different
-platforms (via shared memory, mmap, network sockets, file I/O) **without any
-serialization** — using Boost.TypeLayout's compile-time signature system.
-
-**100% pure C++** — no Python, no external tools, no runtime dependencies.
+Checks whether C++ types can be shared as raw bytes across platforms (shared
+memory, network, files) without serialization, using TypeLayout's compile-time
+signature system.
 
 ## How It Works — Two-Phase Pipeline
 
@@ -48,8 +44,7 @@ Phase 2: Check (any platform, C++17 only — no P2996 needed)
 TYPELAYOUT_EXPORT_TYPES(PacketHeader, SensorRecord, SharedMemRegion)
 ```
 
-The `TYPELAYOUT_EXPORT_TYPES(...)` macro generates a complete `main()` function.
-No boilerplate needed.
+`TYPELAYOUT_EXPORT_TYPES(...)` generates `main()` for you.
 
 ### Step 2: Compile & Run on Each Platform
 
@@ -101,12 +96,8 @@ TYPELAYOUT_ASSERT_COMPAT(x86_64_linux_clang, arm64_linux_clang)
 ### Step 4: Compile & Run the Check
 
 ```bash
-# Compile the checker — any C++17 compiler works!
-# P2996 is NOT required for this step.
 clang++ -std=c++17 -stdlib=libc++ -I./include -I./example \
     -o compat_check example/compat_check.cpp
-
-# Run for a detailed report
 ./compat_check
 ```
 
@@ -114,7 +105,7 @@ clang++ -std=c++17 -stdlib=libc++ -I./include -I./example \
 
 ```
 ========================================================================
-  Boost.TypeLayout — Cross-Platform Compatibility Report
+  Cross-Platform Compatibility Report
 ========================================================================
 
 Platforms compared: 3
@@ -125,9 +116,7 @@ Platforms compared: 3
   * x86_64_windows_msvc [64-le]
     pointer=8B, long=4B, wchar_t=2B, long_double=8B, max_align=16B
 
-Assumptions: IEEE 754 floats, same endianness across platforms.
-Safety: *** = safe for zero-copy, **- = layout ok but has
-        pointers/vptr, *-- = bit-fields or platform-dependent types.
+Safety: *** = zero-copy ok, **- = has pointers/vptr, *-- = bit-fields.
 
 --------------------------------------------------------------------------------
   Type                      Layout  Definition  Safety  Verdict
@@ -156,10 +145,10 @@ Safety: *** = safe for zero-copy, **- = layout ok but has
 ========================================================================
 ```
 
-**Reading the report:**
-- **Serialization-free** (C1 ∧ C2): Safe for zero-copy `send()/recv()` — no serialization needed
-- **Layout OK** (C1 only): Memory layout matches, but has pointers or bit-fields — use with care
-- **Needs serialization** (¬C1): Layout differs across platforms — must serialize
+**Verdicts:**
+- **Serialization-free**: Layout matches, no pointers/bit-fields — zero-copy safe
+- **Layout OK**: Layout matches but has pointers or bit-fields — not safe for raw transfer
+- **Needs serialization**: Layout differs — must use a serialization format
 
 ## Adding Your Own Types
 
@@ -179,11 +168,9 @@ struct MyProtocolMessage {
 TYPELAYOUT_EXPORT_TYPES(MyProtocolMessage)
 ```
 
-Types can be defined inline in the file or included from headers.
-
 ## Fine-Grained Compile-Time Checks
 
-You can also mix macros with manual `static_assert` for fine-grained control:
+Mix macros with manual `static_assert`:
 
 ```cpp
 #include "sigs/x86_64_linux_clang.sig.hpp"
@@ -264,30 +251,6 @@ The platform is auto-detected from compiler macros. You can override it:
 ```cpp
 boost::typelayout::SigExporter ex("my_custom_platform");
 ```
-
-## Why This Matters
-
-Traditional approaches to cross-platform data sharing require:
-- Hand-written serialization code
-- Schema languages (protobuf, FlatBuffers, Cap'n Proto)
-- Runtime checks and validation
-
-With TypeLayout's two-phase pipeline, you get:
-- **Compile-time proof** that types are layout-compatible (C1: layout match)
-- **Safety classification** that identifies pointer/bit-field risks (C2: safety check)
-- **Zero runtime overhead** — no serialization needed for types satisfying C1 ∧ C2
-- **Pure C++** — no external tools or languages
-- **Detailed diagnostics** — know exactly which types differ and why
-
-### Zero-Serialization Transfer (ZST) Quick Reference
-
-| Condition | What It Checks | How to Verify |
-|-----------|---------------|---------------|
-| **C1** | Layout signature match | `static_assert(layout_match(...))` or CompatReporter |
-| **C2** | Safety = Safe (no ptr/bit-fields) | CompatReporter Safety column: `***` |
-| **A1** | IEEE 754 floats (axiom) | All modern hardware satisfies this |
-
-**C1 ∧ C2 → zero-copy safe.** Otherwise → use serialization.
 
 ## File Reference
 

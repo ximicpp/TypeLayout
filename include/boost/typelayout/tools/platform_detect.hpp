@@ -1,7 +1,4 @@
-// Platform detection utilities for cross-platform signature export.
-//
-// Detects arch, OS, and compiler from predefined macros and produces
-// a canonical platform identifier in the form "{arch}_{os}_{compiler}".
+// Detects arch, OS, and compiler; produces "{arch}_{os}_{compiler}".
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
@@ -15,9 +12,7 @@ namespace boost {
 namespace typelayout {
 namespace platform {
 
-// =========================================================================
-// Architecture detection
-// =========================================================================
+// --- Architecture ---
 
 #if defined(__x86_64__) || defined(_M_X64)
     #define TYPELAYOUT_ARCH_NAME "x86_64"
@@ -48,9 +43,7 @@ namespace platform {
     #define TYPELAYOUT_ARCH_DISPLAY "Unknown Arch"
 #endif
 
-// =========================================================================
-// OS detection
-// =========================================================================
+// --- OS ---
 
 #if defined(__linux__)
     #define TYPELAYOUT_OS_NAME "linux"
@@ -72,12 +65,7 @@ namespace platform {
     #define TYPELAYOUT_OS_DISPLAY "Unknown OS"
 #endif
 
-// =========================================================================
-// Compiler detection
-// =========================================================================
-
-// Note: __clang__ must be checked before __GNUC__ because Clang also
-// defines __GNUC__.
+// --- Compiler (__clang__ before __GNUC__ because Clang defines both) ---
 
 #if defined(__clang__)
     #define TYPELAYOUT_COMPILER_NAME "clang"
@@ -93,18 +81,12 @@ namespace platform {
     #define TYPELAYOUT_COMPILER_DISPLAY "Unknown Compiler"
 #endif
 
-// =========================================================================
-// Combined platform identifiers
-// =========================================================================
+// --- Combined identifiers ---
 
-/// Canonical platform name: "{arch}_{os}_{compiler}" (valid C++ identifier).
-/// Example: "x86_64_linux_clang"
 inline std::string get_platform_name() {
     return TYPELAYOUT_ARCH_NAME "_" TYPELAYOUT_OS_NAME "_" TYPELAYOUT_COMPILER_NAME;
 }
 
-/// Human-readable platform description.
-/// Example: "x86-64 Linux (Clang)"
 inline std::string get_platform_display_name() {
     return TYPELAYOUT_ARCH_DISPLAY " " TYPELAYOUT_OS_DISPLAY " (" TYPELAYOUT_COMPILER_DISPLAY ")";
 }

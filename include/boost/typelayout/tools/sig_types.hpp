@@ -1,11 +1,4 @@
-// Shared type definitions for the cross-platform compatibility toolchain.
-//
-// This header defines TypeEntry and PlatformInfo — the canonical types
-// shared between Phase 1 (.sig.hpp generation) and Phase 2 (compatibility
-// checking). Both generated .sig.hpp files and compat_check.hpp include
-// this header, eliminating duplicate definitions.
-//
-// C++17 compatible. No P2996 dependency.
+// TypeEntry and PlatformInfo — shared between .sig.hpp files and compat_check.hpp.
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
@@ -18,15 +11,12 @@
 namespace boost {
 namespace typelayout {
 
-/// A single type's signature data, as stored in generated .sig.hpp files.
 struct TypeEntry {
     const char* name;
     const char* layout_sig;
     const char* definition_sig;
 };
 
-/// Complete platform metadata and type registry.
-/// Returned by get_platform_info() in each generated .sig.hpp.
 struct PlatformInfo {
     const char*      platform_name;
     const char*      arch_prefix;

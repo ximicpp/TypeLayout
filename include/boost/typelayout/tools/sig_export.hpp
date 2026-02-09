@@ -1,9 +1,6 @@
-// Signature Export Tool — generates .sig.hpp headers for cross-platform comparison.
-//
-// Phase 1 of the two-phase cross-platform compatibility pipeline.
-// Compile and run this on each target platform to produce a header file
-// containing constexpr signature strings that can be compared at compile time
-// on any C++17 compiler (P2996 is NOT required for Phase 2).
+// Generates .sig.hpp headers containing constexpr signature strings.
+// Compile with P2996, run on each target platform, then compare the
+// resulting headers with compat_check.hpp (which only needs C++17).
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
@@ -27,35 +24,29 @@
 namespace boost {
 namespace typelayout {
 
-/// Entry stored by SigExporter for each registered type.
+/// One registered type's name + signatures.
 struct ExportEntry {
     std::string name;
     std::string layout_sig;
     std::string definition_sig;
 };
 
-/// Signature exporter — collects type signatures and writes a .sig.hpp header.
-///
-/// Usage:
-///   SigExporter ex;                       // auto-detect platform
-///   SigExporter ex("custom_platform");    // manual override
-///   ex.add<MyType>("MyType");
-///   ex.write("sigs/x86_64_linux_clang.sig.hpp");
+/// Collects type signatures and writes a .sig.hpp header.
 class SigExporter {
 public:
-    /// Construct with auto-detected platform name.
+    /// Auto-detect platform from compiler macros.
     SigExporter()
         : platform_name_(platform::get_platform_name())
         , display_name_(platform::get_platform_display_name())
     {}
 
-    /// Construct with a manual platform name override.
+    /// Use a specific platform name.
     explicit SigExporter(const std::string& platform_name)
         : platform_name_(platform_name)
         , display_name_(platform_name)
     {}
 
-    /// Register a type for export. The name must be a valid C++ identifier.
+    /// Register a type for export.
     template <typename T>
     void add(const std::string& name) {
         constexpr auto layout = get_layout_signature<T>();
@@ -68,16 +59,11 @@ public:
         });
     }
 
-    /// Get the platform name (for constructing output paths).
     const std::string& platform_name() const { return platform_name_; }
-
-    /// Get the display name.
     const std::string& display_name() const { return display_name_; }
-
-    /// Get registered entries.
     const std::vector<ExportEntry>& entries() const { return entries_; }
 
-    /// Write the .sig.hpp header file. Returns 0 on success, 1 on failure.
+    /// Write the .sig.hpp header. Returns 0 on success.
     int write(const std::string& path) const {
         std::ofstream out(path);
         if (!out.is_open()) {
@@ -98,7 +84,7 @@ public:
         return 0;
     }
 
-    /// Write to stdout (for piping or debugging).
+    /// Write to stdout.
     void write_stdout() const {
         write_header(std::cout);
         write_platform_metadata(std::cout);
@@ -113,7 +99,6 @@ private:
     std::string display_name_;
     std::vector<ExportEntry> entries_;
 
-    /// Escape a string for use inside a C string literal.
     static std::string escape(const std::string& s) {
         std::string result;
         result.reserve(s.size() + 8);
@@ -126,7 +111,6 @@ private:
         return result;
     }
 
-    /// Generate an include guard token from the platform name.
     std::string include_guard() const {
         std::string guard = "BOOST_TYPELAYOUT_SIG_" + platform_name_;
         std::transform(guard.begin(), guard.end(), guard.begin(),
@@ -135,7 +119,6 @@ private:
         return guard;
     }
 
-    /// Get current timestamp as ISO 8601 string.
     static std::string timestamp() {
         auto now = std::chrono::system_clock::now();
         auto time = std::chrono::system_clock::to_time_t(now);
@@ -237,9 +220,7 @@ private:
 } // namespace typelayout
 } // namespace boost
 
-// TYPELAYOUT_EXPORT_TYPES(...) — Declarative Phase 1 macro.
-// Generates main() that exports signatures to a .sig.hpp file.
-// Compile with P2996 Clang, run with: ./export sigs/
+// Generates main() that exports signatures. Compile with P2996, run: ./a.out sigs/
 
 #include <boost/typelayout/tools/detail/foreach.hpp>
 

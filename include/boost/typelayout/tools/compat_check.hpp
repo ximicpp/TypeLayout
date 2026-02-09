@@ -1,9 +1,6 @@
-// Cross-Platform Compatibility Check Utilities
-//
-// Phase 2 of the two-phase pipeline. Include .sig.hpp headers from
-// multiple platforms, then use these utilities to verify binary
-// compatibility (static_assert) or generate a runtime report.
-// C++17 only — P2996 is NOT required.
+// Compatibility checking utilities for comparing .sig.hpp data across platforms.
+// Provides constexpr comparators (for static_assert) and a runtime reporter.
+// Requires C++17. Does not require P2996.
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
@@ -25,33 +22,28 @@ namespace boost {
 namespace typelayout {
 namespace compat {
 
-// ---- Compile-Time Comparison ----
-
-/// Compare two signature strings for equality (constexpr, for static_assert).
+/// Compare two signature strings. Usable in static_assert.
 constexpr bool sig_match(const char* a, const char* b) noexcept {
     return std::string_view(a) == std::string_view(b);
 }
 
-/// Semantic alias: compare layout signatures. Delegates to sig_match.
+/// Compare layout signatures.
 constexpr bool layout_match(const char* a, const char* b) noexcept {
     return sig_match(a, b);
 }
 
-/// Semantic alias: compare definition signatures. Delegates to sig_match.
+/// Compare definition signatures.
 constexpr bool definition_match(const char* a, const char* b) noexcept {
     return sig_match(a, b);
 }
 
-// ---- Safety Classification ----
-
-/// Safety level for cross-platform transfer.
 enum class SafetyLevel {
-    Safe,       // Fixed-width scalars only — zero-copy safe
-    Warning,    // Layout may match but contains pointers or vptr
-    Risk        // Bit-fields or platform-dependent types
+    Safe,       // no pointers, no bit-fields
+    Warning,    // has pointers or vptr
+    Risk        // has bit-fields or platform-dependent types
 };
 
-/// Classify a layout signature by scanning for unsafe patterns.
+/// Scan a layout signature for pointers, bit-fields, etc.
 inline SafetyLevel classify_safety(std::string_view sig) noexcept {
     if (sig.find("bits<") != std::string_view::npos)
         return SafetyLevel::Risk;
@@ -96,9 +88,7 @@ inline const char* safety_reason(SafetyLevel level) noexcept {
     return "";
 }
 
-// ---- Runtime Compatibility Reporter ----
-
-/// Per-type comparison result.
+/// Result of comparing one type across platforms.
 struct TypeResult {
     std::string name;
     bool        layout_match;
@@ -108,7 +98,7 @@ struct TypeResult {
     std::vector<std::string> definition_sigs;
 };
 
-/// Platform data for the reporter.
+/// Platform info used by CompatReporter (runtime, owns strings).
 struct PlatformData {
     std::string       name;
     const TypeEntry*  types;
@@ -121,17 +111,10 @@ struct PlatformData {
     const char*       arch_prefix       = "";
 };
 
-/// Collects signature data from multiple platforms and produces
-/// a formatted compatibility matrix with ZST verdicts.
-///
-/// Usage:
-///   CompatReporter r;
-///   r.add_platform(plat_a::get_platform_info());
-///   r.add_platform(plat_b::get_platform_info());
-///   r.print_report();
+/// Compares signatures across platforms and prints a compatibility matrix.
 class CompatReporter {
 public:
-    /// Register from PlatformInfo (constexpr, from .sig.hpp).
+    /// Add a platform from a PlatformInfo (returned by .sig.hpp's get_platform_info()).
     void add_platform(const PlatformInfo& pi) {
         platforms_.push_back({
             pi.platform_name, pi.types, pi.type_count,
@@ -147,7 +130,7 @@ public:
         platforms_.push_back({name, types, count});
     }
 
-    /// Compute comparison results across all registered platforms.
+    /// Compare all types across registered platforms.
     std::vector<TypeResult> compare() const {
         if (platforms_.empty()) return {};
 
@@ -192,18 +175,17 @@ public:
         return results;
     }
 
-    /// Print a formatted compatibility report.
+    /// Print the report to `os`.
     void print_report(std::ostream& os = std::cout) const {
         auto results = compare();
-        int serialization_free = 0;   // C1 ∧ C2: safe for zero-copy transfer
-        int layout_compatible = 0;    // C1 only: layout matches (may have caveats)
+        int serialization_free = 0;
+        int layout_compatible = 0;
         int total = static_cast<int>(results.size());
 
         os << std::string(72, '=') << "\n";
-        os << "  Boost.TypeLayout — Cross-Platform Compatibility Report\n";
+        os << "  Cross-Platform Compatibility Report\n";
         os << std::string(72, '=') << "\n\n";
 
-        // Platform summary
         os << "Platforms compared: " << platforms_.size() << "\n";
         for (const auto& p : platforms_) {
             os << "  * " << p.name;
@@ -220,12 +202,8 @@ public:
         }
         os << "\n";
 
-        // Safety assumptions
-        os << "Assumptions: IEEE 754 floats, same endianness across platforms.\n";
-        os << "Safety: *** = safe for zero-copy, **- = layout ok but has\n";
-        os << "        pointers/vptr, *-- = bit-fields or platform-dependent types.\n\n";
+        os << "Safety: *** = zero-copy ok, **- = has pointers/vptr, *-- = bit-fields.\n\n";
 
-        // Type matrix
         os << std::string(80, '-') << "\n";
         os << "  " << std::left << std::setw(24) << "Type"
            << std::right << std::setw(8) << "Layout"
@@ -261,7 +239,6 @@ public:
 
         os << std::string(80, '-') << "\n\n";
 
-        // Mismatched details
         for (const auto& r : results) {
             if (!r.layout_match) {
                 os << "  [DIFFER] " << r.name << " layout signatures:\n";
@@ -273,7 +250,6 @@ public:
             }
         }
 
-        // Safety warnings
         bool has_warnings = false;
         for (const auto& r : results) {
             if (r.layout_match && r.safety != SafetyLevel::Safe) {
@@ -287,7 +263,6 @@ public:
         }
         if (has_warnings) os << "\n";
 
-        // Summary (ZST model: C1 ∧ C2)
         os << std::string(72, '=') << "\n";
         if (serialization_free == total) {
             os << "  ALL " << total
