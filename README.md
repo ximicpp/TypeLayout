@@ -23,12 +23,36 @@ constexpr auto defn = get_definition_signature<Message>();
 
 ## What It Does
 
-TypeLayout uses C++26 static reflection to generate **deterministic, human-readable
+TypeLayout is a **compile-time type layout verification library**. It answers one
+question: *"Can my struct be safely `memcpy`'d between A and B?"* — where A and B
+can be two processes, two platforms, two library versions, or a host and its plugins.
+
+It uses C++26 static reflection (P2996) to generate **deterministic, human-readable
 signatures** that fully describe a type's memory layout — at compile time, with zero
 runtime cost.
 
 A signature encodes: field types, sizes, alignments, offsets, padding, inheritance
 structure, and platform characteristics (pointer width, endianness).
+
+### Same-platform and cross-platform
+
+```
+Same-platform (compile-time, P2996 required):
+  static_assert(layout_signatures_match<SenderMsg, ReceiverMsg>());
+
+Cross-platform (two-phase, only Phase 2 needs C++17):
+  Phase 1: export signatures on each platform  → .sig.hpp files
+  Phase 2: compare signatures on any platform  → match / differ + safety level
+```
+
+### What TypeLayout is NOT
+
+- **Not a serialization framework** — it does not serialize or deserialize data
+- **Not a data exchange protocol** — it does not define wire formats
+- **Not a full ABI checker** — it covers data layout, not vtables or function signatures
+
+It is the **automated, complete replacement** for hand-written
+`static_assert(sizeof(T) == N)` / `static_assert(offsetof(T, f) == M)` checks.
 
 ## Two-Layer Signature System
 
