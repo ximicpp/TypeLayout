@@ -125,28 +125,41 @@ Platforms compared: 3
   * x86_64_windows_msvc [64-le]
     pointer=8B, long=4B, wchar_t=2B, long_double=8B, max_align=16B
 
-------------------------------------------------------------------------
-  Type                            Layout   Definition  Verdict
-------------------------------------------------------------------------
-  PacketHeader                     MATCH        MATCH  Serialization-free
-  SharedMemRegion                  MATCH        MATCH  Serialization-free
-  FileHeader                       MATCH        MATCH  Serialization-free
-  SensorRecord                     MATCH        MATCH  Serialization-free
-  IpcCommand                       MATCH        MATCH  Serialization-free
-  UnsafeStruct                    DIFFER       DIFFER  Needs serialization
-  UnsafeWithPointer                MATCH        MATCH  Serialization-free
-  MixedSafety                      MATCH        MATCH  Serialization-free
-------------------------------------------------------------------------
+Assumptions: IEEE 754 floats, same endianness across platforms.
+Safety: *** = safe for zero-copy, **- = layout ok but has
+        pointers/vptr, *-- = bit-fields or platform-dependent types.
+
+--------------------------------------------------------------------------------
+  Type                      Layout  Definition  Safety  Verdict
+--------------------------------------------------------------------------------
+  PacketHeader               MATCH       MATCH    ***  Serialization-free
+  SharedMemRegion             MATCH       MATCH    ***  Serialization-free
+  FileHeader                  MATCH       MATCH    ***  Serialization-free
+  SensorRecord                MATCH       MATCH    ***  Serialization-free
+  IpcCommand                  MATCH       MATCH    ***  Serialization-free
+  UnsafeStruct               DIFFER      DIFFER    *--  Needs serialization
+  UnsafeWithPointer           MATCH       MATCH    **-  Layout OK (pointer values not portable)
+  MixedSafety                 MATCH       MATCH    ***  Serialization-free
+--------------------------------------------------------------------------------
 
   [DIFFER] UnsafeStruct layout signatures:
     x86_64_linux_clang: [64-le]record[s:48,a:16]{@0:i64[s:8,a:8],...}
     x86_64_windows_msvc: [64-le]record[s:32,a:8]{@0:i32[s:4,a:4],...}
 
+  Safety warnings:
+  [**-] UnsafeWithPointer — contains pointers or vptr
+
 ========================================================================
-  87% of types (7/8) are serialization-free across all platforms.
-  1 type(s) need serialization for cross-platform use.
+  Serialization-free (C1+C2): 6/8 (75%)
+  Layout-compatible (C1):     7/8 (layout matches but has pointers/bit-fields)
+  Needs serialization:        1/8
 ========================================================================
 ```
+
+**Reading the report:**
+- **Serialization-free** (C1 ∧ C2): Safe for zero-copy `send()/recv()` — no serialization needed
+- **Layout OK** (C1 only): Memory layout matches, but has pointers or bit-fields — use with care
+- **Needs serialization** (¬C1): Layout differs across platforms — must serialize
 
 ## Adding Your Own Types
 
@@ -260,10 +273,21 @@ Traditional approaches to cross-platform data sharing require:
 - Runtime checks and validation
 
 With TypeLayout's two-phase pipeline, you get:
-- **Compile-time proof** that types are binary-compatible
-- **Zero runtime overhead** — no serialization needed for compatible types
+- **Compile-time proof** that types are layout-compatible (C1: layout match)
+- **Safety classification** that identifies pointer/bit-field risks (C2: safety check)
+- **Zero runtime overhead** — no serialization needed for types satisfying C1 ∧ C2
 - **Pure C++** — no external tools or languages
 - **Detailed diagnostics** — know exactly which types differ and why
+
+### Zero-Serialization Transfer (ZST) Quick Reference
+
+| Condition | What It Checks | How to Verify |
+|-----------|---------------|---------------|
+| **C1** | Layout signature match | `static_assert(layout_match(...))` or CompatReporter |
+| **C2** | Safety = Safe (no ptr/bit-fields) | CompatReporter Safety column: `***` |
+| **A1** | IEEE 754 floats (axiom) | All modern hardware satisfies this |
+
+**C1 ∧ C2 → zero-copy safe.** Otherwise → use serialization.
 
 ## File Reference
 

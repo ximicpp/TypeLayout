@@ -230,7 +230,8 @@ public:
     /// Print a formatted compatibility report to the given stream.
     void print_report(std::ostream& os = std::cout) const {
         auto results = compare();
-        int compatible = 0;
+        int serialization_free = 0;   // C1 ∧ C2: safe for zero-copy transfer
+        int layout_compatible = 0;    // C1 only: layout matches (may have caveats)
         int total = static_cast<int>(results.size());
 
         os << std::string(72, '=') << "\n";
@@ -274,10 +275,11 @@ public:
             std::string verdict;
 
             if (r.layout_match) {
-                ++compatible;
-                if (r.safety == SafetyLevel::Safe)
+                ++layout_compatible;
+                if (r.safety == SafetyLevel::Safe) {
+                    ++serialization_free;
                     verdict = "Serialization-free";
-                else if (r.safety == SafetyLevel::Warning)
+                } else if (r.safety == SafetyLevel::Warning)
                     verdict = "Layout OK (pointer values not portable)";
                 else
                     verdict = "Layout OK (verify bit-fields manually)";
@@ -320,17 +322,22 @@ public:
         }
         if (has_warnings) os << "\n";
 
-        // Summary
+        // Summary (ZST model: C1 ∧ C2)
         os << std::string(72, '=') << "\n";
-        if (compatible == total) {
+        if (serialization_free == total) {
             os << "  ALL " << total
                << " type(s) are serialization-free across all platforms!\n";
         } else {
-            int pct = total > 0 ? (compatible * 100 / total) : 0;
-            os << "  " << pct << "% of types (" << compatible << "/" << total
-               << ") are serialization-free across all platforms.\n";
-            os << "  " << (total - compatible)
-               << " type(s) need serialization for cross-platform use.\n";
+            int zst_pct = total > 0 ? (serialization_free * 100 / total) : 0;
+            os << "  Serialization-free (C1+C2): " << serialization_free
+               << "/" << total << " (" << zst_pct << "%)\n";
+            if (layout_compatible > serialization_free) {
+                os << "  Layout-compatible (C1):     " << layout_compatible
+                   << "/" << total
+                   << " (layout matches but has pointers/bit-fields)\n";
+            }
+            os << "  Needs serialization:        " << (total - layout_compatible)
+               << "/" << total << "\n";
         }
         os << std::string(72, '=') << "\n";
     }
