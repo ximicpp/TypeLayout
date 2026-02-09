@@ -70,12 +70,30 @@ Four `consteval` functions — the entire public surface:
 
 ```cpp
 namespace boost::typelayout {
-    template<class T>        consteval auto get_layout_signature();
+    // Recommended — full structural comparison (names + hierarchy + layout)
     template<class T>        consteval auto get_definition_signature();
-    template<class T, class U> consteval bool layout_signatures_match();
     template<class T, class U> consteval bool definition_signatures_match();
+
+    // Byte-only comparison (offsets + sizes, no names)
+    template<class T>        consteval auto get_layout_signature();
+    template<class T, class U> consteval bool layout_signatures_match();
 }
 ```
+
+### Which function should I use?
+
+**Rule of thumb**: Use `definition_signatures_match` unless you have a specific
+reason to use `layout_signatures_match`.
+
+| Question | Answer |
+|----------|--------|
+| "Are these two types structurally identical?" | `definition_signatures_match` ✅ |
+| "Can I safely `memcpy` between these types?" | `layout_signatures_match` ✅ |
+| "I'm not sure which one I need" | `definition_signatures_match` ✅ (safer default) |
+
+Why? By V3 (Projection), `definition_match ⟹ layout_match` — so the Definition
+layer is strictly safer. It catches everything Layout catches, plus field renames,
+inheritance changes, and ODR violations.
 
 ## Supported Types
 
