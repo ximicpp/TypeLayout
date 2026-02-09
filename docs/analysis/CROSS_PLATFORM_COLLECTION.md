@@ -151,40 +151,23 @@ the vtable presence, making cross-platform binary sharing unsafe.
 
 ---
 
-## 4. Safety Classification: Formal Basis
+## 4. Safety Classification
 
-### 4.1 Classification Algorithm
+The `classify_safety` function scans layout signatures for unsafe patterns
+(`bits<`, `ptr[`, `,vptr`, `wchar[`) and returns a conservative safety level:
 
-The `classify_safety` function in `compat_check.hpp` performs
-**pattern-based risk assessment** on layout signature strings:
+| Level | Meaning |
+|-------|---------|
+| **Safe** (`***`) | Fixed-width scalars only — zero-copy safe |
+| **Warning** (`**-`) | Contains pointers or vptr — values not portable |
+| **Risk** (`*--`) | Bit-fields or platform-dependent types |
 
-```cpp
-inline SafetyLevel classify_safety(std::string_view sig) noexcept {
-    if (sig.find("bits<") != npos) return SafetyLevel::Risk;
-    if (sig.find("ptr[") != npos || sig.find(",vptr") != npos)
-        return SafetyLevel::Warning;
-    return SafetyLevel::Safe;
-}
-```
+A **Safe + MATCH** verdict gives a machine-checked guarantee of binary
+compatibility (the ZST condition C1 ∧ C2).
 
-### 4.2 Formal Justification
-
-| Level | Pattern | Rationale |
-|-------|---------|-----------|
-| **Safe** | No `bits<`, `ptr[`, or `,vptr` | Only fixed-width scalars and arrays; layout is deterministic across all conforming platforms |
-| **Warning** | `ptr[` or `,vptr` present | Pointer size is platform-dependent (ILP32 vs LP64); vtable layout varies by ABI (Itanium vs MSVC) |
-| **Risk** | `bits<` present | Bit-field allocation is implementation-defined (C++ \[class.bit\] §[12.2.4]); no portable guarantee on packing, padding, or endianness |
-
-### 4.3 Soundness Property
-
-The classification is **conservative** (never under-reports risk):
-
-\[
-\text{classify}(T) = \text{Safe} \implies \text{sig}(T) \text{ contains only deterministic encoding elements}
-\]
-
-This means a "Safe" verdict combined with a MATCH result gives a
-**machine-checked guarantee** of binary compatibility.
+> For the full classification algorithm, formal justification, and the
+> complete ZST proof chain, see
+> [Zero-Serialization Transfer Analysis](./ZERO_SERIALIZATION_TRANSFER.md) §1–§3.
 
 ---
 
@@ -315,22 +298,12 @@ A typical `CompatReporter` output:
 
 ### 7.3 Remediation Strategies
 
-For types classified as **Warning** or **Risk**:
+For types classified as **Warning** or **Risk**, replace platform-dependent
+elements with fixed-width equivalents (`long` → `int64_t`, `wchar_t` →
+`char32_t`, bit-fields → explicit mask/shift on `uint32_t`, etc.).
 
-1. **Replace platform-dependent types** with fixed-width alternatives:
-   - `long` → `int64_t` or `int32_t`
-   - `long double` → `double` (or a software float library)
-   - `wchar_t` → `char32_t`
-
-2. **Eliminate bit-fields** in cross-platform structures:
-   - Use explicit mask/shift operations on `uint32_t`
-
-3. **Remove vtables** from serialized types:
-   - Separate data layout from polymorphic behavior
-
-4. **Re-verify** after changes:
-   - Regenerate signatures on all target platforms
-   - Re-run `CompatChecker` to confirm all MATCH
+> For detailed remediation patterns with before/after code examples, see
+> [Zero-Serialization Transfer Analysis](./ZERO_SERIALIZATION_TRANSFER.md) §6.
 
 ---
 

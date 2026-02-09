@@ -1,11 +1,9 @@
 // Cross-Platform Compatibility Check Utilities
 //
-// Phase 2 of the two-phase cross-platform compatibility pipeline.
-// Include .sig.hpp headers from multiple platforms and use these utilities
-// to verify binary compatibility at compile time (static_assert) or
-// generate a human-readable runtime report.
-//
-// This header does NOT require P2996 — any C++17 compiler works.
+// Phase 2 of the two-phase pipeline. Include .sig.hpp headers from
+// multiple platforms, then use these utilities to verify binary
+// compatibility (static_assert) or generate a runtime report.
+// C++17 only — P2996 is NOT required.
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
@@ -27,70 +25,50 @@ namespace boost {
 namespace typelayout {
 namespace compat {
 
-// =========================================================================
-// Compile-Time Comparison (for use with static_assert)
-// =========================================================================
+// ---- Compile-Time Comparison ----
 
-/// Compare two signature strings for equality. Usable in static_assert.
+/// Compare two signature strings for equality (constexpr, for static_assert).
 constexpr bool sig_match(const char* a, const char* b) noexcept {
     return std::string_view(a) == std::string_view(b);
 }
 
-/// Compare two layout signatures. Alias for sig_match.
+/// Semantic alias: compare layout signatures. Delegates to sig_match.
 constexpr bool layout_match(const char* a, const char* b) noexcept {
     return sig_match(a, b);
 }
 
-/// Compare two definition signatures. Alias for sig_match.
+/// Semantic alias: compare definition signatures. Delegates to sig_match.
 constexpr bool definition_match(const char* a, const char* b) noexcept {
     return sig_match(a, b);
 }
 
-// =========================================================================
-// Runtime Compatibility Reporter
-// =========================================================================
+// ---- Safety Classification ----
 
-// =========================================================================
-// Safety Classification
-// =========================================================================
-
-/// Safety level for a type in cross-platform context.
-/// Determined by scanning the layout signature for unsafe patterns.
+/// Safety level for cross-platform transfer.
 enum class SafetyLevel {
-    Safe,       // ★★★ Only fixed-width scalars (u32, f64, bytes, enum, etc.)
-    Warning,    // ★★☆ Layout matches but contains pointers or vptr
-    Risk        // ★☆☆ Contains bit-fields or platform-dependent types
+    Safe,       // Fixed-width scalars only — zero-copy safe
+    Warning,    // Layout may match but contains pointers or vptr
+    Risk        // Bit-fields or platform-dependent types
 };
 
-/// Classify a layout signature's safety for cross-platform transfer.
-/// Scans the signature string for patterns indicating unsafe member types.
+/// Classify a layout signature by scanning for unsafe patterns.
 inline SafetyLevel classify_safety(std::string_view sig) noexcept {
-    // Risk: bit-fields (impl-defined ordering)
     if (sig.find("bits<") != std::string_view::npos)
         return SafetyLevel::Risk;
-
-    // Risk: platform-dependent sizes
-    // i64/i32 markers for long are indistinguishable from int64_t/int32_t,
-    // but wchar is a unique marker for wchar_t
     if (sig.find("wchar[") != std::string_view::npos)
         return SafetyLevel::Risk;
-
-    // Warning: pointers (values not transferable across address spaces)
     if (sig.find("ptr[") != std::string_view::npos ||
         sig.find("fnptr[") != std::string_view::npos ||
         sig.find("memptr[") != std::string_view::npos ||
         sig.find("ref[") != std::string_view::npos ||
         sig.find("rref[") != std::string_view::npos)
         return SafetyLevel::Warning;
-
-    // Warning: polymorphic types (vptr)
     if (sig.find(",vptr") != std::string_view::npos)
         return SafetyLevel::Warning;
 
     return SafetyLevel::Safe;
 }
 
-/// Get a display string for the safety level.
 inline const char* safety_label(SafetyLevel level) noexcept {
     switch (level) {
         case SafetyLevel::Safe:    return "Safe";
@@ -100,7 +78,6 @@ inline const char* safety_label(SafetyLevel level) noexcept {
     return "?";
 }
 
-/// Get a star rating for the safety level.
 inline const char* safety_stars(SafetyLevel level) noexcept {
     switch (level) {
         case SafetyLevel::Safe:    return "***";
@@ -110,7 +87,6 @@ inline const char* safety_stars(SafetyLevel level) noexcept {
     return "???";
 }
 
-/// Get a brief explanation for the safety classification.
 inline const char* safety_reason(SafetyLevel level) noexcept {
     switch (level) {
         case SafetyLevel::Safe:    return "fixed-width scalars only";
@@ -120,27 +96,19 @@ inline const char* safety_reason(SafetyLevel level) noexcept {
     return "";
 }
 
+// ---- Runtime Compatibility Reporter ----
+
 /// Per-type comparison result.
 struct TypeResult {
     std::string name;
     bool        layout_match;
     bool        definition_match;
-    SafetyLevel safety;                       // cross-platform safety classification
-    std::vector<std::string> layout_sigs;     // one per platform
-    std::vector<std::string> definition_sigs; // one per platform
+    SafetyLevel safety;
+    std::vector<std::string> layout_sigs;
+    std::vector<std::string> definition_sigs;
 };
 
-/// Runtime compatibility reporter.
-///
-/// Collects signature data from multiple platforms and produces a
-/// formatted compatibility matrix.
-///
-/// Usage:
-///   CompatReporter r;
-///   r.add_platform("x86_64_linux_clang", plat_a::types, plat_a::type_count);
-///   r.add_platform("arm64_linux_clang",  plat_b::types, plat_b::type_count);
-///   r.print_report();
-/// Platform data for the reporter (runtime, owns strings).
+/// Platform data for the reporter.
 struct PlatformData {
     std::string       name;
     const TypeEntry*  types;
@@ -153,9 +121,17 @@ struct PlatformData {
     const char*       arch_prefix       = "";
 };
 
+/// Collects signature data from multiple platforms and produces
+/// a formatted compatibility matrix with ZST verdicts.
+///
+/// Usage:
+///   CompatReporter r;
+///   r.add_platform(plat_a::get_platform_info());
+///   r.add_platform(plat_b::get_platform_info());
+///   r.print_report();
 class CompatReporter {
 public:
-    /// Register from PlatformInfo (constexpr, from .sig.hpp get_platform_info()).
+    /// Register from PlatformInfo (constexpr, from .sig.hpp).
     void add_platform(const PlatformInfo& pi) {
         platforms_.push_back({
             pi.platform_name, pi.types, pi.type_count,
@@ -164,23 +140,17 @@ public:
         });
     }
 
-    /// Register with explicit fields (legacy).
-    void add_platform(const PlatformData& pd) {
-        platforms_.push_back(pd);
-    }
+    void add_platform(const PlatformData& pd) { platforms_.push_back(pd); }
 
-    /// Register a platform's signature data (basic form).
     void add_platform(const std::string& name,
-                      const TypeEntry* types,
-                      int count) {
+                      const TypeEntry* types, int count) {
         platforms_.push_back({name, types, count});
     }
 
-    /// Compute comparison results.
+    /// Compute comparison results across all registered platforms.
     std::vector<TypeResult> compare() const {
         if (platforms_.empty()) return {};
 
-        // Use the first platform's type list as the reference
         const auto& ref = platforms_[0];
         std::vector<TypeResult> results;
         results.reserve(static_cast<std::size_t>(ref.type_count));
@@ -191,11 +161,9 @@ public:
             tr.layout_match = true;
             tr.definition_match = true;
 
-            // Classify safety based on worst case across all platforms
             SafetyLevel worst_safety = SafetyLevel::Safe;
 
             for (const auto& plat : platforms_) {
-                // Find the matching type by name in this platform
                 const TypeEntry* entry = find_type(plat, tr.name);
                 if (!entry) {
                     tr.layout_sigs.emplace_back("<missing>");
@@ -208,15 +176,12 @@ public:
                 tr.definition_sigs.emplace_back(entry->definition_sig);
 
                 if (std::string_view(entry->layout_sig) !=
-                    std::string_view(ref.types[i].layout_sig)) {
+                    std::string_view(ref.types[i].layout_sig))
                     tr.layout_match = false;
-                }
                 if (std::string_view(entry->definition_sig) !=
-                    std::string_view(ref.types[i].definition_sig)) {
+                    std::string_view(ref.types[i].definition_sig))
                     tr.definition_match = false;
-                }
 
-                // Track worst safety level across platforms
                 auto level = classify_safety(entry->layout_sig);
                 if (static_cast<int>(level) > static_cast<int>(worst_safety))
                     worst_safety = level;
@@ -227,7 +192,7 @@ public:
         return results;
     }
 
-    /// Print a formatted compatibility report to the given stream.
+    /// Print a formatted compatibility report.
     void print_report(std::ostream& os = std::cout) const {
         auto results = compare();
         int serialization_free = 0;   // C1 ∧ C2: safe for zero-copy transfer

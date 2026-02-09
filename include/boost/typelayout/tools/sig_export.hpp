@@ -237,77 +237,12 @@ private:
 } // namespace typelayout
 } // namespace boost
 
-// =========================================================================
-// TYPELAYOUT_EXPORT_TYPES(...) — Declarative Phase 1 macro
-//
-// Usage (entire .cpp file):
-//   #include <boost/typelayout/tools/sig_export.hpp>
-//   #include "my_types.hpp"
-//   TYPELAYOUT_EXPORT_TYPES(PacketHeader, SensorRecord, MyType)
-//
-// Generates a complete main() that exports signatures to a .sig.hpp file.
+// TYPELAYOUT_EXPORT_TYPES(...) — Declarative Phase 1 macro.
+// Generates main() that exports signatures to a .sig.hpp file.
 // Compile with P2996 Clang, run with: ./export sigs/
-// =========================================================================
 
-// --- FOR_EACH machinery (supports up to 32 arguments) ---
+#include <boost/typelayout/tools/detail/foreach.hpp>
 
-#define TYPELAYOUT_DETAIL_EXPAND(x) x
-#define TYPELAYOUT_DETAIL_CAT_(a, b) a##b
-#define TYPELAYOUT_DETAIL_CAT(a, b) TYPELAYOUT_DETAIL_CAT_(a, b)
-
-#define TYPELAYOUT_DETAIL_NARG_(...) \
-    TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_ARG_N(__VA_ARGS__))
-#define TYPELAYOUT_DETAIL_ARG_N( \
-     _1, _2, _3, _4, _5, _6, _7, _8, _9,_10, \
-    _11,_12,_13,_14,_15,_16,_17,_18,_19,_20, \
-    _21,_22,_23,_24,_25,_26,_27,_28,_29,_30, \
-    _31,_32, N, ...) N
-#define TYPELAYOUT_DETAIL_RSEQ_N() \
-    32,31,30,29,28,27,26,25,24,23, \
-    22,21,20,19,18,17,16,15,14,13, \
-    12,11,10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
-#define TYPELAYOUT_DETAIL_NARG(...) \
-    TYPELAYOUT_DETAIL_NARG_(__VA_ARGS__, TYPELAYOUT_DETAIL_RSEQ_N())
-
-#define TYPELAYOUT_DETAIL_FE_1(m, x)      m(x)
-#define TYPELAYOUT_DETAIL_FE_2(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_1(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_3(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_2(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_4(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_3(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_5(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_4(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_6(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_5(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_7(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_6(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_8(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_7(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_9(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_8(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_10(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_9(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_11(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_10(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_12(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_11(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_13(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_12(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_14(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_13(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_15(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_14(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_16(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_15(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_17(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_16(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_18(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_17(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_19(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_18(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_20(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_19(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_21(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_20(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_22(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_21(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_23(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_22(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_24(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_23(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_25(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_24(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_26(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_25(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_27(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_26(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_28(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_27(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_29(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_28(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_30(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_29(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_31(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_30(m, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_FE_32(m, x, ...) m(x) TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_FE_31(m, __VA_ARGS__))
-
-#define TYPELAYOUT_DETAIL_FOR_EACH(macro, ...)                          \
-    TYPELAYOUT_DETAIL_EXPAND(                                           \
-        TYPELAYOUT_DETAIL_CAT(TYPELAYOUT_DETAIL_FE_,                    \
-            TYPELAYOUT_DETAIL_NARG(__VA_ARGS__))(macro, __VA_ARGS__))
-
-// --- Export macro ---
 
 #define TYPELAYOUT_DETAIL_ADD_TYPE(T) ex.add<T>(#T);
 
