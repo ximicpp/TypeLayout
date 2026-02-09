@@ -24,15 +24,29 @@ Intermediate
 
 Every C++ developer has written `static_assert(sizeof(MyStruct) == 64)`. It works — until someone adds a field and forgets to update the assert. Or until a different platform silently adds 4 bytes of padding. Or until two independently compiled modules disagree on the same struct's layout, and your shared memory silently corrupts data.
 
-What if the compiler could automatically verify your type's *complete* memory layout — every field offset, every byte of padding, every alignment constraint — at compile time, with zero runtime cost?
-
-This talk introduces **Boost.TypeLayout**, a header-only library that uses C++26 static reflection (P2996) to generate deterministic, human-readable **type layout signatures**. With just one line of code:
+**Before** — manual, incomplete, and O(n) per field:
 
 ```cpp
-static_assert(layout_signatures_match<SenderMsg, ReceiverMsg>());
+// You write this for EVERY struct, EVERY field, EVERY version...
+static_assert(sizeof(PacketHeader) == 24);
+static_assert(offsetof(PacketHeader, magic)     == 0);
+static_assert(offsetof(PacketHeader, version)   == 4);
+static_assert(offsetof(PacketHeader, flags)     == 8);
+static_assert(offsetof(PacketHeader, length)    == 12);
+static_assert(offsetof(PacketHeader, timestamp) == 16);
+// ...and hope nobody adds a field without updating these.
 ```
 
-you get a complete, compiler-verified proof that two types are byte-compatible — covering all fields, all padding, all inheritance, all bit-fields. No hand-written asserts. No external tools. No runtime overhead.
+**After** — automatic, complete, and always correct:
+
+```cpp
+// One line. All fields. All padding. All offsets. Compiler-verified.
+static_assert(layout_signatures_match<SenderPacket, ReceiverPacket>());
+```
+
+What if the compiler could automatically verify your type's *complete* memory layout — every field offset, every byte of padding, every alignment constraint — at compile time, with zero runtime cost?
+
+This talk introduces **Boost.TypeLayout**, a header-only library that uses C++26 static reflection (P2996) to generate deterministic, human-readable **type layout signatures**. That single line above gives you a complete, compiler-verified proof that two types are byte-compatible — covering all fields, all padding, all inheritance, all bit-fields. No hand-written asserts. No external tools. No runtime overhead.
 
 We'll explore the two-layer signature system (Layout for byte identity, Definition for structural identity), demonstrate real-world applications (IPC, plugins, cross-platform file formats), walk through the formal correctness proofs, and show how the cross-platform toolchain lets you verify struct compatibility across Linux, macOS, and Windows — without needing P2996 on every machine.
 
