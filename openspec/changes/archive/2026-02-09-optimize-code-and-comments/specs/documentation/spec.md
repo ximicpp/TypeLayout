@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Analysis Documentation
 Analysis documents SHALL avoid content duplication. The `CROSS_PLATFORM_COLLECTION.md` document SHALL focus on collection-level compatibility matrix analysis and cross-reference `ZERO_SERIALIZATION_TRANSFER.md` for safety classification details, remediation patterns, and formal ZST theory. Example code in `example/compat_check.cpp` SHALL use concise comments that convey essential information without excessive verbosity.
