@@ -160,7 +160,7 @@ This paper makes the following contributions:
 4. **An empirical evaluation** demonstrating coverage of all C++ type
    categories (primitives, records, unions, inheritance, bit-fields,
    polymorphic types), compile-time overhead characterization, and
-   quantitative comparison with existing approaches (`sizeof`/`offsetof`
+   systematic comparison with existing approaches (`sizeof`/`offsetof`
    asserts, ABI Compliance Checker, Boost.PFR). (§6)
 
 ## 1.5 Paper Outline

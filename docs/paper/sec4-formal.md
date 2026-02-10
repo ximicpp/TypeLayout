@@ -2,8 +2,9 @@
 
 This section develops the formal semantics of TypeLayout's two-layer signature
 system. We define the semantic domains, the signature denotation functions,
-and prove three core theorems: Soundness, Encoding Faithfulness (Injectivity),
-and Strict Refinement (Projection).
+and prove six key results: Encoding Faithfulness and its Injectivity corollary,
+Soundness, Conservativeness, Definition Faithfulness, and the Projection
+theorem with its Strictness counterpart.
 
 ## 4.1 Semantic Domains
 
@@ -149,7 +150,7 @@ grammar. ∎
 
 ### Definition 4.13 (Projection Function)
 
-Define π : *D_P*(*T*) → *L_P*(*T*) by:
+Define π : StructureTree → ByteLayout (i.e., π maps *D_P*(*T*) to *L_P*(*T*)) by:
 1. Erase field names
 2. Flatten inheritance hierarchy (expand base class subobjects with adjusted offsets)
 3. Replace `polymorphic` marker with `vptr`
@@ -173,10 +174,9 @@ Equivalently: `definition_signatures_match<T,U>()` ⟹ `layout_signatures_match<
     ⟹ *L_P*(*T*) = *L_P*(*U*) [by definition of π]
 
 (3) *L_P*(*T*) = *L_P*(*U*)
-    ⟹ ⟦*T*⟧_L = ⟦*U*⟧_L [by Corollary 4.9, contrapositively:
-       if *L_P*(*T*) = *L_P*(*U*), then decode maps ⟦*T*⟧_L and ⟦*U*⟧_L
-       to the same value, and by faithfulness of ⟦·⟧_L,
-       ⟦*T*⟧_L = ⟦*U*⟧_L]. ∎
+    ⟹ ⟦*T*⟧_L = ⟦*U*⟧_L [because ⟦·⟧_L is a *deterministic function of
+       L_P*: the signature is computed solely from the layout tuple
+       (Definition 4.5), so equal inputs produce equal outputs]. ∎
 
 ### Theorem 4.15 (Strictness — Converse Does Not Hold)
 

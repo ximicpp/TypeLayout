@@ -13,13 +13,17 @@ the following rules:
 
 **Size and alignment.** Every type `T` has a `sizeof(T)` (the number of bytes
 it occupies) and an `alignof(T)` (the address boundary it must satisfy). For
-a struct, `alignof` is the maximum alignment of its members, and `sizeof` is
-padded to a multiple of `alignof`.
+a struct, `alignof` is the maximum alignment among its members and base
+classes, unless overridden by `alignas`; `sizeof` is padded to a multiple of
+`alignof`.
 
-**Field offsets.** Members are laid out in declaration order. Each member `m`
-is placed at the first available offset that satisfies `alignof(type_of(m))`.
-The offset is deterministic for a given platform and compiler, and can be
-queried at compile time via `offsetof(T, m)`.
+**Field offsets.** Within a single access specifier block, members are laid out
+in declaration order. Each member `m` is placed at the first available offset
+that satisfies `alignof(type_of(m))`. (Members across different access
+specifiers may be reordered in non-standard-layout types; this is
+implementation-defined.) The offset is deterministic for a given platform
+and compiler, and can be queried at compile time via `offsetof(T, m)` for
+standard-layout types.
 
 **Padding.** Bytes inserted between members (internal padding) and after the
 last member (tail padding) to satisfy alignment constraints. Padding bytes are
@@ -103,10 +107,10 @@ story.
 no layout information. `typeid(T) == typeid(U)` tells you the types have the
 same name, not the same layout.
 
-**Boost.PFR** [Polukhin 2018]. Provides reflection-like access to aggregate
-fields via structured bindings, but (1) does not provide field offsets or
-sizes, (2) does not handle inheritance, and (3) is limited to simple
-aggregates.
+**Boost.PFR** [Polukhin 2020]. Provides reflection-like access to aggregate
+fields via structured bindings. PFR can enumerate field count and field types,
+but (1) does not provide field *offsets*, (2) does not handle inheritance, and
+(3) is limited to simple aggregates.
 
 **ABI Compliance Checker** [Ponomarenko 2009]. A powerful post-build tool
 that analyzes DWARF debug information to detect ABI changes. However, it
@@ -126,8 +130,11 @@ serialization/deserialization.
 | RTTI | ❌ | ❌ | ✅ | ❌ | ✅ |
 | Boost.PFR | ✅ | ❌ | ✅ | ✅ | ✅ |
 | ABI Checker | ❌ | ✅ | ✅ | N/A | ✅ |
-| Protobuf et al. | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Protobuf et al. | ✅† | ✅ | ✅ | ❌ | ❌ |
 | **TypeLayout** | **✅** | **✅** | **✅** | **✅** | **✅** |
+
+† Protobuf's verification occurs at schema compilation / code generation time,
+not during C++ compilation.
 
 TypeLayout is the first system to occupy the intersection of all five
 properties: compile-time, complete, automatic, zero-overhead, and

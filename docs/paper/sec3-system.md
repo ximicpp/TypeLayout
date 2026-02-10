@@ -41,13 +41,13 @@ meta     ::= '[s:' NUM ',a:' NUM ']'
            | '[s:' NUM ',a:' NUM ',vptr]'
 fields   ::= ε | field (',' field)*
 field    ::= '@' NUM ':' typesig
-typesig  ::= scalar | record | array | union | enum | bits
+           | '@' NUM '.' NUM ':bits<' NUM ',' typesig '>'
+typesig  ::= scalar | record | array | union | enum
 scalar   ::= PREFIX meta
 array    ::= 'array' meta '<' typesig ',' NUM '>'
            | 'bytes[s:' NUM ',a:1]'
 union    ::= 'union' meta '{' fields '}'
 enum     ::= 'enum' meta '<' typesig '>'
-bits     ::= '@' NUM '.' NUM ':bits<' NUM ',' typesig '>'
 ```
 
 where `PREFIX ∈ {i8, u8, i16, u16, i32, u32, i64, u64, f32, f64, f80,
@@ -118,12 +118,17 @@ signatures (different structure).
 
 ## 3.3 The Projection Relationship
 
-The two layers are connected by a *projection function* π that erases names
-and flattens hierarchy:
+The two layers are connected by a *projection*. At the semantic level, there
+is a function π : StructureTree → ByteLayout that erases names and flattens
+hierarchy. At the string level, this induces a correspondence:
 
 ```
-π(⟦T⟧_D) = ⟦T⟧_L
+⟦·⟧_L = ⟦·⟧_D composed with a string transformation that
+        erases names and flattens inheritance
 ```
+
+Formally: for all types *T*, ⟦*T*⟧_L is uniquely determined by *D_P*(*T*)
+via π, because *L_P*(*T*) = π(*D_P*(*T*)).
 
 This projection has a critical consequence: **Definition match implies Layout
 match**, but not vice versa.
@@ -179,6 +184,10 @@ function FLATTEN(T, adj):
             result ← result + "@" + str(off) + ":" + TYPE_SIG(type_of(M))
     return result
 ```
+
+*Implementation note:* Fields are accumulated using a comma-prefix strategy
+(each field string starts with `,`); the leading comma is removed by a
+`skip_first()` operation, equivalent to `join(",", fields)`.
 
 Key design decisions in the algorithm:
 

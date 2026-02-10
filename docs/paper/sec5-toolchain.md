@@ -148,6 +148,7 @@ The two-phase split serves two purposes:
    concerns is natural and reduces the dependency surface.
 
 When P2996 becomes widely available (post-C++26 standardization), both
-phases can be combined into a single compilation—but the two-phase
-architecture remains useful for cross-platform scenarios where different
-compilers are used on different platforms.
+phases can be combined into a single compilation for *same-platform*
+verification. Cross-platform comparison inherently requires separate
+compilations (one per platform), so the two-phase architecture remains
+essential for that use case.

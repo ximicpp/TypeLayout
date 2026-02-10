@@ -88,15 +88,17 @@ copying the entire accumulated string for each new field.
 | 80-100 fields | 3,000,000 |
 | > 100 fields | 5,000,000 |
 
-### 6.3.3 Compilation Time
+### 6.3.3 Compilation Time (Estimated)
 
-Measured on a machine with Intel Core i7, 32GB RAM, SSD:
+The following are representative estimates based on observed compilation
+behavior with the Bloomberg Clang P2996 fork. Precise benchmarks on
+controlled hardware are left to future work.
 
-| Test case | Compilation time | Overhead vs empty file |
-|-----------|-----------------|----------------------|
-| Single simple struct (5 fields) | ~1.2s | +0.1s |
-| 10 struct comparisons | ~2.0s | +0.9s |
-| Full test suite (100+ asserts) | ~4.5s | +3.4s |
+| Test case | Est. compilation time | Est. overhead |
+|-----------|----------------------|---------------|
+| Single simple struct (5 fields) | ~1-2s | +0.1-0.2s |
+| 10 struct comparisons | ~2-3s | +1-2s |
+| Full test suite (100+ asserts) | ~4-6s | +3-5s |
 
 The overhead is modest for typical use cases (< 20 types). For large-scale
 deployment with hundreds of types, the `.sig.hpp` caching strategy (§5)
@@ -108,7 +110,7 @@ ensures that signature generation is a one-time cost.
 
 | Feature | sizeof/offsetof | RTTI | Boost.PFR | ABI Checker | Protobuf | TypeLayout |
 |---------|:---:|:---:|:---:|:---:|:---:|:---:|
-| Compile-time | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ |
+| Compile-time | ✅ | ❌ | ✅ | ❌ | ✅† | ✅ |
 | Field offsets | Manual | ❌ | ❌ | ✅ | N/A | ✅ |
 | Field types | Manual | ❌ | Partial | ✅ | ✅ | ✅ |
 | Inheritance | Manual | ❌ | ❌ | ✅ | N/A | ✅ |
@@ -168,6 +170,12 @@ in other compilers. However, since TypeLayout uses only standardized P2996
 APIs (`nonstatic_data_members_of`, `offset_of`, etc.), we expect portability
 to future implementations.
 
-**Construct validity.** The compile-time overhead measurements are specific
+**Construct validity.** The compile-time overhead estimates are specific
 to the Bloomberg Clang fork and may not generalize to other P2996
 implementations.
+
+**Proof validity.** The formal proofs in §4 are semi-formal ("pen-and-paper")
+proofs, not mechanized in a proof assistant such as Coq or Lean. While the
+proofs follow standard techniques (denotational semantics, refinement theory)
+and we are confident in their correctness, mechanization would provide
+stronger guarantees. We identify this as future work (§8.4).

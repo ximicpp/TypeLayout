@@ -4,12 +4,8 @@
 
 TypeLayout makes several intentional design choices that limit its scope:
 
-**Signature match is implication, not equivalence.** The core guarantee is
-⟦T⟧_L = ⟦U⟧_L ⟹ T ≅_mem U, but the converse does not hold. For example,
-`int32_t[3]` and `struct { int32_t a, b, c; }` have identical byte
-representations but different signatures (array vs record). This is a
-deliberate safety choice: structural differences often indicate semantic
-incompatibility even when bytes align.
+**Signature match is implication, not equivalence (Theorem 4.11).** The core
+guarantee is ⟦T⟧_L = ⟦U⟧_L ⟹ T ≅_mem U, but the converse does not hold.
 
 **Type's own name is not in the signature.** TypeLayout performs structural
 analysis, not nominal analysis. `struct Point` and `struct Coord` with
@@ -59,8 +55,8 @@ of ABI Checker's scope).
 differential mode could report *which* fields changed between two type
 versions—useful for migration guidance.
 
-**Mechanized proofs.** The current proofs are written in semi-formal
-mathematical notation. Mechanizing them in Coq or Lean would provide
+**Mechanized proofs.** The current proofs are semi-formal, as noted in the
+threats to validity (§6.5). Mechanizing them in Coq or Lean would provide
 machine-checked correctness guarantees.
 
 **Broader language support.** The signature concept is not C++-specific.

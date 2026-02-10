@@ -13,7 +13,7 @@ the types have the same mangled name—it says nothing about their memory
 layout. Furthermore, RTTI incurs runtime overhead and requires virtual
 functions to be meaningful.
 
-**Boost.PFR** [Polukhin 2018] provides "magic" aggregate reflection via
+**Boost.PFR** [Polukhin 2020] provides "magic" aggregate reflection via
 structured bindings, enabling field-by-field access without macros. However,
 PFR (1) does not expose field offsets or sizes, (2) does not handle
 inheritance, (3) is limited to simple aggregates, and (4) does not generate
