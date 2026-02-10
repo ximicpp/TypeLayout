@@ -89,7 +89,7 @@ We will demonstrate real-world applications with live cross-platform comparisons
   ```
 - **Plugin systems**: export signature via `dlsym`, verify at load time
 - **Cross-platform file formats**: Layout match + Safety classification = zero-copy decision
-- **ODR violation detection**: the only compile-time tool that catches "same name, different definition" across compilation units
+- **ODR violation detection**: catches data-layout-related "same name, different definition" mismatches across compilation units at compile time
 - Live demo: the cross-platform compatibility report across 3 platforms
 
 **Part 5: Formal Correctness (5 min)**
