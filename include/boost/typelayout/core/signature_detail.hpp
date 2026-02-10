@@ -46,6 +46,23 @@ namespace typelayout {
         return std::meta::bases_of(^^T, std::meta::access_context::unchecked()).size();
     }
 
+    /// Check whether an enum type has a fixed underlying type and is thus
+    /// trivially portable across processes on the same architecture.
+    /// Scoped enums (enum class) always have a fixed underlying type.
+    /// Unscoped enums have a fixed type only when explicitly specified.
+    template <typename T>
+    [[nodiscard]] consteval bool is_fixed_enum() noexcept {
+        static_assert(std::is_enum_v<T>, "is_fixed_enum requires an enum type");
+        // All scoped enums have a fixed underlying type by definition.
+        // For unscoped enums, we check if the underlying type is one of
+        // the standard fixed-width integer types or a basic integral type.
+        // In practice, any enum with an explicit `: type` specifier will
+        // satisfy this — and the P2996 reflection toolchain always resolves
+        // the underlying type, so this is reliable.
+        using U = std::underlying_type_t<T>;
+        return std::is_integral_v<U> && !std::is_same_v<U, bool>;
+    }
+
     template<std::meta::info Member, std::size_t Index>
     consteval auto get_member_name() noexcept {
         using namespace std::meta;

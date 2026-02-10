@@ -7,5 +7,6 @@
 #include <boost/typelayout/core/fwd.hpp>
 #include <boost/typelayout/core/signature_detail.hpp>
 #include <boost/typelayout/core/signature.hpp>
+#include <boost/typelayout/core/opaque.hpp>
 
 #endif // BOOST_TYPELAYOUT_HPP
