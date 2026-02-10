@@ -22,33 +22,13 @@ Intermediate
 
 ## Abstract
 
-Every C++ developer has written `static_assert(sizeof(MyStruct) == 64)`. It works — until someone adds a field and forgets to update the assert. Or until a different platform silently adds 4 bytes of padding. Or until two independently compiled modules disagree on the same struct's layout, and your shared memory silently corrupts data.
+Every C++ developer has written `static_assert(sizeof(MyStruct) == 64)` — and watched it break when someone adds a field, when a different platform inserts padding, or when two modules silently disagree on the same struct's layout. Manual `sizeof`/`offsetof` asserts are O(n) per field, cannot compare two types, and have no cross-platform story.
 
-**Before** — manual, incomplete, and O(n) per field:
+This talk introduces **TypeLayout**, a header-only C++26 library that replaces those fragile, per-field asserts with a single `static_assert` that automatically verifies the *complete* memory layout of any type — every field offset, every byte of padding, every alignment constraint, every level of inheritance — at compile time, with zero runtime cost.
 
-```cpp
-// You write this for EVERY struct, EVERY field, EVERY version...
-static_assert(sizeof(PacketHeader) == 24);
-static_assert(offsetof(PacketHeader, magic)     == 0);
-static_assert(offsetof(PacketHeader, version)   == 4);
-static_assert(offsetof(PacketHeader, flags)     == 8);
-static_assert(offsetof(PacketHeader, length)    == 12);
-static_assert(offsetof(PacketHeader, timestamp) == 16);
-// ...and hope nobody adds a field without updating these.
-```
+TypeLayout uses P2996 static reflection to generate deterministic, human-readable **type layout signatures**: compact strings that encode everything the compiler knows about a type's layout. A two-layer signature system separates byte-level identity (Layout layer: flattened, nameless — "are these bytes the same?") from structural identity (Definition layer: preserving field names, inheritance hierarchy, and enum qualified names — "do these types mean the same thing?"). A Projection Theorem formally guarantees that a Definition match strictly implies a Layout match, giving developers a clear decision rule for IPC, plugin systems, file formats, and ODR violation detection.
 
-**After** — automatic, complete, and always correct:
-
-```cpp
-// One line. All fields. All padding. All offsets. Compiler-verified.
-static_assert(layout_signatures_match<SenderPacket, ReceiverPacket>());
-```
-
-What if the compiler could automatically verify your type's *complete* memory layout — every field offset, every byte of padding, every alignment constraint — at compile time, with zero runtime cost?
-
-This talk introduces **Boost.TypeLayout**, a header-only library that uses C++26 static reflection (P2996) to generate deterministic, human-readable **type layout signatures**. That single line above gives you a complete, compiler-verified proof that two types are byte-compatible — covering all fields, all padding, all inheritance, all bit-fields. No hand-written asserts. No external tools. No runtime overhead.
-
-We'll explore the two-layer signature system (Layout for byte identity, Definition for structural identity), demonstrate real-world applications (IPC, plugins, cross-platform file formats), walk through the formal correctness proofs, and show how the cross-platform toolchain lets you verify struct compatibility across Linux, macOS, and Windows — without needing P2996 on every machine.
+We will demonstrate real-world applications with live cross-platform comparisons (Linux x86_64, macOS ARM64, Windows x64), walk through the denotational semantics proofs that back the library's zero-false-positive guarantee, and show how the cross-platform toolchain lets you verify struct compatibility across platforms — without needing P2996 on every machine.
 
 ## Outline
 
@@ -96,7 +76,7 @@ We'll explore the two-layer signature system (Layout for byte identity, Definiti
   ```
 - Layout layer: flattens inheritance, strips names → pure byte identity
 - Definition layer: preserves names, inheritance tree, enum qualified names → structural identity
-- V3 Projection Theorem: `definition_match ⟹ layout_match` (mathematically proven)
+- Projection Theorem: `definition_match ⟹ layout_match` (formally proven, zero exceptions)
 - Decision rule: "When in doubt, use Definition."
 
 **Part 4: Real-World Applications (10 min)**
@@ -116,10 +96,10 @@ We'll explore the two-layer signature system (Layout for byte identity, Definiti
 
 *"Not just tested — proven."*
 
-- Soundness: signature match ⟹ memcmp-compatible (zero false positives)
+- Soundness: signature match ⟹ memcpy-compatible (zero false positives under stated assumptions)
 - Encoding Faithfulness: signatures are injective (different layouts → different signatures)
-- Strict Refinement: Definition is strictly more precise than Layout
-- Why formal proofs matter for a safety-critical verification tool
+- Projection Theorem + Strictness: Definition match strictly implies Layout match, but not vice versa — two layers are genuinely distinct
+- Why denotational semantics proofs matter for a safety-critical verification tool
 
 **Part 6: Cross-Platform Toolchain (5 min)**
 
@@ -166,21 +146,35 @@ We'll explore the two-layer signature system (Layout for byte identity, Definiti
 
 4. **Formal rigor**: The library comes with denotational semantics proofs — unusual for a C++ library, and a model for how reflection-based tools should be validated.
 
-5. **Open source + Boost track**: Already structured for Boost submission, with CI, formal proofs, and cross-platform toolchain.
+5. **Reproducible and self-contained**: The library is header-only with zero dependencies, and all denotational semantics proofs are included in the repository — every claim in this talk can be independently verified.
+
+**What attendees will take home:**
+- A mental model for reasoning about C++ type layout across platforms
+- A ready-to-use library for compile-time layout verification in their own projects
+- An understanding of how P2996 reflection can be applied beyond toy examples to build real safety tools
 
 ---
 
-## Speaker Bio
+## Alternative: 30-Minute Condensed Version
 
-*(需要根据实际情况填写)*
+If a shorter session is preferred, the talk can be condensed to 30 minutes with the following structure:
 
-[Speaker Name] is a C++ developer with experience in [relevant areas: systems programming, embedded, high-performance computing]. They are the author of Boost.TypeLayout, a compile-time type layout verification library based on C++26 static reflection. Their work focuses on applying language-level reflection to solve practical safety problems in systems programming.
+| Part | Topic | Time |
+|------|-------|------|
+| 1 | The Problem — live demo + why sizeof is insufficient | 5 min |
+| 2 | The Solution — signatures + API | 10 min |
+| 3 | Two Layers + Projection Theorem | 7 min |
+| 4 | Cross-Platform Toolchain + one application demo | 5 min |
+| 5 | Q&A | 3 min |
+
+The formal correctness and detailed application sections would be condensed into brief references, with pointers to the supplementary materials for interested attendees.
 
 ---
 
 ## Supplementary Materials
 
-- **GitHub**: https://github.com/ximicpp/TypeLayout
-- **Formal Proofs**: `PROOFS.md` — 900+ lines of denotational semantics proofs
-- **Application Analysis**: `APPLICATIONS.md` — 1100+ lines covering 6 real-world scenarios
-- **Cross-Platform Demo**: `example/compat_check.cpp` — 3-platform comparison with pre-generated signatures
+*(All materials available upon acceptance; anonymous repository link provided to reviewers on request.)*
+
+- **Formal Proofs**: 900+ lines of denotational semantics proofs (Soundness, Injectivity, Projection Theorem)
+- **Application Analysis**: 1100+ lines covering 6 real-world scenarios (IPC, plugins, file formats, ODR detection)
+- **Cross-Platform Demo**: 3-platform comparison with pre-generated signatures
