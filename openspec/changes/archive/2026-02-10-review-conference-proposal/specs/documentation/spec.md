@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 ### Requirement: Conference Proposal Content Accuracy
 The conference proposal (CONFERENCE_PROPOSAL.md) SHALL make only factually verifiable claims that are consistent with the codebase, formal proofs, and paper sections.
 
