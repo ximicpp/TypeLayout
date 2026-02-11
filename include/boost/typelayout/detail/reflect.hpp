@@ -29,9 +29,9 @@ namespace typelayout {
         if constexpr (is_namespace(parent) && has_identifier(parent)) {
             return qualified_name_for<parent>() +
                    FixedString{"::"} +
-                   FixedString<self.size() + 1>(self);
+                   FixedString<self.size()>(self);
         } else {
-            return FixedString<self.size() + 1>(self);
+            return FixedString<self.size()>(self);
         }
     }
 
@@ -69,8 +69,7 @@ namespace typelayout {
         using namespace std::meta;
         if constexpr (has_identifier(Member)) {
             constexpr std::string_view name = identifier_of(Member);
-            constexpr size_t NameLen = name.size() + 1;
-            return FixedString<NameLen>(name);
+            return FixedString<name.size()>(name);
         } else {
             return FixedString{"<anon:"} +
                    to_fixed_string(Index) +

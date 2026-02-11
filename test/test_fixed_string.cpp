@@ -24,9 +24,9 @@ static_assert(FixedString{"hello"}.value[4] == 'o', "literal ctor: last char");
 static_assert(FixedString{"hello"}.value[5] == '\0', "literal ctor: null terminator");
 
 // Default constructor
-static_assert(FixedString<1>{}.length() == 0, "default ctor: length 0");
+static_assert(FixedString<0>{}.length() == 0, "default ctor: length 0");
 static_assert(FixedString<10>{}.length() == 0, "default ctor: length 0 (larger buffer)");
-static_assert(FixedString<1>{}.value[0] == '\0', "default ctor: null at [0]");
+static_assert(FixedString<0>{}.value[0] == '\0', "default ctor: null at [0]");
 
 // Single character
 static_assert(FixedString{"x"}.length() == 1, "single char: length 1");

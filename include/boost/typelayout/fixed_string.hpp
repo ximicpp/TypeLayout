@@ -12,38 +12,43 @@ namespace typelayout {
 
     // =========================================================================
     // FixedString<N> -- Compile-Time Fixed-Size String
+    //
+    // N is the character count (excluding the null terminator), consistent
+    // with C++ proposal P2484 (std::basic_fixed_string). The internal
+    // buffer is N + 1 bytes to accommodate the null terminator.
     // =========================================================================
 
     template <size_t N>
     struct FixedString {
-        char value[N];
-        static constexpr size_t size = N - 1;
+        char value[N + 1];
+        static constexpr size_t size = N;
 
         constexpr FixedString() : value{} {}
 
-        constexpr FixedString(const char (&str)[N]) {
-            for (size_t i = 0; i < N; ++i)
+        constexpr FixedString(const char (&str)[N + 1]) {
+            for (size_t i = 0; i <= N; ++i)
                 value[i] = str[i];
         }
 
         constexpr FixedString(std::string_view sv) : value{} {
-            for (size_t i = 0; i < N - 1 && i < sv.size(); ++i)
+            for (size_t i = 0; i < N && i < sv.size(); ++i)
                 value[i] = sv[i];
+            // value[N] is already zero-initialized
         }
 
         template <size_t M>
         constexpr auto operator+(const FixedString<M>& other) const noexcept {
-            constexpr size_t new_size = N + M - 1;
-            char result[new_size] = {};
+            constexpr size_t new_size = N + M;
+            char result[new_size + 1] = {};
             size_t pos = 0;
 
-            while (pos < N - 1 && value[pos] != '\0') {
+            while (pos < N && value[pos] != '\0') {
                 result[pos] = value[pos];
                 ++pos;
             }
 
             size_t j = 0;
-            while (j < M) {
+            while (j <= M) {
                 result[pos++] = other.value[j++];
             }
 
@@ -53,23 +58,22 @@ namespace typelayout {
         template <size_t M>
         constexpr bool operator==(const FixedString<M>& other) const noexcept {
             size_t i = 0;
-            while (i < N && i < M) {
+            while (i <= N && i <= M) {
                 if (value[i] != other.value[i]) return false;
                 if (value[i] == '\0') return true;
                 ++i;
             }
-            if (i < N) return value[i] == '\0';
-            if (i < M) return other.value[i] == '\0';
+            if (i <= N) return value[i] == '\0';
+            if (i <= M) return other.value[i] == '\0';
             return true;
         }
 
         constexpr bool operator==(const char* other) const noexcept {
-            for (size_t i = 0; i < N; ++i) {
+            for (size_t i = 0; i <= N; ++i) {
                 if (value[i] != other[i]) return false;
                 if (value[i] == '\0') return true;
             }
-            // FixedString always contains '\0' within N bytes,
-            // so this point is unreachable in practice.
+            // value[N] is always '\0', so this point is unreachable in practice.
             return true;
         }
 
@@ -85,30 +89,34 @@ namespace typelayout {
 
         // Strip leading character (used to remove leading comma after fold-expression).
         consteval auto skip_first() const noexcept {
-            char result[N] = {};
+            char result[N + 1] = {};
             if (value[0] != '\0') {
-                for (size_t i = 1; i < N; ++i)
+                for (size_t i = 1; i <= N; ++i)
                     result[i - 1] = value[i];
             }
             return FixedString<N>(result);
         }
     };
 
+    // CTAD deduction guide: "hello" (type const char[6]) -> FixedString<5>
+    template <size_t N>
+    FixedString(const char (&)[N]) -> FixedString<N - 1>;
+
     template<size_t N>
     std::ostream& operator<<(std::ostream& os, const FixedString<N>& str) {
         return os << str.value;
     }
 
-    // Free function: integer to FixedString<21> (uint64_t max = 20 digits + '\0').
+    // Free function: integer to FixedString<20> (uint64_t max = 20 digits).
     // Writes digits right-to-left, no reversal needed.
     template <typename T>
-    constexpr FixedString<21> to_fixed_string(T num) noexcept {
+    constexpr FixedString<20> to_fixed_string(T num) noexcept {
         constexpr int last = 19; // rightmost digit position (buf[20] = '\0')
 
         if (num == 0) {
             char result[21] = {};
             result[0] = '0';
-            return FixedString<21>(result);
+            return FixedString<20>(result);
         }
 
         bool negative = std::is_signed_v<T> && num < 0;
@@ -132,7 +140,7 @@ namespace typelayout {
         char result[21] = {};
         for (int i = 0; i < len; ++i)
             result[i] = buf[start + i];
-        return FixedString<21>(result);
+        return FixedString<20>(result);
     }
 
 } // namespace typelayout
