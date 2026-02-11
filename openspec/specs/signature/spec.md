@@ -466,3 +466,68 @@ type-signature library with no domain-specific knowledge.
 - **THEN** the result is a prioritized list of improvements with effort estimates
   and clear accept/reject rationale
 
+### Requirement: Design and Implementation Quality Review
+The TypeLayout library SHALL undergo periodic design and implementation review
+to identify architecture issues, code quality problems, API ergonomics gaps,
+performance bottlenecks, and test coverage deficiencies.
+
+#### Scenario: Comprehensive audit produces actionable findings
+- **WHEN** a full design and implementation review is conducted
+- **THEN** findings SHALL be categorized by dimension (architecture, code quality, API, performance, testing)
+- **AND** each finding SHALL include severity rating and recommended action
+
+### Requirement: Compile-Time Fixed-Size String
+The library SHALL provide a `FixedString<N>` type that supports compile-time
+string manipulation including concatenation, equality comparison, length
+computation, leading-character removal, stream output, and conversion to
+`std::string_view`.
+
+#### Scenario: Conversion to string_view
+- **WHEN** a `FixedString<N>` value exists
+- **THEN** it SHALL be implicitly convertible to `std::string_view`
+- **AND** the resulting `string_view` SHALL have the same length as `FixedString::length()`
+
+#### Scenario: Concatenation
+- **WHEN** two `FixedString` values are concatenated with `operator+`
+- **THEN** the result SHALL contain the characters of both operands in order
+
+#### Scenario: Equality comparison
+- **WHEN** two `FixedString` values are compared with `operator==`
+- **THEN** the result SHALL be `true` if and only if their logical content is identical
+- **AND** comparison SHALL work across different buffer sizes
+
+#### Scenario: Skip first character
+- **WHEN** `skip_first()` is called on a non-empty `FixedString`
+- **THEN** the result SHALL contain all characters except the first
+
+### Requirement: FixedString Unit Test Coverage
+The library SHALL have direct unit tests for all public `FixedString<N>`
+operations, independent of signature generation.
+
+#### Scenario: Constructor and length
+- **WHEN** a `FixedString` is constructed from a string literal
+- **THEN** `length()` SHALL return the number of non-null characters
+
+#### Scenario: Concatenation correctness
+- **WHEN** two `FixedString` values are concatenated
+- **THEN** the result SHALL contain both strings in sequence
+- **AND** `length()` SHALL equal the sum of both operand lengths
+
+#### Scenario: Cross-size equality
+- **WHEN** a `FixedString<10>` containing "abc" is compared with a `FixedString<100>` containing "abc"
+- **THEN** `operator==` SHALL return `true`
+
+#### Scenario: Empty string handling
+- **WHEN** a `FixedString` is default-constructed
+- **THEN** `length()` SHALL return 0
+- **AND** `skip_first()` SHALL return an empty string
+
+### Requirement: SigExporter Output Verification
+The library SHALL have tests verifying that `SigExporter::write()` produces
+compilable, structurally correct .sig.hpp files.
+
+#### Scenario: Exported signatures match runtime values
+- **WHEN** `SigExporter::write()` generates a .sig.hpp file
+- **THEN** the signature strings in the file SHALL match the values from
+  `get_layout_signature<T>()` and `get_definition_signature<T>()`
+

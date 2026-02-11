@@ -4,28 +4,12 @@
 // Distributed under the Boost Software License, Version 1.0.
 
 #include <boost/typelayout/typelayout.hpp>
+#include "test_util.hpp"
 #include <iostream>
 #include <cstdint>
 
 using namespace boost::typelayout;
-
-// Helper: compile-time substring search inside a FixedString.
-template <size_t N>
-consteval bool contains(const FixedString<N>& haystack, const char* needle) noexcept {
-    size_t nlen = 0;
-    while (needle[nlen] != '\0') ++nlen;
-    if (nlen == 0) return true;
-    size_t hlen = haystack.length();
-    if (nlen > hlen) return false;
-    for (size_t i = 0; i + nlen <= hlen; ++i) {
-        bool match = true;
-        for (size_t j = 0; j < nlen; ++j) {
-            if (haystack.value[i + j] != needle[j]) { match = false; break; }
-        }
-        if (match) return true;
-    }
-    return false;
-}
+using boost::typelayout::test::contains;
 
 namespace test_basic {
     struct Simple { int32_t x; double y; };

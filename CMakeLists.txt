@@ -41,6 +41,16 @@ target_link_libraries(test_opaque PRIVATE typelayout)
 add_test(NAME test_opaque COMMAND test_opaque)
 set_tests_properties(test_opaque PROPERTIES TIMEOUT 120 LABELS "core")
 
+add_executable(test_fixed_string test/test_fixed_string.cpp)
+target_link_libraries(test_fixed_string PRIVATE typelayout)
+add_test(NAME test_fixed_string COMMAND test_fixed_string)
+set_tests_properties(test_fixed_string PROPERTIES TIMEOUT 60 LABELS "core")
+
+add_executable(test_sig_export test/test_sig_export.cpp)
+target_link_libraries(test_sig_export PRIVATE typelayout)
+add_test(NAME test_sig_export COMMAND test_sig_export)
+set_tests_properties(test_sig_export PROPERTIES TIMEOUT 120 LABELS "tools")
+
 # Cross-platform compatibility CMake module
 include(cmake/TypeLayoutCompat.cmake)
 

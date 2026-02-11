@@ -11,6 +11,7 @@
 #include <boost/typelayout/typelayout.hpp>
 #include <boost/typelayout/tools/platform_detect.hpp>
 #include <boost/typelayout/tools/sig_types.hpp>
+#include <boost/typelayout/tools/detail/foreach.hpp>
 
 #include <string>
 #include <vector>
@@ -220,13 +221,29 @@ private:
 } // namespace typelayout
 } // namespace boost
 
-// Generates main() that exports signatures. Compile with P2996, run: ./a.out sigs/
-
-#include <boost/typelayout/tools/detail/foreach.hpp>
-
-
+// ---------------------------------------------------------------------------
+// TYPELAYOUT_REGISTER_TYPES(exporter, ...)
+//
+// Register types on an existing SigExporter instance. Does NOT generate main().
+// ---------------------------------------------------------------------------
 #define TYPELAYOUT_DETAIL_ADD_TYPE(T) ex.add<T>(#T);
 
+// NOTE: TYPELAYOUT_REGISTER_TYPES temporarily binds `exporter_var` to a
+// local reference named `ex` so that the TYPELAYOUT_DETAIL_ADD_TYPE helper
+// macro (shared with TYPELAYOUT_EXPORT_TYPES) resolves correctly.
+#define TYPELAYOUT_REGISTER_TYPES(exporter_var, ...)                    \
+    do {                                                                \
+        auto& ex = (exporter_var);                                      \
+        TYPELAYOUT_DETAIL_FOR_EACH(TYPELAYOUT_DETAIL_ADD_TYPE,          \
+                                   __VA_ARGS__)                         \
+    } while (0)
+
+// ---------------------------------------------------------------------------
+// TYPELAYOUT_EXPORT_TYPES(...)
+//
+// Convenience: generates main() that exports signatures.
+// Compile with P2996, run: ./a.out sigs/
+// ---------------------------------------------------------------------------
 #define TYPELAYOUT_EXPORT_TYPES(...)                                    \
     int main(int argc, char* argv[]) {                                  \
         ::boost::typelayout::SigExporter ex;                            \
