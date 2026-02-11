@@ -16,6 +16,8 @@ namespace typelayout {
     // N is the character count (excluding the null terminator), consistent
     // with C++ proposal P2484 (std::basic_fixed_string). The internal
     // buffer is N + 1 bytes to accommodate the null terminator.
+    //
+    // TODO(P2484): Replace with std::basic_fixed_string when standardized.
     // =========================================================================
 
     template <size_t N>

@@ -20,6 +20,7 @@ namespace typelayout {
 
     // Qualified name builder -- P2996 Bloomberg toolchain lacks
     // qualified_name_of, so we walk parent_of chains and join with "::".
+    // TODO(P2996): Replace with std::meta::qualified_name_of when available.
 
     template<std::meta::info R>
     consteval auto qualified_name_for() noexcept {

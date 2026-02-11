@@ -1,4 +1,6 @@
-// FOR_EACH(macro, ...) — up to 32 args. Used by sig_export.hpp and compat_auto.hpp.
+// FOR_EACH(macro, ...) -- up to 32 args. Used by sig_export.hpp and compat_auto.hpp.
+// TODO(P1306/P2996): Replace with template-based variadic API when C++26
+// pack indexing and reflection are stable (e.g., fold over type list).
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.

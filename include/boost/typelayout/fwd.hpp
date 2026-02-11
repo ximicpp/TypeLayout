@@ -19,6 +19,7 @@ namespace typelayout {
         Definition
     };
 
+    // TODO(P2593): Replace with std::always_false when available in C++26.
     template <typename...>
     struct always_false : std::false_type {};
 
