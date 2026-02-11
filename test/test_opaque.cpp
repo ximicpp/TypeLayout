@@ -243,7 +243,113 @@ static_assert(
 );
 
 // =========================================================================
-// Main — runtime confirmation
+// Part 5: Finding F5 -- Empty struct visibility
+// =========================================================================
+// An empty struct field contributes zero leaf nodes to the flat field list.
+// The outer record header (s:SIZE,a:ALIGN) still captures the total size,
+// so two records that differ only by an empty field will have different
+// size headers -- soundness is preserved.
+
+namespace f5_test {
+    struct Empty {};
+
+    struct WithEmpty {
+        int32_t x;
+        Empty e;          // occupies 1 byte (sizeof(Empty)==1), at some offset
+        int32_t y;
+    };
+
+    struct WithoutEmpty {
+        int32_t x;
+        int32_t y;
+    };
+}
+
+constexpr auto with_empty_layout =
+    TypeSignature<f5_test::WithEmpty, SignatureMode::Layout>::calculate();
+constexpr auto without_empty_layout =
+    TypeSignature<f5_test::WithoutEmpty, SignatureMode::Layout>::calculate();
+
+// 16. Empty field is invisible in the flat field list (conservative)
+// The flat fields inside {} should only contain i32 entries, no entry for Empty.
+// But the size headers differ: WithEmpty has sizeof >= 9 (padding may differ),
+// while WithoutEmpty has sizeof == 8.
+static_assert(
+    !(with_empty_layout == without_empty_layout),
+    "F5: records differing only by empty field must have different Layout signatures (size header differs)"
+);
+
+// =========================================================================
+// Part 6: Finding F6 -- [[no_unique_address]] behavior
+// =========================================================================
+// With [[no_unique_address]], an empty member may share its offset with
+// an adjacent member. The Layout engine reports what reflection sees.
+
+namespace f6_test {
+    struct Tag {};
+
+    struct WithNUA {
+        int32_t x;
+        [[no_unique_address]] Tag t;
+        int32_t y;
+    };
+
+    struct PlainTwoInt {
+        int32_t x;
+        int32_t y;
+    };
+}
+
+constexpr auto nua_layout =
+    TypeSignature<f6_test::WithNUA, SignatureMode::Layout>::calculate();
+constexpr auto plain_two_int_layout =
+    TypeSignature<f6_test::PlainTwoInt, SignatureMode::Layout>::calculate();
+
+// 17. With [[no_unique_address]], if the empty member is optimized away
+// (offset overlaps with next field), the record size may equal PlainTwoInt.
+// Whether signatures match depends on compiler EBO decisions.
+// We just verify both compile and produce valid signatures.
+static_assert(
+    nua_layout.length() > 0,
+    "F6: [[no_unique_address]] struct should produce a valid Layout signature"
+);
+static_assert(
+    plain_two_int_layout.length() > 0,
+    "F6: plain two-int struct should produce a valid Layout signature"
+);
+
+// =========================================================================
+// Part 7: Finding F8 -- long vs int64_t platform erasure
+// =========================================================================
+// On this platform, long and int64_t (or int32_t) should produce the
+// same Layout signature, since TypeLayout maps them to the same canonical
+// name based on sizeof.
+
+namespace f8_test {
+    struct WithLong {
+        long x;
+    };
+
+    // Pick the matching fixed-width type based on sizeof(long)
+    struct WithFixedWidth {
+        // sizeof(long)==8 -> int64_t, sizeof(long)==4 -> int32_t
+        std::conditional_t<sizeof(long) == 8, int64_t, int32_t> x;
+    };
+}
+
+constexpr auto long_layout =
+    TypeSignature<f8_test::WithLong, SignatureMode::Layout>::calculate();
+constexpr auto fixed_layout =
+    TypeSignature<f8_test::WithFixedWidth, SignatureMode::Layout>::calculate();
+
+// 18. long and its corresponding fixed-width type produce identical Layout signatures
+static_assert(
+    long_layout == fixed_layout,
+    "F8: long and matching fixed-width int should produce identical Layout signatures on same platform"
+);
+
+// =========================================================================
+// Main -- runtime confirmation
 // =========================================================================
 
 int main() {
@@ -254,6 +360,14 @@ int main() {
     std::cout << "XMap<i32,f64> Layout: " << xmap_sig.value << "\n";
     std::cout << "SharedBlock Layout:  " << block_layout.value << "\n";
 
-    std::cout << "\nAll static_assert tests passed at compile time.\n";
+    std::cout << "\n--- Finding Verification ---\n";
+    std::cout << "WithEmpty Layout:    " << with_empty_layout.value << "\n";
+    std::cout << "WithoutEmpty Layout: " << without_empty_layout.value << "\n";
+    std::cout << "NUA Layout:          " << nua_layout.value << "\n";
+    std::cout << "PlainTwoInt Layout:  " << plain_two_int_layout.value << "\n";
+    std::cout << "Long Layout:         " << long_layout.value << "\n";
+    std::cout << "FixedWidth Layout:   " << fixed_layout.value << "\n";
+
+    std::cout << "\nAll " << 18 << " static_assert tests passed at compile time.\n";
     return 0;
 }
