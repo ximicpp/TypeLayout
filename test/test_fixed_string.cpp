@@ -6,7 +6,7 @@
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
-#include <boost/typelayout/core/fwd.hpp>
+#include <boost/typelayout/fixed_string.hpp>
 #include <iostream>
 #include <string_view>
 #include <cstdint>

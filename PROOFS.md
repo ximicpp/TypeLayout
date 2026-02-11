@@ -16,7 +16,8 @@ and **Refinement Theory**.
   Definition layer strictly refines the Layout layer.
 
 All proofs reference the implementation in
-`include/boost/typelayout/core/signature_detail.hpp`.
+`include/boost/typelayout/detail/signature_impl.hpp` and
+`include/boost/typelayout/detail/type_map.hpp`.
 
 ---
 

@@ -6,7 +6,8 @@
 #ifndef BOOST_TYPELAYOUT_TEST_UTIL_HPP
 #define BOOST_TYPELAYOUT_TEST_UTIL_HPP
 
-#include <boost/typelayout/core/fwd.hpp>
+#include <boost/typelayout/fwd.hpp>
+#include <boost/typelayout/fixed_string.hpp>
 
 namespace boost {
 namespace typelayout {

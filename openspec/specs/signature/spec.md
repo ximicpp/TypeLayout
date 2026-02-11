@@ -541,17 +541,11 @@ The library SHALL organize headers following Boost conventions:
   dependency.
 - The signature engine, reflection helpers, and type specializations SHALL
   be in separate `detail/` headers.
-- Old `core/` headers SHALL remain as backward-compatibility shims.
 
 #### Scenario: FixedString in dedicated header
 - **WHEN** a user includes `boost/typelayout/fixed_string.hpp`
 - **THEN** `FixedString<N>` and `to_fixed_string()` SHALL be available
 - **AND** no P2996 reflection headers SHALL be included
-
-#### Scenario: Backward-compatible core includes
-- **WHEN** a user includes `boost/typelayout/core/fwd.hpp`
-- **THEN** `FixedString<N>` SHALL still be available via transitive include
-- **AND** existing code SHALL compile without modification
 
 #### Scenario: Signature engine modularity
 - **WHEN** a contributor modifies a TypeSignature specialization
@@ -572,6 +566,11 @@ The library SHALL organize headers following Boost conventions:
 - **WHEN** a user includes `boost/typelayout/signature.hpp`
 - **THEN** all detail headers SHALL be transitively included in the correct order
 - **AND** the compilation SHALL succeed without additional includes
+
+#### Scenario: Legacy core/ paths produce compile error
+- **WHEN** a user includes any header from the former `boost/typelayout/core/` path
+- **THEN** the compilation SHALL fail with a missing-header error
+- **AND** the `docs/migration-guide.md` SHALL document the replacement paths
 
 ### Requirement: FixedString Utility
 The library SHALL provide a `FixedString<N>` compile-time string type where
@@ -609,4 +608,24 @@ when standard equivalents become available.
 - **WHEN** a contributor reads a custom utility (e.g., `always_false`, `qualified_name_for`)
 - **THEN** a TODO comment SHALL reference the relevant C++ proposal number
 - **AND** the comment SHALL describe the replacement path
+
+### Requirement: Header Deprecation Notices
+The library SHALL emit deprecation warnings when users include headers from
+the legacy `core/` directory, directing them to the new root-level equivalents.
+
+#### Scenario: Deprecated core header triggers warning
+- **WHEN** a user includes `boost/typelayout/core/fwd.hpp`
+- **THEN** a compiler warning SHALL be emitted indicating the header is deprecated
+- **AND** the warning SHALL name the replacement header(s)
+
+### Requirement: Migration Documentation
+The library SHALL provide a migration guide documenting all breaking or
+structural changes, including header path changes, new macro APIs, and
+FixedString<N> semantic updates.
+
+#### Scenario: Migration guide covers header changes
+- **WHEN** a user reads `docs/migration-guide.md`
+- **THEN** every deprecated `core/` header SHALL be listed with its replacement
+- **AND** the TYPELAYOUT_REGISTER_TYPES macro SHALL be documented
+- **AND** the FixedString<N> semantic change SHALL be explained
 
