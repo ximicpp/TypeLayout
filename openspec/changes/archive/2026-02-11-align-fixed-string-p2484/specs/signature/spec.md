@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: FixedString Utility
 The library SHALL provide a `FixedString<N>` compile-time string type where
