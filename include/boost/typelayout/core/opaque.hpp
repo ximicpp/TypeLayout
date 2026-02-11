@@ -3,6 +3,19 @@
 // fixed-size/alignment descriptor (e.g., shared-memory containers whose
 // internals are implementation-defined).
 //
+// DESIGN NOTE — Opaque vs. Two-Layer Signatures:
+//   Opaque types produce the SAME signature in both Layout and Definition
+//   modes, because no internal structure is available to differentiate.
+//   This means opaque types act as an incomplete supplement to the Layout
+//   layer: they provide sizeof/alignof identity but NOT field-level identity.
+//
+//   Correctness boundary:
+//     - TypeLayout guarantees: sizeof and alignof match (via static_assert).
+//     - User guarantees: internal layout consistency across compilation units.
+//   The Encoding Faithfulness theorem (Thm 4.8) holds for opaque types
+//   only under the assumption that user-provided annotations are correct
+//   (Opaque Annotation Correctness axiom).
+//
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
@@ -25,6 +38,10 @@
 //   // generates: string[s:32,a:8]
 // ---------------------------------------------------------------------------
 #define TYPELAYOUT_OPAQUE_TYPE(Type, name, size, align)                        \
+    static_assert(sizeof(Type) == (size),                                       \
+        "TYPELAYOUT_OPAQUE_TYPE: size does not match sizeof(" #Type ")");       \
+    static_assert(alignof(Type) == (align),                                     \
+        "TYPELAYOUT_OPAQUE_TYPE: align does not match alignof(" #Type ")");     \
     template <::boost::typelayout::SignatureMode Mode_>                         \
     struct TypeSignature<Type, Mode_> {                                         \
         static consteval auto calculate() noexcept {                           \
@@ -51,6 +68,12 @@
     template <typename T_, ::boost::typelayout::SignatureMode Mode_>            \
     struct TypeSignature<Template<T_>, Mode_> {                                \
         static consteval auto calculate() noexcept {                           \
+            static_assert(sizeof(Template<T_>) == (size),                       \
+                "TYPELAYOUT_OPAQUE_CONTAINER: size does not match "             \
+                "sizeof(" #Template "<T>)");                                    \
+            static_assert(alignof(Template<T_>) == (align),                     \
+                "TYPELAYOUT_OPAQUE_CONTAINER: align does not match "            \
+                "alignof(" #Template "<T>)");                                   \
             return ::boost::typelayout::FixedString{                           \
                        name "[s:" #size ",a:" #align "]<"} +                   \
                    TypeSignature<T_, Mode_>::calculate() +                     \
@@ -77,6 +100,12 @@
               ::boost::typelayout::SignatureMode Mode_>                         \
     struct TypeSignature<Template<K_, V_>, Mode_> {                            \
         static consteval auto calculate() noexcept {                           \
+            static_assert(sizeof(Template<K_, V_>) == (size),                   \
+                "TYPELAYOUT_OPAQUE_MAP: size does not match "                   \
+                "sizeof(" #Template "<K,V>)");                                  \
+            static_assert(alignof(Template<K_, V_>) == (align),                 \
+                "TYPELAYOUT_OPAQUE_MAP: align does not match "                  \
+                "alignof(" #Template "<K,V>)");                                 \
             return ::boost::typelayout::FixedString{                           \
                        name "[s:" #size ",a:" #align "]<"} +                   \
                    TypeSignature<K_, Mode_>::calculate() +                     \

@@ -16,3 +16,7 @@ Use `@/openspec/AGENTS.md` to learn:
 Keep this managed block so 'openspec update' can refresh the instructions.
 
 <!-- OPENSPEC:END -->
+
+## Project Rules
+
+- **No emoji in code or documentation.** All source files, comments, commit messages, Markdown documents, and spec files must use plain text only. Use text markers like `[FIXED]`, `[TODO]`, `(!)` instead of emoji.

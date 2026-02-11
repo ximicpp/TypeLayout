@@ -58,6 +58,7 @@ type constructors:
 | Enum | enum *E* : *U* | `enum[s:S,a:A]<⟦U⟧_L>` |
 | Bit-field | width *W* | `@B.b:bits<W,⟦U⟧_L>` |
 | CV-qualified | const/volatile *T* | ⟦*T*⟧_L (erasure) |
+| Opaque | user-registered *T* | `name[s:S,a:A]` or `name[s:S,a:A]<⟦E⟧_L,...>` |
 
 **Definition 4.6 (Definition Denotation).** The Definition denotation
 ⟦·⟧_D : Types_P → Σ\* extends ⟦·⟧_L with:
@@ -72,10 +73,29 @@ the Definition grammar (§3.2.2) are unambiguous: every valid signature string
 has exactly one parse tree.
 
 *Proof sketch.* Both grammars are LL(1) after left-factoring two productions
-(`meta` → `metatail` and `field` → `fieldtail`). Since LL(1) grammars
-produce unique leftmost derivations, every string has a unique parse tree. ∎
+(`meta` → `metatail` and `field` → `fieldtail`).  The `opaque` production
+(`NAME meta ...`) is distinguished from `scalar` (`PREFIX meta`) by the
+disjointness of `NAME` and `PREFIX`: user-defined opaque names must not
+collide with any built-in prefix or grammar keyword (§3.2.1).  Under this
+constraint, the lookahead token uniquely determines the production, and the
+grammar remains LL(1).  Since LL(1) grammars produce unique leftmost
+derivations, every string has a unique parse tree. ∎
 
 ## 4.3 Core Theorems
+
+**Assumption 4.7a (Opaque Annotation Correctness).** For every type *T*
+registered via `TYPELAYOUT_OPAQUE_*` macros with parameters `(name, size,
+align)`, we assume:
+
+1. `sizeof(T) == size` and `alignof(T) == align` (enforced by `static_assert`
+   in the macro expansion).
+2. If two opaque types *T*, *U* produce the same opaque signature, their
+   internal memory layouts are identical (user responsibility; not
+   compiler-verifiable).
+
+Under this assumption, the Encoding Faithfulness and Soundness theorems
+extend to opaque types.  Without assumption (2), an opaque signature match
+guarantees only sizeof/alignof identity, not field-level byte compatibility.
 
 ### Theorem 4.8 (Encoding Faithfulness)
 

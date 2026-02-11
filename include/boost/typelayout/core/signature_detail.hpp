@@ -50,15 +50,17 @@ namespace typelayout {
     /// trivially portable across processes on the same architecture.
     /// Scoped enums (enum class) always have a fixed underlying type.
     /// Unscoped enums have a fixed type only when explicitly specified.
+    ///
+    /// NOTE: C++ provides no API to distinguish between an explicitly specified
+    /// underlying type (`enum E : int`) and a compiler-inferred one (`enum E {A}`).
+    /// std::underlying_type_t resolves to a concrete type in both cases.
+    /// This function therefore returns true for ALL enums with an integral
+    /// underlying type (excluding bool).  For unscoped enums without an explicit
+    /// underlying type, the result is a best-effort approximation — the user
+    /// should ensure that cross-platform enums use explicit `: type` specifiers.
     template <typename T>
     [[nodiscard]] consteval bool is_fixed_enum() noexcept {
         static_assert(std::is_enum_v<T>, "is_fixed_enum requires an enum type");
-        // All scoped enums have a fixed underlying type by definition.
-        // For unscoped enums, we check if the underlying type is one of
-        // the standard fixed-width integer types or a basic integral type.
-        // In practice, any enum with an explicit `: type` specifier will
-        // satisfy this — and the P2996 reflection toolchain always resolves
-        // the underlying type, so this is reliable.
         using U = std::underlying_type_t<T>;
         return std::is_integral_v<U> && !std::is_same_v<U, bool>;
     }

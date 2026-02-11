@@ -42,17 +42,26 @@ meta     ::= '[s:' NUM ',a:' NUM ']'
 fields   ::= ε | field (',' field)*
 field    ::= '@' NUM ':' typesig
            | '@' NUM '.' NUM ':bits<' NUM ',' typesig '>'
-typesig  ::= scalar | record | array | union | enum
+typesig  ::= scalar | record | array | union | enum | opaque
 scalar   ::= PREFIX meta
 array    ::= 'array' meta '<' typesig ',' NUM '>'
            | 'bytes[s:' NUM ',a:1]'
 union    ::= 'union' meta '{' fields '}'
 enum     ::= 'enum' meta '<' typesig '>'
+opaque   ::= NAME meta
+           | NAME meta '<' typesig (',' typesig)* '>'
 ```
 
-where `PREFIX ∈ {i8, u8, i16, u16, i32, u32, i64, u64, f32, f64, f80,
+where `PREFIX` is a closed set of built-in type prefixes:
+`PREFIX ∈ {i8, u8, i16, u16, i32, u32, i64, u64, f32, f64, f80,
 char, char8, char16, char32, wchar, bool, byte, nullptr, ptr, ref, rref,
 memptr, fnptr}`.
+
+`NAME` is a user-defined identifier registered via the `TYPELAYOUT_OPAQUE_*`
+macros (e.g., `"xstring"`, `"xvector"`, `"xmap"`).  `NAME` must not collide
+with any `PREFIX` or keyword (`record`, `array`, `bytes`, `union`, `enum`,
+`bits`).  The `opaque` production is mode-independent: it generates
+identical strings in both Layout and Definition modes.
 
 **Example.** A struct with a 32-bit integer and a 64-bit integer:
 
@@ -85,6 +94,11 @@ def_field   ::= '@' NUM '[' NAME ']:' def_typesig
 def_enum    ::= 'enum<' QNAME '>' meta '<' def_typesig '>'
 QNAME       ::= IDENT ('::' IDENT)*
 ```
+
+The `opaque` production from the Layout grammar (3.2.1) applies unchanged
+in Definition mode.  Because opaque types have no internal structure to
+differentiate, their signatures are mode-independent: `opaque` is shared
+between both grammars without modification.
 
 **Example.** The same `Message` struct:
 
@@ -233,6 +247,7 @@ layout C++ types:
 | Polymorphic types | `record[s:N,a:M,vptr]{...}` | `record[s:N,a:M,polymorphic]{...}` |
 | Unions | `union[s:N,a:M]{...}` | Field names in `[name]` |
 | Bit-fields | `@B.b:bits<W,type>` | `@B.b[name]:bits<W,type>` |
+| Opaque types | `name[s:N,a:M]` or `name[s:N,a:M]<T,...>` | (same, mode-independent) |
 
 ## 3.6 Public API
 
