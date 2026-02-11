@@ -44,6 +44,7 @@
         "TYPELAYOUT_OPAQUE_TYPE: align does not match alignof(" #Type ")");     \
     template <::boost::typelayout::SignatureMode Mode_>                         \
     struct TypeSignature<Type, Mode_> {                                         \
+        static constexpr bool is_opaque = true;                                \
         static consteval auto calculate() noexcept {                           \
             return ::boost::typelayout::FixedString{                           \
                 name "[s:" #size ",a:" #align "]"};                            \
@@ -67,6 +68,7 @@
 #define TYPELAYOUT_OPAQUE_CONTAINER(Template, name, size, align)               \
     template <typename T_, ::boost::typelayout::SignatureMode Mode_>            \
     struct TypeSignature<Template<T_>, Mode_> {                                \
+        static constexpr bool is_opaque = true;                                \
         static consteval auto calculate() noexcept {                           \
             static_assert(sizeof(Template<T_>) == (size),                       \
                 "TYPELAYOUT_OPAQUE_CONTAINER: size does not match "             \
@@ -99,6 +101,7 @@
     template <typename K_, typename V_,                                         \
               ::boost::typelayout::SignatureMode Mode_>                         \
     struct TypeSignature<Template<K_, V_>, Mode_> {                            \
+        static constexpr bool is_opaque = true;                                \
         static consteval auto calculate() noexcept {                           \
             static_assert(sizeof(Template<K_, V_>) == (size),                   \
                 "TYPELAYOUT_OPAQUE_MAP: size does not match "                   \

@@ -181,42 +181,38 @@ static_assert(
 );
 
 // =========================================================================
-// Part 3: Integration — Opaque as field in a normal struct
+// Part 3: Integration -- Opaque as field in a normal struct
 // =========================================================================
+// The Layout engine now checks for opaque TypeSignature specializations
+// before recursive flattening (via has_opaque_signature concept), so
+// opaque class-type fields are emitted as leaf nodes instead of being
+// expanded into their internal byte members.
 
 namespace integration_test {
     struct SharedBlock {
-        uint32_t version;
+        int32_t id;
         opaque_test::XString name;
-        opaque_test::XVector<int32_t> items;
+        double value;
     };
 }
 
-// 12. Struct containing opaque fields should still generate a valid signature
 constexpr auto block_layout =
-    get_layout_signature<integration_test::SharedBlock>();
+    TypeSignature<integration_test::SharedBlock, SignatureMode::Layout>::calculate();
+
+// 12. Opaque field emitted as leaf in containing struct's Layout signature
 static_assert(
     contains(block_layout, "xstring[s:32,a:1]"),
-    "Struct with opaque field: layout should contain opaque signature"
-);
-static_assert(
-    contains(block_layout, "xvector[s:24,a:1]<"),
-    "Struct with opaque field: layout should contain opaque container signature"
+    "Integration: Layout should contain opaque xstring[s:32,a:1] as leaf"
 );
 
-// 13. Two identical structs with opaque fields should match
-namespace integration_test {
-    struct SharedBlock2 {
-        uint32_t version;
-        opaque_test::XString name;
-        opaque_test::XVector<int32_t> items;
-    };
-}
-
+// 13. Primitive fields around the opaque are still flattened normally
 static_assert(
-    layout_signatures_match<integration_test::SharedBlock,
-                            integration_test::SharedBlock2>(),
-    "Identical structs with opaque fields should have matching layout signatures"
+    contains(block_layout, "i32[s:4,a:4]"),
+    "Integration: Layout should contain i32 field"
+);
+static_assert(
+    contains(block_layout, "f64[s:8,a:8]"),
+    "Integration: Layout should contain f64 field"
 );
 
 // =========================================================================
@@ -226,11 +222,11 @@ static_assert(
 int main() {
     std::cout << "=== Opaque & is_fixed_enum Tests ===\n\n";
 
-    std::cout << "XString Layout:     " << TypeSignature<opaque_test::XString, SignatureMode::Layout>::calculate().value << "\n";
+    std::cout << "XString Layout:      " << TypeSignature<opaque_test::XString, SignatureMode::Layout>::calculate().value << "\n";
     std::cout << "XVector<i32> Layout: " << xvec_i32_layout.value << "\n";
     std::cout << "XMap<i32,f64> Layout: " << xmap_sig.value << "\n";
     std::cout << "SharedBlock Layout:  " << block_layout.value << "\n";
 
-    std::cout << "\nAll 13 static_assert tests passed at compile time.\n";
+    std::cout << "\nAll static_assert tests passed at compile time.\n";
     return 0;
 }

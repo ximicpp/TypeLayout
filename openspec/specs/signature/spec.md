@@ -64,35 +64,23 @@ The library SHALL provide compile-time signature comparison functions.
 - **THEN** the result SHALL be true if and only if their Definition signatures are identical
 
 ### Requirement: Layout Signature Flattening
-The Layout layer SHALL flatten all structural hierarchy to pure byte identity.
+The Layout engine SHALL recursively flatten non-opaque class-type fields
+into a single offset-indexed list. However, when a class-type field has a
+TypeSignature specialization with `is_opaque == true`, the engine MUST treat
+it as a leaf node and emit the opaque signature directly at the field's offset
+rather than descending into the type's data members and base classes.
+
+#### Scenario: Normal class flattening
+- **WHEN** a struct contains a field of a non-opaque class type
+- **THEN** the Layout engine recursively flattens it into offset-indexed entries
+
+#### Scenario: Opaque type as struct field
+- **WHEN** a struct contains a field of an opaque-registered class type
+- **THEN** the Layout signature includes the opaque descriptor (e.g., `xstring[s:32,a:1]`) as a leaf node at the correct offset
 
 #### Scenario: Inheritance flattening
-- **GIVEN** `struct Base { int32_t x; }; struct Derived : Base { double y; };`
-- **AND** `struct Flat { int32_t x; double y; };`
-- **WHEN** Layout signatures are compared
-- **THEN** `layout_signatures_match<Derived, Flat>()` SHALL return true
-
-#### Scenario: Multi-level inheritance flattening
-- **GIVEN** `A { int x; }; B : A { int y; }; C : B { int z; };`
-- **AND** `Flat { int x; int y; int z; };`
-- **WHEN** Layout signatures are compared
-- **THEN** `layout_signatures_match<C, Flat>()` SHALL return true
-
-#### Scenario: Composition flattening
-- **GIVEN** `struct Inner { int a; int b; }; struct Composed { Inner x; };`
-- **AND** `struct Flat { int a; int b; };`
-- **WHEN** Layout signatures are compared
-- **THEN** `layout_signatures_match<Composed, Flat>()` SHALL return true
-
-#### Scenario: Virtual base inclusion
-- **GIVEN** a type with virtual base classes
-- **WHEN** Layout signature is generated
-- **THEN** virtual base class fields SHALL be included at their correct offsets
-
-#### Scenario: Union members not flattened
-- **GIVEN** `struct Inner { int a; int b; }; union U { Inner x; double y; };`
-- **WHEN** Layout signature is generated
-- **THEN** union member `x` SHALL appear as its complete type signature (e.g., `record[s:8,a:4]{...}`) rather than being recursively flattened into individual fields
+- **WHEN** a derived class has base classes
+- **THEN** base class members are flattened into the derived class layout at their actual offsets
 
 ### Requirement: Polymorphic Type Safety
 The library SHALL distinguish polymorphic from non-polymorphic types in Layout signatures.
@@ -452,4 +440,18 @@ The library SHALL provide a compile-time function `is_fixed_enum<T>()` that dete
 - **GIVEN** a non-enum type T
 - **WHEN** `is_fixed_enum<T>()` is instantiated
 - **THEN** compilation SHALL fail with a static_assert message
+
+### Requirement: Opaque Signature Detection
+The signature engine SHALL provide a compile-time concept `has_opaque_signature<T, Mode>`
+that evaluates to true if and only if `TypeSignature<T, Mode>::is_opaque` exists and is true.
+All TYPELAYOUT_OPAQUE_* macro expansions MUST define `static constexpr bool is_opaque = true`
+in the generated TypeSignature specialization.
+
+#### Scenario: Detection of opaque types
+- **WHEN** a type is registered via TYPELAYOUT_OPAQUE_TYPE, TYPELAYOUT_OPAQUE_CONTAINER, or TYPELAYOUT_OPAQUE_MAP
+- **THEN** `has_opaque_signature<Type, SignatureMode::Layout>` evaluates to true
+
+#### Scenario: Non-opaque types
+- **WHEN** a type has no opaque registration
+- **THEN** `has_opaque_signature<Type, SignatureMode::Layout>` evaluates to false
 
