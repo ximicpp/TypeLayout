@@ -216,6 +216,33 @@ static_assert(
 );
 
 // =========================================================================
+// Part 4: Opaque base class handling (F4 fix)
+// =========================================================================
+// The Layout engine must also respect opaque types used as base classes,
+// emitting them as leaf nodes instead of flattening their internals.
+
+namespace opaque_base_test {
+    struct DerivedFromOpaque : opaque_test::XString {
+        int32_t extra;
+    };
+}
+
+constexpr auto derived_opaque_layout =
+    TypeSignature<opaque_base_test::DerivedFromOpaque, SignatureMode::Layout>::calculate();
+
+// 14. Opaque base class emitted as leaf in Layout signature
+static_assert(
+    contains(derived_opaque_layout, "xstring[s:32,a:1]"),
+    "F4 fix: opaque base class should appear as xstring[s:32,a:1] leaf"
+);
+
+// 15. Derived class's own field still present
+static_assert(
+    contains(derived_opaque_layout, "i32[s:4,a:4]"),
+    "F4 fix: derived class direct field should still appear"
+);
+
+// =========================================================================
 // Main — runtime confirmation
 // =========================================================================
 

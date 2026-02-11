@@ -255,7 +255,15 @@ namespace typelayout {
         using namespace std::meta;
         constexpr auto base_info = bases_of(^^T, access_context::unchecked())[BaseIndex];
         using BaseType = [:type_of(base_info):];
-        return layout_all_prefixed<BaseType, offset_of(base_info).bytes + OffsetAdj>();
+        if constexpr (has_opaque_signature<BaseType, SignatureMode::Layout>) {
+            // Opaque base: emit as leaf node at base offset, not flattened.
+            return FixedString{",@"} +
+                   to_fixed_string(offset_of(base_info).bytes + OffsetAdj) +
+                   FixedString{":"} +
+                   TypeSignature<BaseType, SignatureMode::Layout>::calculate();
+        } else {
+            return layout_all_prefixed<BaseType, offset_of(base_info).bytes + OffsetAdj>();
+        }
     }
 
     template <typename T, std::size_t OffsetAdj, std::size_t... Is>
