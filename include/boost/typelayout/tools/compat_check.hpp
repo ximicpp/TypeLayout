@@ -279,7 +279,14 @@ public:
             os << "  Needs serialization:        " << (total - layout_compatible)
                << "/" << total << "\n";
         }
-        os << std::string(72, '=') << "\n";
+        os << std::string(72, '=') << "\n\n";
+
+        // Assumptions that underlie the safety classification
+        os << "  Assumptions:\n";
+        os << "  - IEEE 754 floating point on all compared platforms\n";
+        os << "  - Identical struct packing / alignment rules\n";
+        os << "  - Fixed-width integers have the same representation\n";
+        os << "  - Enums with explicit underlying types are stable\n\n";
     }
 
 private:
