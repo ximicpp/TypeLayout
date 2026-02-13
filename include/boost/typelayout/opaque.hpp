@@ -118,4 +118,101 @@
         }                                                                      \
     };
 
+// ===========================================================================
+// Auto-deducing variants — TYPELAYOUT_OPAQUE_*_AUTO
+//
+// These macros deduce sizeof/alignof from the type itself, eliminating the
+// need for the caller to provide numeric size/align literals.
+//
+// They use to_fixed_string() (from fixed_string.hpp) to convert the
+// compile-time sizeof/alignof values into FixedString characters inside
+// the consteval calculate() body, avoiding the preprocessor # operator
+// which would stringify the expression text rather than its value.
+//
+// The original TYPELAYOUT_OPAQUE_* macros are preserved for backward
+// compatibility and for cases where the caller wants to assert a specific
+// size/align value.
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// TYPELAYOUT_OPAQUE_TYPE_AUTO(Type, name)
+//
+// Like TYPELAYOUT_OPAQUE_TYPE but deduces size/align from sizeof/alignof.
+//   Type  -- fully qualified type name
+//   name  -- short display name
+//
+// Example:
+//   TYPELAYOUT_OPAQUE_TYPE_AUTO(MyLib::XString, "string")
+//   // generates: string[s:32,a:8]  (assuming sizeof=32, alignof=8)
+// ---------------------------------------------------------------------------
+#define TYPELAYOUT_OPAQUE_TYPE_AUTO(Type, name)                                \
+    template <::boost::typelayout::SignatureMode Mode_>                         \
+    struct TypeSignature<Type, Mode_> {                                         \
+        static constexpr bool is_opaque = true;                                \
+        static consteval auto calculate() noexcept {                           \
+            return ::boost::typelayout::FixedString{name "[s:"} +              \
+                   ::boost::typelayout::to_fixed_string(sizeof(Type)) +        \
+                   ::boost::typelayout::FixedString{",a:"} +                   \
+                   ::boost::typelayout::to_fixed_string(alignof(Type)) +       \
+                   ::boost::typelayout::FixedString{"]"};                      \
+        }                                                                      \
+    };
+
+// ---------------------------------------------------------------------------
+// TYPELAYOUT_OPAQUE_CONTAINER_AUTO(Template, name)
+//
+// Like TYPELAYOUT_OPAQUE_CONTAINER but deduces size/align automatically.
+// Uses sizeof/alignof(Template<T_>) inside the consteval body.
+//
+// Example:
+//   TYPELAYOUT_OPAQUE_CONTAINER_AUTO(MyLib::XVector, "vector")
+//   // generates: vector[s:32,a:8]<element_signature>
+// ---------------------------------------------------------------------------
+#define TYPELAYOUT_OPAQUE_CONTAINER_AUTO(Template, name)                       \
+    template <typename T_, ::boost::typelayout::SignatureMode Mode_>            \
+    struct TypeSignature<Template<T_>, Mode_> {                                \
+        static constexpr bool is_opaque = true;                                \
+        static consteval auto calculate() noexcept {                           \
+            return ::boost::typelayout::FixedString{name "[s:"} +              \
+                   ::boost::typelayout::to_fixed_string(                       \
+                       sizeof(Template<T_>)) +                                 \
+                   ::boost::typelayout::FixedString{",a:"} +                   \
+                   ::boost::typelayout::to_fixed_string(                       \
+                       alignof(Template<T_>)) +                                \
+                   ::boost::typelayout::FixedString{"]<"} +                    \
+                   TypeSignature<T_, Mode_>::calculate() +                     \
+                   ::boost::typelayout::FixedString{">"};                      \
+        }                                                                      \
+    };
+
+// ---------------------------------------------------------------------------
+// TYPELAYOUT_OPAQUE_MAP_AUTO(Template, name)
+//
+// Like TYPELAYOUT_OPAQUE_MAP but deduces size/align automatically.
+// Uses sizeof/alignof(Template<K_, V_>) inside the consteval body.
+//
+// Example:
+//   TYPELAYOUT_OPAQUE_MAP_AUTO(MyLib::XMap, "map")
+//   // generates: map[s:32,a:8]<key_signature,value_signature>
+// ---------------------------------------------------------------------------
+#define TYPELAYOUT_OPAQUE_MAP_AUTO(Template, name)                             \
+    template <typename K_, typename V_,                                         \
+              ::boost::typelayout::SignatureMode Mode_>                         \
+    struct TypeSignature<Template<K_, V_>, Mode_> {                            \
+        static constexpr bool is_opaque = true;                                \
+        static consteval auto calculate() noexcept {                           \
+            return ::boost::typelayout::FixedString{name "[s:"} +              \
+                   ::boost::typelayout::to_fixed_string(                       \
+                       sizeof(Template<K_, V_>)) +                             \
+                   ::boost::typelayout::FixedString{",a:"} +                   \
+                   ::boost::typelayout::to_fixed_string(                       \
+                       alignof(Template<K_, V_>)) +                            \
+                   ::boost::typelayout::FixedString{"]<"} +                    \
+                   TypeSignature<K_, Mode_>::calculate() +                     \
+                   ::boost::typelayout::FixedString{","} +                     \
+                   TypeSignature<V_, Mode_>::calculate() +                     \
+                   ::boost::typelayout::FixedString{">"};                      \
+        }                                                                      \
+    };
+
 #endif // BOOST_TYPELAYOUT_OPAQUE_HPP
