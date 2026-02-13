@@ -15,15 +15,81 @@ and **Refinement Theory**.
   (Definition ⊑ Layout) is modeled as an *observational refinement*, where the
   Definition layer strictly refines the Layout layer.
 
+**Document Architecture.** The proof document follows a *Layered Denotational*
+structure with seven sections, each building on the previous:
+
+| Section | Title | Role |
+|---------|-------|------|
+| S1 | Type Domain & Semantic Objects | WHAT we model |
+| S2 | Encoding: Signatures as Strings | HOW we encode (denotation functions + grammar) |
+| S3 | Encoding Properties | WHY the encoding is correct (faithfulness) |
+| S4 | Safety Theorems | WHAT guarantees users get (soundness, conservativeness) |
+| S5 | Refinement | HOW the two layers relate (projection, strict refinement) |
+| S6 | Structural Verification | PER-CATEGORY correctness (offsets, 8 type constructors) |
+| S7 | Summary & Reference | Index, classification, assumptions |
+
 All proofs reference the implementation in
 `include/boost/typelayout/detail/signature_impl.hpp` and
 `include/boost/typelayout/detail/type_map.hpp`.
 
 ---
 
-## §1 Type Domain (类型域)
+## S1 Type Domain & Semantic Objects (类型域与语义对象)
 
-### Definition 1.1 (Platform)
+### Definition 1.1 (Type Domain)
+
+For a platform P, the **type domain** Types_P is the set of all complete C++
+types that the signature function can process. Formally:
+
+    Types_P = { T | T is a complete C++ type } \ Excluded_P
+
+where
+
+    Excluded_P = { void }
+               ∪ { T[] | T is any type }               -- unbounded arrays
+               ∪ { R(Args...) | function types }        -- bare function types (not pointers)
+
+The type domain is partitioned into two subsets:
+
+    Types_P = Reflectable_P ∪ Opaque_P
+
+where:
+- **Reflectable_P**: Types whose internal structure is available via P2996 reflection
+  (primitives, records, arrays, unions, enums, pointers, references, bit-fields).
+- **Opaque_P**: Types registered via `TYPELAYOUT_OPAQUE_*` macros, whose internal
+  structure is replaced by a user-provided annotation.
+
+A predicate `opaque : Types_P → {true, false}` is defined as:
+
+    opaque(T) = true   iff TypeSignature<T, Mode>::is_opaque exists and is true
+    opaque(T) = false   otherwise
+
+All theorems in this document apply to Reflectable_P unless explicitly stated.
+When opaque types are involved, the Opaque Annotation Correctness axiom (below)
+is required.
+
+**Note on standard integer aliases.** The C++ standard does not require that
+`int` and `int32_t` be the same type, but on most platforms they are. The
+implementation uses `requires (!std::is_same_v<T, U>)` constraints to provide
+specializations for `long`, `long long`, `signed char`, etc., only when they are
+distinct from the corresponding fixed-width types. This deduplication mechanism
+ensures that each concrete type has exactly one active TypeSignature specialization.
+
+### Axiom 1.2 (Opaque Annotation Correctness)
+
+For any opaque type T in Opaque_P with user-provided annotation (name, size, align):
+
+    sizeof(T) = size ∧ alignof(T) = align     (enforced by static_assert)
+
+Under this axiom, the signature of T encodes its sizeof and alignof correctly,
+but does NOT encode its internal field structure. Consequently:
+- The `decode` function for opaque signatures can recover (size, align) but NOT
+  `fields_P(T)`.
+- Two distinct opaque types with the same annotation produce identical signatures
+  even if their internal layouts differ -- this is the user's responsibility.
+- Opaque types produce the SAME signature in Layout and Definition modes.
+
+### Definition 1.3 (Platform)
 
 A platform P is a triple:
 
@@ -36,7 +102,7 @@ architecture prefix:
     arch(w, le) = str(w) ++ "-le"      e.g., "64-le"
     arch(w, be) = str(w) ++ "-be"      e.g., "32-be"
 
-### Definition 1.2 (Primitive Type Signature)
+### Definition 1.4 (Primitive Type Signature)
 
 For a fixed platform P, the primitive type signature function σ : PrimitiveTypes → Σ*
 is defined as:
@@ -73,8 +139,11 @@ is defined as:
     σ(T&)        = "ref[s:" ++ str(w/8) ++ ",a:" ++ str(w/8) ++ "]"
     σ(T&&)       = "rref[s:" ++ str(w/8) ++ ",a:" ++ str(w/8) ++ "]"
     σ(T C::*)    = "memptr[s:" ++ str(sizeof_P(T C::*)) ++ ",a:" ++ str(alignof_P(T C::*)) ++ "]"
-    -- Function pointers
-    σ(R(*)(Args...))  = "fnptr[s:" ++ str(sizeof_P(...)) ++ ",a:" ++ str(alignof_P(...)) ++ "]"
+    -- Function pointers (all variants produce the same signature)
+    σ(R(*)(Args...))            = "fnptr[s:" ++ str(sizeof_P(...)) ++ ",a:" ++ str(alignof_P(...)) ++ "]"
+    σ(R(*)(Args...) noexcept)   = σ(R(*)(Args...))      -- noexcept is not encoded
+    σ(R(*)(Args..., ...))       = σ(R(*)(Args...))      -- C variadic is not encoded
+    σ(R(*)(Args..., ...) noexcept) = σ(R(*)(Args...))   -- combination of both
 
 where sizeof_P and alignof_P are the sizeof and alignof values on platform P.
 
@@ -83,7 +152,7 @@ Note on type aliases: When two C++ type names refer to the same underlying type
 `requires (!std::is_same_v<...>)` constraints to ensure only one specialization
 is active. Therefore σ is well-defined (no duplicate definitions for the same type).
 
-**Property 1.2.1 (Primitive injectivity).**
+**Property 1.4.1 (Primitive injectivity).**
 For any two primitive types τ₁, τ₂:
 
     σ(τ₁) = σ(τ₂) ⟹ sizeof_P(τ₁) = sizeof_P(τ₂) ∧ alignof_P(τ₁) = alignof_P(τ₂) ∧ kind(τ₁) = kind(τ₂)
@@ -91,10 +160,10 @@ For any two primitive types τ₁, τ₂:
 where kind is the type kind identifier (i/u/f/char/bool/ptr/...).
 
 *Proof:* The signature prefix (i8/u8/f32/ptr/...) uniquely identifies the type kind,
-and `[s:N,a:M]` uniquely identifies size and alignment. By Lemma 1.8.1 (grammar
+and `[s:N,a:M]` uniquely identifies size and alignment. By Lemma 2.3.1 (grammar
 unambiguity), the combination of prefix + size + alignment is injective. ∎
 
-### Definition 1.3 (Leaf Field Sequence)
+### Definition 1.5 (Leaf Field Sequence)
 
 The leaf field sequence of type T on platform P is defined as:
 
@@ -105,23 +174,33 @@ where flatten is recursively defined as:
     flatten(T, adj) =
       let bases = bases_of(T) in
       let members = nonstatic_data_members_of(T) in
-      concat([flatten(base_type(b), offset_of(b) + adj) | b ∈ bases])
+      concat([
+        if opaque(base_type(b))
+          then [(offset_of(b) + adj, ⟦base_type(b)⟧_L)]    -- opaque base: leaf node
+          else flatten(base_type(b), offset_of(b) + adj)     -- reflectable base: recurse
+        | b ∈ bases
+      ])
       ++
       concat([
         if is_bit_field(m)
           then [(offset_of(m).bytes + adj, offset_of(m).bits, bit_size_of(m), ⟦type(m)⟧_L)]
-        else if is_class(type(m)) ∧ ¬is_union(type(m))
-          then flatten(type(m), offset_of(m) + adj)
-          else [(offset_of(m) + adj, ⟦type(m)⟧_L)]
+        else if is_class(type(m)) ∧ ¬is_union(type(m)) ∧ ¬opaque(type(m))
+          then flatten(type(m), offset_of(m) + adj)          -- reflectable class: recurse
+          else [(offset_of(m) + adj, ⟦type(m)⟧_L)]          -- leaf: primitive, union, enum, opaque, etc.
         | m ∈ members
       ])
 
-Note: The else branch uses the full signature function ⟦·⟧_L (not just σ), because
-leaf fields may be arrays, enums, unions, or other non-class types. Union members
-are NOT flattened; they are preserved as atomic signatures. Bit-fields produce
-extended tuples containing bit offset and bit width.
+Note: The `opaque(T)` predicate (Definition 1.1) short-circuits flattening for both
+base classes and fields. This matches the implementation in `signature_impl.hpp` where
+`has_opaque_signature<T, Mode>` causes the Layout engine to emit the opaque signature
+as a leaf node instead of recursing into the type's members.
 
-### Definition 1.4 (Byte Layout)
+The else branch uses the full signature function ⟦·⟧_L (not just σ), because
+leaf fields may be arrays, enums, unions, opaque types, or other non-class types.
+Union members are NOT flattened; they are preserved as atomic signatures.
+Bit-fields produce extended tuples containing bit offset and bit width.
+
+### Definition 1.6 (Byte Layout)
 
 For type T on platform P:
 
@@ -135,7 +214,7 @@ where:
 
 The list is ordered — field order affects the signature. This is a sequence, not a set.
 
-### Definition 1.5 (Structure Tree)
+### Definition 1.7 (Structure Tree)
 
 For type T on platform P:
 
@@ -145,7 +224,7 @@ where:
 - bases_P(T) ∈ (Σ* × {base, vbase} × D_P(·))* — (qualified name, virtual/non-virtual, recursive structure)
 - named_fields_P(T) ∈ (ℕ × Σ* × Σ*)* — (offset, field name, type signature)
 
-### Definition 1.6 (CV-Qualification Erasure)
+### Definition 1.8 (CV-Qualification Erasure)
 
 The signature functions erase const and volatile qualifiers:
 
@@ -156,7 +235,7 @@ The signature functions erase const and volatile qualifiers:
 The same applies to ⟦·⟧_D. This is correct because CV qualifiers do not affect
 memory layout (C++ [basic.type.qualifier]).
 
-### Definition 1.7 (memcmp-compatibility)
+### Definition 1.9 (memcmp-compatibility)
 
 Two types T, U are memcmp-compatible, written T ≅_mem U, if and only if:
 
@@ -165,104 +244,11 @@ Two types T, U are memcmp-compatible, written T ≅_mem U, if and only if:
 That is: same size, same alignment, same polymorphism status, and identical
 leaf field sequences (same count, same offsets, same types, same order).
 
-### 1.8 Signature Grammar
-
-The Layout signature follows a deterministic grammar (simplified):
-
-    sig      ::= arch record
-    arch     ::= '[' BITS '-' ENDIAN ']'
-    record   ::= 'record' meta '{' fields '}'
-    meta     ::= '[s:' NUM ',a:' NUM ']'
-               | '[s:' NUM ',a:' NUM ',vptr]'
-    fields   ::= ε | field (',' field)*
-    field    ::= '@' NUM ':' typesig
-    typesig  ::= scalar | record | array | union | enum | bits
-    scalar   ::= ('i8'|'u8'|'i16'|...|'ptr'|'fnptr'|...) meta
-    array    ::= 'array' meta '<' typesig ',' NUM '>'
-               | 'bytes[s:' NUM ',a:1]'
-    union    ::= 'union' meta '{' fields '}'
-    enum     ::= 'enum' meta '<' typesig '>'
-    bits     ::= '@' NUM '.' NUM ':bits<' NUM ',' typesig '>'
-
-**Lemma 1.8.1 (Grammar unambiguity).** The grammar is unambiguous: each valid signature
-string has exactly one parse tree.
-
-*Proof sketch (LL(1) argument):* A grammar is LL(1) if, for every non-terminal with
-multiple productions, the FIRST sets of those productions are pairwise disjoint. We
-verify this for every decision point in the grammar:
-
-| Non-terminal | Productions | FIRST sets |
-|---|---|---|
-| `typesig` | `scalar \| record \| array \| union \| enum \| bits` | `{i,u,f,char*,bool,byte,nullptr,ptr,ref,rref,memptr,fnptr}`, `{record}`, `{array,bytes}`, `{union}`, `{enum}`, `{@…·…}` |
-| `scalar` | `i8 \| u8 \| i16 \| ... \| ptr \| fnptr \| ...` | Each prefix is a distinct string literal |
-| `array` | `array... \| bytes...` | `{array}`, `{bytes}` |
-| `meta` | `[s:N,a:N] \| [s:N,a:N,vptr]` | Both start with `[s:`, but `vptr` vs `]` after the second `NUM` is decided by lookahead on a fixed delimiter — resolved as LL(2) or equivalently by a single-token lookahead after parsing `a:NUM` |
-| `field` | `@NUM:typesig \| @NUM.NUM:bits<...>` | Both start with `@NUM`, but `.` vs `:` at the next character distinguishes them (LL(2), or factored as `field → '@' NUM fieldtail`) |
-
-Strictly, two productions (`meta` and `field`) require LL(2) lookahead. However, both
-can be left-factored into LL(1) form:
-
-    field    → '@' NUM fieldtail
-    fieldtail → ':' typesig | '.' NUM ':bits<' NUM ',' typesig '>'
-    meta     → '[s:' NUM ',a:' NUM metatail
-    metatail → ']' | ',vptr]'
-
-After left-factoring, FIRST sets at every decision point are pairwise disjoint.
-Therefore the grammar is LL(1)-parsable, which implies:
-
-1. **Deterministic parsing:** A recursive-descent parser with one-token lookahead
-   uniquely determines the production at every step.
-2. **Unique parse tree:** Every valid string has exactly one derivation.
-3. **Injectivity on strings:** Different underlying data produces different strings,
-   and equal strings can only arise from equal data.
-
-Additional structural properties that support unambiguity:
-- Delimiters `{`, `}`, `[`, `]`, `<`, `>` are balanced and nested only via recursion
-  through `typesig` (no cross-production nesting)
-- Numeric values (offsets, sizes) are separated by fixed punctuation (`:`, `,`, `@`)
-- The `@` prefix uniquely identifies field offset entries within `{...}` blocks
-
-### 1.9 Definition Signature Grammar
-
-The Definition signature extends the Layout grammar (§1.8) with additional productions
-for field names, inheritance hierarchy, polymorphic markers, and qualified enum names:
-
-    def_sig    ::= arch def_record
-    def_record ::= 'record' def_meta '{' def_content '}'
-    def_meta   ::= '[s:' NUM ',a:' NUM ']'
-                 | '[s:' NUM ',a:' NUM ',polymorphic]'
-    def_content ::= ε | def_entry (',' def_entry)*
-    def_entry  ::= def_base | def_field
-    def_base   ::= '~base<' QNAME '>:' def_typesig
-                 | '~vbase<' QNAME '>:' def_typesig
-    def_field  ::= '@' NUM '[' NAME ']:'  def_typesig
-                 | '@' NUM '.' NUM '[' NAME ']:bits<' NUM ',' def_typesig '>'
-    def_typesig ::= scalar | def_record | def_array | def_union | def_enum | def_bits
-    def_array  ::= array                           -- same as Layout
-    def_union  ::= 'union' meta '{' def_fields '}' -- fields have names
-    def_fields ::= ε | def_field (',' def_field)*
-    def_enum   ::= 'enum<' QNAME '>' meta '<' def_typesig '>'
-    QNAME      ::= IDENT ('::' IDENT)*
-    NAME       ::= IDENT | '<anon:' NUM '>'
-
-**Lemma 1.9.1 (Definition grammar unambiguity).** The Definition grammar is also
-unambiguous. The proof follows the same LL(1) argument as Lemma 1.8.1, with these
-additional observations:
-
-- `def_entry` is disambiguated by its prefix: `~` for bases (then `base<` vs `vbase<`),
-  `@` for fields — disjoint FIRST sets
-- `def_meta` uses `polymorphic` vs `]` after `a:NUM`, same left-factoring as `meta`
-- `def_enum` has prefix `enum<` followed by a qualified name, whereas Layout's `enum`
-  has `enum[` — the `<` vs `[` character after `enum` uniquely distinguishes them
-- `NAME` is enclosed in `[...]` brackets and `QNAME` is enclosed in `<...>` delimiters,
-  both with unique surrounding punctuation that prevents ambiguity with other productions
-- All other productions are identical to the Layout grammar
-
-Therefore the Definition signature also has a unique parse tree for every valid string. ∎
 
 ---
 
-## §2 Signature Denotation (签名指称)
+## S2 Encoding: Signatures as Strings (签名编码)
+
 
 ### Definition 2.1 (Layout Denotation — Complete)
 
@@ -297,6 +283,12 @@ function* in the Scott-Strachey sense.
         else "array[s:" ++ str(sizeof_P(T[N])) ++ ",a:" ++ str(alignof_P(T[N])) ++
              "]<" ++ ⟦T⟧_L ++ "," ++ str(N) ++ ">"
 
+where `is_byte_element(T)` is true iff T is one of the 7 byte-sized types:
+`char`, `signed char`, `unsigned char`, `int8_t`, `uint8_t`, `std::byte`, `char8_t`.
+This normalization ensures that `char[N]`, `uint8_t[N]`, and `std::byte[N]` all
+produce the same `bytes[s:N,a:1]` signature, reflecting their identical memory
+representation.
+
 **Case 5: Union type**
 
     ⟦T⟧_L =
@@ -311,7 +303,7 @@ function* in the Scott-Strachey sense.
 
     ⟦bf⟧_L = "@" ++ str(byte_off) ++ "." ++ str(bit_off) ++ ":bits<" ++ str(width) ++ "," ++ ⟦underlying⟧_L ++ ">"
 
-**Case 8: CV-qualified type** — see Definition 1.6 (erasure).
+**Case 8: CV-qualified type** — see Definition 1.8 (erasure).
 
 For top-level structs, the full signature includes the architecture prefix:
 
@@ -376,9 +368,105 @@ Both denotation functions directly correspond to the implementation in
 | bases_of(T) | `std::meta::bases_of(^^T, ...)` | P2996 intrinsic |
 | qualified_name | `qualified_name_for<>()` | `std::meta::identifier_of` + `parent_of` |
 
+
+### 2.3 Layout Signature Grammar
+
+The Layout signature follows a deterministic grammar (simplified):
+
+    sig      ::= arch record
+    arch     ::= '[' BITS '-' ENDIAN ']'
+    record   ::= 'record' meta '{' fields '}'
+    meta     ::= '[s:' NUM ',a:' NUM ']'
+               | '[s:' NUM ',a:' NUM ',vptr]'
+    fields   ::= ε | field (',' field)*
+    field    ::= '@' NUM ':' typesig
+    typesig  ::= scalar | record | array | union | enum | bits
+    scalar   ::= ('i8'|'u8'|'i16'|...|'ptr'|'fnptr'|...) meta
+    array    ::= 'array' meta '<' typesig ',' NUM '>'
+               | 'bytes[s:' NUM ',a:1]'
+    union    ::= 'union' meta '{' fields '}'
+    enum     ::= 'enum' meta '<' typesig '>'
+    bits     ::= '@' NUM '.' NUM ':bits<' NUM ',' typesig '>'
+
+**Lemma 2.3.1 (Grammar unambiguity).** The grammar is unambiguous: each valid signature
+string has exactly one parse tree.
+
+*Proof sketch (LL(1) argument):* A grammar is LL(1) if, for every non-terminal with
+multiple productions, the FIRST sets of those productions are pairwise disjoint. We
+verify this for every decision point in the grammar:
+
+| Non-terminal | Productions | FIRST sets |
+|---|---|---|
+| `typesig` | `scalar \| record \| array \| union \| enum \| bits` | `{i,u,f,char*,bool,byte,nullptr,ptr,ref,rref,memptr,fnptr}`, `{record}`, `{array,bytes}`, `{union}`, `{enum}`, `{@…·…}` |
+| `scalar` | `i8 \| u8 \| i16 \| ... \| ptr \| fnptr \| ...` | Each prefix is a distinct string literal |
+| `array` | `array... \| bytes...` | `{array}`, `{bytes}` |
+| `meta` | `[s:N,a:N] \| [s:N,a:N,vptr]` | Both start with `[s:`, but `vptr` vs `]` after the second `NUM` is decided by lookahead on a fixed delimiter — resolved as LL(2) or equivalently by a single-token lookahead after parsing `a:NUM` |
+| `field` | `@NUM:typesig \| @NUM.NUM:bits<...>` | Both start with `@NUM`, but `.` vs `:` at the next character distinguishes them (LL(2), or factored as `field → '@' NUM fieldtail`) |
+
+Strictly, two productions (`meta` and `field`) require LL(2) lookahead. However, both
+can be left-factored into LL(1) form:
+
+    field    → '@' NUM fieldtail
+    fieldtail → ':' typesig | '.' NUM ':bits<' NUM ',' typesig '>'
+    meta     → '[s:' NUM ',a:' NUM metatail
+    metatail → ']' | ',vptr]'
+
+After left-factoring, FIRST sets at every decision point are pairwise disjoint.
+Therefore the grammar is LL(1)-parsable, which implies:
+
+1. **Deterministic parsing:** A recursive-descent parser with one-token lookahead
+   uniquely determines the production at every step.
+2. **Unique parse tree:** Every valid string has exactly one derivation.
+3. **Injectivity on strings:** Different underlying data produces different strings,
+   and equal strings can only arise from equal data.
+
+Additional structural properties that support unambiguity:
+- Delimiters `{`, `}`, `[`, `]`, `<`, `>` are balanced and nested only via recursion
+  through `typesig` (no cross-production nesting)
+- Numeric values (offsets, sizes) are separated by fixed punctuation (`:`, `,`, `@`)
+- The `@` prefix uniquely identifies field offset entries within `{...}` blocks
+
+### 2.4 Definition Signature Grammar
+
+The Definition signature extends the Layout grammar (S2.3) with additional productions
+for field names, inheritance hierarchy, polymorphic markers, and qualified enum names:
+
+    def_sig    ::= arch def_record
+    def_record ::= 'record' def_meta '{' def_content '}'
+    def_meta   ::= '[s:' NUM ',a:' NUM ']'
+                 | '[s:' NUM ',a:' NUM ',polymorphic]'
+    def_content ::= ε | def_entry (',' def_entry)*
+    def_entry  ::= def_base | def_field
+    def_base   ::= '~base<' QNAME '>:' def_typesig
+                 | '~vbase<' QNAME '>:' def_typesig
+    def_field  ::= '@' NUM '[' NAME ']:'  def_typesig
+                 | '@' NUM '.' NUM '[' NAME ']:bits<' NUM ',' def_typesig '>'
+    def_typesig ::= scalar | def_record | def_array | def_union | def_enum | def_bits
+    def_array  ::= array                           -- same as Layout
+    def_union  ::= 'union' meta '{' def_fields '}' -- fields have names
+    def_fields ::= ε | def_field (',' def_field)*
+    def_enum   ::= 'enum<' QNAME '>' meta '<' def_typesig '>'
+    QNAME      ::= IDENT ('::' IDENT)*
+    NAME       ::= IDENT | '<anon:' NUM '>'
+
+**Lemma 2.4.1 (Definition grammar unambiguity).** The Definition grammar is also
+unambiguous. The proof follows the same LL(1) argument as Lemma 2.3.1, with these
+additional observations:
+
+- `def_entry` is disambiguated by its prefix: `~` for bases (then `base<` vs `vbase<`),
+  `@` for fields — disjoint FIRST sets
+- `def_meta` uses `polymorphic` vs `]` after `a:NUM`, same left-factoring as `meta`
+- `def_enum` has prefix `enum<` followed by a qualified name, whereas Layout's `enum`
+  has `enum[` — the `<` vs `[` character after `enum` uniquely distinguishes them
+- `NAME` is enclosed in `[...]` brackets and `QNAME` is enclosed in `<...>` delimiters,
+  both with unique surrounding punctuation that prevents ambiguity with other productions
+- All other productions are identical to the Layout grammar
+
+Therefore the Definition signature also has a unique parse tree for every valid string. ∎
+
 ---
 
-## §3 Core Theorems
+## S3 Encoding Properties (编码性质)
 
 ### Theorem 3.1 (Encoding Faithfulness / 编码忠实性)
 
@@ -388,12 +476,12 @@ Both denotation functions directly correspond to the implementation in
     decode(⟦T⟧_L) = L_P(T)  for all complete types T in Types_P
 
 where `decode` is defined (i.e., terminates successfully) on exactly the image
-Im(⟦·⟧_L) ⊂ Σ*, and undefined on strings that do not conform to the grammar of §1.8.
+Im(⟦·⟧_L) ⊂ Σ*, and undefined on strings that do not conform to the grammar of S2.3.
 
 **Proof:**
 
 (1) **Existence of decode:** By Definition 2.1, the signature string is constructed by
-concatenating components with unique syntax separators. By Lemma 1.8.1 (grammar
+concatenating components with unique syntax separators. By Lemma 2.3.1 (grammar
 unambiguity), any string in Im(⟦·⟧_L) can be uniquely parsed back to its constituent
 parts. Define `decode` as this parsing process; it is a partial function whose domain
 is exactly the set of well-formed signature strings.
@@ -406,7 +494,7 @@ is exactly the set of well-formed signature strings.
 
 (3) **Partiality note:** `decode` is undefined on arbitrary strings (e.g.,
 `"hello world"` or `"record[s:4,a:4]{@0:unknown}"`) because they do not parse under
-the grammar of §1.8. This is expected: not every string is a valid signature. The
+the grammar of S2.3. This is expected: not every string is a valid signature. The
 faithfulness guarantee applies only to strings actually produced by ⟦·⟧_L.
 
 Therefore decode ∘ ⟦·⟧_L = L_P on Types_P, i.e., ⟦·⟧_L is a faithful encoding. ∎
@@ -425,7 +513,50 @@ Both proofs share the same strategy: prove that the encoding/compilation is a
 *Proof:* If ⟦T⟧_L = ⟦U⟧_L, then L_P(T) = decode(⟦T⟧_L) = decode(⟦U⟧_L) = L_P(U),
 contradiction. ∎
 
-### Theorem 3.2 (Soundness / 可靠性 — Zero False Positives)
+### Theorem 3.2 (Definition Encoding Faithfulness / 定义编码忠实性)
+
+**Statement:** ⟦·⟧_D is a faithful encoding from D_P to Σ* — there exists a
+**partial** function `decode_D : Σ* ⇀ StructureTree` such that:
+
+    decode_D(⟦T⟧_D) = D_P(T)  for all complete types T in Types_P
+
+**Proof:** Analogous to Theorem 3.1, using Lemma 2.4.1 (Definition grammar unambiguity)
+instead of Lemma 2.3.1.
+
+(1) **Existence:** By Definition 2.2, the Definition signature string encodes all
+components of D_P(T) — sizeof, alignof, polymorphism, base classes (with qualified names
+and virtual/non-virtual status), and named fields (with offsets and names). By
+Lemma 2.4.1, this encoding is unambiguous: any string in Im(⟦·⟧_D) can be uniquely
+parsed back to recover all components.
+
+(2) **Correctness of decode_D on Im(⟦·⟧_D):**
+- `decode_D` extracts sizeof/alignof from `s:N,a:N` → sizeof_P(T), alignof_P(T) ✓
+- `decode_D` extracts poly from `,polymorphic` presence → poly_P(T) ✓
+- `decode_D` extracts bases from `~base<QNAME>:SIG` / `~vbase<QNAME>:SIG` → bases_P(T) ✓
+- `decode_D` extracts fields from `@OFF[name]:SIG` list → named_fields_P(T) ✓
+- `decode_D` extracts enum names from `enum<QNAME>[...]` → qualified name ✓
+
+Therefore decode_D ∘ ⟦·⟧_D = D_P on Types_P. ∎
+
+### Corollary 3.2.1 (Definition Soundness)
+
+    ⟦T⟧_D = ⟦U⟧_D ⟹ D_P(T) = D_P(U)
+
+That is: if two types have matching Definition signatures, their complete structural
+information (names, types, offsets, inheritance hierarchy) is identical.
+
+*Proof:* If ⟦T⟧_D = ⟦U⟧_D, then D_P(T) = decode_D(⟦T⟧_D) = decode_D(⟦U⟧_D) = D_P(U). ∎
+
+**Significance:** This is the V2 core guarantee. Definition signature equality implies
+complete structural identity — not just byte layout, but also field names, base class
+hierarchy, and qualified names.
+
+
+---
+
+## S4 Safety Theorems (安全定理)
+
+### Theorem 4.1 (Soundness / 可靠性 — Zero False Positives)
 
 **Statement:**
 
@@ -435,13 +566,13 @@ contradiction. ∎
 
     ⟦T⟧_L = ⟦U⟧_L
     ⟹ L_P(T) = L_P(U)      [by faithfulness: decode ∘ ⟦·⟧_L = L_P]
-    ⟹ T ≅_mem U             [by Definition 1.7]  ∎
+    ⟹ T ≅_mem U             [by Definition 1.9]  ∎
 
 **Significance:** This is the core safety guarantee. If two types have matching Layout
 signatures, they are guaranteed to have identical byte layouts. There are **zero false
 positives** under stated assumptions.
 
-### Theorem 3.3 (Conservativeness / 保守性 — Intentional False Negatives)
+### Theorem 4.2 (Conservativeness / 保守性 — Intentional False Negatives)
 
 To state this theorem precisely, we first distinguish two equivalence relations:
 
@@ -486,45 +617,114 @@ negatives (rejecting byte-compatible but structurally different types) over fals
 positives, because structural differences (array vs struct) often indicate
 semantic incompatibility even when bytes happen to align.
 
-### Theorem 3.5 (Definition Encoding Faithfulness / 定义编码忠实性)
 
-**Statement:** ⟦·⟧_D is a faithful encoding from D_P to Σ* — there exists a
-**partial** function `decode_D : Σ* ⇀ StructureTree` such that:
+---
 
-    decode_D(⟦T⟧_D) = D_P(T)  for all complete types T in Types_P
+## S5 Refinement: Definition > Layout (精化关系)
 
-**Proof:** Analogous to Theorem 3.1, using Lemma 1.9.1 (Definition grammar unambiguity)
-instead of Lemma 1.8.1.
 
-(1) **Existence:** By Definition 2.2, the Definition signature string encodes all
-components of D_P(T) — sizeof, alignof, polymorphism, base classes (with qualified names
-and virtual/non-virtual status), and named fields (with offsets and names). By
-Lemma 1.9.1, this encoding is unambiguous: any string in Im(⟦·⟧_D) can be uniquely
-parsed back to recover all components.
+### Definition 5.1 (Reflection Data)
 
-(2) **Correctness of decode_D on Im(⟦·⟧_D):**
-- `decode_D` extracts sizeof/alignof from `s:N,a:N` → sizeof_P(T), alignof_P(T) ✓
-- `decode_D` extracts poly from `,polymorphic` presence → poly_P(T) ✓
-- `decode_D` extracts bases from `~base<QNAME>:SIG` / `~vbase<QNAME>:SIG` → bases_P(T) ✓
-- `decode_D` extracts fields from `@OFF[name]:SIG` list → named_fields_P(T) ✓
-- `decode_D` extracts enum names from `enum<QNAME>[...]` → qualified name ✓
+For any type T on platform P, define the **P2996 reflection data** R_P(T) as the
+complete set of information available via P2996 intrinsics:
 
-Therefore decode_D ∘ ⟦·⟧_D = D_P on Types_P. ∎
+    R_P(T) = {
+      sizeof_P(T), alignof_P(T), poly_P(T),
+      [offset_of(m), type_of(m), is_bit_field(m), bit_size_of(m) | m ∈ members],
+      [offset_of(b), type_of(b), is_virtual(b) | b ∈ bases],
+      [identifier_of(m) | m ∈ members],        -- names (Definition-only)
+      [qualified_name(base_type(b)) | b ∈ bases] -- qualified names (Definition-only)
+    }
 
-### Corollary 3.5.1 (Definition Soundness)
+Both ⟦T⟧_L and ⟦T⟧_D are deterministic functions of R_P(T). The Layout denotation
+uses a **strict subset** of R_P(T) — it discards names, qualified names, and
+inheritance structure. The Definition denotation uses all of R_P(T).
 
-    ⟦T⟧_D = ⟦U⟧_D ⟹ D_P(T) = D_P(U)
+### Lemma 5.2 (Information Ordering)
 
-That is: if two types have matching Definition signatures, their complete structural
-information (names, types, offsets, inheritance hierarchy) is identical.
+Define the layout-relevant projection of R_P(T) as:
 
-*Proof:* If ⟦T⟧_D = ⟦U⟧_D, then D_P(T) = decode_D(⟦T⟧_D) = decode_D(⟦U⟧_D) = D_P(U). ∎
+    R_P^layout(T) = {
+      sizeof_P(T), alignof_P(T), poly_P(T),
+      fields_P(T)  -- the flattened leaf field sequence (Definition 1.5)
+    }
 
-**Significance:** This is the V2 core guarantee. Definition signature equality implies
-complete structural identity — not just byte layout, but also field names, base class
-hierarchy, and qualified names.
+Then:
+- ⟦T⟧_L is a deterministic function of R_P^layout(T) only
+- ⟦T⟧_D is a deterministic function of the full R_P(T)
+- R_P^layout(T) is recoverable from R_P(T) (projection is information-losing)
 
-### Theorem 3.4 (Offset Correctness / 偏移正确性)
+*Proof:* By inspection of Definition 2.1 (⟦·⟧_L uses only sizeof, alignof, poly,
+and fields_P) and Definition 2.2 (⟦·⟧_D additionally uses names, bases, qualified names). ∎
+
+### Lemma 5.3 (Definition determines Layout)
+
+    R_P(T) determines ⟦T⟧_L uniquely.
+
+*Proof:* ⟦T⟧_L = f(R_P^layout(T)) and R_P^layout(T) = g(R_P(T)) for deterministic
+functions f, g. Therefore ⟦T⟧_L = f(g(R_P(T))). ∎
+
+### Theorem 5.4 (V3 Projection / 投影定理)
+
+**Statement:**
+
+    ⟦T⟧_D = ⟦U⟧_D ⟹ ⟦T⟧_L = ⟦U⟧_L
+
+**Proof:** By Encoding Faithfulness (Theorem 3.1) applied to ⟦·⟧_D:
+
+Since ⟦·⟧_D is also a faithful encoding (Theorem 3.2, by Lemma 2.4.1),
+⟦T⟧_D = ⟦U⟧_D implies R_P(T) and R_P(U) agree on all
+information encoded by ⟦·⟧_D. In particular, they agree on all layout-relevant
+information: sizeof, alignof, poly, and all field offsets and types.
+
+Therefore R_P^layout(T) = R_P^layout(U), and by Lemma 5.3:
+⟦T⟧_L = f(R_P^layout(T)) = f(R_P^layout(U)) = ⟦U⟧_L. ∎
+
+**Note:** This proof does not require constructing a syntactic erasure function
+π : Σ* → Σ*. The key insight is that both denotations are derived from the same
+reflection data R_P(T), with ⟦·⟧_L using strictly less information than ⟦·⟧_D.
+
+**Conceptual erasure (informational, not a formal proof step):**
+The relationship can be visualized as a conceptual erasure with four steps:
+1. Remove field names: `@OFF[name]:SIG` → `@OFF:SIG`
+2. Flatten inheritance: `~base<N>:record{F}` → flattened fields
+3. Replace poly marker: `polymorphic` → `vptr`
+4. Remove enum qualified names: `enum<ns::C>[...]` → `enum[...]`
+
+However, step 2 (flatten_inheritance) requires base-in-derived offset information
+that is not directly encoded in the Definition signature string. Therefore the
+erasure is not a pure string-to-string function, and the formal proof uses the
+semantic argument above instead.
+
+### Theorem 5.5 (Strict Refinement / 严格精化)
+
+**Statement:** ker(⟦·⟧_D) ⊊ ker(⟦·⟧_L)
+
+*Proof:*
+- ker(⟦·⟧_D) ⊆ ker(⟦·⟧_L): by Theorem 5.4
+- ker(⟦·⟧_D) ≠ ker(⟦·⟧_L): counterexample —
+
+```cpp
+struct Base { int32_t id; };
+struct Derived : Base { int32_t value; };
+struct Flat { int32_t id; int32_t value; };
+```
+
+- ⟦Derived⟧_L = ⟦Flat⟧_L (inheritance flattened → identical byte layout)
+- ⟦Derived⟧_D ≠ ⟦Flat⟧_D (Derived has `~base<Base>:record{...}`, Flat does not)
+
+Therefore (Derived, Flat) ∈ ker(⟦·⟧_L) \ ker(⟦·⟧_D), proving strict inclusion. ∎
+
+**Commentary:** This is *observational refinement* from refinement theory — ⟦·⟧_D's
+observable distinctions (everything it can tell apart) are strictly more than ⟦·⟧_L's.
+The Definition layer is a *strict refinement* of the Layout layer.
+
+
+---
+
+## S6 Structural Verification (结构验证)
+
+### Theorem 6.1 (Offset Correctness / 偏移正确性)
 
 **Statement:** For nested/inheriting types, all offsets in ⟦·⟧_L equal the
 compiler-reported absolute offsets.
@@ -563,109 +763,8 @@ matching signatures have the same sizeof (including vptr space) and the same fie
 
 ---
 
-## §4 Refinement: Definition ⊑ Layout
 
-### Definition 4.1 (Reflection Data)
-
-For any type T on platform P, define the **P2996 reflection data** R_P(T) as the
-complete set of information available via P2996 intrinsics:
-
-    R_P(T) = {
-      sizeof_P(T), alignof_P(T), poly_P(T),
-      [offset_of(m), type_of(m), is_bit_field(m), bit_size_of(m) | m ∈ members],
-      [offset_of(b), type_of(b), is_virtual(b) | b ∈ bases],
-      [identifier_of(m) | m ∈ members],        -- names (Definition-only)
-      [qualified_name(base_type(b)) | b ∈ bases] -- qualified names (Definition-only)
-    }
-
-Both ⟦T⟧_L and ⟦T⟧_D are deterministic functions of R_P(T). The Layout denotation
-uses a **strict subset** of R_P(T) — it discards names, qualified names, and
-inheritance structure. The Definition denotation uses all of R_P(T).
-
-### Lemma 4.1.1 (Information Ordering)
-
-Define the layout-relevant projection of R_P(T) as:
-
-    R_P^layout(T) = {
-      sizeof_P(T), alignof_P(T), poly_P(T),
-      fields_P(T)  -- the flattened leaf field sequence (Definition 1.3)
-    }
-
-Then:
-- ⟦T⟧_L is a deterministic function of R_P^layout(T) only
-- ⟦T⟧_D is a deterministic function of the full R_P(T)
-- R_P^layout(T) is recoverable from R_P(T) (projection is information-losing)
-
-*Proof:* By inspection of Definition 2.1 (⟦·⟧_L uses only sizeof, alignof, poly,
-and fields_P) and Definition 2.2 (⟦·⟧_D additionally uses names, bases, qualified names). ∎
-
-### Lemma 4.1.2 (Definition determines Layout)
-
-    R_P(T) determines ⟦T⟧_L uniquely.
-
-*Proof:* ⟦T⟧_L = f(R_P^layout(T)) and R_P^layout(T) = g(R_P(T)) for deterministic
-functions f, g. Therefore ⟦T⟧_L = f(g(R_P(T))). ∎
-
-### Theorem 4.2 (V3 Projection / 投影定理)
-
-**Statement:**
-
-    ⟦T⟧_D = ⟦U⟧_D ⟹ ⟦T⟧_L = ⟦U⟧_L
-
-**Proof:** By Encoding Faithfulness (Theorem 3.1) applied to ⟦·⟧_D:
-
-Since ⟦·⟧_D is also a faithful encoding (Theorem 3.5, by Lemma 1.9.1),
-⟦T⟧_D = ⟦U⟧_D implies R_P(T) and R_P(U) agree on all
-information encoded by ⟦·⟧_D. In particular, they agree on all layout-relevant
-information: sizeof, alignof, poly, and all field offsets and types.
-
-Therefore R_P^layout(T) = R_P^layout(U), and by Lemma 4.1.2:
-⟦T⟧_L = f(R_P^layout(T)) = f(R_P^layout(U)) = ⟦U⟧_L. ∎
-
-**Note:** This proof does not require constructing a syntactic erasure function
-π : Σ* → Σ*. The key insight is that both denotations are derived from the same
-reflection data R_P(T), with ⟦·⟧_L using strictly less information than ⟦·⟧_D.
-
-**Conceptual erasure (informational, not a formal proof step):**
-The relationship can be visualized as a conceptual erasure with four steps:
-1. Remove field names: `@OFF[name]:SIG` → `@OFF:SIG`
-2. Flatten inheritance: `~base<N>:record{F}` → flattened fields
-3. Replace poly marker: `polymorphic` → `vptr`
-4. Remove enum qualified names: `enum<ns::C>[...]` → `enum[...]`
-
-However, step 2 (flatten_inheritance) requires base-in-derived offset information
-that is not directly encoded in the Definition signature string. Therefore the
-erasure is not a pure string-to-string function, and the formal proof uses the
-semantic argument above instead.
-
-### Theorem 4.3 (Strict Refinement / 严格精化)
-
-**Statement:** ker(⟦·⟧_D) ⊊ ker(⟦·⟧_L)
-
-*Proof:*
-- ker(⟦·⟧_D) ⊆ ker(⟦·⟧_L): by Theorem 4.2
-- ker(⟦·⟧_D) ≠ ker(⟦·⟧_L): counterexample —
-
-```cpp
-struct Base { int32_t id; };
-struct Derived : Base { int32_t value; };
-struct Flat { int32_t id; int32_t value; };
-```
-
-- ⟦Derived⟧_L = ⟦Flat⟧_L (inheritance flattened → identical byte layout)
-- ⟦Derived⟧_D ≠ ⟦Flat⟧_D (Derived has `~base<Base>:record{...}`, Flat does not)
-
-Therefore (Derived, Flat) ∈ ker(⟦·⟧_L) \ ker(⟦·⟧_D), proving strict inclusion. ∎
-
-**Commentary:** This is *observational refinement* from refinement theory — ⟦·⟧_D's
-observable distinctions (everything it can tell apart) are strictly more than ⟦·⟧_L's.
-The Definition layer is a *strict refinement* of the Layout layer.
-
----
-
-## §5 Per-Category Structural Induction
-
-### Induction Principle
+### 6.1.1 Induction Principle
 
 C++ types are inductively defined by the following grammar:
 
@@ -680,12 +779,12 @@ C++ types are inductively defined by the following grammar:
 
 For each Type constructor, we verify the correctness of ⟦·⟧_L and ⟦·⟧_D.
 
-### 5.1 Primitive
+### 6.2 Primitive
 
     ⟦τ⟧_L = σ(τ)    — by Definition 2.1
     ⟦τ⟧_D = σ(τ)    — same for primitives (no extra info)
 
-Correctness by Definition 1.2 (σ definition) and C++ standard type size guarantees. ✓
+Correctness by Definition 1.4 (sigma definition) and C++ standard type size guarantees. ✓
 
 | Type | Signature | Correctness |
 |---|---|---|
@@ -711,105 +810,114 @@ Correctness by Definition 1.2 (σ definition) and C++ standard type size guarant
 
 All primitive types follow the same `kind[s:SIZE,a:ALIGN]` pattern where `kind` is
 a unique prefix (i/u/f/char/bool/byte/ptr/ref/rref/memptr/fnptr/nullptr). This ensures
-Property 1.2.1 (primitive injectivity) holds across the complete set.
+Property 1.4.1 (primitive injectivity) holds across the complete set.
 
-### 5.2 Record(fields) — struct/class
+### 6.3 Record(fields) — struct/class
 
-Correctness by Theorem 3.4 (offset correctness), with induction on field count n
+Correctness by Theorem 6.1 (offset correctness), with induction on field count n
 and nesting depth d. ✓
 
-### 5.3 Record(bases, fields) — inheritance
+### 6.4 Record(bases, fields) — inheritance
 
-Layout: Flattened. Correctness by Theorem 3.4's inheritance induction case.
+Layout: Flattened. Correctness by Theorem 6.1's inheritance induction case.
 Definition: Preserves `~base<>` / `~vbase<>` structure. Correctness by `bases_of`
 and `qualified_name_for` P2996 APIs. ✓
 
-### 5.4 PolyRecord — polymorphic
+### 6.5 PolyRecord — polymorphic
 
 Signature includes `,vptr` (Layout) or `,polymorphic` (Definition) marker.
 vptr space is included in sizeof but NOT as a leaf field — this is correct because
 vptr is not a `nonstatic_data_member`, but the compiler accounts for it in sizeof
 and all offset_of calculations. ✓
 
-### 5.5 Array(Type, N)
+### 6.6 Array(Type, N)
 
     ⟦T[N]⟧_L = "array[s:" ++ str(sizeof(T[N])) ++ ",a:" ++ str(alignof(T[N])) ++ "]<" ++ ⟦T⟧_L ++ "," ++ str(N) ++ ">"
 
 Special case: Byte arrays normalized to `bytes[s:N,a:1]`.
 Normalization correctness: `char[N]` ≡ `uint8_t[N]` ≡ `std::byte[N]` in memory. ✓
 
-### 5.6 Union(fields)
+### 6.7 Union(fields)
 
 Members NOT flattened; preserved as atomic signatures.
 Correctness: Union members share offset @0; flattening would create ambiguity. ✓
 
-### 5.7 BitField(Type, width)
+### 6.8 BitField(Type, width)
 
     ⟦bf⟧ = "@BYTE.BIT:bits<WIDTH," ++ σ(underlying) ++ ">"
 
 All data from P2996 API (`offset_of.bytes`, `offset_of.bits`, `bit_size_of`).
 **Known limitation:** Bit ordering across compilers is implementation-defined. ✓ (with caveat)
 
-### 5.8 Enum(underlying)
+### 6.9 Enum(underlying)
 
     ⟦E⟧_L = "enum[s:S,a:A]<" ++ σ(underlying) ++ ">"
     ⟦E⟧_D = "enum<" ++ qualified_name(E) ++ ">[s:S,a:A]<" ++ σ(underlying) ++ ">"
 
 Underlying type from `std::underlying_type_t<E>`. ✓
 
+
 ---
 
-## §6 Proof Architecture Summary
+## S7 Summary & Reference (总结与索引)
+
 
 ```
-                        ┌──────────────────┐
-                        │  §1 Type Domain   │
-                        │  Definitions      │
-                        │  1.1 Platform     │
-                        │  1.2 σ (prims)    │
-                        │  1.3 flatten      │
-                        │  1.4 L_P (layout) │
-                        │  1.5 D_P (struct) │
-                        │  1.6 CV-erasure   │
-                        │  1.7 ≅_mem        │
-                        │  1.8 L-Grammar    │
-                        │  1.9 D-Grammar    │
-                        └────────┬─────────┘
-                                 │
-                        ┌────────▼─────────┐
-                        │  §2 Denotation    │
-                        │  ⟦·⟧_L, ⟦·⟧_D    │
-                        │  Implementation   │
-                        │  correspondence   │
-                        └────────┬─────────┘
-                                 │
-              ┌──────────────────┼──────────────────┐
-              │                  │                  │
-     ┌────────▼─────────┐ ┌─────▼──────┐ ┌────────▼──────────┐
-     │  §3 Core Theorems│ │ §4 Refine  │ │ §5 Induction      │
-     │  3.1 L-Faithful  │ │ 4.1 R_P    │ │ 8 type categories │
-     │  3.2 Soundness   │ │ 4.2 V3     │ │ structural proof  │
-     │  3.3 Conservative│ │ 4.3 Strict │ │ per category      │
-     │  3.4 Offsets     │ └────────────┘ └───────────────────┘
-     │  3.5 D-Faithful  │
-     └──────────────────┘
+                   ┌────────────────────────┐
+                   │  S1 Type Domain &      │
+                   │     Semantic Objects    │
+                   │  1.1 Types_P           │
+                   │  1.3 Platform          │
+                   │  1.4 sigma (prims)     │
+                   │  1.5 flatten           │
+                   │  1.6 L_P (layout)      │
+                   │  1.7 D_P (struct tree) │
+                   │  1.8 CV-erasure        │
+                   │  1.9 memcmp-compat     │
+                   └───────────┬────────────┘
+                               │
+                   ┌───────────▼────────────┐
+                   │  S2 Encoding           │
+                   │  2.1 [.]_L denotation  │
+                   │  2.2 [.]_D denotation  │
+                   │  2.3 L-Grammar         │
+                   │  2.4 D-Grammar         │
+                   └───────────┬────────────┘
+                               │
+            ┌──────────────────┼──────────────────┐
+            │                  │                  │
+   ┌────────▼─────────┐ ┌─────▼──────┐ ┌────────▼──────────┐
+   │  S3 Encoding     │ │ S4 Safety  │ │ S5 Refinement     │
+   │  Properties      │ │ Theorems   │ │  5.1 R_P          │
+   │  3.1 L-Faithful  │ │ 4.1 Sound  │ │  5.2 Info Order   │
+   │  3.1.1 Inject    │ │ 4.2 Cons.  │ │  5.4 V3 Project   │
+   │  3.2 D-Faithful  │ └────────────┘ │  5.5 Strict Ref   │
+   │  3.2.1 D-Sound   │               └───────────────────┘
+   └──────────────────┘
+                               │
+                   ┌───────────▼────────────┐
+                   │  S6 Structural         │
+                   │  Verification          │
+                   │  6.1 Offset Correct    │
+                   │  6.2-6.9 Per-Category  │
+                   └────────────────────────┘
 ```
 
-### 6.1 Theorem Index
+### 7.1 Theorem Index
 
 | # | Theorem | Statement | Status |
 |---|---------|-----------|--------|
 | 3.1 | Encoding Faithfulness | ∃ decode: decode ∘ ⟦·⟧_L = L_P | ✅ Proven |
 | 3.1.1 | Injectivity | L_P(T) ≠ L_P(U) ⟹ ⟦T⟧_L ≠ ⟦U⟧_L | ✅ Proven (corollary) |
-| 3.2 | Soundness | ⟦T⟧_L = ⟦U⟧_L ⟹ T ≅_mem U | ✅ Proven (contrapositive) |
-| 3.3 | Conservativeness | ∃ T ≅_byte U with ⟦T⟧_L ≠ ⟦U⟧_L | ✅ Proven (counterexample) |
-| 3.4 | Offset Correctness | All offsets = compiler absolute offsets | ✅ Proven (structural induction) |
-| 3.5 | Definition Faithfulness | ∃ decode_D: decode_D ∘ ⟦·⟧_D = D_P | ✅ Proven |
-| 3.5.1 | Definition Soundness | ⟦T⟧_D = ⟦U⟧_D ⟹ D_P(T) = D_P(U) | ✅ Proven (corollary) |
-| 4.2 | V3 Projection | ⟦T⟧_D = ⟦U⟧_D ⟹ ⟦T⟧_L = ⟦U⟧_L | ✅ Proven (semantic R_P argument) |
-| 4.3 | Strict Refinement | ker(⟦·⟧_D) ⊊ ker(⟦·⟧_L) | ✅ Proven (counterexample) |
+| 4.1 | Soundness | ⟦T⟧_L = ⟦U⟧_L ⟹ T ≅_mem U | ✅ Proven (contrapositive) |
+| 4.2 | Conservativeness | ∃ T ≅_byte U with ⟦T⟧_L ≠ ⟦U⟧_L | ✅ Proven (counterexample) |
+| 6.1 | Offset Correctness | All offsets = compiler absolute offsets | ✅ Proven (structural induction) |
+| 3.2 | Definition Faithfulness | ∃ decode_D: decode_D ∘ ⟦·⟧_D = D_P | ✅ Proven |
+| 3.2.1 | Definition Soundness | ⟦T⟧_D = ⟦U⟧_D ⟹ D_P(T) = D_P(U) | ✅ Proven (corollary) |
+| 5.4 | V3 Projection | ⟦T⟧_D = ⟦U⟧_D ⟹ ⟦T⟧_L = ⟦U⟧_L | ✅ Proven (semantic R_P argument) |
+| 5.5 | Strict Refinement | ker(⟦·⟧_D) ⊊ ker(⟦·⟧_L) | ✅ Proven (counterexample) |
 
-### 6.2 Accuracy Classification
+### 7.2 Accuracy Classification
 
 | Type Category | Layout Accuracy | Definition Accuracy | Known Limitation |
 |---|---|---|---|
@@ -823,7 +931,7 @@ Underlying type from `std::underlying_type_t<E>`. ✓
 | Bit-fields | Same-compiler exact | Same-compiler exact | Cross-compiler bit ordering impl-defined |
 | Enums | Underlying type exact | Underlying + qualified name | None |
 
-### 6.3 Formal Guarantees
+### 7.3 Formal Guarantees
 
 The TypeLayout signature system provides the following formally proven guarantees:
 
@@ -832,31 +940,31 @@ The TypeLayout signature system provides the following formally proven guarantee
 
 2. **Definition Encoding Faithfulness:** The signature function ⟦·⟧_D has an inverse
    `decode_D`, meaning no structural information (names, hierarchy, qualified names)
-   is lost during encoding. (Theorem 3.5)
+   is lost during encoding. (Theorem 3.2)
 
 3. **Definition Soundness:** If two types have matching Definition signatures, their
-   complete structural information is identical. (Corollary 3.5.1)
+   complete structural information is identical. (Corollary 3.2.1)
 
 4. **Soundness (zero false positives):** If two types have matching Layout signatures,
-   their memory layouts are guaranteed to be identical. (Theorem 3.2)
+   their memory layouts are guaranteed to be identical. (Theorem 4.1)
 
 5. **Conservativeness (safe direction):** Signature mismatch does not necessarily mean
    layout incompatibility — the system may report differences for types that are
-   byte-identical but semantically distinct. (Theorem 3.3)
+   byte-identical but semantically distinct. (Theorem 4.2)
 
 6. **V3 Projection:** Definition match strictly implies Layout match, via a
-   semantic argument on shared reflection data R_P. (Theorem 4.2)
+   semantic argument on shared reflection data R_P. (Theorem 5.4)
 
 7. **Strict Refinement:** The Definition layer is a strict refinement of the Layout
-   layer: ker(⟦·⟧_D) ⊊ ker(⟦·⟧_L). (Theorem 4.3)
+   layer: ker(⟦·⟧_D) ⊊ ker(⟦·⟧_L). (Theorem 5.5)
 
 8. **Compiler-verified:** All offsets and sizes come from P2996 compiler intrinsics
-   (`std::meta::offset_of`, `sizeof`, `alignof`), not manual calculation. (Theorem 3.4)
+   (`std::meta::offset_of`, `sizeof`, `alignof`), not manual calculation. (Theorem 6.1)
 
 9. **Platform-aware:** The architecture prefix encodes pointer width and endianness,
    preventing cross-platform false positives.
 
-### 6.4 Formal Methodology
+### 7.4 Formal Methodology
 
 The proof system is grounded in two established verification traditions:
 
@@ -871,7 +979,7 @@ to the string domain — it preserves all layout-relevant structure while being 
 to string equality comparison. This is directly analogous to CompCert's semantic
 preservation theorem, where compilation preserves program behavior.
 
-### 6.5 Assumptions
+### 7.5 Assumptions
 
 These proofs assume:
 

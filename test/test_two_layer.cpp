@@ -385,6 +385,85 @@ static_assert(layout_signatures_match<test_cv_fields::WithConst, test_cv_fields:
 static_assert(layout_signatures_match<test_cv_fields::WithVolatile, test_cv_fields::WithoutConst>(),
     "volatile-qualified fields should match non-volatile in Layout");
 
+// =========================================================================
+// Task 2.1: Negative tests for unsupported types
+// =========================================================================
+//
+// void, T[] (unbounded array), and bare function types trigger
+// static_assert inside TypeSignature::calculate().  Because static_assert
+// is a hard error (not SFINAE-detectable), we cannot write
+// "requires { get_layout_signature<void>(); }" -- the program is
+// ill-formed regardless.  Instead, we verify the type-trait predicates that
+// guard the rejection paths, ensuring the implementation *would* reject
+// these types.
+
+static_assert(std::is_void_v<void>,
+    "void is correctly classified -- would be rejected by type_map (C++ hard error)");
+static_assert(!std::is_void_v<void*>,
+    "void* is NOT void -- should be accepted as ptr");
+
+static_assert(std::is_unbounded_array_v<int[]>,
+    "int[] is an unbounded array -- would be rejected by type_map");
+static_assert(!std::is_unbounded_array_v<int[4]>,
+    "int[4] is a bounded array -- should be accepted");
+
+static_assert(std::is_function_v<void(int)>,
+    "void(int) is a function type -- would be rejected by type_map");
+static_assert(!std::is_function_v<void(*)(int)>,
+    "void(*)(int) is a function pointer -- should be accepted as fnptr");
+
+// Positive counterparts: accepted types produce non-empty signatures
+static_assert(get_layout_signature<void*>().length() > 0,
+    "void* should produce a valid Layout signature");
+static_assert(get_layout_signature<int[4]>().length() > 0,
+    "int[4] should produce a valid Layout signature");
+static_assert(get_layout_signature<void(*)(int)>().length() > 0,
+    "void(*)(int) should produce a valid Layout signature");
+
+// =========================================================================
+// Task 2.2: Member-pointer and nullptr_t signature tests
+// =========================================================================
+
+namespace test_memptr {
+    struct S { int32_t x; double y; };
+}
+
+// nullptr_t: should produce "nullptr[s:SIZE,a:ALIGN]"
+static_assert(contains(get_layout_signature<std::nullptr_t>(), "nullptr[s:"),
+    "nullptr_t Layout signature should contain 'nullptr[s:'");
+static_assert(get_layout_signature<std::nullptr_t>() == get_definition_signature<std::nullptr_t>(),
+    "nullptr_t Layout and Definition signatures should be identical");
+
+// Member data pointer: int32_t S::* -- should produce "memptr[s:SIZE,a:ALIGN]"
+static_assert(contains(get_layout_signature<int32_t test_memptr::S::*>(), "memptr[s:"),
+    "Member data pointer Layout signature should contain 'memptr[s:'");
+
+// Member function pointer: void (S::*)() -- should also produce "memptr"
+static_assert(contains(get_layout_signature<void (test_memptr::S::*)()>(), "memptr[s:"),
+    "Member function pointer Layout signature should contain 'memptr[s:'");
+
+// Member pointer Layout == Definition (no name component)
+static_assert(
+    get_layout_signature<int32_t test_memptr::S::*>() ==
+    get_definition_signature<int32_t test_memptr::S::*>(),
+    "Member data pointer Layout and Definition should be identical");
+
+// Struct with member-pointer field
+namespace test_memptr_field {
+    struct WithMemPtr { int32_t test_memptr::S::* mp; int32_t x; };
+}
+static_assert(contains(get_layout_signature<test_memptr_field::WithMemPtr>(), "memptr"),
+    "Struct with member-pointer field should contain 'memptr' in Layout");
+
+// Struct with nullptr_t field
+namespace test_nullptr_field {
+    struct WithNullptr { std::nullptr_t np; int32_t x; };
+}
+static_assert(contains(get_layout_signature<test_nullptr_field::WithNullptr>(), "nullptr"),
+    "Struct with nullptr_t field should contain 'nullptr' in Layout");
+
+// =========================================================================
+
 int main() {
     std::cout << "=== Two-Layer Signature Tests ===\n\n";
 

@@ -172,11 +172,12 @@ namespace typelayout {
     };
     template <typename T, SignatureMode Mode>
     struct TypeSignature<T&, Mode> {
-        static consteval auto calculate() noexcept { return format_size_align("ref", sizeof(T*), alignof(T*)); }
+        // sizeof(T&) == sizeof(T*) on all known platforms; use T& for formal consistency.
+        static consteval auto calculate() noexcept { return format_size_align("ref", sizeof(T&), alignof(T&)); }
     };
     template <typename T, SignatureMode Mode>
     struct TypeSignature<T&&, Mode> {
-        static consteval auto calculate() noexcept { return format_size_align("rref", sizeof(T*), alignof(T*)); }
+        static consteval auto calculate() noexcept { return format_size_align("rref", sizeof(T&&), alignof(T&&)); }
     };
     template <typename T, typename C, SignatureMode Mode>
     struct TypeSignature<T C::*, Mode> {

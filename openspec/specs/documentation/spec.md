@@ -353,10 +353,10 @@ The PROOFS.md document SHALL provide formally complete proofs covering all three
 - **GIVEN** the formal proofs document (PROOFS.md)
 - **WHEN** verifying V2 (Definition Precision) coverage
 - **THEN** the document SHALL include:
-  - Definition 1.9 (Definition Signature Grammar) with full BNF productions
-  - Lemma 1.9.1 (Definition grammar unambiguity) with LL(1) argument
-  - Theorem 3.5 (Definition Encoding Faithfulness) with decode_D construction
-  - Corollary 3.5.1 (Definition Soundness) as direct consequence
+  - Section 2.4 (Definition Signature Grammar) with full BNF productions
+  - Lemma 2.4.1 (Definition grammar unambiguity) with LL(1) argument
+  - Theorem 3.2 (Definition Encoding Faithfulness) with decode_D construction
+  - Corollary 3.2.1 (Definition Soundness) as direct consequence
 
 #### Scenario: Primitive type verification is exhaustive
 - **GIVEN** the §5.1 verification table in PROOFS.md

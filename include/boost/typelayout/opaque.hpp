@@ -12,7 +12,7 @@
 //   Correctness boundary:
 //     - TypeLayout guarantees: sizeof and alignof match (via static_assert).
 //     - User guarantees: internal layout consistency across compilation units.
-//   The Encoding Faithfulness theorem (Thm 4.8) holds for opaque types
+//   The Encoding Faithfulness theorem (Thm 3.1) holds for opaque types
 //   only under the assumption that user-provided annotations are correct
 //   (Opaque Annotation Correctness axiom).
 //

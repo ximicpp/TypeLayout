@@ -67,7 +67,7 @@ double v = shm->value;  // 安全吗？
 layout_signatures_match<T_A, T_B>() == true
     ⟹ ⟦T_A⟧_L = ⟦T_B⟧_L                  [API 语义]
     ⟹ L_P(T_A) = L_P(T_B)                  [Theorem 3.1 — Encoding Faithfulness]
-    ⟹ T_A ≅_mem T_B                         [Definition 1.7]
+    ⟹ T_A ≅_mem T_B                         [Definition 1.9]
     ⟹ sizeof(T_A) = sizeof(T_B)
        ∧ alignof(T_A) = alignof(T_B)
        ∧ fields_P(T_A) = fields_P(T_B)      [L_P 展开]
@@ -75,7 +75,7 @@ layout_signatures_match<T_A, T_B>() == true
        可安全以 T_B 读取                      [字节级等价]
 ```
 
-**关键定理：** Theorem 3.2 (Soundness) — 签名匹配 ⟹ memcmp 兼容，零误报。
+**关键定理：** Theorem 4.1 (Soundness) — 签名匹配 ⟹ memcmp 兼容，零误报。
 
 ### 1.4 Definition 层的辅助价值
 
@@ -97,7 +97,7 @@ struct SharedData { uint64_t created_at; double measurement; };  // 重命名字
 Definition 不匹配暗示**语义漂移** — 虽然字节兼容，但两侧对字段含义的理解可能已不同。
 在 CI 管线中使用 Definition 检查作为"额外护栏"可以提前发现这类潜在问题。
 
-**形式化基础：** Theorem 4.3 (Strict Refinement) — ker(⟦·⟧_D) ⊊ ker(⟦·⟧_L)，
+**形式化基础：** Theorem 5.5 (Strict Refinement) — ker(⟦·⟧_D) ⊊ ker(⟦·⟧_L)，
 即存在 Layout 匹配但 Definition 不匹配的类型对。
 
 ### 1.5 边界条件
@@ -230,7 +230,7 @@ layout_signatures_match<ClientHdr, ServerHdr>() == true
     ⟹ L_P(ClientHdr) = L_P(ServerHdr)       [Theorem 3.1]
     ⟹ fields_P(ClientHdr) = fields_P(ServerHdr)
     ⟹ 每个字段在相同偏移处，相同大小，相同类型
-    ⟹ send() 的字节序列可被 recv() 正确解析  [Theorem 3.2]
+    ⟹ send() 的字节序列可被 recv() 正确解析  [Theorem 4.1]
 ```
 
 ---
@@ -273,7 +273,7 @@ struct FileHeader {
 ```
 layout_signatures_match<LinuxFileHeader, MacOSFileHeader>() == true
     ⟹ L_P(LinuxHdr) = L_P(MacOSHdr)        [Theorem 3.1]
-    ⟹ LinuxHdr ≅_mem MacOSHdr               [Definition 1.7]
+    ⟹ LinuxHdr ≅_mem MacOSHdr               [Definition 1.9]
     ⟹ fwrite(&hdr, sizeof(FileHeader), 1, f) 在 Linux 上写入的字节
        可以被 fread(&hdr, sizeof(FileHeader), 1, f) 在 macOS 上正确读取
 ```
@@ -323,10 +323,10 @@ struct FileHeader_v2 {
 
 ```
 ⟦v1⟧_L = ⟦v2⟧_L ∧ ⟦v1⟧_D ≠ ⟦v2⟧_D
-    ⟹ (v1, v2) ∈ ker(⟦·⟧_L) \ ker(⟦·⟧_D)      [Theorem 4.3 的实例]
+    ⟹ (v1, v2) ∈ ker(⟦·⟧_L) \ ker(⟦·⟧_D)      [Theorem 5.5 的实例]
 ```
 
-这正是 Theorem 4.3 (Strict Refinement) 描述的现象——Definition 等价核
+这正是 Theorem 5.5 (Strict Refinement) 描述的现象——Definition 等价核
 严格小于 Layout 等价核。
 
 ### 3.5 典型决策矩阵
@@ -337,7 +337,7 @@ struct FileHeader_v2 {
 | Layout 匹配，Definition 不匹配 | ✅ | ❌ | 字节兼容但结构变了；审查代码变更 |
 | Layout 不匹配 | ❌ | — | 字节不兼容；需要格式迁移 |
 
-注意：由 V3 投影定理（Theorem 4.2），Definition 匹配 ⟹ Layout 匹配。
+注意：由 V3 投影定理（Theorem 5.4），Definition 匹配 ⟹ Layout 匹配。
 因此"Definition 匹配但 Layout 不匹配"是不可能的。
 
 ---
@@ -383,7 +383,7 @@ void init(const PluginConfig* cfg) {
 layout_signatures_match<Host::PluginConfig, Plugin::PluginConfig>() == true
     ⟹ 两侧 PluginConfig 字节布局相同
     ⟹ cfg->flags 在两侧指向相同偏移
-    ⟹ 数据传递安全                          [Theorem 3.2]
+    ⟹ 数据传递安全                          [Theorem 4.1]
 ```
 
 **运行时验证模式（独立编译场景）：**
@@ -464,7 +464,7 @@ struct Config {
 
 **V3 投影定理的实际意义：**
 
-Theorem 4.2 保证 Definition 匹配 ⟹ Layout 匹配。因此：
+Theorem 5.4 保证 Definition 匹配 ⟹ Layout 匹配。因此：
 - **联合编译**：`static_assert(definition_signatures_match<H,P>())` — 编译时 V1+V2 保证
 - **独立编译**：运行时通过 `dlsym` 导出签名字符串进行 `strcmp` 比对。
   导出哪一层取决于安全需求：
@@ -479,7 +479,7 @@ Theorem 4.2 保证 Definition 匹配 ⟹ Layout 匹配。因此：
 严格来说，TypeLayout 执行**结构分析**（不包含类型自身名称），所以
 Definition 不匹配的准确含义是：
 
-    ⟦T_H⟧_D ≠ ⟦T_P⟧_D ⟹ D_P(T_H) ≠ D_P(T_P)    [Corollary 3.5.1 的逆否]
+    ⟦T_H⟧_D ≠ ⟦T_P⟧_D ⟹ D_P(T_H) ≠ D_P(T_P)    [Corollary 3.2.1 的逆否]
 
 即两个类型的结构树不同（字段名、基类、限定名等至少有一项不同）。
 
@@ -591,9 +591,9 @@ TypeLayout 的独特优势：**零运行时开销的全自动检测**。检测�
 ```
 definition_signatures_match<ConfigV1, ConfigV2>() == true
     ⟹ ⟦V1⟧_D = ⟦V2⟧_D
-    ⟹ D_P(V1) = D_P(V2)                    [Theorem 3.5]
+    ⟹ D_P(V1) = D_P(V2)                    [Theorem 3.2]
     ⟹ 字段名、类型、偏移、继承层次完全相同
-    ⟹ 所有序列化方式安全                     [Corollary 3.5.1]
+    ⟹ 所有序列化方式安全                     [Corollary 3.2.1]
 ```
 
 ---
@@ -664,7 +664,7 @@ v2::Result: record[s:260,a:4]{~base<ErrorBase>:record[s:4,a:4]{@0[error_code]:i3
 
 **形式化基础：**
 
-这又是 Theorem 4.3 (Strict Refinement) 的实例：
+这又是 Theorem 5.5 (Strict Refinement) 的实例：
 - v1 和 v2 的 Layout 签名相同（展平后字节布局一致）
 - v1 和 v2 的 Definition 签名不同（继承结构不同）
 - (v1, v2) ∈ ker(⟦·⟧_L) \ ker(⟦·⟧_D)
@@ -726,11 +726,11 @@ definition_signatures_match<Point, Coord>() == true  // ！
 
 ```
 definition_signatures_match<OldAPI, NewAPI>() == true
-    ⟹ D_P(Old) = D_P(New)                   [Theorem 3.5 / Corollary 3.5.1]
+    ⟹ D_P(Old) = D_P(New)                   [Theorem 3.2 / Corollary 3.2.1]
     ⟹ 字段名、类型、继承层次完全一致
     ⟹ API 结构兼容
 
-    ⟹ (by Theorem 4.2 / V3 Projection)
+    ⟹ (by Theorem 5.4 / V3 Projection)
        layout_signatures_match<OldAPI, NewAPI>() == true
     ⟹ ABI 也兼容
 ```
@@ -745,12 +745,12 @@ definition_signatures_match<OldAPI, NewAPI>() == true
 
 | 场景 | 主要层 | 辅助层 | 核心定理 | 选择理由 |
 |------|:------:|:------:|---------|---------|
-| IPC / 共享内存 | Layout (V1) | Definition (V2) | Thm 3.2 | 关心字节布局，不关心名称 |
-| 网络协议验证 | Layout (V1) | — | Thm 3.2 | wire format 是纯字节序列 |
-| 文件格式兼容 | Layout (V1) | Definition (V2) | Thm 3.2 + 4.3 | 字节兼容 + 版本演化检测 |
-| 插件 ABI/ODR | Layout (V1) | Definition (V2) | Thm 3.2 + 3.5.1 | ABI 验证 + ODR 检测 |
-| 序列化版本检查 | Definition (V2) | Layout (V1) | Thm 3.5 | 序列化依赖字段名和类型 |
-| API 兼容检查 | Definition (V2) | Layout (V1) | Thm 3.5 + 4.2 | API 关心语义级一致性 |
+| IPC / 共享内存 | Layout (V1) | Definition (V2) | Thm 4.1 | 关心字节布局，不关心名称 |
+| 网络协议验证 | Layout (V1) | — | Thm 4.1 | wire format 是纯字节序列 |
+| 文件格式兼容 | Layout (V1) | Definition (V2) | Thm 4.1 + 4.3 | 字节兼容 + 版本演化检测 |
+| 插件 ABI/ODR | Layout (V1) | Definition (V2) | Thm 4.1 + 3.5.1 | ABI 验证 + ODR 检测 |
+| 序列化版本检查 | Definition (V2) | Layout (V1) | Thm 3.2 | 序列化依赖字段名和类型 |
+| API 兼容检查 | Definition (V2) | Layout (V1) | Thm 3.2 + 4.2 | API 关心语义级一致性 |
 
 ### 7.2 核心价值映射
 
@@ -764,12 +764,12 @@ definition_signatures_match<OldAPI, NewAPI>() == true
 
 | 场景 | 安全判据 | 形式化表达 |
 |------|---------|-----------|
-| IPC | memcpy 安全 | `⟦T_A⟧_L = ⟦T_B⟧_L ⟹ T_A ≅_mem T_B` (Thm 3.2) |
+| IPC | memcpy 安全 | `⟦T_A⟧_L = ⟦T_B⟧_L ⟹ T_A ≅_mem T_B` (Thm 4.1) |
 | 网络 | wire format 一致 | `⟦Client⟧_L = ⟦Server⟧_L ⟹ 相同偏移/大小` (Thm 3.1) |
-| 文件 | fread 安全 + 版本一致 | V1: Thm 3.2, V2: Cor 3.5.1 |
-| 插件 | ABI 安全 + ODR 一致 | V1: Thm 3.2, V2: Cor 3.5.1, 对比: Thm 4.3 |
-| 序列化 | 结构一致 | `⟦V1⟧_D = ⟦V2⟧_D ⟹ D_P(V1) = D_P(V2)` (Cor 3.5.1) |
-| API | 语义兼容 | `⟦Old⟧_D = ⟦New⟧_D ⟹ API 结构兼容` (Thm 3.5 + 4.2) |
+| 文件 | fread 安全 + 版本一致 | V1: Thm 4.1, V2: Cor 3.2.1 |
+| 插件 | ABI 安全 + ODR 一致 | V1: Thm 4.1, V2: Cor 3.2.1, 对比: Thm 5.5 |
+| 序列化 | 结构一致 | `⟦V1⟧_D = ⟦V2⟧_D ⟹ D_P(V1) = D_P(V2)` (Cor 3.2.1) |
+| API | 语义兼容 | `⟦Old⟧_D = ⟦New⟧_D ⟹ API 结构兼容` (Thm 3.2 + 4.2) |
 
 ### 7.4 两层互补的设计合理性
 
@@ -860,7 +860,7 @@ V3 投影定理保证两层之间的一致性——严格层（Definition）总�
 **Definition 层在 IPC 中的正确性：**
 
 Definition 层编码了 Layout 的全部信息**加上**字段名和继承结构。
-由 V3 投影定理（Theorem 4.2），Definition 匹配 ⟹ Layout 匹配。
+由 V3 投影定理（Theorem 5.4），Definition 匹配 ⟹ Layout 匹配。
 因此 Definition 匹配对于 IPC 是**充分条件**（但非必要——字段名不同不影响 IPC 安全）。
 
 **结论：Definition 用于 IPC 正确但过于严格。** Layout 是更精确的匹配。
@@ -973,7 +973,7 @@ Definition 签名检测**数据布局相关的** ODR 违规（字段名/类型/�
 
 **正确性论证：** Definition 签名的 ODR 检测是**保守正确**的：
 
-- **无误报 (Sound)**：Definition 签名匹配 ⟹ D_P 完全相同（Corollary 3.5.1）
+- **无误报 (Sound)**：Definition 签名匹配 ⟹ D_P 完全相同（Corollary 3.2.1）
   ⟹ 数据布局方面的 ODR 一致。签名匹配不会错误地放过数据布局不同的类型。
 
 - **有漏报 (Incomplete)**：两个类型可能数据布局相同但成员函数不同（仍是 ODR 违规），
@@ -1119,11 +1119,11 @@ TypeLayout 的价值在于：它是**唯一能在编译时自动检测数据结�
 
 **证明：**
 - 对于 Layout 为主的场景 (IPC, Network, FileFormat-字节, Plugin-ABI)：
-  签名匹配 ⟹ L_P(T) = L_P(U) [Theorem 3.1] ⟹ T ≅_mem U [Def 1.7] ⟹ Safety 成立 [Thm 3.2]
+  签名匹配 ⟹ L_P(T) = L_P(U) [Theorem 3.1] ⟹ T ≅_mem U [Def 1.9] ⟹ Safety 成立 [Thm 4.1]
 
 - 对于 Definition 为主的场景 (Serialization, API, Plugin-ODR, FileFormat-语义)：
-  签名匹配 ⟹ D_P(T) = D_P(U) [Theorem 3.5] ⟹ 结构完全一致 [Cor 3.5.1]
-  且 ⟹ L_P(T) = L_P(U) [Theorem 4.2] ⟹ 字节布局也一致
+  签名匹配 ⟹ D_P(T) = D_P(U) [Theorem 3.2] ⟹ 结构完全一致 [Cor 3.2.1]
+  且 ⟹ L_P(T) = L_P(U) [Theorem 5.4] ⟹ 字节布局也一致
 
 **无一场景存在误报 (false positive)。** 签名匹配总是意味着（在其编码范围内的）安全。 ∎
 

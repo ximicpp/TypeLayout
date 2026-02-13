@@ -85,6 +85,8 @@ namespace typelayout {
             return len;
         }
 
+        constexpr const char* c_str() const noexcept { return value; }
+
         constexpr operator std::string_view() const noexcept {
             return {value, length()};
         }
