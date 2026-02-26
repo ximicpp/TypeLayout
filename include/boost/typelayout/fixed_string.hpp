@@ -91,6 +91,35 @@ namespace typelayout {
             return {value, length()};
         }
 
+        // Compile-time substring search. Returns the index of the first
+        // occurrence of `needle` in this string, or npos if not found.
+        template <size_t M>
+        constexpr size_t find(const FixedString<M>& needle) const noexcept {
+            size_t haystack_len = length();
+            size_t needle_len = needle.length();
+            if (needle_len == 0) return 0;
+            if (needle_len > haystack_len) return npos;
+            for (size_t i = 0; i <= haystack_len - needle_len; ++i) {
+                bool match = true;
+                for (size_t j = 0; j < needle_len; ++j) {
+                    if (value[i + j] != needle.value[j]) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) return i;
+            }
+            return npos;
+        }
+
+        // Convenience: does this string contain `needle`?
+        template <size_t M>
+        constexpr bool contains(const FixedString<M>& needle) const noexcept {
+            return find(needle) != npos;
+        }
+
+        static constexpr size_t npos = static_cast<size_t>(-1);
+
         // Strip leading character (used to remove leading comma after fold-expression).
         consteval auto skip_first() const noexcept {
             char result[N + 1] = {};
