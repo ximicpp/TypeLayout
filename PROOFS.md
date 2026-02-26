@@ -1,5 +1,10 @@
 # Formal Accuracy Proofs for Two-Layer Signature System
 
+> **Cross-reference:** For the condensed paper version of these proofs, see
+> [`docs/paper/sec4-formal.md`](docs/paper/sec4-formal.md) (S4 Formal Semantics).
+> For real-world application scenarios, see
+> [`docs/applications.md`](docs/applications.md).
+
 This document provides rigorous mathematical proofs for the correctness of
 Boost.TypeLayout's two-layer signature system, grounded in **Denotational Semantics**
 and **Refinement Theory**.

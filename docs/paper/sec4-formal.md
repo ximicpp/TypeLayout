@@ -1,4 +1,8 @@
-# §4 Formal Semantics
+# S4 Formal Semantics
+
+> **Cross-reference:** This is the condensed paper version. For the full formal
+> proofs (S1-S7, ~1,000 lines), see [`PROOFS.md`](../../PROOFS.md) at the
+> repository root.
 
 This section develops the formal semantics of TypeLayout's two-layer signature
 system. We define the semantic domains, the signature denotation functions,

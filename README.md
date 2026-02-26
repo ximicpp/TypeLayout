@@ -186,7 +186,8 @@ TypeLayout signatures enable a range of compile-time and cross-compilation analy
 - **Plugin systems** — validate ABI at load time
 - **Cross-platform analysis** — compare signatures across architectures
 
-See [`example/`](example/README.md) for a multi-platform comparison demo.
+See the [Quickstart Guide](docs/quickstart.md) for a full tutorial, or browse
+[`example/`](example/) for runnable demo sources.
 
 ## Build & Test
 

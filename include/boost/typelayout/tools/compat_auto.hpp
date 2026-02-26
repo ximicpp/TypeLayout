@@ -61,38 +61,11 @@ inline constexpr bool all_layouts_match(const PlatformInfo& a,
             ::boost::typelayout::platform::other::get_platform_info()),          \
         "TypeLayout: layout mismatch between " #ref " and " #other);
 
-#define TYPELAYOUT_DETAIL_ASSERT_COMPAT_EACH_1(ref, x) \
-    TYPELAYOUT_DETAIL_ASSERT_PAIR(ref, x)
-#define TYPELAYOUT_DETAIL_ASSERT_COMPAT_EACH_2(ref, x, ...) \
-    TYPELAYOUT_DETAIL_ASSERT_PAIR(ref, x) \
-    TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_ASSERT_COMPAT_EACH_1(ref, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_ASSERT_COMPAT_EACH_3(ref, x, ...) \
-    TYPELAYOUT_DETAIL_ASSERT_PAIR(ref, x) \
-    TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_ASSERT_COMPAT_EACH_2(ref, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_ASSERT_COMPAT_EACH_4(ref, x, ...) \
-    TYPELAYOUT_DETAIL_ASSERT_PAIR(ref, x) \
-    TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_ASSERT_COMPAT_EACH_3(ref, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_ASSERT_COMPAT_EACH_5(ref, x, ...) \
-    TYPELAYOUT_DETAIL_ASSERT_PAIR(ref, x) \
-    TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_ASSERT_COMPAT_EACH_4(ref, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_ASSERT_COMPAT_EACH_6(ref, x, ...) \
-    TYPELAYOUT_DETAIL_ASSERT_PAIR(ref, x) \
-    TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_ASSERT_COMPAT_EACH_5(ref, __VA_ARGS__))
-#define TYPELAYOUT_DETAIL_ASSERT_COMPAT_EACH_7(ref, x, ...) \
-    TYPELAYOUT_DETAIL_ASSERT_PAIR(ref, x) \
-    TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_ASSERT_COMPAT_EACH_6(ref, __VA_ARGS__))
-
-#define TYPELAYOUT_DETAIL_ASSERT_NARG_(...) \
-    TYPELAYOUT_DETAIL_EXPAND(TYPELAYOUT_DETAIL_ASSERT_ARG_N(__VA_ARGS__))
-#define TYPELAYOUT_DETAIL_ASSERT_ARG_N(_1,_2,_3,_4,_5,_6,_7, N, ...) N
-
-#define TYPELAYOUT_DETAIL_ASSERT_COMPAT_EACH(ref, ...)                          \
-    TYPELAYOUT_DETAIL_EXPAND(                                                   \
-        TYPELAYOUT_DETAIL_CAT(TYPELAYOUT_DETAIL_ASSERT_COMPAT_EACH_,            \
-            TYPELAYOUT_DETAIL_ASSERT_NARG_(__VA_ARGS__, 7,6,5,4,3,2,1)          \
-        )(ref, __VA_ARGS__))
+// Reuses FOR_EACH_CTX from foreach.hpp -- supports up to 32 platforms
+// (previously hand-rolled to 7).
 
 #define TYPELAYOUT_ASSERT_COMPAT(first, ...)                                    \
-    TYPELAYOUT_DETAIL_ASSERT_COMPAT_EACH(first, __VA_ARGS__)
+    TYPELAYOUT_DETAIL_FOR_EACH_CTX(TYPELAYOUT_DETAIL_ASSERT_PAIR,               \
+                                   first, __VA_ARGS__)
 
 #endif // BOOST_TYPELAYOUT_TOOLS_COMPAT_AUTO_HPP
