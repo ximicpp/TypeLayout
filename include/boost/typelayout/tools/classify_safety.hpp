@@ -1,6 +1,10 @@
-// Compile-time (consteval) safety classifier for cross-platform type portability.
-// Unlike classify_safety() in compat_check.hpp which scans signature strings at
-// runtime, this works directly on types at compile time via P2996 reflection.
+// Compile-time safety classifier for cross-platform type layout portability.
+//
+// classify_safety<T, Policy>() uses P2996 reflection to recursively walk the
+// type tree (bases, members, arrays, enums, etc.) and classify each leaf as
+// Safe, Warning, or Risk.  This is the consteval counterpart of the runtime
+// classify_safety(std::string_view) in compat_check.hpp — same name, same
+// SafetyLevel enum, but resolved entirely at compile time.
 //
 // Requires P2996 (Bloomberg Clang). For C++17-compatible runtime classification,
 // use classify_safety(std::string_view) from compat_check.hpp instead.
@@ -8,8 +12,8 @@
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
-#ifndef BOOST_TYPELAYOUT_TOOLS_CONSTEVAL_SAFETY_HPP
-#define BOOST_TYPELAYOUT_TOOLS_CONSTEVAL_SAFETY_HPP
+#ifndef BOOST_TYPELAYOUT_TOOLS_CLASSIFY_SAFETY_HPP
+#define BOOST_TYPELAYOUT_TOOLS_CLASSIFY_SAFETY_HPP
 
 #include <boost/typelayout/detail/reflect.hpp>
 #include <boost/typelayout/tools/compat_check.hpp>
@@ -92,7 +96,7 @@ struct DefaultSafetyPolicy {
 
 
 // =========================================================================
-// consteval_classify_safety<T, Policy>  —  the core engine
+// classify_safety<T, Policy>  —  the core engine
 // =========================================================================
 // Returns the worst (highest enum value) SafetyLevel found in the type tree.
 //
@@ -294,26 +298,30 @@ namespace detail {
 
 /// Compile-time safety classification of type T.
 ///
+/// This is the consteval counterpart of classify_safety(std::string_view)
+/// in compat_check.hpp.  Same SafetyLevel enum, but works directly on
+/// types via P2996 reflection instead of scanning signature strings.
+///
 /// @tparam T       The type to classify
 /// @tparam Policy  Safety policy (default: DefaultSafetyPolicy)
 /// @return SafetyLevel::Safe, Warning, or Risk
 ///
 /// Example:
-///   static_assert(consteval_classify_safety<int32_t>() == SafetyLevel::Safe);
-///   static_assert(consteval_classify_safety<long>()    == SafetyLevel::Risk);
+///   static_assert(classify_safety<int32_t>() == SafetyLevel::Safe);
+///   static_assert(classify_safety<long>()    == SafetyLevel::Risk);
 template<typename T, typename Policy = DefaultSafetyPolicy>
-[[nodiscard]] consteval SafetyLevel consteval_classify_safety() {
+[[nodiscard]] consteval SafetyLevel classify_safety() {
     return detail::classify_impl<T, Policy>();
 }
 
-/// Convenience: is the type safe for zero-copy cross-platform transfer?
+/// Convenience: is the type's layout safe for zero-copy cross-platform transfer?
 template<typename T, typename Policy = DefaultSafetyPolicy>
-[[nodiscard]] consteval bool is_consteval_safe() {
-    return consteval_classify_safety<T, Policy>() == SafetyLevel::Safe;
+[[nodiscard]] consteval bool is_layout_safe() {
+    return classify_safety<T, Policy>() == SafetyLevel::Safe;
 }
 
 } // namespace compat
 } // namespace typelayout
 } // namespace boost
 
-#endif // BOOST_TYPELAYOUT_TOOLS_CONSTEVAL_SAFETY_HPP
+#endif // BOOST_TYPELAYOUT_TOOLS_CLASSIFY_SAFETY_HPP
