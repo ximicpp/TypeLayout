@@ -256,25 +256,16 @@ namespace typelayout {
             }
             else if constexpr (std::is_class_v<T> && !std::is_array_v<T>) {
                 if constexpr (Mode == SignatureMode::Layout) {
-                    constexpr bool poly = std::is_polymorphic_v<T>;
-                    if constexpr (poly) {
-                        // vptr occupies pointer_size bytes at an implementation-defined position
-                        return FixedString{"record[s:"} +
-                               to_fixed_string(sizeof(T)) +
-                               FixedString{",a:"} +
-                               to_fixed_string(alignof(T)) +
-                               FixedString{",vptr]{"} +
-                               get_layout_content<T>() +
-                               FixedString{"}"};
-                    } else {
-                        return FixedString{"record[s:"} +
-                               to_fixed_string(sizeof(T)) +
-                               FixedString{",a:"} +
-                               to_fixed_string(alignof(T)) +
-                               FixedString{"]{"} +
-                               get_layout_content<T>() +
-                               FixedString{"}"};
-                    }
+                    // vptr (if any) is injected as a synthesized ptr[s:N,a:N]
+                    // field inside get_layout_content via layout_all_prefixed,
+                    // so the record header no longer needs a special ,vptr marker.
+                    return FixedString{"record[s:"} +
+                           to_fixed_string(sizeof(T)) +
+                           FixedString{",a:"} +
+                           to_fixed_string(alignof(T)) +
+                           FixedString{"]{"} +
+                           get_layout_content<T>() +
+                           FixedString{"}"};
                 } else {
                     // Definition mode: "record" prefix, preserve tree, include names + polymorphic marker
                     constexpr bool poly = std::is_polymorphic_v<T>;

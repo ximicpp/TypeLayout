@@ -195,14 +195,33 @@ namespace typelayout {
         else return (layout_one_base_prefixed<T, Is, OffsetAdj>() + ...);
     }
 
+    // Synthesize a comma-prefixed vptr field if T introduces polymorphism.
+    // vptr is physically a pointer; we encode it as ptr[s:N,a:N] so that
+    // classify_safety's existing "ptr[" pattern detects it automatically,
+    // even when the polymorphic type is flattened into a parent record.
+    template <typename T, std::size_t OffsetAdj>
+    consteval auto maybe_vptr_prefixed() noexcept {
+        if constexpr (introduces_vptr<T>()) {
+            return FixedString{",@"} + to_fixed_string(OffsetAdj) +
+                   FixedString{":ptr[s:"} +
+                   to_fixed_string(sizeof(void*)) +
+                   FixedString{",a:"} +
+                   to_fixed_string(alignof(void*)) +
+                   FixedString{"]"};
+        } else {
+            return FixedString{""};
+        }
+    }
+
     template <typename T, std::size_t OffsetAdj>
     consteval auto layout_all_prefixed() noexcept {
         constexpr std::size_t bc = get_base_count<T>();
         constexpr std::size_t fc = get_member_count<T>();
-        if constexpr (bc == 0 && fc == 0) return FixedString{""};
-        else if constexpr (bc == 0) return layout_direct_fields_prefixed<T, OffsetAdj>(std::make_index_sequence<fc>{});
-        else if constexpr (fc == 0) return layout_bases_prefixed<T, OffsetAdj>(std::make_index_sequence<bc>{});
-        else return layout_bases_prefixed<T, OffsetAdj>(std::make_index_sequence<bc>{}) +
+        auto vptr = maybe_vptr_prefixed<T, OffsetAdj>();
+        if constexpr (bc == 0 && fc == 0) return vptr;
+        else if constexpr (bc == 0) return vptr + layout_direct_fields_prefixed<T, OffsetAdj>(std::make_index_sequence<fc>{});
+        else if constexpr (fc == 0) return vptr + layout_bases_prefixed<T, OffsetAdj>(std::make_index_sequence<bc>{});
+        else return vptr + layout_bases_prefixed<T, OffsetAdj>(std::make_index_sequence<bc>{}) +
                     layout_direct_fields_prefixed<T, OffsetAdj>(std::make_index_sequence<fc>{});
     }
 

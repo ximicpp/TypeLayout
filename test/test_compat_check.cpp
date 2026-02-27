@@ -184,8 +184,8 @@ void test_safety_classification() {
     assert(classify_safety("[64-le]record[s:8,a:8]{@0:fnptr[s:8,a:8]}")
            == SafetyLevel::Warning);
 
-    // Warning: polymorphic type with vptr
-    assert(classify_safety("[64-le]record[s:16,a:8,vptr]{@8:i32[s:4,a:4]}")
+    // Warning: polymorphic type with vptr (vptr encoded as ptr[s:8,a:8])
+    assert(classify_safety("[64-le]record[s:16,a:8]{@0:ptr[s:8,a:8],@8:i32[s:4,a:4]}")
            == SafetyLevel::Warning);
 
     // Risk: contains wchar_t

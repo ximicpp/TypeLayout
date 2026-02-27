@@ -181,9 +181,9 @@ static_assert(layout_signatures_match<test_multilevel::C, test_multilevel::Flat>
 static_assert(layout_signatures_match<test_multiple_inheritance::Multi, test_multiple_inheritance::Flat>(),
     "Multiple inheritance should flatten to match flat struct");
 
-// Fix #3: Polymorphic types now have vptr marker in Layout
-static_assert(contains(get_layout_signature<test_polymorphic::Poly>(), "vptr"),
-    "Polymorphic type Layout SHOULD contain 'vptr'");
+// Fix #3: Polymorphic types have vptr as a synthesized ptr field in Layout
+static_assert(contains(get_layout_signature<test_polymorphic::Poly>(), "ptr["),
+    "Polymorphic type Layout SHOULD contain 'ptr[' for vptr");
 
 // Fix #3: Polymorphic vs non-polymorphic must NOT match in Layout
 static_assert(!layout_signatures_match<test_polymorphic::Poly, test_polymorphic::NonPoly>(),

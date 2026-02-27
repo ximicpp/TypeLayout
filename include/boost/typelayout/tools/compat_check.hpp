@@ -39,11 +39,14 @@ constexpr bool definition_match(const char* a, const char* b) noexcept {
 
 enum class SafetyLevel {
     Safe,       // no pointers, no bit-fields
-    Warning,    // has pointers or vptr
+    Warning,    // has pointers (including vptr)
     Risk        // has bit-fields or platform-dependent types
 };
 
 /// Scan a layout signature for pointers, bit-fields, etc.
+/// vptr is encoded as a synthesized ptr[s:N,a:N] field in the layout
+/// signature, so it is detected by the same "ptr[" pattern as user-defined
+/// pointer fields.  No separate ",vptr" pattern is needed.
 inline SafetyLevel classify_safety(std::string_view sig) noexcept {
     if (sig.find("bits<") != std::string_view::npos)
         return SafetyLevel::Risk;
@@ -56,8 +59,6 @@ inline SafetyLevel classify_safety(std::string_view sig) noexcept {
         sig.find("memptr[") != std::string_view::npos ||
         sig.find("ref[") != std::string_view::npos ||
         sig.find("rref[") != std::string_view::npos)
-        return SafetyLevel::Warning;
-    if (sig.find(",vptr") != std::string_view::npos)
         return SafetyLevel::Warning;
 
     return SafetyLevel::Safe;

@@ -43,12 +43,12 @@ namespace compat {
 //     "f80["     -- long double (80-bit on x86, 64-bit on ARM/MSVC)
 //
 //   Warning markers:
-//     "ptr["     -- pointer
+//     "ptr["     -- pointer (also covers vptr: polymorphic types have a
+//                   synthesized ptr[s:N,a:N] field in the layout signature)
 //     "fnptr["   -- function pointer
 //     "memptr["  -- member pointer
 //     "ref["     -- lvalue reference
 //     "rref["    -- rvalue reference
-//     ",vptr]"   -- polymorphic type (contains vtable pointer)
 //     "union["   -- union (overlapping members)
 //
 //   Safe:
@@ -72,12 +72,13 @@ template<typename T>
     if constexpr (sig.contains(FixedString{"f80["}))   return SafetyLevel::Risk;
 
     // --- Warning markers ---
+    // vptr is now encoded as a synthesized ptr[s:N,a:N] field, so "ptr["
+    // covers both user-defined pointers and compiler-injected vptr.
     if constexpr (sig.contains(FixedString{"ptr["}) ||
                   sig.contains(FixedString{"fnptr["}) ||
                   sig.contains(FixedString{"memptr["}) ||
                   sig.contains(FixedString{"ref["}) ||
                   sig.contains(FixedString{"rref["}))  return SafetyLevel::Warning;
-    if constexpr (sig.contains(FixedString{",vptr]"})) return SafetyLevel::Warning;
     if constexpr (sig.contains(FixedString{"union["})) return SafetyLevel::Warning;
 
     // --- No markers found ---

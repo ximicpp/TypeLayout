@@ -88,6 +88,34 @@ namespace typelayout {
         return qualified_name_for<^^T>();
     }
 
+    // Check whether T has at least one direct polymorphic base class.
+    // Used to determine if T itself introduces the vptr (as opposed to
+    // inheriting it from a base).
+    template<typename T, std::size_t I>
+    consteval bool base_is_polymorphic() noexcept {
+        constexpr auto base_info = std::meta::bases_of(^^T, std::meta::access_context::unchecked())[I];
+        using Base = [:std::meta::type_of(base_info):];
+        return std::is_polymorphic_v<Base>;
+    }
+
+    template<typename T, std::size_t... Is>
+    consteval bool any_base_polymorphic(std::index_sequence<Is...>) noexcept {
+        return (... || base_is_polymorphic<T, Is>());
+    }
+
+    template<typename T>
+    consteval bool has_polymorphic_base() noexcept {
+        constexpr std::size_t bc = get_base_count<T>();
+        if constexpr (bc == 0) return false;
+        else return any_base_polymorphic<T>(std::make_index_sequence<bc>{});
+    }
+
+    // T introduces vptr if T is polymorphic and no direct base is polymorphic.
+    template<typename T>
+    consteval bool introduces_vptr() noexcept {
+        return std::is_polymorphic_v<T> && !has_polymorphic_base<T>();
+    }
+
 } // namespace typelayout
 } // namespace boost
 
