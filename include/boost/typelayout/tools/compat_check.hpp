@@ -43,10 +43,39 @@ enum class SafetyLevel {
     Risk        // has bit-fields or platform-dependent types
 };
 
+/// Token-boundary-aware substring search for std::string_view.
+///
+/// Finds `needle` in `haystack`, but only accepts a match when the character
+/// immediately before it is NOT an ASCII letter.  This prevents e.g.
+/// "nullptr[" from being falsely matched by "ptr[".
+///
+/// In TypeLayout signatures, type markers are always preceded by '{', ',',
+/// or appear at the start of the string -- never preceded by a letter.
+inline bool contains_token(std::string_view haystack,
+                           std::string_view needle) noexcept {
+    size_t pos = 0;
+    while (pos < haystack.size()) {
+        size_t found = haystack.find(needle, pos);
+        if (found == std::string_view::npos) return false;
+        if (found == 0) return true;
+        char prev = haystack[found - 1];
+        bool prev_is_alpha = (prev >= 'a' && prev <= 'z') ||
+                             (prev >= 'A' && prev <= 'Z');
+        if (!prev_is_alpha) return true;
+        // False match inside a longer token — advance past it
+        pos = found + 1;
+    }
+    return false;
+}
+
 /// Scan a layout signature for pointers, bit-fields, etc.
 /// vptr is encoded as a synthesized ptr[s:N,a:N] field in the layout
 /// signature, so it is detected by the same "ptr[" pattern as user-defined
 /// pointer fields.  No separate ",vptr" pattern is needed.
+///
+/// NOTE: contains_token() is used for warning markers to enforce
+/// token-boundary matching, preventing "nullptr[" from being falsely
+/// matched by "ptr[".
 inline SafetyLevel classify_safety(std::string_view sig) noexcept {
     if (sig.find("bits<") != std::string_view::npos)
         return SafetyLevel::Risk;
@@ -54,12 +83,12 @@ inline SafetyLevel classify_safety(std::string_view sig) noexcept {
         return SafetyLevel::Risk;
     if (sig.find("f80[") != std::string_view::npos)
         return SafetyLevel::Risk;
-    if (sig.find("ptr[") != std::string_view::npos ||
-        sig.find("fnptr[") != std::string_view::npos ||
-        sig.find("memptr[") != std::string_view::npos ||
-        sig.find("ref[") != std::string_view::npos ||
-        sig.find("rref[") != std::string_view::npos ||
-        sig.find("union[") != std::string_view::npos)
+    if (contains_token(sig, "ptr[") ||
+        contains_token(sig, "fnptr[") ||
+        contains_token(sig, "memptr[") ||
+        contains_token(sig, "ref[") ||
+        contains_token(sig, "rref[") ||
+        contains_token(sig, "union["))
         return SafetyLevel::Warning;
 
     return SafetyLevel::Safe;

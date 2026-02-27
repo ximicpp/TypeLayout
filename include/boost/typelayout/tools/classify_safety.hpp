@@ -74,12 +74,17 @@ template<typename T>
     // --- Warning markers ---
     // vptr is now encoded as a synthesized ptr[s:N,a:N] field, so "ptr["
     // covers both user-defined pointers and compiler-injected vptr.
-    if constexpr (sig.contains(FixedString{"ptr["}) ||
-                  sig.contains(FixedString{"fnptr["}) ||
-                  sig.contains(FixedString{"memptr["}) ||
-                  sig.contains(FixedString{"ref["}) ||
-                  sig.contains(FixedString{"rref["}))  return SafetyLevel::Warning;
-    if constexpr (sig.contains(FixedString{"union["})) return SafetyLevel::Warning;
+    //
+    // NOTE: contains_token() is used instead of contains() to enforce
+    // token-boundary matching: the character before the needle must NOT be
+    // an ASCII letter.  This prevents "nullptr[" (a safe nullptr_t marker)
+    // from being falsely matched by "ptr[".
+    if constexpr (sig.contains_token(FixedString{"ptr["}) ||
+                  sig.contains_token(FixedString{"fnptr["}) ||
+                  sig.contains_token(FixedString{"memptr["}) ||
+                  sig.contains_token(FixedString{"ref["}) ||
+                  sig.contains_token(FixedString{"rref["}))  return SafetyLevel::Warning;
+    if constexpr (sig.contains_token(FixedString{"union["})) return SafetyLevel::Warning;
 
     // --- No markers found ---
     return SafetyLevel::Safe;

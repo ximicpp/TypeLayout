@@ -118,6 +118,44 @@ namespace typelayout {
             return find(needle) != npos;
         }
 
+        // Token-boundary-aware contains: matches `needle` only when the
+        // character immediately before the match is NOT an ASCII letter.
+        // This prevents e.g. "ptr[" from matching inside "nullptr[".
+        //
+        // In TypeLayout signatures, type markers (ptr[, fnptr[, ref[, etc.)
+        // are always preceded by '{', ',', or appear at position 0 -- never
+        // preceded by a letter.  So this predicate correctly distinguishes
+        // "ptr[" (a real pointer marker) from "nullptr[" (a different marker
+        // that happens to contain "ptr[" as a substring).
+        template <size_t M>
+        constexpr bool contains_token(const FixedString<M>& needle) const noexcept {
+            size_t haystack_len = length();
+            size_t needle_len = needle.length();
+            if (needle_len == 0) return true;
+            if (needle_len > haystack_len) return false;
+            for (size_t i = 0; i <= haystack_len - needle_len; ++i) {
+                bool match = true;
+                for (size_t j = 0; j < needle_len; ++j) {
+                    if (value[i + j] != needle.value[j]) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) {
+                    // Check token boundary: preceding char must NOT be a letter
+                    if (i == 0) return true;
+                    char prev = value[i - 1];
+                    bool prev_is_alpha = (prev >= 'a' && prev <= 'z') ||
+                                         (prev >= 'A' && prev <= 'Z');
+                    if (!prev_is_alpha) return true;
+                    // Otherwise, this is a substring match inside a longer
+                    // token (e.g. "nullptr[" matching "ptr[") -- skip it
+                    // and keep searching.
+                }
+            }
+            return false;
+        }
+
         static constexpr size_t npos = static_cast<size_t>(-1);
 
         // Strip leading character (used to remove leading comma after fold-expression).
