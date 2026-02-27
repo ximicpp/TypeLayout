@@ -177,8 +177,15 @@ The leaf field sequence of type T on platform P is defined as:
 where flatten is recursively defined as:
 
     flatten(T, adj) =
+      let vptr_prefix =
+        if introduces_vptr(T)
+          then [(adj, "ptr[s:" ++ str(sizeof(void*)) ++ ",a:" ++ str(alignof(void*)) ++ "]")]
+          else []
+      in
       let bases = bases_of(T) in
       let members = nonstatic_data_members_of(T) in
+      vptr_prefix
+      ++
       concat([
         if opaque(base_type(b))
           then [(offset_of(b) + adj, ⟦base_type(b)⟧_L)]    -- opaque base: leaf node
@@ -194,6 +201,11 @@ where flatten is recursively defined as:
           else [(offset_of(m) + adj, ⟦type(m)⟧_L)]          -- leaf: primitive, union, enum, opaque, etc.
         | m ∈ members
       ])
+
+Note: `introduces_vptr(T)` is true when `is_polymorphic(T)` and no base class of T
+is polymorphic — i.e., T is the base-most class introducing a vtable pointer.  The
+synthesized `ptr[...]` entry represents the compiler-injected vptr as a physical
+pointer field, placed at offset `adj` (the start of this subobject).
 
 Note: The `opaque(T)` predicate (Definition 1.1) short-circuits flattening for both
 base classes and fields. This matches the implementation in `signature_impl.hpp` where
@@ -274,11 +286,10 @@ function* in the Scott-Strachey sense.
 
 **Case 3: Polymorphic record type**
 
-    ⟦T⟧_L =
-      "record[s:" ++ str(sizeof_P(T)) ++
-            ",a:" ++ str(alignof_P(T)) ++
-            ",vptr]{" ++
-      join(",", ["@" ++ str(oᵢ) ++ ":" ++ sigᵢ for (oᵢ, sigᵢ) in fields_P(T)]) ++ "}"
+Same as Case 2. Polymorphism is encoded by `introduces_vptr` in `flatten` (Definition
+1.5), which synthesizes a `ptr[s:N,a:N]` field at the vptr offset. The record header
+has no special marker — polymorphic and non-polymorphic records share the same
+`record[s:S,a:A]{...}` envelope.
 
 **Case 4: Array type T[N]**
 
@@ -382,7 +393,6 @@ The Layout signature follows a deterministic grammar (simplified):
     arch     ::= '[' BITS '-' ENDIAN ']'
     record   ::= 'record' meta '{' fields '}'
     meta     ::= '[s:' NUM ',a:' NUM ']'
-               | '[s:' NUM ',a:' NUM ',vptr]'
     fields   ::= ε | field (',' field)*
     field    ::= '@' NUM ':' typesig
     typesig  ::= scalar | record | array | union | enum | bits
@@ -405,16 +415,14 @@ verify this for every decision point in the grammar:
 | `typesig` | `scalar \| record \| array \| union \| enum \| bits` | `{i,u,f,char*,bool,byte,nullptr,ptr,ref,rref,memptr,fnptr}`, `{record}`, `{array,bytes}`, `{union}`, `{enum}`, `{@…·…}` |
 | `scalar` | `i8 \| u8 \| i16 \| ... \| ptr \| fnptr \| ...` | Each prefix is a distinct string literal |
 | `array` | `array... \| bytes...` | `{array}`, `{bytes}` |
-| `meta` | `[s:N,a:N] \| [s:N,a:N,vptr]` | Both start with `[s:`, but `vptr` vs `]` after the second `NUM` is decided by lookahead on a fixed delimiter — resolved as LL(2) or equivalently by a single-token lookahead after parsing `a:NUM` |
+| `meta` | `[s:N,a:N]` | Single production; no ambiguity |
 | `field` | `@NUM:typesig \| @NUM.NUM:bits<...>` | Both start with `@NUM`, but `.` vs `:` at the next character distinguishes them (LL(2), or factored as `field → '@' NUM fieldtail`) |
 
-Strictly, two productions (`meta` and `field`) require LL(2) lookahead. However, both
+Strictly, `field` requires LL(2) lookahead. However, it
 can be left-factored into LL(1) form:
 
     field    → '@' NUM fieldtail
     fieldtail → ':' typesig | '.' NUM ':bits<' NUM ',' typesig '>'
-    meta     → '[s:' NUM ',a:' NUM metatail
-    metatail → ']' | ',vptr]'
 
 After left-factoring, FIRST sets at every decision point are pairwise disjoint.
 Therefore the grammar is LL(1)-parsable, which implies:
@@ -494,7 +502,7 @@ is exactly the set of well-formed signature strings.
 (2) **Correctness of decode on Im(⟦·⟧_L):**
 - `decode` extracts sizeof from `s:N` → sizeof_P(T) ✓
 - `decode` extracts alignof from `a:N` → alignof_P(T) ✓
-- `decode` extracts poly from `,vptr` presence → poly_P(T) ✓
+- `decode` extracts poly from synthesized `ptr[...]` field at vptr offset → poly_P(T) ✓
 - `decode` extracts fields from `@OFF:SIG` list → fields_P(T) ✓
 
 (3) **Partiality note:** `decode` is undefined on arbitrary strings (e.g.,
@@ -692,13 +700,13 @@ reflection data R_P(T), with ⟦·⟧_L using strictly less information than ⟦
 **Conceptual erasure (informational, not a formal proof step):**
 The relationship can be visualized as a conceptual erasure with four steps:
 1. Remove field names: `@OFF[name]:SIG` → `@OFF:SIG`
-2. Flatten inheritance: `~base<N>:record{F}` → flattened fields
-3. Replace poly marker: `polymorphic` → `vptr`
+2. Flatten inheritance: `~base<N>:record{F}` → flattened fields with adjusted offsets
+3. Replace `,polymorphic` marker with a synthesized `ptr[s:N,a:N]` field at the vptr offset
 4. Remove enum qualified names: `enum<ns::C>[...]` → `enum[...]`
 
-However, step 2 (flatten_inheritance) requires base-in-derived offset information
-that is not directly encoded in the Definition signature string. Therefore the
-erasure is not a pure string-to-string function, and the formal proof uses the
+However, steps 2 and 3 require base-in-derived offset information and polymorphism
+analysis that are not directly encoded in the Definition signature string. Therefore
+the erasure is not a pure string-to-string function, and the formal proof uses the
 semantic argument above instead.
 
 ### Theorem 5.5 (Strict Refinement / 严格精化)
@@ -761,10 +769,14 @@ offsets are correctly propagated from the layer above, just as seL4's security p
 are preserved through each refinement step.
 
 **Note on vptr:** For polymorphic types, the vptr occupies `sizeof(void*)` bytes at an
-implementation-defined position. It is NOT a `nonstatic_data_member`, so it does not
-appear as a `@OFF:SIG` entry. However, its space IS included in `sizeof(T)` (reflected
-in `s:SIZE`), and the `,vptr` marker records its existence. Two polymorphic types with
-matching signatures have the same sizeof (including vptr space) and the same field offsets.
+implementation-defined position. It is NOT a `nonstatic_data_member`, but the flattening
+algorithm (Definition 1.5) synthesizes a `ptr[s:N,a:N]` leaf field at the vptr offset
+when `introduces_vptr(T)` is true. This ensures that:
+- The vptr is represented as a first-class pointer field in the Layout signature.
+- Nested polymorphic sub-objects (e.g., a struct containing a polymorphic member) are
+  correctly detected as containing pointers, which the safety classifier catches.
+- Two polymorphic types with matching signatures have the same sizeof (including vptr
+  space), the same vptr position, and the same field offsets.
 
 ---
 
@@ -828,12 +840,19 @@ Layout: Flattened. Correctness by Theorem 6.1's inheritance induction case.
 Definition: Preserves `~base<>` / `~vbase<>` structure. Correctness by `bases_of`
 and `qualified_name_for` P2996 APIs. ✓
 
-### 6.5 PolyRecord — polymorphic
+### 6.5 PolyRecord -- polymorphic
 
-Signature includes `,vptr` (Layout) or `,polymorphic` (Definition) marker.
-vptr space is included in sizeof but NOT as a leaf field — this is correct because
-vptr is not a `nonstatic_data_member`, but the compiler accounts for it in sizeof
-and all offset_of calculations. ✓
+Layout: The flattening algorithm synthesizes a `ptr[s:N,a:N]` field at the vptr offset
+via `introduces_vptr(T)` (Definition 1.5). This makes the vptr a first-class leaf field,
+enabling automatic pointer detection by the safety classifier.
+
+Definition: Uses the `,polymorphic` marker in the record header to indicate structural
+polymorphism intent, without synthesizing a physical field.
+
+The `introduces_vptr` predicate ensures that only the base-most polymorphic class in
+a hierarchy emits the synthesized pointer, preventing double-counting in deep
+inheritance chains. The compiler accounts for vptr space in `sizeof(T)` and all
+`offset_of` calculations. [OK]
 
 ### 6.6 Array(Type, N)
 
@@ -930,7 +949,7 @@ Underlying type from `std::underlying_type_t<E>`. ✓
 | Platform-dependent scalars | Exact (actual sizeof) | Exact | Cross-platform sigs naturally differ |
 | POD structs | Exact | Exact | None |
 | Inheritance | Exact (flattened) | Exact (tree preserved) | None |
-| Polymorphic | Existence marker | Existence marker | vptr offset not encoded |
+| Polymorphic | Exact (synthesized ptr field) | Existence marker (`,polymorphic`) | None |
 | Arrays | Exact | Exact | Byte-array normalization |
 | Unions | Exact (not flattened) | Exact | None |
 | Bit-fields | Same-compiler exact | Same-compiler exact | Cross-compiler bit ordering impl-defined |

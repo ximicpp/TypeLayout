@@ -154,12 +154,14 @@ the vtable presence, making cross-platform binary sharing unsafe.
 ## 4. Safety Classification
 
 The `classify_safety` function scans layout signatures for unsafe patterns
-(`bits<`, `ptr[`, `,vptr`, `wchar[`) and returns a conservative safety level:
+(`bits<`, `ptr[`, `wchar[`) and returns a conservative safety level.
+Note: vptr is encoded as a synthesized `ptr[s:N,a:N]` field, so the `ptr[`
+pattern automatically covers polymorphic types.
 
 | Level | Meaning |
 |-------|---------|
 | **Safe** (`***`) | Fixed-width scalars only — zero-copy safe |
-| **Warning** (`**-`) | Contains pointers or vptr — values not portable |
+| **Warning** (`**-`) | Contains pointers (including synthesized vptr) — values not portable |
 | **Risk** (`*--`) | Bit-fields or platform-dependent types |
 
 A **Safe + MATCH** verdict gives a machine-checked guarantee of binary

@@ -140,7 +140,7 @@ struct Point { int32_t x, y; };
 
 - 继承展平：基类字段以绝对偏移出现
 - 组合展平：嵌套 struct 递归展开为叶字段
-- 多态类型：`record[s:SIZE,a:ALIGN,vptr]{...}`
+- 多态类型：`record[s:SIZE,a:ALIGN]{@0:ptr[s:N,a:N],...}` (vptr 作为合成的 `ptr` 字段注入)
 - union 成员：不展平，保持每个成员的完整类型签名
 
 **Definition 签名**（Layer 2）— 保留结构树，含字段名和限定名：

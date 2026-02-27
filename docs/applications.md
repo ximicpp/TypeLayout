@@ -834,7 +834,7 @@ V3 投影定理保证两层之间的一致性——严格层（Definition）总�
 | alignof(T) | ✅ `a:ALIGN` | `to_fixed_string(alignof(T))` (line 518) | ✅ |
 | 字段偏移 | ✅ `@OFF:` | `offset_of(member).bytes + OffsetAdj` (line 197/206/210) | ✅ |
 | 字段类型+大小 | ✅ 递归 `TypeSignature` | `TypeSignature<FieldType, Layout>::calculate()` (line 203/212) | ✅ |
-| 多态标记 | ✅ `,vptr` | `is_polymorphic_v<T>` → `,vptr]` (line 519) | ✅ |
+| 多态标记 | ✅ 合成 `ptr[s:N,a:N]` | `introduces_vptr<T>` → synthesized `@0:ptr[s:N,a:N]` field | ✅ |
 | 基类展平 | ✅ 递归展平 | `layout_all_prefixed<BaseType, offset>()` (line 227) | ✅ |
 | 嵌套 struct 展平 | ✅ 递归展平 | `layout_all_prefixed<FieldType, field_offset>()` (line 207) | ✅ |
 | union 不展平 | ✅ 原子保留 | `get_layout_union_content<T>()` (line 507) | ✅ |

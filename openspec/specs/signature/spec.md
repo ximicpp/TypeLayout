@@ -43,7 +43,7 @@ The library SHALL provide two complementary layers of compile-time type signatur
 - **WHEN** `layout_sig(T@A) == layout_sig(T@B)`
 - **THEN** `sizeof(T)`, `alignof(T)`, and all field offsets SHALL be identical on both platforms
 - **AND** for types classified as Safe by `classify_safety()` (no pointer fields, no bit-fields, no platform-dependent types), `memcpy` transfer between platforms SHALL be safe under the IEEE 754 assumption
-- **AND** for types classified as Warning (contains pointers or vptr), the memory layout SHALL be compatible but pointer values SHALL NOT be valid across address spaces
+- **AND** for types classified as Warning (contains pointers, including compiler-injected vptr synthesized as `ptr[s:N,a:N]`), the memory layout SHALL be compatible but pointer values SHALL NOT be valid across address spaces
 - **AND** for types classified as Risk (contains bit-fields), the layout signature match SHALL NOT guarantee identical bit-level semantics across different compilers
 - **NOTE** The zero-serialization transfer condition is: Layout Signature Match (C1) AND Safety Classification = Safe (C2), under the IEEE 754 axiom (A1)
 - **NOTE** C1 already subsumes endianness and pointer width verification because the architecture prefix is part of the signature string
@@ -85,10 +85,11 @@ rather than descending into the type's data members and base classes.
 ### Requirement: Polymorphic Type Safety
 The library SHALL distinguish polymorphic from non-polymorphic types in Layout signatures.
 
-#### Scenario: vptr marker in Layout
+#### Scenario: Polymorphic type synthesized vptr field in Layout
 - **GIVEN** a polymorphic type `struct P { virtual void f(); int x; };`
 - **WHEN** Layout signature is generated
-- **THEN** the signature SHALL contain `,vptr` marker
+- **THEN** the signature SHALL contain a synthesized `ptr[s:N,a:N]` field at the vptr offset (where N is `sizeof(void*)` and `alignof(void*)`)
+- **AND** the synthesized pointer field SHALL be emitted only when `introduces_vptr<T>` is true (i.e., T is polymorphic and no direct base of T is polymorphic)
 - **AND** the signature SHALL NOT match a non-polymorphic type with the same fields
 
 ### Requirement: Qualified Names in Definition

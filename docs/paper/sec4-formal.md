@@ -55,7 +55,7 @@ type constructors:
 |------|----------|---------|
 | Primitive | τ ∈ PrimitiveTypes | σ(τ), e.g., `i32[s:4,a:4]` |
 | Record | struct/class | `record[s:S,a:A]{@o₁:sig₁,...,@oₙ:sigₙ}` with fields flattened |
-| Polymorphic | virtual class | `record[s:S,a:A,vptr]{...}` |
+| Polymorphic | virtual class | `record[s:S,a:A]{@0:ptr[...],@O:fields...}` (vptr as synthesized field) |
 | Array | *T*[*N*] | `array[s:S,a:A]<⟦T⟧_L,N>` |
 | Byte array | char[*N*] et al. | `bytes[s:N,a:1]` |
 | Union | union | `union[s:S,a:A]{@o₁:sig₁,...}` (not flattened) |
@@ -112,7 +112,7 @@ function decode : Σ\* ⇀ Layout such that:
 Define `decode` as this parsing process. By construction of ⟦·⟧_L
 (Definition 4.5), each component of *L_P*(*T*) is faithfully encoded:
 - sizeof from `s:N`, alignof from `a:N`
-- Polymorphism from presence/absence of `,vptr`
+- Polymorphism from synthesized `ptr[...]` field at vptr offset
 - Fields from the ordered `@offset:typesig` list
 
 Therefore decode ∘ ⟦·⟧_L = *L_P* on Types_P. ∎
@@ -177,7 +177,7 @@ grammar. ∎
 Define π : StructureTree → ByteLayout (i.e., π maps *D_P*(*T*) to *L_P*(*T*)) by:
 1. Erase field names
 2. Flatten inheritance hierarchy (expand base class subobjects with adjusted offsets)
-3. Replace `polymorphic` marker with `vptr`
+3. Synthesize a `ptr[s:N,a:N]` field at the vptr offset for polymorphic types (replacing the `,polymorphic` marker)
 4. Erase qualified enum names
 
 ### Theorem 4.14 (Strict Refinement — Projection)

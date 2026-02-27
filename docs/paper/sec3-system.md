@@ -38,7 +38,6 @@ sig      ::= arch record
 arch     ::= '[' BITS '-' ENDIAN ']'
 record   ::= 'record' meta '{' fields '}'
 meta     ::= '[s:' NUM ',a:' NUM ']'
-           | '[s:' NUM ',a:' NUM ',vptr]'
 fields   ::= ε | field (',' field)*
 field    ::= '@' NUM ':' typesig
            | '@' NUM '.' NUM ':bits<' NUM ',' typesig '>'
@@ -178,14 +177,15 @@ function LAYOUT_SIG(T, platform P):
     return prefix + LAYOUT_RECORD(T)
 
 function LAYOUT_RECORD(T):
-    header ← "record[s:" + str(sizeof(T)) + ",a:" + str(alignof(T))
-    if is_polymorphic(T): header ← header + ",vptr"
-    header ← header + "]{"
+    header ← "record[s:" + str(sizeof(T)) + ",a:" + str(alignof(T)) + "]{"
     body ← FLATTEN(T, offset_adjustment=0)
     return header + body + "}"
 
 function FLATTEN(T, adj):
     result ← ""
+    if introduces_vptr(T):
+        result ← result + "@" + str(adj) + ":ptr[s:" + str(sizeof(void*))
+                 + ",a:" + str(alignof(void*)) + "]"
     for each base B in bases_of(T):
         result ← result + FLATTEN(type_of(B), offset_of(B) + adj)
     for each member M in nonstatic_data_members_of(T):
@@ -197,6 +197,9 @@ function FLATTEN(T, adj):
         else:
             result ← result + "@" + str(off) + ":" + TYPE_SIG(type_of(M))
     return result
+
+function introduces_vptr(T):
+    return is_polymorphic(T) and not any(is_polymorphic(base) for base in bases_of(T))
 ```
 
 *Implementation note:* Fields are accumulated using a comma-prefix strategy
@@ -244,7 +247,7 @@ layout C++ types:
 | Structs | `record[s:N,a:M]{...}` | Field names in `[name]` |
 | Inheritance | Flattened to leaf fields | `~base<Name>:record{...}` |
 | Virtual inheritance | Flattened with vptr | `~vbase<Name>:record{...}` |
-| Polymorphic types | `record[s:N,a:M,vptr]{...}` | `record[s:N,a:M,polymorphic]{...}` |
+| Polymorphic types | Synthesized `ptr[s:N,a:N]` field at vptr offset | `record[s:N,a:M,polymorphic]{...}` |
 | Unions | `union[s:N,a:M]{...}` | Field names in `[name]` |
 | Bit-fields | `@B.b:bits<W,type>` | `@B.b[name]:bits<W,type>` |
 | Opaque types | `name[s:N,a:M]` or `name[s:N,a:M]<T,...>` | (same, mode-independent) |

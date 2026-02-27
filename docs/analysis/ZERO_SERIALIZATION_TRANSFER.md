@@ -50,7 +50,7 @@ signature already encodes the architecture prefix (endianness + pointer width).
 | N1 (Layout Match) | **C1** | Directly checked |
 | N2 (Same Endianness) | **⊂ C1** | Architecture prefix `[64-le]` is part of the signature string; `sig_L(T,Ps)==sig_L(T,Pd)` ⟹ identical prefix ⟹ same endianness |
 | N3 (IEEE 754) | **A1** | Platform axiom, not encoded in signatures; holds on all modern hardware |
-| N4 (No Pointer Fields) | **⊂ C2** | `classify_safety` returns `Safe` only when no `ptr[`, `fnptr[`, `vptr` patterns found |
+| N4 (No Pointer Fields) | **⊂ C2** | `classify_safety` returns `Safe` only when no `ptr[`, `fnptr[` patterns found (vptr is encoded as a synthesized `ptr[s:N,a:N]` field, so the `ptr[` pattern covers it) |
 | N5 (No Bit-Fields) | **⊂ C2** | `classify_safety` returns `Safe` only when no `bits<`, `wchar[` patterns found |
 
 #### The Simplified ZST Theorem
@@ -217,8 +217,8 @@ identical bit-level semantics across different compilers.
 
 | Taxonomy | `classify_safety()` | Signature Pattern | ZST Guarantee |
 |----------|--------------------|--------------------|---------------|
-| Safe | `SafetyLevel::Safe` | No `bits<`, `ptr[`, `vptr`, `wchar[` | Universal |
-| Conditional (pointer) | `SafetyLevel::Warning` | `ptr[`, `fnptr[`, `,vptr` | Layout-only (values not portable) |
+| Safe | `SafetyLevel::Safe` | No `bits<`, `ptr[`, `wchar[` | Universal |
+| Conditional (pointer) | `SafetyLevel::Warning` | `ptr[`, `fnptr[` (includes synthesized vptr) | Layout-only (values not portable) |
 | Conditional (platform-dep) | `SafetyLevel::Risk` | `wchar[` | Platform-pair-specific |
 | Unsafe (bit-field) | `SafetyLevel::Risk` | `bits<` | Unreliable |
 
@@ -244,7 +244,7 @@ identical bit-level semantics across different compilers.
 | `size_t` | 🟡 Conditional | `u64` or `u32` | Depends on pointer width |
 | `T*` | 🟡 Conditional | `ptr[s:8,a:8]` | Values not portable across address spaces |
 | `void*` | 🟡 Conditional | `ptr[s:8,a:8]` | Values not portable |
-| virtual class | 🟡 Conditional | `...,vptr` | Vtable ABI differs (Itanium vs MSVC) |
+| virtual class | 🟡 Conditional | `@0:ptr[s:8,a:8]` (synthesized vptr) | Vtable ABI differs (Itanium vs MSVC) |
 | `unsigned x : 3` | 🔴 Unsafe | `bits<u32,3,...>` | Bit ordering implementation-defined |
 | `#pragma pack(1)` | 🔴 Unsafe | varies | Compiler-specific padding |
 
@@ -282,7 +282,7 @@ guarantees same endianness and pointer width.
 **Step 3 (C2)**: `safety == Safe` means `classify_safety(sig)` returned `Safe`.
 By the classification algorithm:
 - No `bits<` pattern ⟹ no bit-fields (deterministic bit-level layout)
-- No `ptr[`, `fnptr[`, `vptr` patterns ⟹ no pointer fields (no address-space-dependent values)
+- No `ptr[`, `fnptr[` patterns ⟹ no pointer fields (vptr is encoded as `ptr[s:N,a:N]`, so `ptr[` covers it)
 - No `wchar[` pattern ⟹ no platform-dependent types
 
 **Step 4 (A1)**: IEEE 754 is a documented assumption, valid on all modern platforms.
@@ -320,7 +320,7 @@ but will never tell you something is safe when it isn't.
         │ sig_L(T,Ps)==sig_L(T,Pd)│             │ classify_safety==Safe  │
         │                         │             │                        │
         │ V1 + Encoding Faithful. │             │ Pattern scan:          │
-        │ ⟹ L_Ps(T) = L_Pd(T)   │             │ no ptr[, bits<, vptr,  │
+        │ ⟹ L_Ps(T) = L_Pd(T)   │             │ no ptr[, bits<,        │
         │                         │             │ wchar[, fnptr[         │
         │ Covers:                 │             │                        │
         │  • sizeof, alignof      │             │ Covers:                │
