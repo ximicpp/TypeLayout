@@ -90,6 +90,32 @@ template<typename T>
     return classify_safety<T>() == SafetyLevel::Safe;
 }
 
+/// Single-platform Serialization-free predicate.
+///
+/// A type is "locally serialization-free" when its layout signature contains
+/// no risk or warning markers (i.e. classify_safety<T>() == Safe).
+///
+/// The full cross-platform "Serialization-free" guarantee (as reported by
+/// CompatReporter::print_report()) additionally requires:
+///   C1: Layout signatures MATCH across all target platforms.
+///   C2: Safety classification is Safe (no pointers, bit-fields, etc.).
+///
+/// This predicate covers C2 only.  C1 requires comparing .sig.hpp files
+/// from multiple platforms — use TYPELAYOUT_ASSERT_COMPAT for that.
+///
+/// Named to align with the "Serialization-free (C1+C2)" concept in
+/// compat_check.hpp, making it the natural anchor for downstream
+/// libraries (e.g. XOffsetDatastructure) that build domain-specific
+/// safety checks on top of TypeLayout.
+///
+/// Example:
+///   static_assert(is_serialization_free_local<int32_t>());   // OK
+///   static_assert(!is_serialization_free_local<int*>());     // has pointer
+template<typename T>
+[[nodiscard]] consteval bool is_serialization_free_local() {
+    return classify_safety<T>() == SafetyLevel::Safe;
+}
+
 } // namespace compat
 } // namespace typelayout
 } // namespace boost
