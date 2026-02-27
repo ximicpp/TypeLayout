@@ -58,7 +58,8 @@ inline SafetyLevel classify_safety(std::string_view sig) noexcept {
         sig.find("fnptr[") != std::string_view::npos ||
         sig.find("memptr[") != std::string_view::npos ||
         sig.find("ref[") != std::string_view::npos ||
-        sig.find("rref[") != std::string_view::npos)
+        sig.find("rref[") != std::string_view::npos ||
+        sig.find("union[") != std::string_view::npos)
         return SafetyLevel::Warning;
 
     return SafetyLevel::Safe;
@@ -85,7 +86,7 @@ inline const char* safety_stars(SafetyLevel level) noexcept {
 inline const char* safety_reason(SafetyLevel level) noexcept {
     switch (level) {
         case SafetyLevel::Safe:    return "fixed-width scalars only";
-        case SafetyLevel::Warning: return "contains pointers or vptr";
+        case SafetyLevel::Warning: return "contains pointers, vptr, or union";
         case SafetyLevel::Risk:    return "bit-fields or platform-dependent types (wchar_t, long double)";
     }
     return "";
