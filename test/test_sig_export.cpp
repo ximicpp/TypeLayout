@@ -35,16 +35,13 @@ void test_export_contains_signatures() {
 
     // Verify signatures are present
     constexpr auto simple_layout = get_layout_signature<test_types::Simple>();
-    constexpr auto simple_def = get_definition_signature<test_types::Simple>();
     constexpr auto pair_layout = get_layout_signature<test_types::Pair>();
 
     assert(output.find(std::string(simple_layout.value, simple_layout.length())) != std::string::npos);
-    assert(output.find(std::string(simple_def.value, simple_def.length())) != std::string::npos);
     assert(output.find(std::string(pair_layout.value, pair_layout.length())) != std::string::npos);
 
     // Verify type names are present
     assert(output.find("Simple_layout") != std::string::npos);
-    assert(output.find("Simple_definition") != std::string::npos);
     assert(output.find("Pair_layout") != std::string::npos);
 
     std::cout << "  [PASS] Export contains signatures\n";

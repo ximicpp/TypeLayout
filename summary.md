@@ -149,7 +149,22 @@ COM                  ❌        ❌        ✅       ✅         ❌（需接口
 
 ---
 
-## 四、价值边界：它不做什么
+## 四、已实现的子功能模块
+
+除了核心的签名生成与比对之外，TypeLayout 还提供了以下编译期工具，覆盖从签名生成到安全判定的完整工作流：
+
+| 模块 | 头文件 | 功能 |
+|------|--------|------|
+| **FixedString** | `fixed_string.hpp` | 编译期定长字符串，作为整个签名引擎的底层载体。支持拼接、查找、子串匹配、`contains_token`（防止 `nullptr[` 误匹配 `ptr[`）等操作。 |
+| **Opaque Signature** | `opaque.hpp` | 为不可反射或内部布局不透明的类型（如容器、第三方库类型）提供 `sizeof/alignof` 级别的签名注册。提供手动（`TYPELAYOUT_OPAQUE_TYPE`）和自动推导（`TYPELAYOUT_OPAQUE_TYPE_AUTO`）两组宏，覆盖非模板类型、单参数模板（Container）和双参数模板（Map）。 |
+| **Safety Classification** | `classify_safety.hpp` | 编译期扫描签名中的风险标记（`bits<`、`wchar[`、`f80[`）和警告标记（`ptr[`、`fnptr[`、`union[` 等），输出 `Safe` / `Warning` / `Risk` 三级分类。提供 `is_layout_safe<T>()` 和 `is_serialization_free_local<T>()` 便利谓词。 |
+| **Signature Export** | `sig_export.hpp` | 将指定类型集合的签名导出为平台特定的 `.sig.hpp` 头文件，供跨平台比对使用。 |
+| **Compat Check** | `compat_check.hpp` | 跨平台兼容性比对引擎：加载不同平台的 `.sig.hpp`，逐类型比对布局签名，输出匹配/不匹配报告。配合 `compat_auto.hpp` 提供宏驱动的自动化断言。 |
+| **Platform Detect** | `platform_detect.hpp` | 编译期检测当前平台的 arch、OS、compiler，生成平台标识字符串（如 `x86_64_linux_clang`），用于签名文件命名。 |
+
+---
+
+## 五、价值边界：它不做什么
 
 | TypeLayout 不做的事 | 为什么不做 |
 |--------------------|-----------|
@@ -160,7 +175,7 @@ COM                  ❌        ❌        ✅       ✅         ❌（需接口
 
 ---
 
-## 五、一张图总结
+## 六、一张图总结
 
 ```text
 ┌──────────────────────────────────────────────────┐
@@ -192,7 +207,7 @@ COM                  ❌        ❌        ✅       ✅         ❌（需接口
 
 ---
 
-## 六、结论
+## 七、结论
 
 TypeLayout 的核心价值和生态位可以用三句话概括：
 

@@ -14,11 +14,6 @@
 namespace boost {
 namespace typelayout {
 
-    enum class SignatureMode {
-        Layout,
-        Definition
-    };
-
     // TODO(P2593): Replace with std::always_false when available in C++26.
     template <typename...>
     struct always_false : std::false_type {};
@@ -26,7 +21,7 @@ namespace typelayout {
     // Forward declaration of the primary TypeSignature template.
     // Specializations are in detail/type_map.hpp; the primary template
     // (struct/class/enum/union catch-all) is also defined there.
-    template <typename T, SignatureMode Mode = SignatureMode::Layout>
+    template <typename T>
     struct TypeSignature;
 
 } // namespace typelayout

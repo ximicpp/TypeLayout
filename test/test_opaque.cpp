@@ -47,23 +47,16 @@ TYPELAYOUT_OPAQUE_MAP(opaque_test::XMap, "xmap", 48, 1)
 
 // 1. Basic signature format
 static_assert(
-    TypeSignature<opaque_test::XString, SignatureMode::Layout>::calculate()
+    TypeSignature<opaque_test::XString>::calculate()
         == "xstring[s:32,a:1]",
-    "OPAQUE_TYPE Layout signature should be xstring[s:32,a:1]"
-);
-
-// 2. Layout and Definition produce identical signatures for opaque
-static_assert(
-    TypeSignature<opaque_test::XString, SignatureMode::Layout>::calculate()
-        == TypeSignature<opaque_test::XString, SignatureMode::Definition>::calculate(),
-    "OPAQUE_TYPE: Layout and Definition signatures must be identical"
+    "OPAQUE_TYPE signature should be xstring[s:32,a:1]"
 );
 
 // --- OPAQUE_CONTAINER tests ---
 
-// 3. Container with int32_t element
+// 2. Container with int32_t element
 constexpr auto xvec_i32_layout =
-    TypeSignature<opaque_test::XVector<int32_t>, SignatureMode::Layout>::calculate();
+    TypeSignature<opaque_test::XVector<int32_t>>::calculate();
 static_assert(
     contains(xvec_i32_layout, "xvector[s:24,a:1]<"),
     "OPAQUE_CONTAINER Layout should start with xvector[s:24,a:1]<"
@@ -73,39 +66,32 @@ static_assert(
     "OPAQUE_CONTAINER Layout should contain element signature"
 );
 
-// 4. Container mode forwarding — Definition should include enum qualified name
+// 3. Container with enum element
 namespace opaque_test {
     enum class Color : uint8_t { Red, Green, Blue };
 }
 
 constexpr auto xvec_color_layout =
-    TypeSignature<opaque_test::XVector<opaque_test::Color>, SignatureMode::Layout>::calculate();
-constexpr auto xvec_color_def =
-    TypeSignature<opaque_test::XVector<opaque_test::Color>, SignatureMode::Definition>::calculate();
+    TypeSignature<opaque_test::XVector<opaque_test::Color>>::calculate();
 
 // Layout: enum without qualified name
 static_assert(
     contains(xvec_color_layout, "enum[s:"),
-    "OPAQUE_CONTAINER Layout: element enum should not have qualified name"
-);
-// Definition: enum with qualified name
-static_assert(
-    contains(xvec_color_def, "enum<"),
-    "OPAQUE_CONTAINER Definition: element enum should have qualified name"
+    "OPAQUE_CONTAINER: element enum should use layout encoding"
 );
 
-// 5. Different element types produce different signatures
+// 4. Different element types produce different signatures
 static_assert(
-    !(TypeSignature<opaque_test::XVector<int32_t>, SignatureMode::Layout>::calculate()
-        == TypeSignature<opaque_test::XVector<double>, SignatureMode::Layout>::calculate()),
+    !(TypeSignature<opaque_test::XVector<int32_t>>::calculate()
+        == TypeSignature<opaque_test::XVector<double>>::calculate()),
     "OPAQUE_CONTAINER: different element types should produce different signatures"
 );
 
 // --- OPAQUE_MAP tests ---
 
-// 6. Map with int32_t key and double value
+// 5. Map with int32_t key and double value
 constexpr auto xmap_sig =
-    TypeSignature<opaque_test::XMap<int32_t, double>, SignatureMode::Layout>::calculate();
+    TypeSignature<opaque_test::XMap<int32_t, double>>::calculate();
 static_assert(
     contains(xmap_sig, "xmap[s:48,a:1]<"),
     "OPAQUE_MAP should start with xmap[s:48,a:1]<"
@@ -119,14 +105,12 @@ static_assert(
     "OPAQUE_MAP should contain value signature"
 );
 
-// 7. Map Layout == Definition for the opaque shell
-constexpr auto xmap_layout =
-    TypeSignature<opaque_test::XMap<int32_t, int32_t>, SignatureMode::Layout>::calculate();
-constexpr auto xmap_def =
-    TypeSignature<opaque_test::XMap<int32_t, int32_t>, SignatureMode::Definition>::calculate();
+// 6. Map with same K,V types produces valid signature
+constexpr auto xmap_same_kv =
+    TypeSignature<opaque_test::XMap<int32_t, int32_t>>::calculate();
 static_assert(
-    xmap_layout == xmap_def,
-    "OPAQUE_MAP with primitive K,V: Layout and Definition should be identical"
+    contains(xmap_same_kv, "xmap[s:48,a:1]<"),
+    "OPAQUE_MAP with same K,V: should produce valid signature"
 );
 
 // =========================================================================
@@ -140,25 +124,25 @@ namespace enum_test {
     enum UnscopedImplicit { I1, I2, I3 };            // compiler infers type
 }
 
-// 8. Scoped enum with explicit type
+// 7. Scoped enum with explicit type
 static_assert(
     is_fixed_enum<enum_test::ScopedFixed>(),
     "Scoped enum with explicit uint32_t should be fixed"
 );
 
-// 9. Scoped enum with default type (int)
+// 8. Scoped enum with default type (int)
 static_assert(
     is_fixed_enum<enum_test::ScopedDefault>(),
     "Scoped enum with default int should be fixed"
 );
 
-// 10. Unscoped enum with explicit type
+// 9. Unscoped enum with explicit type
 static_assert(
     is_fixed_enum<enum_test::UnscopedFixed>(),
     "Unscoped enum with explicit int16_t should be fixed"
 );
 
-// 11. Unscoped enum with implicit type — also returns true (documented limitation)
+// 10. Unscoped enum with implicit type -- also returns true (documented limitation)
 static_assert(
     is_fixed_enum<enum_test::UnscopedImplicit>(),
     "Unscoped enum with implicit type returns true (best-effort, see docs)"
@@ -181,15 +165,15 @@ namespace integration_test {
 }
 
 constexpr auto block_layout =
-    TypeSignature<integration_test::SharedBlock, SignatureMode::Layout>::calculate();
+    TypeSignature<integration_test::SharedBlock>::calculate();
 
-// 12. Opaque field emitted as leaf in containing struct's Layout signature
+// 11. Opaque field emitted as leaf in containing struct's Layout signature
 static_assert(
     contains(block_layout, "xstring[s:32,a:1]"),
     "Integration: Layout should contain opaque xstring[s:32,a:1] as leaf"
 );
 
-// 13. Primitive fields around the opaque are still flattened normally
+// 12. Primitive fields around the opaque are still flattened normally
 static_assert(
     contains(block_layout, "i32[s:4,a:4]"),
     "Integration: Layout should contain i32 field"
@@ -212,15 +196,15 @@ namespace opaque_base_test {
 }
 
 constexpr auto derived_opaque_layout =
-    TypeSignature<opaque_base_test::DerivedFromOpaque, SignatureMode::Layout>::calculate();
+    TypeSignature<opaque_base_test::DerivedFromOpaque>::calculate();
 
-// 14. Opaque base class emitted as leaf in Layout signature
+// 13. Opaque base class emitted as leaf in Layout signature
 static_assert(
     contains(derived_opaque_layout, "xstring[s:32,a:1]"),
     "F4 fix: opaque base class should appear as xstring[s:32,a:1] leaf"
 );
 
-// 15. Derived class's own field still present
+// 14. Derived class's own field still present
 static_assert(
     contains(derived_opaque_layout, "i32[s:4,a:4]"),
     "F4 fix: derived class direct field should still appear"
@@ -250,11 +234,11 @@ namespace f5_test {
 }
 
 constexpr auto with_empty_layout =
-    TypeSignature<f5_test::WithEmpty, SignatureMode::Layout>::calculate();
+    TypeSignature<f5_test::WithEmpty>::calculate();
 constexpr auto without_empty_layout =
-    TypeSignature<f5_test::WithoutEmpty, SignatureMode::Layout>::calculate();
+    TypeSignature<f5_test::WithoutEmpty>::calculate();
 
-// 16. Empty field is invisible in the flat field list (conservative)
+// 15. Empty field is invisible in the flat field list (conservative)
 // The flat fields inside {} should only contain i32 entries, no entry for Empty.
 // But the size headers differ: WithEmpty has sizeof >= 9 (padding may differ),
 // while WithoutEmpty has sizeof == 8.
@@ -285,11 +269,11 @@ namespace f6_test {
 }
 
 constexpr auto nua_layout =
-    TypeSignature<f6_test::WithNUA, SignatureMode::Layout>::calculate();
+    TypeSignature<f6_test::WithNUA>::calculate();
 constexpr auto plain_two_int_layout =
-    TypeSignature<f6_test::PlainTwoInt, SignatureMode::Layout>::calculate();
+    TypeSignature<f6_test::PlainTwoInt>::calculate();
 
-// 17. With [[no_unique_address]], if the empty member is optimized away
+// 16. With [[no_unique_address]], if the empty member is optimized away
 // (offset overlaps with next field), the record size may equal PlainTwoInt.
 // Whether signatures match depends on compiler EBO decisions.
 // We just verify both compile and produce valid signatures.
@@ -334,11 +318,11 @@ namespace f8_test {
 }
 
 constexpr auto long_layout =
-    TypeSignature<f8_test::WithLong, SignatureMode::Layout>::calculate();
+    TypeSignature<f8_test::WithLong>::calculate();
 constexpr auto fixed_layout =
-    TypeSignature<f8_test::WithFixedWidth, SignatureMode::Layout>::calculate();
+    TypeSignature<f8_test::WithFixedWidth>::calculate();
 
-// 18. long and its corresponding fixed-width type produce identical Layout signatures
+// 17. long and its corresponding fixed-width type produce identical Layout signatures
 static_assert(
     long_layout == fixed_layout,
     "F8: long and matching fixed-width int should produce identical Layout signatures on same platform"
@@ -351,7 +335,7 @@ static_assert(
 int main() {
     std::cout << "=== Opaque & is_fixed_enum Tests ===\n\n";
 
-    std::cout << "XString Layout:      " << TypeSignature<opaque_test::XString, SignatureMode::Layout>::calculate().value << "\n";
+    std::cout << "XString Layout:      " << TypeSignature<opaque_test::XString>::calculate().value << "\n";
     std::cout << "XVector<i32> Layout: " << xvec_i32_layout.value << "\n";
     std::cout << "XMap<i32,f64> Layout: " << xmap_sig.value << "\n";
     std::cout << "SharedBlock Layout:  " << block_layout.value << "\n";
@@ -364,6 +348,6 @@ int main() {
     std::cout << "Long Layout:         " << long_layout.value << "\n";
     std::cout << "FixedWidth Layout:   " << fixed_layout.value << "\n";
 
-    std::cout << "\nAll " << 18 << " static_assert tests passed at compile time.\n";
+    std::cout << "\nAll " << 17 << " static_assert tests passed at compile time.\n";
     return 0;
 }

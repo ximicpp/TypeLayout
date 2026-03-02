@@ -25,11 +25,10 @@
 namespace boost {
 namespace typelayout {
 
-/// One registered type's name + signatures.
+/// One registered type's name + signature.
 struct ExportEntry {
     std::string name;
     std::string layout_sig;
-    std::string definition_sig;
 };
 
 /// Collects type signatures and writes a .sig.hpp header.
@@ -51,12 +50,10 @@ public:
     template <typename T>
     void add(const std::string& name) {
         constexpr auto layout = get_layout_signature<T>();
-        constexpr auto defn   = get_definition_signature<T>();
 
         entries_.push_back({
             name,
-            std::string(layout.value, layout.length()),
-            std::string(defn.value, defn.length())
+            std::string(layout.value, layout.length())
         });
     }
 
@@ -177,8 +174,6 @@ private:
             os << "// --- " << e.name << " ---\n";
             os << "inline constexpr const char " << e.name << "_layout[] =\n";
             os << "    \"" << escape(e.layout_sig) << "\";\n";
-            os << "inline constexpr const char " << e.name << "_definition[] =\n";
-            os << "    \"" << escape(e.definition_sig) << "\";\n";
             os << "\n";
         }
     }
@@ -189,8 +184,7 @@ private:
         os << "inline constexpr ::boost::typelayout::TypeEntry types[] = {\n";
         for (const auto& e : entries_) {
             os << "    {\"" << escape(e.name) << "\", "
-               << e.name << "_layout, "
-               << e.name << "_definition},\n";
+               << e.name << "_layout},\n";
         }
         os << "};\n";
         os << "\n";

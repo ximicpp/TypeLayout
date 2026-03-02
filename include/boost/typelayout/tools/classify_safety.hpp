@@ -2,7 +2,7 @@
 //
 // classify_safety<T>() generates the layout signature of T via the existing
 // signature engine, then scans it for risk markers (ptr, bits, wchar, f80,
-// vptr, union, etc.).  This ensures that the safety classification is
+// union, etc.).  This ensures that the safety classification is
 // grounded in the SAME data that cross-platform comparison uses -- the
 // actual encoded layout, not a parallel type-tree walk.
 //
@@ -38,13 +38,12 @@ namespace compat {
 // Classification rules (matching the runtime version in compat_check.hpp):
 //
 //   Risk markers:
-//     "bits<"    -- bit-fields (layout not portable across compilers)
-//     "wchar["   -- wchar_t (2 bytes on Windows, 4 bytes on Linux)
-//     "f80["     -- long double (80-bit on x86, 64-bit on ARM/MSVC)
+//     "bits<"           -- bit-fields (layout not portable across compilers)
+//     "wchar["          -- wchar_t (2 bytes on Windows, 4 bytes on Linux)
+//     "f80["            -- long double (80-bit on x86, 64-bit on ARM/MSVC)
 //
 //   Warning markers:
-//     "ptr["     -- pointer (also covers vptr: polymorphic types have a
-//                   synthesized ptr[s:N,a:N] field in the layout signature)
+//     "ptr["     -- pointer
 //     "fnptr["   -- function pointer
 //     "memptr["  -- member pointer
 //     "ref["     -- lvalue reference
@@ -67,14 +66,11 @@ template<typename T>
     constexpr auto sig = get_layout_signature<T>();
 
     // --- Risk markers (highest severity, check first) ---
-    if constexpr (sig.contains(FixedString{"bits<"}))  return SafetyLevel::Risk;
-    if constexpr (sig.contains(FixedString{"wchar["})) return SafetyLevel::Risk;
-    if constexpr (sig.contains(FixedString{"f80["}))   return SafetyLevel::Risk;
+    if constexpr (sig.contains(FixedString{"bits<"}))           return SafetyLevel::Risk;
+    if constexpr (sig.contains(FixedString{"wchar["}))          return SafetyLevel::Risk;
+    if constexpr (sig.contains(FixedString{"f80["}))            return SafetyLevel::Risk;
 
     // --- Warning markers ---
-    // vptr is now encoded as a synthesized ptr[s:N,a:N] field, so "ptr["
-    // covers both user-defined pointers and compiler-injected vptr.
-    //
     // NOTE: contains_token() is used instead of contains() to enforce
     // token-boundary matching: the character before the needle must NOT be
     // an ASCII letter.  This prevents "nullptr[" (a safe nullptr_t marker)

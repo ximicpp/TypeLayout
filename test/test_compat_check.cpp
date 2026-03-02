@@ -1,6 +1,6 @@
 // Test: Cross-Platform Compatibility Check Utilities
 //
-// Tests sig_match, layout_match, definition_match (constexpr + runtime),
+// Tests sig_match, layout_match (constexpr + runtime),
 // and CompatReporter output.
 //
 // This test does NOT require P2996 — C++17 is sufficient.
@@ -39,12 +39,6 @@ static_assert(layout_match(
     "[64-le]record[s:16,a:4]{@0:u32[s:4,a:4]}"),
     "layout_match should work like sig_match");
 
-// definition_match is an alias for sig_match
-static_assert(definition_match(
-    "[64-le]record[s:8,a:4]{@0[x]:i32[s:4,a:4]}",
-    "[64-le]record[s:8,a:4]{@0[x]:i32[s:4,a:4]}"),
-    "definition_match should work like sig_match");
-
 // Empty strings match
 static_assert(sig_match("", ""), "empty strings should match");
 
@@ -62,37 +56,29 @@ static_assert(!sig_match("[64-le]", "[64-le]record"), "prefix should not match f
 namespace platform_a {
     inline constexpr const char PacketHeader_layout[] =
         "[64-le]record[s:16,a:4]{@0:u32[s:4,a:4],@4:u16[s:2,a:2]}";
-    inline constexpr const char PacketHeader_definition[] =
-        "[64-le]record[s:16,a:4]{@0[magic]:u32[s:4,a:4],@4[version]:u16[s:2,a:2]}";
 
     inline constexpr const char UnsafeType_layout[] =
         "[64-le]record[s:16,a:8]{@0:i64[s:8,a:8],@8:wchar[s:4,a:4]}";
-    inline constexpr const char UnsafeType_definition[] =
-        "[64-le]record[s:16,a:8]{@0[a]:i64[s:8,a:8],@8[wc]:wchar[s:4,a:4]}";
 
     inline constexpr TypeEntry types[] = {
-        {"PacketHeader", PacketHeader_layout, PacketHeader_definition},
-        {"UnsafeType", UnsafeType_layout, UnsafeType_definition},
+        {"PacketHeader", PacketHeader_layout},
+        {"UnsafeType", UnsafeType_layout},
     };
     inline constexpr int type_count = 2;
 }
 
 namespace platform_b {
-    // PacketHeader — same
+    // PacketHeader -- same
     inline constexpr const char PacketHeader_layout[] =
         "[64-le]record[s:16,a:4]{@0:u32[s:4,a:4],@4:u16[s:2,a:2]}";
-    inline constexpr const char PacketHeader_definition[] =
-        "[64-le]record[s:16,a:4]{@0[magic]:u32[s:4,a:4],@4[version]:u16[s:2,a:2]}";
 
-    // UnsafeType — different (wchar_t=2B on Windows)
+    // UnsafeType -- different (wchar_t=2B on Windows)
     inline constexpr const char UnsafeType_layout[] =
         "[64-le]record[s:12,a:8]{@0:i32[s:4,a:4],@8:wchar[s:2,a:2]}";
-    inline constexpr const char UnsafeType_definition[] =
-        "[64-le]record[s:12,a:8]{@0[a]:i32[s:4,a:4],@8[wc]:wchar[s:2,a:2]}";
 
     inline constexpr TypeEntry types[] = {
-        {"PacketHeader", PacketHeader_layout, PacketHeader_definition},
-        {"UnsafeType", UnsafeType_layout, UnsafeType_definition},
+        {"PacketHeader", PacketHeader_layout},
+        {"UnsafeType", UnsafeType_layout},
     };
     inline constexpr int type_count = 2;
 }
@@ -109,13 +95,11 @@ void test_compat_reporter() {
     // PacketHeader should match and be Safe
     assert(results[0].name == "PacketHeader");
     assert(results[0].layout_match == true);
-    assert(results[0].definition_match == true);
     assert(results[0].safety == SafetyLevel::Safe);
 
     // UnsafeType should differ and be Risk (contains wchar)
     assert(results[1].name == "UnsafeType");
     assert(results[1].layout_match == false);
-    assert(results[1].definition_match == false);
     assert(results[1].safety == SafetyLevel::Risk);
 
     // Test print_report()
@@ -184,7 +168,7 @@ void test_safety_classification() {
     assert(classify_safety("[64-le]record[s:8,a:8]{@0:fnptr[s:8,a:8]}")
            == SafetyLevel::Warning);
 
-    // Warning: polymorphic type with vptr (vptr encoded as ptr[s:8,a:8])
+    // Warning: contains pointer field
     assert(classify_safety("[64-le]record[s:16,a:8]{@0:ptr[s:8,a:8],@8:i32[s:4,a:4]}")
            == SafetyLevel::Warning);
 

@@ -14,7 +14,6 @@ namespace typelayout {
 struct TypeEntry {
     const char* name;
     const char* layout_sig;
-    const char* definition_sig;
 };
 
 struct PlatformInfo {

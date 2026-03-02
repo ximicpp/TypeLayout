@@ -3,18 +3,14 @@
 // fixed-size/alignment descriptor (e.g., shared-memory containers whose
 // internals are implementation-defined).
 //
-// DESIGN NOTE -- Opaque vs. Two-Layer Signatures:
-//   Opaque types produce the SAME signature in both Layout and Definition
-//   modes, because no internal structure is available to differentiate.
-//   This means opaque types act as an incomplete supplement to the Layout
-//   layer: they provide sizeof/alignof identity but NOT field-level identity.
+// DESIGN NOTE -- Opaque Signatures:
+//   Opaque types produce a signature based solely on sizeof/alignof,
+//   bypassing field-level introspection. They provide size and alignment
+//   identity but NOT internal structural identity.
 //
 //   Correctness boundary:
 //     - TypeLayout guarantees: sizeof and alignof match (via static_assert).
 //     - User guarantees: internal layout consistency across compilation units.
-//   The Encoding Faithfulness theorem (Thm 3.1) holds for opaque types
-//   only under the assumption that user-provided annotations are correct
-//   (Opaque Annotation Correctness axiom).
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
@@ -42,8 +38,8 @@
         "TYPELAYOUT_OPAQUE_TYPE: size does not match sizeof(" #Type ")");       \
     static_assert(alignof(Type) == (align),                                     \
         "TYPELAYOUT_OPAQUE_TYPE: align does not match alignof(" #Type ")");     \
-    template <::boost::typelayout::SignatureMode Mode_>                         \
-    struct TypeSignature<Type, Mode_> {                                         \
+    template <>                                                                 \
+    struct TypeSignature<Type> {                                                \
         static constexpr bool is_opaque = true;                                \
         static consteval auto calculate() noexcept {                           \
             return ::boost::typelayout::FixedString{                           \
@@ -66,8 +62,8 @@
 //   // generates: vector[s:32,a:8]<element_signature>
 // ---------------------------------------------------------------------------
 #define TYPELAYOUT_OPAQUE_CONTAINER(Template, name, size, align)               \
-    template <typename T_, ::boost::typelayout::SignatureMode Mode_>            \
-    struct TypeSignature<Template<T_>, Mode_> {                                \
+    template <typename T_>                                                      \
+    struct TypeSignature<Template<T_>> {                                        \
         static constexpr bool is_opaque = true;                                \
         static consteval auto calculate() noexcept {                           \
             static_assert(sizeof(Template<T_>) == (size),                       \
@@ -78,7 +74,7 @@
                 "alignof(" #Template "<T>)");                                   \
             return ::boost::typelayout::FixedString{                           \
                        name "[s:" #size ",a:" #align "]<"} +                   \
-                   TypeSignature<T_, Mode_>::calculate() +                     \
+                   TypeSignature<T_>::calculate() +                            \
                    ::boost::typelayout::FixedString{">"};                      \
         }                                                                      \
     };
@@ -98,9 +94,8 @@
 //   // generates: map[s:32,a:8]<key_signature,value_signature>
 // ---------------------------------------------------------------------------
 #define TYPELAYOUT_OPAQUE_MAP(Template, name, size, align)                     \
-    template <typename K_, typename V_,                                         \
-              ::boost::typelayout::SignatureMode Mode_>                         \
-    struct TypeSignature<Template<K_, V_>, Mode_> {                            \
+    template <typename K_, typename V_>                                         \
+    struct TypeSignature<Template<K_, V_>> {                                    \
         static constexpr bool is_opaque = true;                                \
         static consteval auto calculate() noexcept {                           \
             static_assert(sizeof(Template<K_, V_>) == (size),                   \
@@ -111,9 +106,9 @@
                 "alignof(" #Template "<K,V>)");                                 \
             return ::boost::typelayout::FixedString{                           \
                        name "[s:" #size ",a:" #align "]<"} +                   \
-                   TypeSignature<K_, Mode_>::calculate() +                     \
+                   TypeSignature<K_>::calculate() +                            \
                    ::boost::typelayout::FixedString{","} +                     \
-                   TypeSignature<V_, Mode_>::calculate() +                     \
+                   TypeSignature<V_>::calculate() +                            \
                    ::boost::typelayout::FixedString{">"};                      \
         }                                                                      \
     };
@@ -146,8 +141,8 @@
 //   // generates: string[s:32,a:8]  (assuming sizeof=32, alignof=8)
 // ---------------------------------------------------------------------------
 #define TYPELAYOUT_OPAQUE_TYPE_AUTO(Type, name)                                \
-    template <::boost::typelayout::SignatureMode Mode_>                         \
-    struct TypeSignature<Type, Mode_> {                                         \
+    template <>                                                                 \
+    struct TypeSignature<Type> {                                                \
         static constexpr bool is_opaque = true;                                \
         static consteval auto calculate() noexcept {                           \
             return ::boost::typelayout::FixedString{name "[s:"} +              \
@@ -169,8 +164,8 @@
 //   // generates: vector[s:32,a:8]<element_signature>
 // ---------------------------------------------------------------------------
 #define TYPELAYOUT_OPAQUE_CONTAINER_AUTO(Template, name)                       \
-    template <typename T_, ::boost::typelayout::SignatureMode Mode_>            \
-    struct TypeSignature<Template<T_>, Mode_> {                                \
+    template <typename T_>                                                      \
+    struct TypeSignature<Template<T_>> {                                        \
         static constexpr bool is_opaque = true;                                \
         static consteval auto calculate() noexcept {                           \
             return ::boost::typelayout::FixedString{name "[s:"} +              \
@@ -180,7 +175,7 @@
                    ::boost::typelayout::to_fixed_string(                       \
                        alignof(Template<T_>)) +                                \
                    ::boost::typelayout::FixedString{"]<"} +                    \
-                   TypeSignature<T_, Mode_>::calculate() +                     \
+                   TypeSignature<T_>::calculate() +                            \
                    ::boost::typelayout::FixedString{">"};                      \
         }                                                                      \
     };
@@ -196,9 +191,8 @@
 //   // generates: map[s:32,a:8]<key_signature,value_signature>
 // ---------------------------------------------------------------------------
 #define TYPELAYOUT_OPAQUE_MAP_AUTO(Template, name)                             \
-    template <typename K_, typename V_,                                         \
-              ::boost::typelayout::SignatureMode Mode_>                         \
-    struct TypeSignature<Template<K_, V_>, Mode_> {                            \
+    template <typename K_, typename V_>                                         \
+    struct TypeSignature<Template<K_, V_>> {                                    \
         static constexpr bool is_opaque = true;                                \
         static consteval auto calculate() noexcept {                           \
             return ::boost::typelayout::FixedString{name "[s:"} +              \
@@ -208,9 +202,9 @@
                    ::boost::typelayout::to_fixed_string(                       \
                        alignof(Template<K_, V_>)) +                            \
                    ::boost::typelayout::FixedString{"]<"} +                    \
-                   TypeSignature<K_, Mode_>::calculate() +                     \
+                   TypeSignature<K_>::calculate() +                            \
                    ::boost::typelayout::FixedString{","} +                     \
-                   TypeSignature<V_, Mode_>::calculate() +                     \
+                   TypeSignature<V_>::calculate() +                            \
                    ::boost::typelayout::FixedString{">"};                      \
         }                                                                      \
     };

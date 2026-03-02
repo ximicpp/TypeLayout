@@ -32,14 +32,10 @@ constexpr bool layout_match(const char* a, const char* b) noexcept {
     return sig_match(a, b);
 }
 
-/// Compare definition signatures.
-constexpr bool definition_match(const char* a, const char* b) noexcept {
-    return sig_match(a, b);
-}
 
 enum class SafetyLevel {
     Safe,       // no pointers, no bit-fields
-    Warning,    // has pointers (including vptr)
+    Warning,    // has pointers
     Risk        // has bit-fields or platform-dependent types
 };
 
@@ -69,9 +65,6 @@ inline bool contains_token(std::string_view haystack,
 }
 
 /// Scan a layout signature for pointers, bit-fields, etc.
-/// vptr is encoded as a synthesized ptr[s:N,a:N] field in the layout
-/// signature, so it is detected by the same "ptr[" pattern as user-defined
-/// pointer fields.  No separate ",vptr" pattern is needed.
 ///
 /// NOTE: contains_token() is used for warning markers to enforce
 /// token-boundary matching, preventing "nullptr[" from being falsely
@@ -115,7 +108,7 @@ inline const char* safety_stars(SafetyLevel level) noexcept {
 inline const char* safety_reason(SafetyLevel level) noexcept {
     switch (level) {
         case SafetyLevel::Safe:    return "fixed-width scalars only";
-        case SafetyLevel::Warning: return "contains pointers, vptr, or union";
+        case SafetyLevel::Warning: return "contains pointers or union";
         case SafetyLevel::Risk:    return "bit-fields or platform-dependent types (wchar_t, long double)";
     }
     return "";
@@ -125,10 +118,8 @@ inline const char* safety_reason(SafetyLevel level) noexcept {
 struct TypeResult {
     std::string name;
     bool        layout_match;
-    bool        definition_match;
     SafetyLevel safety;
     std::vector<std::string> layout_sigs;
-    std::vector<std::string> definition_sigs;
 };
 
 /// Platform info used by CompatReporter (runtime, owns strings).
@@ -175,7 +166,6 @@ public:
             TypeResult tr;
             tr.name = ref.types[i].name;
             tr.layout_match = true;
-            tr.definition_match = true;
 
             SafetyLevel worst_safety = SafetyLevel::Safe;
 
@@ -183,20 +173,14 @@ public:
                 const TypeEntry* entry = find_type(plat, tr.name);
                 if (!entry) {
                     tr.layout_sigs.emplace_back("<missing>");
-                    tr.definition_sigs.emplace_back("<missing>");
                     tr.layout_match = false;
-                    tr.definition_match = false;
                     continue;
                 }
                 tr.layout_sigs.emplace_back(entry->layout_sig);
-                tr.definition_sigs.emplace_back(entry->definition_sig);
 
                 if (std::string_view(entry->layout_sig) !=
                     std::string_view(ref.types[i].layout_sig))
                     tr.layout_match = false;
-                if (std::string_view(entry->definition_sig) !=
-                    std::string_view(ref.types[i].definition_sig))
-                    tr.definition_match = false;
 
                 auto level = classify_safety(entry->layout_sig);
                 if (static_cast<int>(level) > static_cast<int>(worst_safety))
@@ -235,19 +219,17 @@ public:
         }
         os << "\n";
 
-        os << "Safety: *** = zero-copy ok, **- = has pointers/vptr, *-- = bit-fields.\n\n";
+        os << "Safety: *** = zero-copy ok, **- = has pointers, *-- = bit-fields.\n\n";
 
-        os << std::string(80, '-') << "\n";
+        os << std::string(72, '-') << "\n";
         os << "  " << std::left << std::setw(24) << "Type"
            << std::right << std::setw(8) << "Layout"
-           << std::setw(12) << "Definition"
            << std::setw(8) << "Safety"
            << "  Verdict\n";
-        os << std::string(80, '-') << "\n";
+        os << std::string(72, '-') << "\n";
 
         for (const auto& r : results) {
-            std::string layout_str  = r.layout_match     ? "MATCH" : "DIFFER";
-            std::string defn_str    = r.definition_match  ? "MATCH" : "DIFFER";
+            std::string layout_str  = r.layout_match ? "MATCH" : "DIFFER";
             std::string verdict;
 
             if (r.layout_match) {
@@ -265,12 +247,11 @@ public:
 
             os << "  " << std::left << std::setw(24) << r.name
                << std::right << std::setw(8) << layout_str
-               << std::setw(12) << defn_str
                << "    " << safety_stars(r.safety)
                << "  " << verdict << "\n";
         }
 
-        os << std::string(80, '-') << "\n\n";
+        os << std::string(72, '-') << "\n\n";
 
         for (const auto& r : results) {
             if (!r.layout_match) {

@@ -31,11 +31,6 @@ endif()
 
 # Tests
 include(CTest)
-add_executable(test_two_layer test/test_two_layer.cpp)
-target_link_libraries(test_two_layer PRIVATE typelayout)
-add_test(NAME test_two_layer COMMAND test_two_layer)
-set_tests_properties(test_two_layer PROPERTIES TIMEOUT 120 LABELS "core")
-
 add_executable(test_opaque test/test_opaque.cpp)
 target_link_libraries(test_opaque PRIVATE typelayout)
 add_test(NAME test_opaque COMMAND test_opaque)
