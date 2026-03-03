@@ -83,16 +83,85 @@ consteval bool sig_has_platform_variant(const Sig& sig) noexcept {
 // Opaque signatures use a "name[s:N,a:M]" pattern where `name` is a
 // user-chosen label.  Since this pattern is identical to primitive type
 // markers, we detect opaqueness at the type level via the concept check.
+//
+// Recursively inspects class members: if any member's type (or any
+// member's member, transitively) is registered as opaque, the
+// containing type is considered to have opaque sub-types.
+template <typename T>
+consteval bool type_has_opaque() noexcept;
+
+// Helper: check whether any member at index I..N-1 of class T
+// has an opaque sub-type (direct or nested).
+template <typename T, std::size_t I, std::size_t N>
+consteval bool any_member_has_opaque() noexcept {
+    if constexpr (I >= N) {
+        return false;
+    } else {
+        using namespace std::meta;
+        constexpr auto member = nonstatic_data_members_of(^^T, access_context::unchecked())[I];
+        using FieldType = [:type_of(member):];
+        if constexpr (type_has_opaque<FieldType>()) {
+            return true;
+        } else {
+            return any_member_has_opaque<T, I + 1, N>();
+        }
+    }
+}
+
 template <typename T>
 consteval bool type_has_opaque() noexcept {
     if constexpr (has_opaque_signature<T>) {
         return true;
     } else if constexpr (std::is_class_v<T> && !std::is_union_v<T>) {
-        // Check if any field's type is opaque -- this would require
-        // recursive field iteration.  For now, we provide a conservative
-        // approximation: return false for non-opaque top-level types.
-        // A precise implementation can be added later if needed.
+        constexpr std::size_t fc = get_member_count<T>();
+        return any_member_has_opaque<T, 0, fc>();
+    } else {
         return false;
+    }
+}
+
+// Helper: recursively sum direct member sizes at compile time.
+// Uses template recursion because P2996 splicing requires constexpr
+// indices (for-loop variables are not constexpr).
+template <typename T, std::size_t I, std::size_t N>
+consteval std::size_t sum_member_sizes() noexcept {
+    if constexpr (I >= N) {
+        return 0;
+    } else {
+        using namespace std::meta;
+        constexpr auto member = nonstatic_data_members_of(^^T, access_context::unchecked())[I];
+        if constexpr (is_bit_field(member)) {
+            // Bit-fields do not contribute whole-byte sizes in the
+            // simple summation model.  Skip them; the overall
+            // sizeof(T) vs sum check will still catch padding.
+            return sum_member_sizes<T, I + 1, N>();
+        } else {
+            using FieldType = [:type_of(member):];
+            return sizeof(FieldType) + sum_member_sizes<T, I + 1, N>();
+        }
+    }
+}
+
+// Compute has_padding for type T using P2996 reflection.
+//
+// Returns true if sizeof(T) > sum of all direct member sizes,
+// indicating that the compiler has inserted padding bytes.
+template <typename T>
+consteval bool compute_has_padding() noexcept {
+    if constexpr (std::is_fundamental_v<T> || std::is_pointer_v<T> ||
+                  std::is_enum_v<T> || std::is_member_pointer_v<T>) {
+        return false;  // Scalar types have no padding
+    } else if constexpr (std::is_empty_v<T>) {
+        return false;  // Empty classes have no padding
+    } else if constexpr (std::is_class_v<T> && !std::is_union_v<T>) {
+        constexpr std::size_t fc = get_member_count<T>();
+        if constexpr (fc == 0) {
+            // Class with bases only, or truly empty with size > 0
+            return sizeof(T) > 1;
+        } else {
+            constexpr std::size_t member_sum = sum_member_sizes<T, 0, fc>();
+            return member_sum < sizeof(T);
+        }
     } else {
         return false;
     }
@@ -149,37 +218,12 @@ struct layout_traits {
     /// Padding bytes may contain uninitialized data, posing an information
     /// leakage risk in serialization scenarios.
     ///
-    /// NOTE: Precise padding detection requires comparing sizeof(T) with
-    /// the sum of all member sizes, which needs field-by-field iteration.
-    /// For fundamental types and empty classes the result is exact.
-    /// For class types, a conservative heuristic is used: if the record
-    /// signature contains sub-fields with offsets that leave gaps, padding
-    /// exists.  A full-precision implementation is planned.
-    static constexpr bool has_padding = []() consteval {
-        if constexpr (std::is_fundamental_v<T> || std::is_pointer_v<T> ||
-                      std::is_enum_v<T> || std::is_member_pointer_v<T>) {
-            return false;  // Scalar types have no padding
-        } else if constexpr (std::is_empty_v<T>) {
-            return false;  // Empty classes have no padding
-        } else if constexpr (std::is_class_v<T> && !std::is_union_v<T>) {
-            // For non-empty class types, check if sizeof(T) is greater
-            // than what the fields alone would require.
-            // A rough heuristic: if there is only one field and its size
-            // equals sizeof(T), there is no padding.
-            constexpr std::size_t fc = get_member_count<T>();
-            if constexpr (fc == 0) {
-                // Class with bases only, or truly empty with size > 0
-                return sizeof(T) > 1;
-            } else {
-                // Conservative: assume padding exists if sizeof > 1 and
-                // there are multiple fields.  Precise detection requires
-                // summing field sizes, which we leave for a future iteration.
-                return false;  // Conservative default
-            }
-        } else {
-            return false;
-        }
-    }();
+    /// Uses P2996 reflection to sum all direct member sizes and compare
+    /// against sizeof(T).  If the sum is less than sizeof(T), padding
+    /// bytes exist (either inter-field alignment padding or trailing
+    /// padding for struct alignment).
+    static constexpr bool has_padding =
+        detail::compute_has_padding<T>();
 
     // =================================================================
     // Structural metadata (from sizeof/alignof and reflection)

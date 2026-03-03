@@ -180,6 +180,19 @@ static_assert(
     "P3.3: fundamental type is not opaque"
 );
 
+// Test recursive opaque detection: a struct containing an opaque member
+namespace test_types {
+struct ContainsOpaqueBlob {
+    int32_t id;
+    OpaqueBlob blob;
+};
+} // namespace test_types
+
+static_assert(
+    layout_traits<test_types::ContainsOpaqueBlob>::has_opaque,
+    "P3.4: ContainsOpaqueBlob contains an opaque member (recursive detection)"
+);
+
 // =========================================================================
 // Part 4: is_platform_variant detection
 // =========================================================================
@@ -280,7 +293,7 @@ static_assert(
 );
 
 // =========================================================================
-// Part 7: has_padding (conservative, scalar types)
+// Part 7: has_padding detection (precise, using P2996 reflection)
 // =========================================================================
 
 static_assert(
@@ -296,6 +309,25 @@ static_assert(
 static_assert(
     !layout_traits<test_types::Empty>::has_padding,
     "P7.3: empty class has no padding"
+);
+
+static_assert(
+    !layout_traits<test_types::Compact>::has_padding,
+    "P7.4: Compact (two int32_t) has no padding"
+);
+
+// PaddedStruct: int8_t (1 byte) + int32_t (4 bytes) = 5 bytes,
+// but sizeof(PaddedStruct) == 8 due to alignment padding.
+namespace test_types {
+struct PaddedStruct {
+    int8_t  a;
+    int32_t b;
+};
+} // namespace test_types
+
+static_assert(
+    layout_traits<test_types::PaddedStruct>::has_padding,
+    "P7.5: PaddedStruct has alignment padding between int8_t and int32_t"
 );
 
 // =========================================================================
@@ -317,7 +349,7 @@ static_assert(
 // =========================================================================
 
 int main() {
-    constexpr int total_tests = 26;
+    constexpr int total_tests = 29;
 
     std::cout << "=== layout_traits & signature_compare Tests ===\n\n";
 

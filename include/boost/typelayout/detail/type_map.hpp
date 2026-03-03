@@ -193,12 +193,16 @@ namespace typelayout {
     };
     template <typename T>
     struct TypeSignature<T&> {
-        // sizeof(T&) == sizeof(T*) on all known platforms; use T& for formal consistency.
-        static consteval auto calculate() noexcept { return format_size_align("ref", sizeof(T&), alignof(T&)); }
+        // A reference member is stored as a pointer internally.
+        // sizeof(T&) == sizeof(T) in C++, which does NOT reflect the
+        // actual storage size of a reference-as-member.  We use sizeof(T*)
+        // and alignof(T*) to correctly represent cross-platform layout identity.
+        static consteval auto calculate() noexcept { return format_size_align("ref", sizeof(T*), alignof(T*)); }
     };
     template <typename T>
     struct TypeSignature<T&&> {
-        static consteval auto calculate() noexcept { return format_size_align("rref", sizeof(T&&), alignof(T&&)); }
+        // Same rationale as T& above: rvalue references are stored as pointers.
+        static consteval auto calculate() noexcept { return format_size_align("rref", sizeof(T*), alignof(T*)); }
     };
     template <typename T, typename C>
     struct TypeSignature<T C::*> {

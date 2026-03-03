@@ -11,6 +11,7 @@
 // Distributed under the Boost Software License, Version 1.0.
 
 #include <boost/typelayout/tools/classify.hpp>
+#include <boost/typelayout/opaque.hpp>
 #include <cstdint>
 #include <iostream>
 
@@ -36,8 +37,24 @@ struct WithFnPtr {
 
 struct PaddedStruct {
     int8_t  a;
-    // 3 bytes padding
+    // 3 bytes padding (alignment of int32_t)
     int32_t b;
+};
+
+// -- Opaque type for recursive detection testing
+struct OpaqueData {
+    char raw[32];
+};
+
+// Register OpaqueData as opaque BEFORE any code that inspects it
+namespace boost { namespace typelayout {
+TYPELAYOUT_OPAQUE_TYPE(OpaqueData, "opaque_data", 32, 1)
+}} // namespace boost::typelayout
+
+// -- Struct containing an opaque member (recursive opaque detection)
+struct ContainsOpaque {
+    int32_t id;
+    OpaqueData blob;
 };
 
 struct WithWchar {
@@ -108,6 +125,16 @@ static_assert(classify_v<NestedWithPointer> == SafetyLevel::PlatformVariant,
 static_assert(classify_v<WithFnPtr> == SafetyLevel::PlatformVariant,
     "WithFnPtr should be PlatformVariant (fnptr[ triggers is_platform_variant)");
 
+// --- PaddingRisk ---
+// PaddedStruct: int8_t + 3 bytes padding + int32_t = 8 bytes total.
+// No pointers, no platform-variant types, but has padding.
+static_assert(classify_v<PaddedStruct> == SafetyLevel::PaddingRisk,
+    "PaddedStruct should be PaddingRisk (has alignment padding)");
+
+// --- Opaque (recursive detection) ---
+static_assert(classify_v<ContainsOpaque> == SafetyLevel::Opaque,
+    "ContainsOpaque should be Opaque (contains an opaque member)");
+
 // --- PlatformVariant ---
 static_assert(classify_v<WithWchar> == SafetyLevel::PlatformVariant,
     "WithWchar should be PlatformVariant (wchar_t varies across platforms)");
@@ -172,6 +199,8 @@ int main() {
     print_classify<NestedWithPointer>("NestedWithPointer");
     print_classify<long double>("long double");
     print_classify<int32_t*>("int32_t*");
+    print_classify<PaddedStruct>("PaddedStruct");
+    print_classify<ContainsOpaque>("ContainsOpaque");
 
     std::cout << "\nAll static_assert tests passed at compile time.\n";
     return 0;
