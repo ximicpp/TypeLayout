@@ -105,14 +105,38 @@ struct serialization_free_assert {
 
 class SignatureRegistry {
 public:
-    // Register a local type's signature.
-    // Only locally serialization-free types can be registered.
+    // Register a local type's signature with an explicit key.
+    //
+    // `key` is a user-chosen, binary-stable string that identifies the
+    // type.  Both endpoints must agree on the same key for the same
+    // logical type.  Typical choices:
+    //   - A qualified C++ name:   "mylib::PacketHeader"
+    //   - A protocol tag:         "msg.PacketHeader/v1"
+    //   - A hash or UUID:         "a3f8..."
+    //
+    // Using an explicit key avoids reliance on typeid(T).name(),
+    // whose output is compiler-specific (e.g. GCC mangles, MSVC does
+    // not) and therefore not binary-stable across toolchains.
+    template <typename T>
+    void register_local(std::string_view key) {
+        static_assert(is_local_serialization_free_v<T>,
+            "Only locally serialization-free types can be registered.");
+
+        local_signatures_[std::string(key)] =
+            std::string_view(layout_traits<T>::signature);
+    }
+
+    // Register a local type using typeid(T).name() as a convenience key.
+    //
+    // This is the legacy overload.  It is suitable for single-compiler
+    // systems but NOT binary-stable across different compilers.
+    // Prefer the explicit-key overload for cross-compiler scenarios.
     template <typename T>
     void register_local() {
         static_assert(is_local_serialization_free_v<T>,
             "Only locally serialization-free types can be registered.");
 
-        auto key = type_key<T>();
+        auto key = default_type_key<T>();
         local_signatures_[key] = std::string_view(layout_traits<T>::signature);
     }
 
@@ -122,16 +146,10 @@ public:
         remote_signatures_[std::string(type_name)] = std::string(remote_sig);
     }
 
-    // Determine if T is serialization-free (local conditions met AND
-    // remote signature matches exactly).
-    template <typename T>
-    [[nodiscard]] bool is_serialization_free() const {
-        // Conditions (1) and (2) are enforced at compile time by
-        // register_local's static_assert.
-        // Condition (3): exact signature string comparison.
-        auto key = type_key<T>();
-        auto local_it = local_signatures_.find(key);
-        auto remote_it = remote_signatures_.find(key);
+    // Determine if a type is serialization-free by explicit key.
+    [[nodiscard]] bool is_serialization_free(std::string_view key) const {
+        auto local_it = local_signatures_.find(std::string(key));
+        auto remote_it = remote_signatures_.find(std::string(key));
 
         if (local_it == local_signatures_.end()) return false;
         if (remote_it == remote_signatures_.end()) return false;
@@ -139,15 +157,21 @@ public:
         return local_it->second == remote_it->second;
     }
 
-    // Get diagnostic information when signatures do not match.
+    // Determine if T is serialization-free using the default typeid key.
+    // Legacy convenience overload -- see register_local() note above.
     template <typename T>
-    [[nodiscard]] std::string diagnose() const {
-        auto key = type_key<T>();
-        std::string result;
-        result += "Type: " + key + "\n";
+    [[nodiscard]] bool is_serialization_free() const {
+        return is_serialization_free(default_type_key<T>());
+    }
 
-        auto local_it = local_signatures_.find(key);
-        auto remote_it = remote_signatures_.find(key);
+    // Get diagnostic information by explicit key.
+    [[nodiscard]] std::string diagnose(std::string_view key) const {
+        std::string k(key);
+        std::string result;
+        result += "Type: " + k + "\n";
+
+        auto local_it = local_signatures_.find(k);
+        auto remote_it = remote_signatures_.find(k);
 
         if (local_it != local_signatures_.end())
             result += "  local:  " + std::string(local_it->second) + "\n";
@@ -160,6 +184,12 @@ public:
             result += "  remote: (not registered)\n";
 
         return result;
+    }
+
+    // Get diagnostic information using the default typeid key.
+    template <typename T>
+    [[nodiscard]] std::string diagnose() const {
+        return diagnose(default_type_key<T>());
     }
 
     // Access the local signatures map (for building SIG_OFFER messages).
@@ -178,8 +208,10 @@ private:
     std::map<std::string, std::string_view> local_signatures_;
     std::map<std::string, std::string> remote_signatures_;
 
+    // Default key derived from typeid.  Not binary-stable across compilers,
+    // but convenient for single-toolchain deployments.
     template <typename T>
-    static std::string type_key() {
+    static std::string default_type_key() {
         return std::string(typeid(T).name());
     }
 };

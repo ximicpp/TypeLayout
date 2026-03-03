@@ -95,12 +95,12 @@ void test_compat_reporter() {
     // PacketHeader should match and be Safe
     assert(results[0].name == "PacketHeader");
     assert(results[0].layout_match == true);
-    assert(results[0].safety == SafetyLevel::Safe);
+    assert(results[0].safety == SafetyLevel::TrivialSafe);
 
     // UnsafeType should differ and be Risk (contains wchar)
     assert(results[1].name == "UnsafeType");
     assert(results[1].layout_match == false);
-    assert(results[1].safety == SafetyLevel::Risk);
+    assert(results[1].safety == SafetyLevel::PlatformVariant);
 
     // Test print_report()
     std::ostringstream oss;
@@ -144,61 +144,61 @@ void test_empty_reporter() {
 }
 
 void test_safety_classification() {
-    // Safe: only fixed-width integers
-    assert(classify_safety("[64-le]record[s:8,a:4]{@0:u32[s:4,a:4],@4:u16[s:2,a:2]}")
-           == SafetyLevel::Safe);
+    // TrivialSafe: only fixed-width integers
+    assert(classify_signature("[64-le]record[s:8,a:4]{@0:u32[s:4,a:4],@4:u16[s:2,a:2]}")
+           == SafetyLevel::TrivialSafe);
 
-    // Safe: floats
-    assert(classify_safety("[64-le]record[s:8,a:4]{@0:f32[s:4,a:4],@4:f32[s:4,a:4]}")
-           == SafetyLevel::Safe);
+    // TrivialSafe: floats
+    assert(classify_signature("[64-le]record[s:8,a:4]{@0:f32[s:4,a:4],@4:f32[s:4,a:4]}")
+           == SafetyLevel::TrivialSafe);
 
-    // Safe: enum
-    assert(classify_safety("[64-le]record[s:4,a:4]{@0:enum[s:4,a:4]<i32[s:4,a:4]>}")
-           == SafetyLevel::Safe);
+    // TrivialSafe: enum
+    assert(classify_signature("[64-le]record[s:4,a:4]{@0:enum[s:4,a:4]<i32[s:4,a:4]>}")
+           == SafetyLevel::TrivialSafe);
 
-    // Safe: bytes array
-    assert(classify_safety("[64-le]record[s:16,a:1]{@0:bytes[s:16,a:1]}")
-           == SafetyLevel::Safe);
+    // TrivialSafe: bytes array
+    assert(classify_signature("[64-le]record[s:16,a:1]{@0:bytes[s:16,a:1]}")
+           == SafetyLevel::TrivialSafe);
 
-    // Warning: contains pointer
-    assert(classify_safety("[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:ptr[s:8,a:8]}")
-           == SafetyLevel::Warning);
+    // PointerRisk: contains pointer
+    assert(classify_signature("[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:ptr[s:8,a:8]}")
+           == SafetyLevel::PointerRisk);
 
-    // Warning: contains function pointer
-    assert(classify_safety("[64-le]record[s:8,a:8]{@0:fnptr[s:8,a:8]}")
-           == SafetyLevel::Warning);
+    // PointerRisk: contains function pointer
+    assert(classify_signature("[64-le]record[s:8,a:8]{@0:fnptr[s:8,a:8]}")
+           == SafetyLevel::PointerRisk);
 
-    // Warning: contains pointer field
-    assert(classify_safety("[64-le]record[s:16,a:8]{@0:ptr[s:8,a:8],@8:i32[s:4,a:4]}")
-           == SafetyLevel::Warning);
+    // PointerRisk: contains pointer field
+    assert(classify_signature("[64-le]record[s:16,a:8]{@0:ptr[s:8,a:8],@8:i32[s:4,a:4]}")
+           == SafetyLevel::PointerRisk);
 
-    // Risk: contains wchar_t
-    assert(classify_safety("[64-le]record[s:4,a:4]{@0:wchar[s:4,a:4]}")
-           == SafetyLevel::Risk);
+    // PlatformVariant: contains wchar_t
+    assert(classify_signature("[64-le]record[s:4,a:4]{@0:wchar[s:4,a:4]}")
+           == SafetyLevel::PlatformVariant);
 
-    // Risk: contains bit-field
-    assert(classify_safety("[64-le]record[s:4,a:4]{@0.0:bits<3,u32[s:4,a:4]>}")
-           == SafetyLevel::Risk);
+    // PlatformVariant: contains bit-field
+    assert(classify_signature("[64-le]record[s:4,a:4]{@0.0:bits<3,u32[s:4,a:4]>}")
+           == SafetyLevel::PlatformVariant);
 
-    // Risk: contains long double (f80) -- platform-dependent size
-    assert(classify_safety("[64-le]record[s:16,a:16]{@0:f80[s:16,a:16]}")
-           == SafetyLevel::Risk);
+    // PlatformVariant: contains long double (f80) -- platform-dependent size
+    assert(classify_signature("[64-le]record[s:16,a:16]{@0:f80[s:16,a:16]}")
+           == SafetyLevel::PlatformVariant);
 
-    // Risk: struct containing long double alongside safe fields
-    assert(classify_safety("[64-le]record[s:32,a:16]{@0:i32[s:4,a:4],@16:f80[s:16,a:16]}")
-           == SafetyLevel::Risk);
+    // PlatformVariant: struct containing long double alongside safe fields
+    assert(classify_signature("[64-le]record[s:32,a:16]{@0:i32[s:4,a:4],@16:f80[s:16,a:16]}")
+           == SafetyLevel::PlatformVariant);
 
-    // Risk takes priority over Warning
-    assert(classify_safety("[64-le]record[s:16,a:8]{@0:ptr[s:8,a:8],@8:wchar[s:4,a:4]}")
-           == SafetyLevel::Risk);
+    // PlatformVariant takes priority over PointerRisk
+    assert(classify_signature("[64-le]record[s:16,a:8]{@0:ptr[s:8,a:8],@8:wchar[s:4,a:4]}")
+           == SafetyLevel::PlatformVariant);
 
     // Helper functions
-    assert(std::string(safety_label(SafetyLevel::Safe)) == "Safe");
-    assert(std::string(safety_label(SafetyLevel::Warning)) == "Warn");
-    assert(std::string(safety_label(SafetyLevel::Risk)) == "Risk");
-    assert(std::string(safety_stars(SafetyLevel::Safe)) == "***");
-    assert(std::string(safety_stars(SafetyLevel::Warning)) == "**-");
-    assert(std::string(safety_stars(SafetyLevel::Risk)) == "*--");
+    assert(std::string(safety_label(SafetyLevel::TrivialSafe)) == "Safe");
+    assert(std::string(safety_label(SafetyLevel::PointerRisk)) == "Warn");
+    assert(std::string(safety_label(SafetyLevel::PlatformVariant)) == "Risk");
+    assert(std::string(safety_stars(SafetyLevel::TrivialSafe)) == "***");
+    assert(std::string(safety_stars(SafetyLevel::PointerRisk)) == "**-");
+    assert(std::string(safety_stars(SafetyLevel::PlatformVariant)) == "*--");
 
     std::cout << "  [PASS] Safety classification\n";
 }

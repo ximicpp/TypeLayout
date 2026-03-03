@@ -7,7 +7,7 @@
 // classify is a convenience tool, not a core commitment.  Users may bypass it
 // and read layout_traits properties directly for custom policies.
 //
-// SafetyLevel uses a five-tier scheme:
+// SafetyLevel uses a five-tier scheme (defined in safety_level.hpp):
 //   Opaque          -- contains unanalyzable fields, safety unknown
 //   PointerRisk     -- contains pointers; memcpy produces dangling pointers
 //   PlatformVariant -- layout differs across platforms (wchar_t, long double, ptr)
@@ -23,43 +23,15 @@
 #define BOOST_TYPELAYOUT_TOOLS_CLASSIFY_HPP
 
 #include <boost/typelayout/layout_traits.hpp>
+#include <boost/typelayout/tools/safety_level.hpp>
 #include <type_traits>
 
 namespace boost {
 namespace typelayout {
 
-// =========================================================================
-// SafetyLevel -- five-tier safety classification
-// =========================================================================
-
-/// Safety classification for zero-copy / memcpy / cross-boundary transfer.
-///
-/// Ordered from most restrictive (worst) to least restrictive (best).
-/// classify<T> returns the WORST applicable level.
-enum class SafetyLevel {
-    /// The type is safe for memcpy, cross-process, and cross-platform transfer.
-    /// No pointers, no padding, trivially copyable, platform-independent layout.
-    TrivialSafe,
-
-    /// Layout is fixed and portable, but padding bytes exist.
-    /// memcpy works correctly, but padding may leak uninitialized memory
-    /// (information disclosure risk in serialization/network scenarios).
-    PaddingRisk,
-
-    /// Layout contains pointer-like fields (ptr, fnptr, memptr, ref, rref).
-    /// Byte-level copy produces dangling pointers or double-free scenarios.
-    /// Also used conservatively when !is_trivially_copyable (e.g. vtable).
-    PointerRisk,
-
-    /// Layout differs across platforms due to platform-dependent types
-    /// (wchar_t, long double / f80, pointer size).
-    /// Same-platform memcpy may be fine, but cross-platform transfer is unsafe.
-    PlatformVariant,
-
-    /// Contains opaque (unanalyzable) fields.  Safety cannot be determined.
-    /// The user is responsible for manual verification.
-    Opaque,
-};
+// SafetyLevel enum, safety_level_name(), and classify_signature() are
+// provided by <boost/typelayout/tools/safety_level.hpp> and are available
+// in this header through the include above.
 
 // =========================================================================
 // classify<T> -- the classifier struct
@@ -121,7 +93,7 @@ consteval SafetyLevel compute_safety_level() noexcept {
 ///
 /// Example:
 ///   static_assert(classify<int32_t>::value == SafetyLevel::TrivialSafe);
-///   static_assert(classify_v<int*> == SafetyLevel::PointerRisk);
+///   static_assert(classify_v<int*> == SafetyLevel::PlatformVariant);
 template <typename T>
 struct classify {
     static constexpr SafetyLevel value = detail::compute_safety_level<T>();
@@ -147,21 +119,6 @@ template <typename T>
 inline constexpr bool is_memcpy_safe_v =
     (classify_v<T> == SafetyLevel::TrivialSafe ||
      classify_v<T> == SafetyLevel::PaddingRisk);
-
-// =========================================================================
-// safety_level_name -- human-readable label
-// =========================================================================
-
-constexpr const char* safety_level_name(SafetyLevel level) noexcept {
-    switch (level) {
-        case SafetyLevel::TrivialSafe:     return "TrivialSafe";
-        case SafetyLevel::PaddingRisk:     return "PaddingRisk";
-        case SafetyLevel::PointerRisk:     return "PointerRisk";
-        case SafetyLevel::PlatformVariant: return "PlatformVariant";
-        case SafetyLevel::Opaque:          return "Opaque";
-    }
-    return "?";
-}
 
 } // namespace typelayout
 } // namespace boost

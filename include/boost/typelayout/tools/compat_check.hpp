@@ -2,6 +2,9 @@
 // Provides constexpr comparators (for static_assert) and a runtime reporter.
 // Requires C++17. Does not require P2996.
 //
+// Uses the unified SafetyLevel enum and classify_signature() from
+// safety_level.hpp to avoid duplicating safety classification logic.
+//
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
@@ -9,6 +12,7 @@
 #define BOOST_TYPELAYOUT_TOOLS_COMPAT_CHECK_HPP
 
 #include <boost/typelayout/tools/sig_types.hpp>
+#include <boost/typelayout/tools/safety_level.hpp>
 
 #include <string_view>
 #include <string>
@@ -32,84 +36,42 @@ constexpr bool layout_match(const char* a, const char* b) noexcept {
     return sig_match(a, b);
 }
 
-
-enum class SafetyLevel {
-    Safe,       // no pointers, no bit-fields
-    Warning,    // has pointers
-    Risk        // has bit-fields or platform-dependent types
-};
-
-/// Token-boundary-aware substring search for std::string_view.
-///
-/// Finds `needle` in `haystack`, but only accepts a match when the character
-/// immediately before it is NOT an ASCII letter.  This prevents e.g.
-/// "nullptr[" from being falsely matched by "ptr[".
-///
-/// In TypeLayout signatures, type markers are always preceded by '{', ',',
-/// or appear at the start of the string -- never preceded by a letter.
-inline bool contains_token(std::string_view haystack,
-                           std::string_view needle) noexcept {
-    size_t pos = 0;
-    while (pos < haystack.size()) {
-        size_t found = haystack.find(needle, pos);
-        if (found == std::string_view::npos) return false;
-        if (found == 0) return true;
-        char prev = haystack[found - 1];
-        bool prev_is_alpha = (prev >= 'a' && prev <= 'z') ||
-                             (prev >= 'A' && prev <= 'Z');
-        if (!prev_is_alpha) return true;
-        // False match inside a longer token — advance past it
-        pos = found + 1;
-    }
-    return false;
-}
-
-/// Scan a layout signature for pointers, bit-fields, etc.
-///
-/// NOTE: contains_token() is used for warning markers to enforce
-/// token-boundary matching, preventing "nullptr[" from being falsely
-/// matched by "ptr[".
-inline SafetyLevel classify_safety(std::string_view sig) noexcept {
-    if (sig.find("bits<") != std::string_view::npos)
-        return SafetyLevel::Risk;
-    if (sig.find("wchar[") != std::string_view::npos)
-        return SafetyLevel::Risk;
-    if (sig.find("f80[") != std::string_view::npos)
-        return SafetyLevel::Risk;
-    if (contains_token(sig, "ptr[") ||
-        contains_token(sig, "fnptr[") ||
-        contains_token(sig, "memptr[") ||
-        contains_token(sig, "ref[") ||
-        contains_token(sig, "rref[") ||
-        contains_token(sig, "union["))
-        return SafetyLevel::Warning;
-
-    return SafetyLevel::Safe;
-}
+// =========================================================================
+// Safety display helpers
+//
+// These map the unified SafetyLevel enum to compact labels for the
+// compatibility report output.
+// =========================================================================
 
 inline const char* safety_label(SafetyLevel level) noexcept {
     switch (level) {
-        case SafetyLevel::Safe:    return "Safe";
-        case SafetyLevel::Warning: return "Warn";
-        case SafetyLevel::Risk:    return "Risk";
+        case SafetyLevel::TrivialSafe:     return "Safe";
+        case SafetyLevel::PaddingRisk:     return "Pad";
+        case SafetyLevel::PointerRisk:     return "Warn";
+        case SafetyLevel::PlatformVariant: return "Risk";
+        case SafetyLevel::Opaque:          return "Opaq";
     }
     return "?";
 }
 
 inline const char* safety_stars(SafetyLevel level) noexcept {
     switch (level) {
-        case SafetyLevel::Safe:    return "***";
-        case SafetyLevel::Warning: return "**-";
-        case SafetyLevel::Risk:    return "*--";
+        case SafetyLevel::TrivialSafe:     return "***";
+        case SafetyLevel::PaddingRisk:     return "**-";
+        case SafetyLevel::PointerRisk:     return "**-";
+        case SafetyLevel::PlatformVariant: return "*--";
+        case SafetyLevel::Opaque:          return "---";
     }
     return "???";
 }
 
 inline const char* safety_reason(SafetyLevel level) noexcept {
     switch (level) {
-        case SafetyLevel::Safe:    return "fixed-width scalars only";
-        case SafetyLevel::Warning: return "contains pointers or union";
-        case SafetyLevel::Risk:    return "bit-fields or platform-dependent types (wchar_t, long double)";
+        case SafetyLevel::TrivialSafe:     return "fixed-width scalars only";
+        case SafetyLevel::PaddingRisk:     return "has alignment padding";
+        case SafetyLevel::PointerRisk:     return "contains pointers or union";
+        case SafetyLevel::PlatformVariant: return "bit-fields or platform-dependent types (wchar_t, long double)";
+        case SafetyLevel::Opaque:          return "contains opaque (unanalyzable) fields";
     }
     return "";
 }
@@ -167,7 +129,7 @@ public:
             tr.name = ref.types[i].name;
             tr.layout_match = true;
 
-            SafetyLevel worst_safety = SafetyLevel::Safe;
+            SafetyLevel worst_safety = SafetyLevel::TrivialSafe;
 
             for (const auto& plat : platforms_) {
                 const TypeEntry* entry = find_type(plat, tr.name);
@@ -182,7 +144,8 @@ public:
                     std::string_view(ref.types[i].layout_sig))
                     tr.layout_match = false;
 
-                auto level = classify_safety(entry->layout_sig);
+                // Use the unified runtime classifier
+                auto level = classify_signature(entry->layout_sig);
                 if (static_cast<int>(level) > static_cast<int>(worst_safety))
                     worst_safety = level;
             }
@@ -219,7 +182,7 @@ public:
         }
         os << "\n";
 
-        os << "Safety: *** = zero-copy ok, **- = has pointers, *-- = bit-fields.\n\n";
+        os << "Safety: *** = zero-copy ok, **- = has pointers/padding, *-- = platform-variant.\n\n";
 
         os << std::string(72, '-') << "\n";
         os << "  " << std::left << std::setw(24) << "Type"
@@ -234,11 +197,15 @@ public:
 
             if (r.layout_match) {
                 ++layout_compatible;
-                if (r.safety == SafetyLevel::Safe) {
+                if (r.safety == SafetyLevel::TrivialSafe) {
                     ++serialization_free;
                     verdict = "Serialization-free";
-                } else if (r.safety == SafetyLevel::Warning)
+                } else if (r.safety == SafetyLevel::PaddingRisk)
+                    verdict = "Layout OK (padding may leak uninitialized bytes)";
+                else if (r.safety == SafetyLevel::PointerRisk)
                     verdict = "Layout OK (pointer values not portable)";
+                else if (r.safety == SafetyLevel::Opaque)
+                    verdict = "Layout OK (contains opaque fields, verify manually)";
                 else
                     verdict = "Layout OK (verify bit-fields manually)";
             } else {
@@ -266,13 +233,13 @@ public:
 
         bool has_warnings = false;
         for (const auto& r : results) {
-            if (r.layout_match && r.safety != SafetyLevel::Safe) {
+            if (r.layout_match && r.safety != SafetyLevel::TrivialSafe) {
                 if (!has_warnings) {
                     os << "  Safety warnings:\n";
                     has_warnings = true;
                 }
                 os << "  [" << safety_stars(r.safety) << "] "
-                   << r.name << " — " << safety_reason(r.safety) << "\n";
+                   << r.name << " -- " << safety_reason(r.safety) << "\n";
             }
         }
         if (has_warnings) os << "\n";
