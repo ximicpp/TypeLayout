@@ -4,8 +4,6 @@
 // against various type categories.  All checks are compile-time
 // (static_assert) to verify the consteval classification logic.
 //
-// Also validates backward compatibility: classify_safety<T>() must map
-// correctly to the legacy three-tier compat::SafetyLevel.
 //
 // Requires P2996 (Bloomberg Clang).
 //
@@ -13,7 +11,6 @@
 // Distributed under the Boost Software License, Version 1.0.
 
 #include <boost/typelayout/tools/classify.hpp>
-#include <boost/typelayout/tools/classify_safety.hpp>
 #include <cstdint>
 #include <iostream>
 
@@ -139,35 +136,7 @@ static_assert(!is_memcpy_safe_v<WithWchar>,
     "WithWchar should fail is_memcpy_safe_v (platform variant)");
 
 // =========================================================================
-// 3. Backward compatibility: classify_safety<T>() (three-tier)
-// =========================================================================
-
-// Note: compat::SafetyLevel (3-tier) and boost::typelayout::SafetyLevel (5-tier)
-// are distinct enums in different namespaces.
-// We use fully-qualified names below to avoid ambiguity.
-
-// Safe mapping
-static_assert(compat::classify_safety<int32_t>() == compat::SafetyLevel::Safe,
-    "int32_t should map to legacy Safe");
-static_assert(compat::classify_safety<TrivialPair>() == compat::SafetyLevel::Safe,
-    "TrivialPair should map to legacy Safe");
-
-// Risk mapping (platform-variant -> Risk)
-static_assert(compat::classify_safety<long double>() == compat::SafetyLevel::Risk,
-    "long double should map to legacy Risk");
-static_assert(compat::classify_safety<WithWchar>() == compat::SafetyLevel::Risk,
-    "WithWchar should map to legacy Risk");
-
-// Risk mapping (pointer-containing -> PlatformVariant -> Risk)
-// All pointer-like types are PlatformVariant (fnptr[, ptr[, etc. all trigger
-// is_platform_variant), which maps to legacy Risk.
-static_assert(compat::classify_safety<WithFnPtr>() == compat::SafetyLevel::Risk,
-    "WithFnPtr should map to legacy Risk (PlatformVariant due to fnptr[)");
-static_assert(compat::classify_safety<WithPointer>() == compat::SafetyLevel::Risk,
-    "WithPointer should map to legacy Risk (PlatformVariant due to ptr[)");
-
-// =========================================================================
-// 4. safety_level_name
+// 3. safety_level_name
 // =========================================================================
 
 static_assert(

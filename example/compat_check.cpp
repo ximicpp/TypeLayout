@@ -8,7 +8,7 @@
 #include "sigs/arm64_macos_clang.sig.hpp"
 #include "sigs/x86_64_windows_msvc.sig.hpp"
 
-#include <boost/typelayout/tools/compat_auto.hpp>
+#include "compat_auto.hpp"
 
 namespace linux_plat  = boost::typelayout::platform::x86_64_linux_clang;
 namespace macos_plat  = boost::typelayout::platform::arm64_macos_clang;
