@@ -1,0 +1,169 @@
+// classify<T> -- Compile-time safety classification based on layout_traits.
+//
+// This is the Tool layer of TypeLayout.  It consumes the natural by-products
+// of layout_traits<T> (has_pointer, has_padding, has_opaque, is_platform_variant)
+// along with standard type_traits to produce a SafetyLevel judgement.
+//
+// classify is a convenience tool, not a core commitment.  Users may bypass it
+// and read layout_traits properties directly for custom policies.
+//
+// SafetyLevel uses a five-tier scheme:
+//   Opaque          -- contains unanalyzable fields, safety unknown
+//   PointerRisk     -- contains pointers; memcpy produces dangling pointers
+//   PlatformVariant -- layout differs across platforms (wchar_t, long double, ptr)
+//   PaddingRisk     -- layout is fixed, but padding may leak uninitialized bytes
+//   TrivialSafe     -- safe for zero-copy / memcpy / cross-boundary transfer
+//
+// Requires P2996 (Bloomberg Clang) because layout_traits<T> needs reflection.
+//
+// Copyright (c) 2024-2026 TypeLayout Development Team
+// Distributed under the Boost Software License, Version 1.0.
+
+#ifndef BOOST_TYPELAYOUT_TOOLS_CLASSIFY_HPP
+#define BOOST_TYPELAYOUT_TOOLS_CLASSIFY_HPP
+
+#include <boost/typelayout/layout_traits.hpp>
+#include <type_traits>
+
+namespace boost {
+namespace typelayout {
+
+// =========================================================================
+// SafetyLevel -- five-tier safety classification
+// =========================================================================
+
+/// Safety classification for zero-copy / memcpy / cross-boundary transfer.
+///
+/// Ordered from most restrictive (worst) to least restrictive (best).
+/// classify<T> returns the WORST applicable level.
+enum class SafetyLevel {
+    /// The type is safe for memcpy, cross-process, and cross-platform transfer.
+    /// No pointers, no padding, trivially copyable, platform-independent layout.
+    TrivialSafe,
+
+    /// Layout is fixed and portable, but padding bytes exist.
+    /// memcpy works correctly, but padding may leak uninitialized memory
+    /// (information disclosure risk in serialization/network scenarios).
+    PaddingRisk,
+
+    /// Layout contains pointer-like fields (ptr, fnptr, memptr, ref, rref).
+    /// Byte-level copy produces dangling pointers or double-free scenarios.
+    /// Also used conservatively when !is_trivially_copyable (e.g. vtable).
+    PointerRisk,
+
+    /// Layout differs across platforms due to platform-dependent types
+    /// (wchar_t, long double / f80, pointer size).
+    /// Same-platform memcpy may be fine, but cross-platform transfer is unsafe.
+    PlatformVariant,
+
+    /// Contains opaque (unanalyzable) fields.  Safety cannot be determined.
+    /// The user is responsible for manual verification.
+    Opaque,
+};
+
+// =========================================================================
+// classify<T> -- the classifier struct
+// =========================================================================
+
+namespace detail {
+
+/// Compute the safety level for type T by consuming layout_traits<T>.
+///
+/// Priority order (highest severity wins):
+///   1. Opaque           -- has_opaque
+///   2. PlatformVariant  -- is_platform_variant (includes bit-fields via f80/wchar)
+///   3. PointerRisk      -- has_pointer OR !trivially_copyable
+///   4. PaddingRisk      -- has_padding
+///   5. TrivialSafe      -- none of the above
+///
+/// Note on bit-fields: Types with bit-fields (has_bit_field) have
+/// compiler-dependent layout, which makes them platform-variant.
+/// The signature encodes bit-fields as "bits<N,...>", and
+/// is_platform_variant already captures this through the signature scan.
+/// However, bit-fields are an additional portability risk beyond just
+/// platform-dependent primitive types, so we check has_bit_field
+/// explicitly to ensure PlatformVariant is returned.
+template <typename T>
+consteval SafetyLevel compute_safety_level() noexcept {
+    using traits = layout_traits<T>;
+
+    // 1. Opaque: unanalyzable fields
+    if constexpr (traits::has_opaque) {
+        return SafetyLevel::Opaque;
+    }
+    // 2. Platform-variant: layout differs across platforms
+    //    Also includes bit-fields (compiler-dependent layout)
+    else if constexpr (traits::is_platform_variant || traits::has_bit_field) {
+        return SafetyLevel::PlatformVariant;
+    }
+    // 3. Pointer risk: contains pointers, or not trivially copyable
+    //    (non-trivially-copyable types may have vtable pointers or
+    //    user-defined copy semantics that make memcpy incorrect)
+    else if constexpr (traits::has_pointer || !std::is_trivially_copyable_v<T>) {
+        return SafetyLevel::PointerRisk;
+    }
+    // 4. Padding risk: layout is fixed, but has padding bytes
+    else if constexpr (traits::has_padding) {
+        return SafetyLevel::PaddingRisk;
+    }
+    // 5. All clear
+    else {
+        return SafetyLevel::TrivialSafe;
+    }
+}
+
+} // namespace detail
+
+/// Compile-time safety classification of type T.
+///
+/// Consumes layout_traits<T> natural by-products and std type_traits
+/// to produce a SafetyLevel judgement.
+///
+/// Example:
+///   static_assert(classify<int32_t>::value == SafetyLevel::TrivialSafe);
+///   static_assert(classify_v<int*> == SafetyLevel::PointerRisk);
+template <typename T>
+struct classify {
+    static constexpr SafetyLevel value = detail::compute_safety_level<T>();
+};
+
+/// Variable template shorthand for classify<T>::value.
+template <typename T>
+inline constexpr SafetyLevel classify_v = classify<T>::value;
+
+// =========================================================================
+// Convenience predicates
+// =========================================================================
+
+/// True if T is safe for zero-copy transfer (TrivialSafe).
+template <typename T>
+inline constexpr bool is_trivial_safe_v =
+    (classify_v<T> == SafetyLevel::TrivialSafe);
+
+/// True if T is safe for same-platform memcpy (TrivialSafe or PaddingRisk).
+/// Padding risk only matters for information-disclosure scenarios;
+/// the memcpy itself is semantically correct.
+template <typename T>
+inline constexpr bool is_memcpy_safe_v =
+    (classify_v<T> == SafetyLevel::TrivialSafe ||
+     classify_v<T> == SafetyLevel::PaddingRisk);
+
+// =========================================================================
+// safety_level_name -- human-readable label
+// =========================================================================
+
+constexpr const char* safety_level_name(SafetyLevel level) noexcept {
+    switch (level) {
+        case SafetyLevel::TrivialSafe:     return "TrivialSafe";
+        case SafetyLevel::PaddingRisk:     return "PaddingRisk";
+        case SafetyLevel::PointerRisk:     return "PointerRisk";
+        case SafetyLevel::PlatformVariant: return "PlatformVariant";
+        case SafetyLevel::Opaque:          return "Opaque";
+    }
+    return "?";
+}
+
+} // namespace typelayout
+} // namespace boost
+
+#endif // BOOST_TYPELAYOUT_TOOLS_CLASSIFY_HPP

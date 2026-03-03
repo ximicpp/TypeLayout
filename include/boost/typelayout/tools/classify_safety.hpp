@@ -1,17 +1,23 @@
 // Compile-time safety classifier for cross-platform type layout portability.
 //
-// classify_safety<T>() generates the layout signature of T via the existing
-// signature engine, then scans it for risk markers (ptr, bits, wchar, f80,
-// union, etc.).  This ensures that the safety classification is
-// grounded in the SAME data that cross-platform comparison uses -- the
-// actual encoded layout, not a parallel type-tree walk.
+// BACKWARD COMPATIBILITY WRAPPER
 //
-// The signature already encodes offsets, sizes, alignment, and type markers,
-// so scanning it gives us both "type safety" AND "layout faithfulness" in
-// one pass.
+// This file preserves the original classify_safety<T>() API that returns
+// the three-tier compat::SafetyLevel (Safe/Warning/Risk).  Internally it
+// now delegates to the new five-tier classify<T> in classify.hpp and maps
+// the result to the legacy three-tier enum.
 //
-// Requires P2996 (Bloomberg Clang) because get_layout_signature<T>() needs
-// reflection to generate the signature.
+// The mapping:
+//   TrivialSafe     -> Safe
+//   PaddingRisk     -> Safe     (padding is not a portability risk)
+//   PointerRisk     -> Warning  (pointers, non-trivially-copyable)
+//   PlatformVariant -> Risk     (bit-fields, wchar_t, long double)
+//   Opaque          -> Risk     (unknown = worst case)
+//
+// For new code, prefer using boost::typelayout::classify_v<T> from
+// <boost/typelayout/tools/classify.hpp> which provides finer granularity.
+//
+// Requires P2996 (Bloomberg Clang) because layout_traits<T> needs reflection.
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
@@ -19,7 +25,7 @@
 #ifndef BOOST_TYPELAYOUT_TOOLS_CLASSIFY_SAFETY_HPP
 #define BOOST_TYPELAYOUT_TOOLS_CLASSIFY_SAFETY_HPP
 
-#include <boost/typelayout/signature.hpp>
+#include <boost/typelayout/tools/classify.hpp>
 #include <boost/typelayout/tools/compat_check.hpp>
 
 namespace boost {
@@ -27,69 +33,54 @@ namespace typelayout {
 namespace compat {
 
 // =========================================================================
-// classify_safety<T>  --  signature-based compile-time classifier
+// classify_safety<T> -- backward-compatible three-tier classifier
 // =========================================================================
-// Generates get_layout_signature<T>() and scans it for risk/warning markers.
+// Maps the new five-tier SafetyLevel to the legacy three-tier
+// compat::SafetyLevel used by compat_check.hpp and existing tests.
 //
-// This is the consteval counterpart of classify_safety(std::string_view)
-// in compat_check.hpp.  Same SafetyLevel enum, same marker detection logic,
-// but the signature is produced and scanned entirely at compile time.
+// Classification mapping:
 //
-// Classification rules (matching the runtime version in compat_check.hpp):
-//
-//   Risk markers:
-//     "bits<"           -- bit-fields (layout not portable across compilers)
-//     "wchar["          -- wchar_t (2 bytes on Windows, 4 bytes on Linux)
-//     "f80["            -- long double (80-bit on x86, 64-bit on ARM/MSVC)
-//
-//   Warning markers:
-//     "ptr["     -- pointer
-//     "fnptr["   -- function pointer
-//     "memptr["  -- member pointer
-//     "ref["     -- lvalue reference
-//     "rref["    -- rvalue reference
-//     "union["   -- union (overlapping members)
-//
-//   Safe:
-//     No risk or warning markers found in the signature.
+//   New (boost::typelayout::SafetyLevel)   ->  Legacy (compat::SafetyLevel)
+//   ─────────────────────────────────────────────────────────────────────────
+//   TrivialSafe                            ->  Safe
+//   PaddingRisk                            ->  Safe
+//   PointerRisk                            ->  Warning
+//   PlatformVariant                        ->  Risk
+//   Opaque                                 ->  Risk
 
-/// Compile-time safety classification of type T, based on its layout signature.
+/// Map the new five-tier SafetyLevel to the legacy three-tier enum.
+consteval compat::SafetyLevel map_to_legacy(
+        boost::typelayout::SafetyLevel level) noexcept {
+    switch (level) {
+        case boost::typelayout::SafetyLevel::TrivialSafe:
+        case boost::typelayout::SafetyLevel::PaddingRisk:
+            return compat::SafetyLevel::Safe;
+        case boost::typelayout::SafetyLevel::PointerRisk:
+            return compat::SafetyLevel::Warning;
+        case boost::typelayout::SafetyLevel::PlatformVariant:
+        case boost::typelayout::SafetyLevel::Opaque:
+            return compat::SafetyLevel::Risk;
+    }
+    return compat::SafetyLevel::Risk;
+}
+
+/// Compile-time safety classification of type T (legacy three-tier).
 ///
 /// @tparam T  The type to classify.
-/// @return SafetyLevel::Safe, Warning, or Risk.
+/// @return compat::SafetyLevel::Safe, Warning, or Risk.
 ///
 /// Example:
 ///   static_assert(classify_safety<int32_t>() == SafetyLevel::Safe);
 ///   static_assert(classify_safety<long double>() == SafetyLevel::Risk);
 template<typename T>
-[[nodiscard]] consteval SafetyLevel classify_safety() {
-    constexpr auto sig = get_layout_signature<T>();
-
-    // --- Risk markers (highest severity, check first) ---
-    if constexpr (sig.contains(FixedString{"bits<"}))           return SafetyLevel::Risk;
-    if constexpr (sig.contains(FixedString{"wchar["}))          return SafetyLevel::Risk;
-    if constexpr (sig.contains(FixedString{"f80["}))            return SafetyLevel::Risk;
-
-    // --- Warning markers ---
-    // NOTE: contains_token() is used instead of contains() to enforce
-    // token-boundary matching: the character before the needle must NOT be
-    // an ASCII letter.  This prevents "nullptr[" (a safe nullptr_t marker)
-    // from being falsely matched by "ptr[".
-    if constexpr (sig.contains_token(FixedString{"ptr["}) ||
-                  sig.contains_token(FixedString{"fnptr["}) ||
-                  sig.contains_token(FixedString{"memptr["}) ||
-                  sig.contains_token(FixedString{"ref["}) ||
-                  sig.contains_token(FixedString{"rref["}))  return SafetyLevel::Warning;
-    if constexpr (sig.contains_token(FixedString{"union["})) return SafetyLevel::Warning;
-
-    // --- No markers found ---
-    return SafetyLevel::Safe;
+[[nodiscard]] consteval compat::SafetyLevel classify_safety() {
+    return map_to_legacy(boost::typelayout::classify_v<T>);
 }
 
 /// Convenience: is the type's layout safe for zero-copy cross-platform transfer?
 template<typename T>
 [[nodiscard]] consteval bool is_layout_safe() {
-    return classify_safety<T>() == SafetyLevel::Safe;
+    return classify_safety<T>() == compat::SafetyLevel::Safe;
 }
 
 /// Single-platform Serialization-free predicate.
@@ -103,7 +94,7 @@ template<typename T>
 ///   C2: Safety classification is Safe (no pointers, bit-fields, etc.).
 ///
 /// This predicate covers C2 only.  C1 requires comparing .sig.hpp files
-/// from multiple platforms — use TYPELAYOUT_ASSERT_COMPAT for that.
+/// from multiple platforms -- use TYPELAYOUT_ASSERT_COMPAT for that.
 ///
 /// Named to align with the "Serialization-free (C1+C2)" concept in
 /// compat_check.hpp, making it the natural anchor for downstream
@@ -115,7 +106,7 @@ template<typename T>
 ///   static_assert(!is_serialization_free_local<int*>());     // has pointer
 template<typename T>
 [[nodiscard]] consteval bool is_serialization_free_local() {
-    return classify_safety<T>() == SafetyLevel::Safe;
+    return classify_safety<T>() == compat::SafetyLevel::Safe;
 }
 
 } // namespace compat

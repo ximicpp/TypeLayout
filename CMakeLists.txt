@@ -41,6 +41,16 @@ target_link_libraries(test_fixed_string PRIVATE typelayout)
 add_test(NAME test_fixed_string COMMAND test_fixed_string)
 set_tests_properties(test_fixed_string PROPERTIES TIMEOUT 60 LABELS "core")
 
+add_executable(test_layout_traits test/test_layout_traits.cpp)
+target_link_libraries(test_layout_traits PRIVATE typelayout)
+add_test(NAME test_layout_traits COMMAND test_layout_traits)
+set_tests_properties(test_layout_traits PROPERTIES TIMEOUT 120 LABELS "core")
+
+add_executable(test_classify test/test_classify.cpp)
+target_link_libraries(test_classify PRIVATE typelayout)
+add_test(NAME test_classify COMMAND test_classify)
+set_tests_properties(test_classify PROPERTIES TIMEOUT 120 LABELS "tools")
+
 add_executable(test_sig_export test/test_sig_export.cpp)
 target_link_libraries(test_sig_export PRIVATE typelayout)
 add_test(NAME test_sig_export COMMAND test_sig_export)

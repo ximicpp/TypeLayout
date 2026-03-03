@@ -10,6 +10,7 @@
 #include <boost/typelayout/fwd.hpp>
 #include <boost/typelayout/fixed_string.hpp>
 #include <boost/typelayout/signature.hpp>
+#include <boost/typelayout/layout_traits.hpp>
 #include <boost/typelayout/opaque.hpp>
 
 #endif // BOOST_TYPELAYOUT_HPP
