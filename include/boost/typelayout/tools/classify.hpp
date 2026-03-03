@@ -10,7 +10,7 @@
 // SafetyLevel uses a five-tier scheme (defined in safety_level.hpp):
 //   Opaque          -- contains unanalyzable fields, safety unknown
 //   PointerRisk     -- contains pointers; memcpy produces dangling pointers
-//   PlatformVariant -- layout differs across platforms (wchar_t, long double, ptr)
+//   PlatformVariant -- layout differs across platforms (wchar_t, long double)
 //   PaddingRisk     -- layout is fixed, but padding may leak uninitialized bytes
 //   TrivialSafe     -- safe for zero-copy / memcpy / cross-boundary transfer
 //
@@ -43,18 +43,22 @@ namespace detail {
 ///
 /// Priority order (highest severity wins):
 ///   1. Opaque           -- has_opaque
-///   2. PlatformVariant  -- is_platform_variant (includes bit-fields via f80/wchar)
-///   3. PointerRisk      -- has_pointer OR !trivially_copyable
+///   2. PointerRisk      -- has_pointer OR !trivially_copyable
+///   3. PlatformVariant  -- is_platform_variant OR has_bit_field
 ///   4. PaddingRisk      -- has_padding
 ///   5. TrivialSafe      -- none of the above
 ///
+/// Rationale for PointerRisk > PlatformVariant:
+///   Pointers make memcpy semantically incorrect (dangling pointers,
+///   double-free) on ANY platform, not just cross-platform.  This is
+///   a more severe and more actionable risk than size differences.
+///   The runtime classifier (classify_signature) uses the same ordering,
+///   ensuring consistency between compile-time and runtime results.
+///
 /// Note on bit-fields: Types with bit-fields (has_bit_field) have
 /// compiler-dependent layout, which makes them platform-variant.
-/// The signature encodes bit-fields as "bits<N,...>", and
-/// is_platform_variant already captures this through the signature scan.
-/// However, bit-fields are an additional portability risk beyond just
-/// platform-dependent primitive types, so we check has_bit_field
-/// explicitly to ensure PlatformVariant is returned.
+/// The signature encodes bit-fields as "bits<N,...>", and we check
+/// has_bit_field explicitly to ensure PlatformVariant is returned.
 template <typename T>
 consteval SafetyLevel compute_safety_level() noexcept {
     using traits = layout_traits<T>;
@@ -63,16 +67,18 @@ consteval SafetyLevel compute_safety_level() noexcept {
     if constexpr (traits::has_opaque) {
         return SafetyLevel::Opaque;
     }
-    // 2. Platform-variant: layout differs across platforms
-    //    Also includes bit-fields (compiler-dependent layout)
-    else if constexpr (traits::is_platform_variant || traits::has_bit_field) {
-        return SafetyLevel::PlatformVariant;
-    }
-    // 3. Pointer risk: contains pointers, or not trivially copyable
+    // 2. Pointer risk: contains pointers, or not trivially copyable
     //    (non-trivially-copyable types may have vtable pointers or
-    //    user-defined copy semantics that make memcpy incorrect)
+    //    user-defined copy semantics that make memcpy incorrect).
+    //    Pointers also imply platform variance (32 vs 64 bit), but
+    //    the dangling-pointer risk is more severe and more actionable.
     else if constexpr (traits::has_pointer || !std::is_trivially_copyable_v<T>) {
         return SafetyLevel::PointerRisk;
+    }
+    // 3. Platform-variant: layout differs across platforms
+    //    (wchar_t size, long double / f80, bit-field layout)
+    else if constexpr (traits::is_platform_variant || traits::has_bit_field) {
+        return SafetyLevel::PlatformVariant;
     }
     // 4. Padding risk: layout is fixed, but has padding bytes
     else if constexpr (traits::has_padding) {
@@ -93,7 +99,7 @@ consteval SafetyLevel compute_safety_level() noexcept {
 ///
 /// Example:
 ///   static_assert(classify<int32_t>::value == SafetyLevel::TrivialSafe);
-///   static_assert(classify_v<int*> == SafetyLevel::PlatformVariant);
+///   static_assert(classify_v<int*> == SafetyLevel::PointerRisk);
 template <typename T>
 struct classify {
     static constexpr SafetyLevel value = detail::compute_safety_level<T>();

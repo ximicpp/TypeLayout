@@ -114,14 +114,18 @@ inline bool sig_contains_token(std::string_view haystack,
 ///
 /// Priority order (matches the compile-time classify<T>):
 ///   1. Opaque          -- contains "O(" marker
-///   2. PlatformVariant -- wchar[, f80[, ptr[, fnptr[, memptr[,
-///                         ref[, rref[, or bits<
-///   3. PointerRisk     -- ptr[, fnptr[, memptr[, ref[, rref[
-///                         (when no platform-variant markers present)
+///   2. PointerRisk     -- ptr[, fnptr[, memptr[, ref[, rref[
+///   3. PlatformVariant -- wchar[, f80[, bits<
 ///   4. PaddingRisk     -- cannot be determined from signature alone;
 ///                         runtime classification returns TrivialSafe
 ///                         if no higher-priority markers are found.
 ///   5. TrivialSafe     -- none of the above
+///
+/// Rationale for PointerRisk > PlatformVariant:
+///   Pointers make memcpy semantically incorrect (dangling pointers)
+///   on ANY platform, which is a more severe and actionable risk than
+///   cross-platform size differences.  This ordering matches the
+///   compile-time classifier in classify.hpp.
 ///
 /// NOTE: PaddingRisk requires compile-time sizeof/reflection analysis
 /// and cannot be detected from the signature string alone.  The runtime
@@ -134,20 +138,9 @@ inline SafetyLevel classify_signature(std::string_view sig) noexcept {
     if (sig.find("O(") != std::string_view::npos)
         return SafetyLevel::Opaque;
 
-    // 2. Platform-variant: bit-fields and platform-dependent types
-    bool has_platform_variant =
-        sig.find("bits<") != std::string_view::npos ||
-        sig.find("wchar[") != std::string_view::npos ||
-        sig.find("f80[") != std::string_view::npos;
-
-    if (has_platform_variant)
-        return SafetyLevel::PlatformVariant;
-
-    // 3. Pointer risk: pointer-like fields make memcpy produce dangling refs.
-    //    Note: pointers are also platform-variant (32 vs 64 bit), but when
-    //    no other platform-variant marker is present, we report the more
-    //    actionable PointerRisk level.  If both pointer and platform-variant
-    //    markers co-exist, step 2 already returned PlatformVariant.
+    // 2. Pointer risk: pointer-like fields make memcpy produce dangling refs.
+    //    Pointers are also platform-variant (32 vs 64 bit), but the
+    //    dangling-pointer risk is more severe and takes priority.
     bool has_pointer =
         sig_contains_token(sig, "ptr[") ||
         sig_contains_token(sig, "fnptr[") ||
@@ -158,9 +151,18 @@ inline SafetyLevel classify_signature(std::string_view sig) noexcept {
     if (has_pointer)
         return SafetyLevel::PointerRisk;
 
-    // 4. Union types are a portability concern
+    // 3. Union types may contain pointer-like variants
     if (sig_contains_token(sig, "union["))
         return SafetyLevel::PointerRisk;
+
+    // 4. Platform-variant: bit-fields and platform-dependent primitive types
+    bool has_platform_variant =
+        sig.find("bits<") != std::string_view::npos ||
+        sig.find("wchar[") != std::string_view::npos ||
+        sig.find("f80[") != std::string_view::npos;
+
+    if (has_platform_variant)
+        return SafetyLevel::PlatformVariant;
 
     // 5. TrivialSafe (PaddingRisk cannot be detected at runtime)
     return SafetyLevel::TrivialSafe;

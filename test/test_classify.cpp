@@ -110,20 +110,20 @@ static_assert(classify_v<Nested> == SafetyLevel::TrivialSafe,
 static_assert(classify_v<Empty> == SafetyLevel::TrivialSafe,
     "Empty struct should be TrivialSafe");
 
-// --- PlatformVariant (pointer-containing types) ---
-// All pointer-like types trigger both has_pointer AND is_platform_variant,
-// because pointer size varies by bitness (32-bit vs 64-bit).
-// Since PlatformVariant has higher priority than PointerRisk in the
-// classification logic, these all resolve to PlatformVariant.
+// --- PointerRisk (pointer-containing types) ---
+// All pointer-like types trigger has_pointer.  Pointers are also
+// platform-variant in size (32 vs 64 bit), but the dangling-pointer
+// risk from memcpy is more severe and actionable, so PointerRisk
+// takes priority over PlatformVariant.
 
-static_assert(classify_v<WithPointer> == SafetyLevel::PlatformVariant,
-    "WithPointer should be PlatformVariant (ptr[ triggers is_platform_variant)");
+static_assert(classify_v<WithPointer> == SafetyLevel::PointerRisk,
+    "WithPointer should be PointerRisk (ptr[ triggers has_pointer)");
 
-static_assert(classify_v<NestedWithPointer> == SafetyLevel::PlatformVariant,
-    "NestedWithPointer should be PlatformVariant (contains ptr[)");
+static_assert(classify_v<NestedWithPointer> == SafetyLevel::PointerRisk,
+    "NestedWithPointer should be PointerRisk (contains ptr[)");
 
-static_assert(classify_v<WithFnPtr> == SafetyLevel::PlatformVariant,
-    "WithFnPtr should be PlatformVariant (fnptr[ triggers is_platform_variant)");
+static_assert(classify_v<WithFnPtr> == SafetyLevel::PointerRisk,
+    "WithFnPtr should be PointerRisk (fnptr[ triggers has_pointer)");
 
 // --- PaddingRisk ---
 // PaddedStruct: int8_t + 3 bytes padding + int32_t = 8 bytes total.
@@ -142,9 +142,9 @@ static_assert(classify_v<WithWchar> == SafetyLevel::PlatformVariant,
 static_assert(classify_v<long double> == SafetyLevel::PlatformVariant,
     "long double should be PlatformVariant (f80 varies across platforms)");
 
-// Raw pointer type itself: ptr[ in signature -> is_platform_variant
-static_assert(classify_v<int32_t*> == SafetyLevel::PlatformVariant,
-    "int32_t* should be PlatformVariant (pointer size is platform-dependent)");
+// Raw pointer type itself: ptr[ in signature -> has_pointer -> PointerRisk
+static_assert(classify_v<int32_t*> == SafetyLevel::PointerRisk,
+    "int32_t* should be PointerRisk (pointers cause dangling refs after memcpy)");
 
 // =========================================================================
 // 2. Convenience predicates

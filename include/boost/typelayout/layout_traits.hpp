@@ -34,7 +34,7 @@ namespace typelayout {
 //   has_pointer         -- contains ptr[, fnptr[, memptr[, ref[, or rref[
 //   has_bit_field       -- contains bits<
 //   has_opaque          -- contains an opaque-registered sub-type
-//   is_platform_variant -- contains wchar[, f80[, or ptr[ (platform-dependent)
+//   is_platform_variant -- contains wchar[ or f80[ (platform-dependent)
 //   has_padding         -- sizeof(T) > sum of field sizes (detected via
 //                          signature structure)
 //
@@ -66,17 +66,16 @@ consteval bool sig_has_bit_field(const Sig& sig) noexcept {
 
 template <typename Sig>
 consteval bool sig_has_platform_variant(const Sig& sig) noexcept {
+    // Platform-variant primitive types only (NOT pointers/references).
+    // Pointers and references are platform-variant in size (32 vs 64 bit),
+    // but their more actionable risk is PointerRisk (dangling after memcpy).
+    // sig_has_pointer() already detects those; we do not duplicate them here
+    // to avoid masking the higher-priority PointerRisk classification.
+    //
     // wchar_t: 2 bytes on Windows, 4 bytes on Linux/macOS
     // long double (f80): 80-bit on x86 Linux, 64-bit on ARM/MSVC
-    // Pointers (ptr, fnptr, memptr): size varies by bitness (32-bit vs 64-bit)
-    // References (ref, rref): implemented as pointers, same platform variance
     return sig.contains(FixedString{"wchar["}) ||
-           sig.contains(FixedString{"f80["}) ||
-           sig.contains_token(FixedString{"ptr["}) ||
-           sig.contains_token(FixedString{"fnptr["}) ||
-           sig.contains_token(FixedString{"memptr["}) ||
-           sig.contains_token(FixedString{"ref["}) ||
-           sig.contains_token(FixedString{"rref["});
+           sig.contains(FixedString{"f80["});
 }
 
 // Detect opaque sub-types by looking for opaque-style markers.
@@ -108,13 +107,33 @@ consteval bool any_member_has_opaque() noexcept {
     }
 }
 
+// Helper: check whether any base class at index I..N-1 of class T
+// is (or transitively contains) an opaque sub-type.
+template <typename T, std::size_t I, std::size_t N>
+consteval bool any_base_has_opaque() noexcept {
+    if constexpr (I >= N) {
+        return false;
+    } else {
+        using namespace std::meta;
+        constexpr auto base_info = bases_of(^^T, access_context::unchecked())[I];
+        using BaseType = [:type_of(base_info):];
+        if constexpr (type_has_opaque<BaseType>()) {
+            return true;
+        } else {
+            return any_base_has_opaque<T, I + 1, N>();
+        }
+    }
+}
+
 template <typename T>
 consteval bool type_has_opaque() noexcept {
     if constexpr (has_opaque_signature<T>) {
         return true;
     } else if constexpr (std::is_class_v<T> && !std::is_union_v<T>) {
         constexpr std::size_t fc = get_member_count<T>();
-        return any_member_has_opaque<T, 0, fc>();
+        constexpr std::size_t bc = get_base_count<T>();
+        return any_base_has_opaque<T, 0, bc>() ||
+               any_member_has_opaque<T, 0, fc>();
     } else {
         return false;
     }
@@ -142,10 +161,27 @@ consteval std::size_t sum_member_sizes() noexcept {
     }
 }
 
+// Helper: sum sizeof() for each direct base class of T.
+// sizeof(BaseType) includes the base's own internal padding, which is
+// the correct accounting -- if the base has internal padding, it is
+// already part of the base's footprint in the derived layout.
+template <typename T, std::size_t I, std::size_t N>
+consteval std::size_t sum_base_sizes() noexcept {
+    if constexpr (I >= N) {
+        return 0;
+    } else {
+        using namespace std::meta;
+        constexpr auto base_info = bases_of(^^T, access_context::unchecked())[I];
+        using BaseType = [:type_of(base_info):];
+        return sizeof(BaseType) + sum_base_sizes<T, I + 1, N>();
+    }
+}
+
 // Compute has_padding for type T using P2996 reflection.
 //
-// Returns true if sizeof(T) > sum of all direct member sizes,
-// indicating that the compiler has inserted padding bytes.
+// Returns true if sizeof(T) > (sum of direct member sizes + sum of
+// base class sizes), indicating that the compiler has inserted
+// alignment padding bytes between or after fields/bases.
 template <typename T>
 consteval bool compute_has_padding() noexcept {
     if constexpr (std::is_fundamental_v<T> || std::is_pointer_v<T> ||
@@ -155,12 +191,14 @@ consteval bool compute_has_padding() noexcept {
         return false;  // Empty classes have no padding
     } else if constexpr (std::is_class_v<T> && !std::is_union_v<T>) {
         constexpr std::size_t fc = get_member_count<T>();
-        if constexpr (fc == 0) {
-            // Class with bases only, or truly empty with size > 0
+        constexpr std::size_t bc = get_base_count<T>();
+        if constexpr (fc == 0 && bc == 0) {
+            // Truly empty class with size > 0 (unusual)
             return sizeof(T) > 1;
         } else {
             constexpr std::size_t member_sum = sum_member_sizes<T, 0, fc>();
-            return member_sum < sizeof(T);
+            constexpr std::size_t base_sum = sum_base_sizes<T, 0, bc>();
+            return (member_sum + base_sum) < sizeof(T);
         }
     } else {
         return false;

@@ -207,9 +207,15 @@ static_assert(
     "P4.2: WithLongDouble is platform-variant (long double size varies)"
 );
 
+// Pointers are no longer classified as platform-variant; they trigger
+// has_pointer instead (PointerRisk is more severe and actionable).
 static_assert(
-    layout_traits<test_types::WithRawPtr>::is_platform_variant,
-    "P4.3: WithRawPtr is platform-variant (pointer size varies by bitness)"
+    layout_traits<test_types::WithRawPtr>::has_pointer,
+    "P4.3: WithRawPtr has_pointer (pointer detected via has_pointer, not is_platform_variant)"
+);
+static_assert(
+    !layout_traits<test_types::WithRawPtr>::is_platform_variant,
+    "P4.3b: WithRawPtr is NOT is_platform_variant (pointers are tracked via has_pointer)"
 );
 
 static_assert(

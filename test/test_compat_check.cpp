@@ -188,9 +188,10 @@ void test_safety_classification() {
     assert(classify_signature("[64-le]record[s:32,a:16]{@0:i32[s:4,a:4],@16:f80[s:16,a:16]}")
            == SafetyLevel::PlatformVariant);
 
-    // PlatformVariant takes priority over PointerRisk
+    // PointerRisk takes priority over PlatformVariant
+    // (dangling-pointer risk is more severe than cross-platform size differences)
     assert(classify_signature("[64-le]record[s:16,a:8]{@0:ptr[s:8,a:8],@8:wchar[s:4,a:4]}")
-           == SafetyLevel::PlatformVariant);
+           == SafetyLevel::PointerRisk);
 
     // Helper functions
     assert(std::string(safety_label(SafetyLevel::TrivialSafe)) == "Safe");
