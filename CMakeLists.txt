@@ -72,6 +72,11 @@ target_include_directories(compat_check PRIVATE
 target_compile_options(compat_check PRIVATE -std=c++17 -stdlib=libc++)
 target_link_options(compat_check PRIVATE -stdlib=libc++)
 
+add_executable(test_serialization_free test/test_serialization_free.cpp)
+target_link_libraries(test_serialization_free PRIVATE typelayout)
+add_test(NAME test_serialization_free COMMAND test_serialization_free)
+set_tests_properties(test_serialization_free PROPERTIES TIMEOUT 120 LABELS "core")
+
 # Test — compatibility check utilities (C++17 only)
 add_executable(test_compat_check test/test_compat_check.cpp)
 target_include_directories(test_compat_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)

@@ -19,6 +19,7 @@
 
 #include <boost/typelayout/signature.hpp>
 #include <boost/typelayout/detail/reflect.hpp>
+#include <boost/typelayout/detail/hash.hpp>
 
 namespace boost {
 namespace typelayout {
@@ -116,8 +117,18 @@ struct layout_traits {
     /// True if the type contains pointer-like fields (ptr, fnptr, memptr,
     /// ref, rref).  Such types cannot be safely memcpy'd across process
     /// boundaries because pointer values are address-space-specific.
-    static constexpr bool has_pointer =
-        detail::sig_has_pointer(signature);
+    ///
+    /// For opaque types registered via TYPELAYOUT_REGISTER_OPAQUE, this
+    /// is determined by the user's pointer_free assertion (inverted).
+    /// For all other types, it is detected by scanning the signature.
+    static constexpr bool has_pointer = []() consteval {
+        if constexpr (requires { TypeSignature<T>::pointer_free; }) {
+            // Opaque type with explicit user assertion
+            return !TypeSignature<T>::pointer_free;
+        } else {
+            return detail::sig_has_pointer(signature);
+        }
+    }();
 
     /// True if the type contains bit-fields.  Bit-field layout is not
     /// standardized across compilers and is a portability risk.
@@ -189,6 +200,24 @@ struct layout_traits {
 
     /// Alignment requirement in bytes (alignof(T)).
     static constexpr std::size_t alignment = alignof(T);
+
+    // =================================================================
+    // Serialization-free support
+    // =================================================================
+
+    /// True if this type itself is registered as opaque (via
+    /// TYPELAYOUT_OPAQUE_* or TYPELAYOUT_REGISTER_OPAQUE).
+    /// Distinct from has_opaque, which is true when the type *contains*
+    /// opaque sub-types.  is_opaque is true only for the opaque type
+    /// itself.
+    static constexpr bool is_opaque = has_opaque_signature<T>;
+
+    /// Whether the local endpoint satisfies serialization-free
+    /// preconditions (trivially copyable and no pointers).
+    /// Remote signature matching is a runtime check -- see
+    /// SignatureRegistry in serialization_free.hpp.
+    static constexpr bool local_serialization_free =
+        std::is_trivially_copyable_v<T> && !has_pointer;
 };
 
 // =========================================================================
