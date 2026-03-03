@@ -19,7 +19,6 @@
 #define BOOST_TYPELAYOUT_OPAQUE_HPP
 
 #include <boost/typelayout/fixed_string.hpp>
-#include <boost/typelayout/detail/hash.hpp>
 
 // ---------------------------------------------------------------------------
 // TYPELAYOUT_OPAQUE_TYPE(Type, name, size, align)

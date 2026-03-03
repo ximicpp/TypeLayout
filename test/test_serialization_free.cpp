@@ -16,7 +16,7 @@
 // Distributed under the Boost Software License, Version 1.0.
 
 #include <boost/typelayout/typelayout.hpp>
-#include <boost/typelayout/serialization_free.hpp>
+#include <boost/typelayout/tools/serialization_free.hpp>
 #include "test_util.hpp"
 #include <iostream>
 #include <cstdint>
@@ -180,23 +180,23 @@ static_assert(
 );
 
 // =========================================================================
-// Part 2: layout_traits fields (is_opaque, local_serialization_free)
+// Part 2: layout_traits fields (has_opaque) + Tool-level predicates
 // =========================================================================
 
-// Opaque detection
+// Opaque detection (has_opaque is a Core by-product)
 static_assert(
-    layout_traits<sf_test::AesKey256>::is_opaque,
-    "P2.1: AesKey256 is_opaque == true"
+    layout_traits<sf_test::AesKey256>::has_opaque,
+    "P2.1: AesKey256 has_opaque == true"
 );
 
 static_assert(
-    !layout_traits<sf_test::Vec3>::is_opaque,
-    "P2.2: Vec3 is_opaque == false"
+    !layout_traits<sf_test::Vec3>::has_opaque,
+    "P2.2: Vec3 has_opaque == false"
 );
 
 static_assert(
-    !layout_traits<int32_t>::is_opaque,
-    "P2.3: int32_t is_opaque == false"
+    !layout_traits<int32_t>::has_opaque,
+    "P2.3: int32_t has_opaque == false"
 );
 
 // has_pointer for REGISTER_OPAQUE respects HasPointer assertion
@@ -210,15 +210,15 @@ static_assert(
     "P2.5: LibHandle has_pointer == true (user asserted has pointers)"
 );
 
-// local_serialization_free
+// is_local_serialization_free (Tool-level predicate)
 static_assert(
-    layout_traits<sf_test::Vec3>::local_serialization_free,
-    "P2.6: Vec3 local_serialization_free == true"
+    is_local_serialization_free_v<sf_test::Vec3>,
+    "P2.6: Vec3 is_local_serialization_free == true"
 );
 
 static_assert(
-    !layout_traits<sf_test::WithPtr>::local_serialization_free,
-    "P2.7: WithPtr local_serialization_free == false"
+    !is_local_serialization_free_v<sf_test::WithPtr>,
+    "P2.7: WithPtr is_local_serialization_free == false"
 );
 
 // =========================================================================
@@ -427,12 +427,12 @@ int main() {
     std::cout << "\n--- Signature info ---\n";
     std::cout << "Vec3 signature:       "
               << layout_traits<sf_test::Vec3>::signature.value << "\n";
-    std::cout << "Vec3 is_opaque:       "
-              << layout_traits<sf_test::Vec3>::is_opaque << "\n";
+    std::cout << "Vec3 has_opaque:      "
+              << layout_traits<sf_test::Vec3>::has_opaque << "\n";
     std::cout << "AesKey256 signature:  "
               << layout_traits<sf_test::AesKey256>::signature.value << "\n";
-    std::cout << "AesKey256 is_opaque:  "
-              << layout_traits<sf_test::AesKey256>::is_opaque << "\n";
+    std::cout << "AesKey256 has_opaque: "
+              << layout_traits<sf_test::AesKey256>::has_opaque << "\n";
     std::cout << "SensorRaw signature:  "
               << layout_traits<sf_test::SensorRaw>::signature.value << "\n";
     std::cout << "ActuatorRaw signature:"

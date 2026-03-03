@@ -19,7 +19,6 @@
 
 #include <boost/typelayout/signature.hpp>
 #include <boost/typelayout/detail/reflect.hpp>
-#include <boost/typelayout/detail/hash.hpp>
 
 namespace boost {
 namespace typelayout {
@@ -201,23 +200,6 @@ struct layout_traits {
     /// Alignment requirement in bytes (alignof(T)).
     static constexpr std::size_t alignment = alignof(T);
 
-    // =================================================================
-    // Serialization-free support
-    // =================================================================
-
-    /// True if this type itself is registered as opaque (via
-    /// TYPELAYOUT_OPAQUE_* or TYPELAYOUT_REGISTER_OPAQUE).
-    /// Distinct from has_opaque, which is true when the type *contains*
-    /// opaque sub-types.  is_opaque is true only for the opaque type
-    /// itself.
-    static constexpr bool is_opaque = has_opaque_signature<T>;
-
-    /// Whether the local endpoint satisfies serialization-free
-    /// preconditions (trivially copyable and no pointers).
-    /// Remote signature matching is a runtime check -- see
-    /// SignatureRegistry in serialization_free.hpp.
-    static constexpr bool local_serialization_free =
-        std::is_trivially_copyable_v<T> && !has_pointer;
 };
 
 // =========================================================================

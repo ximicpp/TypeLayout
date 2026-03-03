@@ -1,5 +1,9 @@
 // serialization_free.hpp -- Zero-copy transmission traits (signature-based).
 //
+// [Tool layer] This header is part of the Tools layer of TypeLayout.
+// It consumes layout_traits (Core) to provide serialization-free
+// determination -- a specific usage strategy.
+//
 // Provides compile-time and runtime traits for determining whether a
 // type can be safely transmitted via raw memcpy (serialization-free)
 // without explicit encoding/decoding.
@@ -22,8 +26,8 @@
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
-#ifndef BOOST_TYPELAYOUT_SERIALIZATION_FREE_HPP
-#define BOOST_TYPELAYOUT_SERIALIZATION_FREE_HPP
+#ifndef BOOST_TYPELAYOUT_TOOLS_SERIALIZATION_FREE_HPP
+#define BOOST_TYPELAYOUT_TOOLS_SERIALIZATION_FREE_HPP
 
 #include <boost/typelayout/layout_traits.hpp>
 #include <type_traits>
@@ -51,7 +55,9 @@ namespace typelayout {
 
 template <typename T>
 struct is_local_serialization_free
-    : std::bool_constant<layout_traits<T>::local_serialization_free> {};
+    : std::bool_constant<
+          std::is_trivially_copyable_v<T> &&
+          !layout_traits<T>::has_pointer> {};
 
 template <typename T>
 inline constexpr bool is_local_serialization_free_v =
@@ -181,4 +187,4 @@ private:
 } // namespace typelayout
 } // namespace boost
 
-#endif // BOOST_TYPELAYOUT_SERIALIZATION_FREE_HPP
+#endif // BOOST_TYPELAYOUT_TOOLS_SERIALIZATION_FREE_HPP
