@@ -108,6 +108,120 @@ inline bool sig_contains_token(std::string_view haystack,
     return false;
 }
 
+/// Parse a top-level layout signature to detect padding gaps.
+///
+/// Extracts (offset, size) pairs from leaf field entries inside the
+/// outermost "record[s:SIZE,...]{...}" block, then checks whether all
+/// bytes in [0, SIZE) are covered by at least one field.  Uncovered
+/// bytes indicate compiler-inserted alignment padding.
+///
+/// Returns false for non-record signatures (primitives, unions, etc.)
+/// or if the signature cannot be parsed.
+inline bool sig_has_padding(std::string_view sig) noexcept {
+    // 1. Find outer record and parse total size
+    auto rec_pos = sig.find("record[s:");
+    if (rec_pos == std::string_view::npos) return false;
+
+    std::size_t total_size = 0;
+    std::size_t i = rec_pos + 9;  // length of "record[s:"
+    while (i < sig.size() && sig[i] >= '0' && sig[i] <= '9') {
+        total_size = total_size * 10 + (sig[i] - '0');
+        ++i;
+    }
+    if (total_size == 0) return false;
+
+    // 2. Find the outermost '{' and its matching '}'
+    auto brace_start = sig.find('{', rec_pos);
+    if (brace_start == std::string_view::npos) return false;
+
+    int depth = 1;
+    std::size_t brace_end = brace_start + 1;
+    while (brace_end < sig.size() && depth > 0) {
+        if (sig[brace_end] == '{') ++depth;
+        else if (sig[brace_end] == '}') --depth;
+        ++brace_end;
+    }
+    --brace_end;  // point to closing '}'
+
+    auto content = sig.substr(brace_start + 1, brace_end - brace_start - 1);
+    if (content.empty()) return false;  // empty body (empty class)
+
+    // 3. Split content into top-level entries (by depth-0 commas)
+    //    and parse each entry's (offset, size) pair.
+    struct Interval { std::size_t start; std::size_t end; };
+    constexpr std::size_t MAX_FIELDS = 512;
+    Interval intervals[MAX_FIELDS];
+    std::size_t count = 0;
+
+    std::size_t pos = 0;
+    while (pos < content.size() && count < MAX_FIELDS) {
+        // Delimit this entry: find next depth-0 comma or end
+        std::size_t entry_start = pos;
+        int d = 0;
+        std::size_t entry_end = pos;
+        while (entry_end < content.size()) {
+            char c = content[entry_end];
+            if (c == '{' || c == '<' || c == '[') ++d;
+            else if (c == '}' || c == '>' || c == ']') --d;
+            else if (c == ',' && d == 0) break;
+            ++entry_end;
+        }
+
+        auto entry = content.substr(entry_start, entry_end - entry_start);
+
+        // Parse @OFFSET from entry
+        if (entry.size() > 1 && entry[0] == '@') {
+            std::size_t offset = 0;
+            std::size_t j = 1;
+            while (j < entry.size() && entry[j] >= '0' && entry[j] <= '9') {
+                offset = offset * 10 + (entry[j] - '0');
+                ++j;
+            }
+
+            // Find [s:SIZE in this entry to get the field size
+            auto s_pos = entry.find("[s:");
+            if (s_pos != std::string_view::npos) {
+                std::size_t field_size = 0;
+                std::size_t k = s_pos + 3;
+                while (k < entry.size() && entry[k] >= '0' && entry[k] <= '9') {
+                    field_size = field_size * 10 + (entry[k] - '0');
+                    ++k;
+                }
+                if (field_size > 0) {
+                    intervals[count++] = {offset, offset + field_size};
+                }
+            }
+        }
+
+        // Advance past comma
+        pos = entry_end;
+        if (pos < content.size() && content[pos] == ',') ++pos;
+    }
+
+    if (count == 0) return false;
+
+    // 4. Sort intervals by start offset (insertion sort)
+    for (std::size_t a = 1; a < count; ++a) {
+        auto tmp = intervals[a];
+        std::size_t b = a;
+        while (b > 0 && intervals[b - 1].start > tmp.start) {
+            intervals[b] = intervals[b - 1];
+            --b;
+        }
+        intervals[b] = tmp;
+    }
+
+    // 5. Merge intervals and check coverage of [0, total_size)
+    std::size_t covered_end = 0;
+    for (std::size_t f = 0; f < count; ++f) {
+        if (intervals[f].start > covered_end)
+            return true;  // gap before this field
+        if (intervals[f].end > covered_end)
+            covered_end = intervals[f].end;
+    }
+    return covered_end < total_size;  // tail padding
+}
+
 } // namespace detail
 
 /// Classify a layout signature string at runtime.
@@ -116,9 +230,7 @@ inline bool sig_contains_token(std::string_view haystack,
 ///   1. Opaque          -- contains "O(" marker
 ///   2. PointerRisk     -- ptr[, fnptr[, memptr[, ref[, rref[
 ///   3. PlatformVariant -- wchar[, f80[, bits<
-///   4. PaddingRisk     -- cannot be determined from signature alone;
-///                         runtime classification returns TrivialSafe
-///                         if no higher-priority markers are found.
+///   4. PaddingRisk     -- record size exceeds coverage of leaf fields
 ///   5. TrivialSafe     -- none of the above
 ///
 /// Rationale for PointerRisk > PlatformVariant:
@@ -127,10 +239,10 @@ inline bool sig_contains_token(std::string_view haystack,
 ///   cross-platform size differences.  This ordering matches the
 ///   compile-time classifier in classify.hpp.
 ///
-/// NOTE: PaddingRisk requires compile-time sizeof/reflection analysis
-/// and cannot be detected from the signature string alone.  The runtime
-/// classifier does not report PaddingRisk.  For precise padding
-/// detection, use the compile-time classify<T>.
+/// PaddingRisk is detected by parsing the signature to find gaps between
+/// leaf field entries.  The record's total size (from the "record[s:N,...]"
+/// header) is compared against the coverage of all "@offset:type[s:N,...]"
+/// entries.  Any uncovered byte indicates padding.
 inline SafetyLevel classify_signature(std::string_view sig) noexcept {
     using detail::sig_contains_token;
 
@@ -164,7 +276,11 @@ inline SafetyLevel classify_signature(std::string_view sig) noexcept {
     if (has_platform_variant)
         return SafetyLevel::PlatformVariant;
 
-    // 5. TrivialSafe (PaddingRisk cannot be detected at runtime)
+    // 5. Padding risk: record has uncovered bytes between or after fields
+    if (detail::sig_has_padding(sig))
+        return SafetyLevel::PaddingRisk;
+
+    // 6. TrivialSafe
     return SafetyLevel::TrivialSafe;
 }
 

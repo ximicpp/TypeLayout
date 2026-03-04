@@ -19,6 +19,7 @@
 
 #include <boost/typelayout/signature.hpp>
 #include <boost/typelayout/detail/reflect.hpp>
+#include <array>
 
 namespace boost {
 namespace typelayout {
@@ -29,14 +30,17 @@ namespace typelayout {
 // Primary product:
 //   signature          -- the full layout signature string (FixedString)
 //
-// Natural by-products (derived from scanning the signature, zero extra
-// traversal cost):
-//   has_pointer         -- contains ptr[, fnptr[, memptr[, ref[, or rref[
-//   has_bit_field       -- contains bits<
-//   has_opaque          -- contains an opaque-registered sub-type
-//   is_platform_variant -- contains wchar[ or f80[ (platform-dependent)
-//   has_padding         -- sizeof(T) > sum of field sizes (detected via
-//                          signature structure)
+// Natural by-products (derived from scanning the signature):
+//   has_pointer         -- scans for ptr[, fnptr[, etc.
+//   has_bit_field       -- scans for bits<
+//   is_platform_variant -- scans for wchar[, f80[
+//
+// Reflection-derived by-products (NOT from the signature string, but
+// use the same recursive flattening model as the signature engine):
+//   has_opaque          -- recursive type-level concept check via reflection
+//   has_padding         -- byte coverage bitmap analysis via reflection
+//                          (mirrors the signature engine's flattening to
+//                          detect uncovered bytes in the layout)
 //
 // Structural metadata (from reflection, zero cost):
 //   field_count         -- number of non-static data members
@@ -139,49 +143,94 @@ consteval bool type_has_opaque() noexcept {
     }
 }
 
-// Helper: recursively sum direct member sizes at compile time.
-// Uses template recursion because P2996 splicing requires constexpr
-// indices (for-loop variables are not constexpr).
-template <typename T, std::size_t I, std::size_t N>
-consteval std::size_t sum_member_sizes() noexcept {
-    if constexpr (I >= N) {
-        return 0;
-    } else {
+// ---- Byte coverage bitmap for has_padding detection ----
+//
+// These helpers mirror the signature engine's flattening logic
+// (signature_impl.hpp) but instead of building a string, they mark
+// which bytes in [0, sizeof(T)) are covered by leaf data fields.
+// Any uncovered byte is padding.
+
+// Helper: mark a byte range [offset, offset+size) as covered.
+template <std::size_t ArrSize>
+consteval void mark_byte_range(std::array<bool, ArrSize>& covered,
+                               std::size_t offset, std::size_t size) noexcept {
+    for (std::size_t b = offset; b < offset + size && b < ArrSize; ++b)
+        covered[b] = true;
+}
+
+// Forward declaration: mark coverage for all bases and members of T,
+// with T placed at byte offset OffsetAdj in the outermost struct.
+template <std::size_t ArrSize, typename T, std::size_t OffsetAdj>
+consteval void mark_type_coverage(std::array<bool, ArrSize>& covered) noexcept;
+
+// Mark coverage for member I of class T.
+template <std::size_t ArrSize, typename T, std::size_t I, std::size_t N, std::size_t OffsetAdj>
+consteval void mark_member_coverage(std::array<bool, ArrSize>& covered) noexcept {
+    if constexpr (I < N) {
         using namespace std::meta;
         constexpr auto member = nonstatic_data_members_of(^^T, access_context::unchecked())[I];
+        using FieldType = [:type_of(member):];
+
         if constexpr (is_bit_field(member)) {
-            // Bit-fields do not contribute whole-byte sizes in the
-            // simple summation model.  Skip them; the overall
-            // sizeof(T) vs sum check will still catch padding.
-            return sum_member_sizes<T, I + 1, N>();
+            // Bit-field: mark the full underlying storage unit.
+            constexpr std::size_t off = offset_of(member).bytes + OffsetAdj;
+            mark_byte_range(covered, off, sizeof(FieldType));
+        } else if constexpr (std::is_class_v<FieldType> && !std::is_union_v<FieldType>
+                             && !has_opaque_signature<FieldType>
+                             && !std::is_empty_v<FieldType>) {
+            // Non-opaque, non-empty class: recursively flatten
+            // (same decision as signature engine).
+            constexpr std::size_t field_offset = offset_of(member).bytes + OffsetAdj;
+            mark_type_coverage<ArrSize, FieldType, field_offset>(covered);
         } else {
-            using FieldType = [:type_of(member):];
-            return sizeof(FieldType) + sum_member_sizes<T, I + 1, N>();
+            // Leaf node: primitive, union, enum, opaque, or empty class.
+            constexpr std::size_t off = offset_of(member).bytes + OffsetAdj;
+            mark_byte_range(covered, off, sizeof(FieldType));
         }
+        mark_member_coverage<ArrSize, T, I + 1, N, OffsetAdj>(covered);
     }
 }
 
-// Helper: sum sizeof() for each direct base class of T.
-// sizeof(BaseType) includes the base's own internal padding, which is
-// the correct accounting -- if the base has internal padding, it is
-// already part of the base's footprint in the derived layout.
-template <typename T, std::size_t I, std::size_t N>
-consteval std::size_t sum_base_sizes() noexcept {
-    if constexpr (I >= N) {
-        return 0;
-    } else {
+// Mark coverage for base class I of class T.
+template <std::size_t ArrSize, typename T, std::size_t I, std::size_t N, std::size_t OffsetAdj>
+consteval void mark_base_coverage(std::array<bool, ArrSize>& covered) noexcept {
+    if constexpr (I < N) {
         using namespace std::meta;
         constexpr auto base_info = bases_of(^^T, access_context::unchecked())[I];
         using BaseType = [:type_of(base_info):];
-        return sizeof(BaseType) + sum_base_sizes<T, I + 1, N>();
+
+        if constexpr (has_opaque_signature<BaseType> || std::is_empty_v<BaseType>) {
+            // Opaque or empty base: treat as leaf node.
+            constexpr std::size_t off = offset_of(base_info).bytes + OffsetAdj;
+            mark_byte_range(covered, off, sizeof(BaseType));
+        } else {
+            // Non-empty, non-opaque base: recursively flatten.
+            constexpr std::size_t base_offset = offset_of(base_info).bytes + OffsetAdj;
+            mark_type_coverage<ArrSize, BaseType, base_offset>(covered);
+        }
+        mark_base_coverage<ArrSize, T, I + 1, N, OffsetAdj>(covered);
     }
 }
 
-// Compute has_padding for type T using P2996 reflection.
+// Process all bases and members of T at offset OffsetAdj.
+template <std::size_t ArrSize, typename T, std::size_t OffsetAdj>
+consteval void mark_type_coverage(std::array<bool, ArrSize>& covered) noexcept {
+    constexpr std::size_t bc = get_base_count<T>();
+    constexpr std::size_t fc = get_member_count<T>();
+    mark_base_coverage<ArrSize, T, 0, bc, OffsetAdj>(covered);
+    mark_member_coverage<ArrSize, T, 0, fc, OffsetAdj>(covered);
+}
+
+// Compute has_padding for type T using byte coverage analysis.
 //
-// Returns true if sizeof(T) > (sum of direct member sizes + sum of
-// base class sizes), indicating that the compiler has inserted
-// alignment padding bytes between or after fields/bases.
+// Creates a bool bitmap of sizeof(T) bytes, recursively marks every
+// byte that is covered by a leaf data field (using the same flattening
+// logic as the signature engine), and returns true if any byte is
+// uncovered -- i.e. the compiler inserted alignment padding.
+//
+// This correctly handles EBO, [[no_unique_address]], bit-fields, and
+// nested struct internal padding (which the old sizeof-summation
+// approach could not).
 template <typename T>
 consteval bool compute_has_padding() noexcept {
     if constexpr (std::is_fundamental_v<T> || std::is_pointer_v<T> ||
@@ -193,12 +242,16 @@ consteval bool compute_has_padding() noexcept {
         constexpr std::size_t fc = get_member_count<T>();
         constexpr std::size_t bc = get_base_count<T>();
         if constexpr (fc == 0 && bc == 0) {
-            // Truly empty class with size > 0 (unusual)
+            // Class with only static members: the mandatory 1-byte
+            // minimum for addressability is not considered padding.
             return sizeof(T) > 1;
         } else {
-            constexpr std::size_t member_sum = sum_member_sizes<T, 0, fc>();
-            constexpr std::size_t base_sum = sum_base_sizes<T, 0, bc>();
-            return (member_sum + base_sum) < sizeof(T);
+            std::array<bool, sizeof(T)> covered{};
+            mark_type_coverage<sizeof(T), T, 0>(covered);
+            for (std::size_t i = 0; i < sizeof(T); ++i) {
+                if (!covered[i]) return true;
+            }
+            return false;
         }
     } else {
         return false;
@@ -252,14 +305,15 @@ struct layout_traits {
     static constexpr bool is_platform_variant =
         detail::sig_has_platform_variant(signature);
 
-    /// True if the type has padding bytes (sizeof > sum of member sizes).
+    /// True if the type has padding bytes (uncovered bytes in the layout).
     /// Padding bytes may contain uninitialized data, posing an information
     /// leakage risk in serialization scenarios.
     ///
-    /// Uses P2996 reflection to sum all direct member sizes and compare
-    /// against sizeof(T).  If the sum is less than sizeof(T), padding
-    /// bytes exist (either inter-field alignment padding or trailing
-    /// padding for struct alignment).
+    /// Uses byte coverage analysis with P2996 reflection: recursively
+    /// flattens the type (same model as the signature engine) and checks
+    /// whether every byte in [0, sizeof(T)) is covered by a leaf field.
+    /// Correctly handles EBO, [[no_unique_address]], bit-fields, and
+    /// nested struct internal padding.
     static constexpr bool has_padding =
         detail::compute_has_padding<T>();
 
