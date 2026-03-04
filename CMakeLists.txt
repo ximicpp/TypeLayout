@@ -72,6 +72,11 @@ target_include_directories(compat_check PRIVATE
 target_compile_options(compat_check PRIVATE -std=c++17 -stdlib=libc++)
 target_link_options(compat_check PRIVATE -stdlib=libc++)
 
+add_executable(test_empty_member_probe test/test_empty_member_probe.cpp)
+target_link_libraries(test_empty_member_probe PRIVATE typelayout)
+add_test(NAME test_empty_member_probe COMMAND test_empty_member_probe)
+set_tests_properties(test_empty_member_probe PROPERTIES TIMEOUT 120 LABELS "core")
+
 add_executable(test_serialization_free test/test_serialization_free.cpp)
 target_link_libraries(test_serialization_free PRIVATE typelayout)
 add_test(NAME test_serialization_free COMMAND test_serialization_free)

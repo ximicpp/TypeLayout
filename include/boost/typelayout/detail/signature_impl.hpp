@@ -49,8 +49,9 @@ namespace typelayout {
                    TypeSignature<FieldType>::calculate() +
                    FixedString{">"};
         } else if constexpr (std::is_class_v<FieldType> && !std::is_union_v<FieldType>
-                             && !has_opaque_signature<FieldType>) {
-            // Non-opaque class: recursively flatten into parent layout.
+                             && !has_opaque_signature<FieldType>
+                             && !std::is_empty_v<FieldType>) {
+            // Non-opaque, non-empty class: recursively flatten into parent layout.
             constexpr std::size_t field_offset = offset_of(member).bytes + OffsetAdj;
             return layout_all_prefixed<FieldType, field_offset>();
         } else {
@@ -74,8 +75,8 @@ namespace typelayout {
         using namespace std::meta;
         constexpr auto base_info = bases_of(^^T, access_context::unchecked())[BaseIndex];
         using BaseType = [:type_of(base_info):];
-        if constexpr (has_opaque_signature<BaseType>) {
-            // Opaque base: emit as leaf node at base offset, not flattened.
+        if constexpr (has_opaque_signature<BaseType> || std::is_empty_v<BaseType>) {
+            // Opaque or empty base: emit as leaf node at base offset, not flattened.
             return FixedString{",@"} +
                    to_fixed_string(offset_of(base_info).bytes + OffsetAdj) +
                    FixedString{":"} +

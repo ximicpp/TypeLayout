@@ -286,16 +286,14 @@ static_assert(
     "F6: plain two-int struct should produce a valid Layout signature"
 );
 
-// Task 2.3: Verify deterministic match behavior for [[no_unique_address]].
-// When the compiler optimizes the empty member away (sizeof(WithNUA) ==
-// sizeof(PlainTwoInt)), the Layout signatures MUST match because both types
-// have identical flat field layout.  When it does NOT optimize (sizeof
-// differs), the record header [s:SIZE] will differ and they MUST NOT match.
-// This static_assert encodes the logical invariant: sizeof match <=> layout match.
+// Task 2.3 / Bug 1 fix: After fixing empty member evaporation, WithNUA and
+// PlainTwoInt MUST produce different signatures even when sizeof matches,
+// because WithNUA contains an empty member that is now correctly emitted
+// as a leaf node in the signature.  The two types have different member
+// structures and therefore different binary layout identities.
 static_assert(
-    (sizeof(f6_test::WithNUA) == sizeof(f6_test::PlainTwoInt))
-        == (nua_layout == plain_two_int_layout),
-    "F6: [[no_unique_address]] layout match must be consistent with sizeof equality"
+    nua_layout != plain_two_int_layout,
+    "F6: WithNUA must differ from PlainTwoInt -- empty member is part of layout identity"
 );
 
 // =========================================================================
