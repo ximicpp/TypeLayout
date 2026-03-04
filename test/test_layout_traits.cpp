@@ -351,11 +351,95 @@ static_assert(
 );
 
 // =========================================================================
+// Part 9: Member pointer and function pointer signature correctness
+//   Validates that sizeof/alignof are used (not hardcoded) by checking
+//   that the signature string contains the correct size value.
+// =========================================================================
+
+// Helper: check if a FixedString contains a given substring at compile time
+template <size_t N, size_t M>
+consteval bool sig_contains(const FixedString<N>& haystack, const char (&needle)[M]) {
+    if (M - 1 > N) return false;
+    for (size_t i = 0; i + M - 1 <= N; ++i) {
+        bool match = true;
+        for (size_t j = 0; j < M - 1; ++j) {
+            if (haystack.value[i + j] != needle[j]) { match = false; break; }
+        }
+        if (match) return true;
+    }
+    return false;
+}
+
+// -- Member data pointer: on Itanium x64, sizeof(int Base::*) == 8
+namespace test_types {
+struct MFPBase { virtual void vfunc(); };
+struct WithMemFnPtr {
+    void (MFPBase::* mfp)();
+};
+} // namespace test_types
+
+// Member data pointer size must appear in signature
+static_assert(
+    sizeof(int test_types::Base::*) == layout_traits<test_types::WithMemPtr>::total_size,
+    "P9.1: WithMemPtr total_size must equal sizeof the member data pointer"
+);
+
+// Member data pointer signature must contain memptr tag
+static_assert(
+    sig_contains(layout_traits<test_types::WithMemPtr>::signature, "memptr["),
+    "P9.2: WithMemPtr signature must contain 'memptr[' tag"
+);
+
+// Member function pointer: on Itanium x64, sizeof(void (MFPBase::*)()) == 16
+static_assert(
+    sizeof(void (test_types::MFPBase::*)()) == layout_traits<test_types::WithMemFnPtr>::total_size,
+    "P9.3: WithMemFnPtr total_size must equal sizeof the member function pointer"
+);
+
+static_assert(
+    sig_contains(layout_traits<test_types::WithMemFnPtr>::signature, "memptr["),
+    "P9.4: WithMemFnPtr signature must contain 'memptr[' tag"
+);
+
+// Member data pointer and member function pointer must have different signatures
+// if their sizes differ (which they do on Itanium x64: 8 vs 16)
+static_assert(
+    (sizeof(int test_types::Base::*) == sizeof(void (test_types::MFPBase::*)())) ||
+    !(layout_traits<test_types::WithMemPtr>::signature ==
+      layout_traits<test_types::WithMemFnPtr>::signature),
+    "P9.5: member data ptr and member function ptr signatures must differ when sizes differ"
+);
+
+// Function pointer: size must match sizeof on current platform
+static_assert(
+    layout_traits<test_types::WithFnPtr>::has_pointer,
+    "P9.6: WithFnPtr must be detected as containing a pointer"
+);
+
+static_assert(
+    sig_contains(layout_traits<test_types::WithFnPtr>::signature, "fnptr["),
+    "P9.7: WithFnPtr signature must contain 'fnptr[' tag"
+);
+
+// Standalone function pointer signature
+namespace test_types {
+using SimpleFnPtr = void(*)();
+struct StandaloneFnPtr {
+    SimpleFnPtr fp;
+};
+} // namespace test_types
+
+static_assert(
+    layout_traits<test_types::StandaloneFnPtr>::total_size == sizeof(test_types::SimpleFnPtr),
+    "P9.8: StandaloneFnPtr total_size must equal sizeof(void(*)())"
+);
+
+// =========================================================================
 // Main -- runtime summary
 // =========================================================================
 
 int main() {
-    constexpr int total_tests = 29;
+    constexpr int total_tests = 37;
 
     std::cout << "=== layout_traits & signature_compare Tests ===\n\n";
 
@@ -368,6 +452,14 @@ int main() {
     std::cout << "PairA:        " << layout_traits<test_types::PairA>::signature.value << "\n";
     std::cout << "PairB:        " << layout_traits<test_types::PairB>::signature.value << "\n";
     std::cout << "Outer:        " << layout_traits<test_types::Outer>::signature.value << "\n";
+    std::cout << "WithMemPtr:   " << layout_traits<test_types::WithMemPtr>::signature.value << "\n";
+    std::cout << "WithMemFnPtr: " << layout_traits<test_types::WithMemFnPtr>::signature.value << "\n";
+    std::cout << "StandaloneFnPtr: " << layout_traits<test_types::StandaloneFnPtr>::signature.value << "\n";
+
+    std::cout << "\n--- Member pointer sizes ---\n";
+    std::cout << "sizeof(int Base::*):              " << sizeof(int test_types::Base::*) << "\n";
+    std::cout << "sizeof(void (MFPBase::*)()):       " << sizeof(void (test_types::MFPBase::*)()) << "\n";
+    std::cout << "sizeof(void(*)()):                 " << sizeof(void(*)()) << "\n";
 
     std::cout << "\n--- By-product flags (Compact) ---\n";
     std::cout << "has_pointer:        " << layout_traits<test_types::Compact>::has_pointer << "\n";
