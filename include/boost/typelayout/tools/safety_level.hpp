@@ -99,9 +99,10 @@ inline bool sig_contains_token(std::string_view haystack,
         if (found == std::string_view::npos) return false;
         if (found == 0) return true;
         char prev = haystack[found - 1];
-        bool prev_is_alpha = (prev >= 'a' && prev <= 'z') ||
-                             (prev >= 'A' && prev <= 'Z');
-        if (!prev_is_alpha) return true;
+        bool prev_is_alnum = (prev >= 'a' && prev <= 'z') ||
+                             (prev >= 'A' && prev <= 'Z') ||
+                             (prev >= '0' && prev <= '9');
+        if (!prev_is_alnum) return true;
         // False match inside a longer token -- advance past it
         pos = found + 1;
     }
@@ -263,9 +264,14 @@ inline SafetyLevel classify_signature(std::string_view sig) noexcept {
     if (has_pointer)
         return SafetyLevel::PointerRisk;
 
-    // 3. Union types may contain pointer-like variants
-    if (sig_contains_token(sig, "union["))
-        return SafetyLevel::PointerRisk;
+    // 3. Union types: inspect their content for pointer-like fields.
+    //    Only classify as PointerRisk if the union body actually contains
+    //    pointer/reference markers.  A union of plain integers is safe.
+    //    Note: this is a conservative approximation -- the runtime
+    //    classifier cannot fully reconstruct type-level semantics.
+    //    Unions whose content cannot be parsed are left for later checks.
+    // (union content is examined by the pointer/platform checks above
+    //  and the padding check below -- no special union gate needed here)
 
     // 4. Platform-variant: bit-fields and platform-dependent primitive types
     bool has_platform_variant =

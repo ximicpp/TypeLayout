@@ -182,8 +182,14 @@ consteval void mark_member_coverage(std::array<bool, ArrSize>& covered) noexcept
             // (same decision as signature engine).
             constexpr std::size_t field_offset = offset_of(member).bytes + OffsetAdj;
             mark_type_coverage<ArrSize, FieldType, field_offset>(covered);
+        } else if constexpr (std::is_empty_v<FieldType>) {
+            // Empty member (possibly [[no_unique_address]]): the compiler
+            // may overlay it at the same offset as another field, occupying
+            // 0 extra bytes.  sizeof(Empty) == 1 by the C++ standard, but
+            // marking that byte would over-report coverage.  Skip it.
+            // (no-op)
         } else {
-            // Leaf node: primitive, union, enum, opaque, or empty class.
+            // Leaf node: primitive, union, enum, or opaque.
             constexpr std::size_t off = offset_of(member).bytes + OffsetAdj;
             mark_byte_range(covered, off, sizeof(FieldType));
         }
@@ -199,8 +205,15 @@ consteval void mark_base_coverage(std::array<bool, ArrSize>& covered) noexcept {
         constexpr auto base_info = bases_of(^^T, access_context::unchecked())[I];
         using BaseType = [:type_of(base_info):];
 
-        if constexpr (has_opaque_signature<BaseType> || std::is_empty_v<BaseType>) {
-            // Opaque or empty base: treat as leaf node.
+        if constexpr (std::is_empty_v<BaseType>) {
+            // Empty base: EBO makes it occupy 0 bytes in the derived
+            // class layout, so we mark nothing.  sizeof(Empty) == 1 by
+            // the C++ standard, but that byte is shared with the first
+            // data member when EBO is active.  Marking it would
+            // over-report coverage and mask real padding at offset 0.
+            // (no-op)
+        } else if constexpr (has_opaque_signature<BaseType>) {
+            // Opaque base: treat as leaf node sized sizeof(BaseType).
             constexpr std::size_t off = offset_of(base_info).bytes + OffsetAdj;
             mark_byte_range(covered, off, sizeof(BaseType));
         } else {

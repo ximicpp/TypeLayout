@@ -142,12 +142,16 @@ namespace typelayout {
                     }
                 }
                 if (match) {
-                    // Check token boundary: preceding char must NOT be a letter
+                    // Check token boundary: preceding char must NOT be
+                    // alphanumeric (letters or digits).  This prevents
+                    // e.g. "ptr[" from matching inside "nullptr[" (letter
+                    // boundary) and similar digit-prefixed false positives.
                     if (i == 0) return true;
                     char prev = value[i - 1];
-                    bool prev_is_alpha = (prev >= 'a' && prev <= 'z') ||
-                                         (prev >= 'A' && prev <= 'Z');
-                    if (!prev_is_alpha) return true;
+                    bool prev_is_alnum = (prev >= 'a' && prev <= 'z') ||
+                                         (prev >= 'A' && prev <= 'Z') ||
+                                         (prev >= '0' && prev <= '9');
+                    if (!prev_is_alnum) return true;
                     // Otherwise, this is a substring match inside a longer
                     // token (e.g. "nullptr[" matching "ptr[") -- skip it
                     // and keep searching.
@@ -192,9 +196,11 @@ namespace typelayout {
 
         bool negative = std::is_signed_v<T> && num < 0;
         using UnsignedT = std::make_unsigned_t<T>;
+        // Avoid signed-integer-overflow UB for INT_MIN / INT64_MIN:
+        // cast to unsigned first, then negate in unsigned arithmetic.
         UnsignedT abs_num = negative
-            ? UnsignedT(-(std::make_signed_t<T>(num)))
-            : UnsignedT(num);
+            ? UnsignedT(0) - static_cast<UnsignedT>(num)
+            : static_cast<UnsignedT>(num);
 
         char buf[21] = {};
         int pos = last;
