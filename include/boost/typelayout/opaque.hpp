@@ -29,6 +29,11 @@
 //   size  -- sizeof(Type)
 //   align -- alignof(Type)
 //
+// pointer_free is set to false (conservative default): since the type's
+// internals are opaque, the library cannot determine whether it contains
+// pointers.  If you know the type is pointer-free and want TrivialSafe
+// classification, use TYPELAYOUT_REGISTER_OPAQUE(Type, Tag, false) instead.
+//
 // Example:
 //   TYPELAYOUT_OPAQUE_TYPE(MyLib::XString, "string", 32, 8)
 //   // generates: string[s:32,a:8]
@@ -41,6 +46,7 @@
     template <>                                                                 \
     struct TypeSignature<Type> {                                                \
         static constexpr bool is_opaque = true;                                \
+        static constexpr bool pointer_free = false;                            \
         static consteval auto calculate() noexcept {                           \
             return ::boost::typelayout::FixedString{                           \
                 name "[s:" #size ",a:" #align "]"};                            \
@@ -65,6 +71,7 @@
     template <typename T_>                                                      \
     struct TypeSignature<Template<T_>> {                                        \
         static constexpr bool is_opaque = true;                                \
+        static constexpr bool pointer_free = false;                            \
         static consteval auto calculate() noexcept {                           \
             static_assert(sizeof(Template<T_>) == (size),                       \
                 "TYPELAYOUT_OPAQUE_CONTAINER: size does not match "             \
@@ -97,6 +104,7 @@
     template <typename K_, typename V_>                                         \
     struct TypeSignature<Template<K_, V_>> {                                    \
         static constexpr bool is_opaque = true;                                \
+        static constexpr bool pointer_free = false;                            \
         static consteval auto calculate() noexcept {                           \
             static_assert(sizeof(Template<K_, V_>) == (size),                   \
                 "TYPELAYOUT_OPAQUE_MAP: size does not match "                   \
@@ -144,6 +152,7 @@
     template <>                                                                 \
     struct TypeSignature<Type> {                                                \
         static constexpr bool is_opaque = true;                                \
+        static constexpr bool pointer_free = false;                            \
         static consteval auto calculate() noexcept {                           \
             return ::boost::typelayout::FixedString{name "[s:"} +              \
                    ::boost::typelayout::to_fixed_string(sizeof(Type)) +        \
@@ -167,6 +176,7 @@
     template <typename T_>                                                      \
     struct TypeSignature<Template<T_>> {                                        \
         static constexpr bool is_opaque = true;                                \
+        static constexpr bool pointer_free = false;                            \
         static consteval auto calculate() noexcept {                           \
             return ::boost::typelayout::FixedString{name "[s:"} +              \
                    ::boost::typelayout::to_fixed_string(                       \
@@ -194,6 +204,7 @@
     template <typename K_, typename V_>                                         \
     struct TypeSignature<Template<K_, V_>> {                                    \
         static constexpr bool is_opaque = true;                                \
+        static constexpr bool pointer_free = false;                            \
         static consteval auto calculate() noexcept {                           \
             return ::boost::typelayout::FixedString{name "[s:"} +              \
                    ::boost::typelayout::to_fixed_string(                       \

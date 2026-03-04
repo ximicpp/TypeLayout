@@ -28,6 +28,15 @@ void test_edge() {
     assert(!sig_has_padding("[64-le]record[s:1,a:1]{}"));
     assert(!sig_has_padding("[64-le]record[s:4,a:4]{@0:i32[s:4,a:4],@0:i32[s:4,a:4]}"));
     assert(sig_has_padding("[64-le]record[s:16,a:4]{@0:i8[s:1,a:1],@8:i32[s:4,a:4]}"));
+
+    // EBO embedded signature: s:0 entries should be skipped (field_size == 0).
+    // record[s:4,a:4] with an empty base (s:0) at @0 and int32_t at @0 => fully covered.
+    assert(!sig_has_padding(
+        "[64-le]record[s:4,a:4]{@0:record[s:0,a:1]{},@0:i32[s:4,a:4]}"));
+    // Same but with tail padding: record size 8, int32_t at @0, empty base at @0.
+    assert(sig_has_padding(
+        "[64-le]record[s:8,a:4]{@0:record[s:0,a:1]{},@0:i32[s:4,a:4]}"));
+
     std::cout << "  [PASS] edge cases\n";
 }
 

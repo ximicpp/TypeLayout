@@ -19,6 +19,7 @@
 
 #include <boost/typelayout/signature.hpp>
 #include <boost/typelayout/detail/reflect.hpp>
+#include <boost/typelayout/tools/safety_level.hpp>
 #include <array>
 
 namespace boost {
@@ -173,6 +174,24 @@ consteval void mark_member_coverage(std::array<bool, ArrSize>& covered) noexcept
 
         if constexpr (is_bit_field(member)) {
             // Bit-field: mark the full underlying storage unit.
+            //
+            // We use sizeof(FieldType) -- the size of the bit-field's
+            // declared type -- rather than computing a sub-byte span from
+            // bit_size_of().  This is correct because:
+            //
+            //   1. The compiler allocates a storage unit whose size equals
+            //      sizeof(FieldType) for each bit-field (or group of
+            //      adjacent bit-fields that share a unit).
+            //   2. Multiple bit-fields may share the same storage unit at
+            //      the same byte offset; mark_byte_range handles overlaps
+            //      idempotently (bitmap OR).
+            //   3. Using (bit_offset + bit_width + 7) / 8 instead would
+            //      under-count coverage, incorrectly flagging the unused
+            //      tail of the storage unit as padding.
+            //
+            // The runtime signature parser (sig_has_padding) applies the
+            // same logic by extracting [s:N] from the embedded underlying
+            // type descriptor inside the bits<...> entry.
             constexpr std::size_t off = offset_of(member).bytes + OffsetAdj;
             mark_byte_range(covered, off, sizeof(FieldType));
         } else if constexpr (std::is_class_v<FieldType> && !std::is_union_v<FieldType>
@@ -251,6 +270,13 @@ consteval bool compute_has_padding() noexcept {
         return false;  // Scalar types have no padding
     } else if constexpr (std::is_empty_v<T>) {
         return false;  // Empty classes have no padding
+    } else if constexpr (has_opaque_signature<T>) {
+        // Opaque types are treated as atomic leaf nodes -- the signature
+        // does not expose internal structure, so we cannot (and should
+        // not) determine padding from the bitmap.  Return false to stay
+        // consistent with sig_has_padding, which only detects padding
+        // inside "record[...]" signatures.
+        return false;
     } else if constexpr (std::is_class_v<T> && !std::is_union_v<T>) {
         constexpr std::size_t fc = get_member_count<T>();
         constexpr std::size_t bc = get_base_count<T>();
@@ -329,6 +355,23 @@ struct layout_traits {
     /// nested struct internal padding.
     static constexpr bool has_padding =
         detail::compute_has_padding<T>();
+
+    // ----- Cross-validation: compile-time bitmap vs runtime sig parse -----
+    // Ensures that the byte-coverage analysis (has_padding above, which
+    // mirrors the signature engine's flattening) agrees with the runtime
+    // signature parser (sig_has_padding).  Any discrepancy indicates a
+    // bug in one of the two paths.
+    //
+    // Guard: only for record types (non-empty, non-union classes) where
+    // sig_has_padding can actually parse the outermost record block.
+    // For non-record types both paths trivially return false.
+    static_assert(
+        !(std::is_class_v<T> && !std::is_union_v<T> && !std::is_empty_v<T>) ||
+        has_padding == detail::sig_has_padding(
+                          std::string_view(signature)),
+        "layout_traits cross-validation failure: compile-time has_padding "
+        "disagrees with runtime sig_has_padding. This indicates a bug in "
+        "the coverage bitmap or the signature parser.");
 
     // =================================================================
     // Structural metadata (from sizeof/alignof and reflection)

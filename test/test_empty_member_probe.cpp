@@ -183,16 +183,16 @@ static_assert(
     "B1.7: Nested Inner's empty member should appear in Outer's flattened signature"
 );
 
-// B1.8: Empty base class should appear as leaf node, not evaporate
+// B1.8: Empty base class should appear as leaf node with s:0 (EBO)
 static_assert(
-    contains(sig_derived_empty, "record[s:1,a:1]{}"),
-    "B1.8: Empty base class should appear in derived class signature"
+    contains(sig_derived_empty, "record[s:0,a:1]{}"),
+    "B1.8: Empty base class (EBO) should appear with s:0 in derived signature"
 );
 
-// B1.9: Multiple empty bases should both appear
+// B1.9: Multiple empty bases should both appear with s:0 (EBO)
 static_assert(
-    contains(sig_derived_two, "record[s:1,a:1]{}"),
-    "B1.9: Multiple empty base classes should appear in derived signature"
+    contains(sig_derived_two, "record[s:0,a:1]{}"),
+    "B1.9: Multiple empty base classes (EBO) should appear with s:0"
 );
 
 // B1.10: DerivedFromEmpty and DerivedFromTwoEmpties should differ

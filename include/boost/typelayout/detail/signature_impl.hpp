@@ -3,6 +3,66 @@
 //
 // Signature computation engine: Layout mode (flattened byte identity)
 // and union layout helpers.
+//
+// =========================================================================
+// Signature Grammar (BNF)
+// =========================================================================
+//
+// A layout signature is a self-describing string encoding the byte-level
+// identity of a C++ type.  The grammar below defines the syntax.
+//
+//   full-signature ::= arch-prefix type-signature
+//
+//   arch-prefix    ::= '[' pointer-bits '-' endianness ']'
+//   pointer-bits   ::= '32' | '64'
+//   endianness     ::= 'le' | 'be'
+//
+//   type-signature ::= leaf-signature | record-signature | union-signature
+//                     | enum-signature | array-signature | opaque-signature
+//
+//   leaf-signature ::= type-kind '[' params ']'
+//   type-kind      ::= 'i8' | 'i16' | 'i32' | 'i64'
+//                     | 'u8' | 'u16' | 'u32' | 'u64'
+//                     | 'f32' | 'f64' | 'f80'
+//                     | 'char' | 'wchar' | 'char8' | 'char16' | 'char32'
+//                     | 'bool' | 'byte' | 'nullptr'
+//                     | 'ptr' | 'fnptr' | 'memptr' | 'ref' | 'rref'
+//
+//   params         ::= param (',' param)*
+//   param          ::= key ':' value
+//   key            ::= 's' | 'a'
+//   value          ::= DIGIT+
+//
+//   record-signature ::= 'record' '[' params ']' '{' member-list '}'
+//   union-signature  ::= 'union'  '[' params ']' '{' member-list '}'
+//   member-list      ::= '' | member (',' member)*
+//   member           ::= '@' offset ':' type-signature
+//                       | '@' offset '.' bit-offset ':' bitfield-entry
+//   offset           ::= DIGIT+
+//   bit-offset       ::= DIGIT+
+//   bitfield-entry   ::= 'bits<' bit-width ',' leaf-signature '>'
+//   bit-width        ::= DIGIT+
+//
+//   enum-signature   ::= 'enum' '[' params ']' '<' type-signature '>'
+//   array-signature  ::= 'array' '[' params ']' '<' type-signature ',' count '>'
+//                       | 'bytes' '[' params ']'
+//   count            ::= DIGIT+
+//
+//   opaque-signature ::= opaque-legacy | opaque-registered
+//   opaque-legacy    ::= NAME '[' params ']' ('<' type-args '>')?
+//   opaque-registered::= 'O(' TAG '|' size '|' alignment ')'
+//   type-args        ::= type-signature (',' type-signature)*
+//   TAG              ::= [^|)]+
+//   NAME             ::= [a-zA-Z_][a-zA-Z0-9_]*
+//   size             ::= DIGIT+
+//   alignment        ::= DIGIT+
+//
+// Notes:
+//   - Empty classes embedded as base (EBO) or [[no_unique_address]] member
+//     use s:0 in the host signature.  Standalone signatures use s:1.
+//   - DIGIT ::= [0-9]
+//
+// =========================================================================
 
 #ifndef BOOST_TYPELAYOUT_DETAIL_SIGNATURE_IMPL_HPP
 #define BOOST_TYPELAYOUT_DETAIL_SIGNATURE_IMPL_HPP
@@ -23,6 +83,39 @@ namespace typelayout {
     concept has_opaque_signature = requires {
         { TypeSignature<T>::is_opaque } -> std::convertible_to<bool>;
     } && TypeSignature<T>::is_opaque;
+
+    // Helper: generate an "embedded" signature for an empty type.
+    //
+    // When an empty class is used as a base (EBO) or as a
+    // [[no_unique_address]] member, it occupies 0 bytes in the host
+    // layout.  The standalone TypeSignature<Empty>::calculate() still
+    // returns s:1 (per C++ standard: sizeof(Empty) == 1), but the
+    // embedded version must report s:0 to accurately reflect the
+    // host's byte layout.
+    //
+    // This function takes the standalone signature and patches its
+    // "s:N" field to "s:0".  For a typical empty class, the standalone
+    // signature is "record[s:1,a:1]{}" and the embedded version becomes
+    // "record[s:0,a:1]{}".
+    template <typename T>
+    consteval auto embedded_empty_signature() noexcept {
+        static constexpr auto full = TypeSignature<T>::calculate();
+        // Find "[s:" and replace the size value with "0".
+        // Format: ...kind[s:SIZE,a:ALIGN]...
+        // We rebuild: prefix + "[s:0" + rest_from_comma
+        constexpr auto str = std::string_view(full);
+        constexpr auto s_pos = str.find("[s:");
+        static_assert(s_pos != std::string_view::npos,
+            "embedded_empty_signature: expected [s: in signature");
+        // Find the comma after the size digits
+        constexpr auto comma_pos = str.find(',', s_pos + 3);
+        static_assert(comma_pos != std::string_view::npos,
+            "embedded_empty_signature: expected comma after size");
+        // Build: prefix_up_to_bracket + "[s:0" + rest_from_comma
+        return FixedString<s_pos>(str.substr(0, s_pos)) +
+               FixedString{"[s:0"} +
+               FixedString<str.size() - comma_pos>(str.substr(comma_pos));
+    }
 
     // Every helper returns a comma-PREFIXED string. The top-level function
     // strips the leading comma via skip_first().
@@ -75,8 +168,15 @@ namespace typelayout {
         using namespace std::meta;
         constexpr auto base_info = bases_of(^^T, access_context::unchecked())[BaseIndex];
         using BaseType = [:type_of(base_info):];
-        if constexpr (has_opaque_signature<BaseType> || std::is_empty_v<BaseType>) {
-            // Opaque or empty base: emit as leaf node at base offset, not flattened.
+        if constexpr (std::is_empty_v<BaseType>) {
+            // Empty base: EBO makes it occupy 0 bytes.  Use
+            // embedded_empty_signature to emit s:0 in the host signature.
+            return FixedString{",@"} +
+                   to_fixed_string(offset_of(base_info).bytes + OffsetAdj) +
+                   FixedString{":"} +
+                   embedded_empty_signature<BaseType>();
+        } else if constexpr (has_opaque_signature<BaseType>) {
+            // Opaque base: emit as leaf node at base offset, not flattened.
             return FixedString{",@"} +
                    to_fixed_string(offset_of(base_info).bytes + OffsetAdj) +
                    FixedString{":"} +

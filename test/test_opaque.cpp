@@ -297,7 +297,43 @@ static_assert(
 );
 
 // =========================================================================
-// Part 7: Finding F8 -- long vs int64_t platform erasure
+// Part 7: Legacy opaque pointer_free conservatism
+// =========================================================================
+// Legacy opaque macros (TYPELAYOUT_OPAQUE_TYPE, _CONTAINER, _MAP) now
+// default to pointer_free = false, meaning has_pointer == true.
+// This is the conservative choice: opaque internals are unknown, so we
+// assume they may contain pointers unless the user explicitly asserts
+// otherwise via TYPELAYOUT_REGISTER_OPAQUE.
+//
+// This ensures classify() produces SafetyLevel::Opaque (or PointerRisk)
+// rather than falsely reporting TrivialSafe for opaque types.
+
+// 18. Legacy OPAQUE_TYPE: has_pointer defaults to true (conservative)
+static_assert(
+    layout_traits<opaque_test::XString>::has_pointer,
+    "Legacy OPAQUE_TYPE: has_pointer should default to true (pointer_free = false)"
+);
+
+// 19. Legacy OPAQUE_CONTAINER: has_pointer defaults to true
+static_assert(
+    layout_traits<opaque_test::XVector<int32_t>>::has_pointer,
+    "Legacy OPAQUE_CONTAINER: has_pointer should default to true (pointer_free = false)"
+);
+
+// 20. Legacy OPAQUE_MAP: has_pointer defaults to true
+static_assert(
+    layout_traits<opaque_test::XMap<int32_t, double>>::has_pointer,
+    "Legacy OPAQUE_MAP: has_pointer should default to true (pointer_free = false)"
+);
+
+// 21. Opaque types are still detected as opaque
+static_assert(
+    layout_traits<opaque_test::XString>::has_opaque,
+    "Legacy OPAQUE_TYPE: has_opaque should be true"
+);
+
+// =========================================================================
+// Part 8: Finding F8 -- long vs int64_t platform erasure
 // =========================================================================
 // On this platform, long and int64_t (or int32_t) should produce the
 // same Layout signature, since TypeLayout maps them to the same canonical
@@ -346,6 +382,12 @@ int main() {
     std::cout << "Long Layout:         " << long_layout.value << "\n";
     std::cout << "FixedWidth Layout:   " << fixed_layout.value << "\n";
 
-    std::cout << "\nAll " << 17 << " static_assert tests passed at compile time.\n";
+    std::cout << "\n--- Legacy Opaque Pointer Safety ---\n";
+    std::cout << "XString has_pointer:     " << layout_traits<opaque_test::XString>::has_pointer << "\n";
+    std::cout << "XVector<i32> has_pointer:" << layout_traits<opaque_test::XVector<int32_t>>::has_pointer << "\n";
+    std::cout << "XMap<i32,f64> has_pointer:" << layout_traits<opaque_test::XMap<int32_t, double>>::has_pointer << "\n";
+    std::cout << "XString has_opaque:      " << layout_traits<opaque_test::XString>::has_opaque << "\n";
+
+    std::cout << "\nAll " << 21 << " static_assert tests passed at compile time.\n";
     return 0;
 }

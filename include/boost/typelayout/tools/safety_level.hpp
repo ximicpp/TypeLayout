@@ -91,8 +91,8 @@ namespace detail {
 ///
 /// In TypeLayout signatures, type markers are always preceded by '{', ',',
 /// ':', or appear at the start of the string -- never preceded by a letter.
-inline bool sig_contains_token(std::string_view haystack,
-                               std::string_view needle) noexcept {
+constexpr bool sig_contains_token(std::string_view haystack,
+                                  std::string_view needle) noexcept {
     std::size_t pos = 0;
     while (pos < haystack.size()) {
         std::size_t found = haystack.find(needle, pos);
@@ -118,7 +118,7 @@ inline bool sig_contains_token(std::string_view haystack,
 ///
 /// Returns false for non-record signatures (primitives, unions, etc.)
 /// or if the signature cannot be parsed.
-inline bool sig_has_padding(std::string_view sig) noexcept {
+constexpr bool sig_has_padding(std::string_view sig) noexcept {
     // 1. Find outer record and parse total size
     auto rec_pos = sig.find("record[s:");
     if (rec_pos == std::string_view::npos) return false;
@@ -151,7 +151,7 @@ inline bool sig_has_padding(std::string_view sig) noexcept {
     //    and parse each entry's (offset, size) pair.
     struct Interval { std::size_t start; std::size_t end; };
     constexpr std::size_t MAX_FIELDS = 512;
-    Interval intervals[MAX_FIELDS];
+    Interval intervals[MAX_FIELDS]{};
     std::size_t count = 0;
 
     std::size_t pos = 0;
