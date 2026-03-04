@@ -147,6 +147,16 @@ namespace typelayout {
             // Non-opaque, non-empty class: recursively flatten into parent layout.
             constexpr std::size_t field_offset = offset_of(member).bytes + OffsetAdj;
             return layout_all_prefixed<FieldType, field_offset>();
+        } else if constexpr (std::is_empty_v<FieldType>
+                             && std::is_class_v<FieldType>
+                             && !has_opaque_signature<FieldType>) {
+            // Empty member (possibly [[no_unique_address]]): occupies 0 bytes
+            // in the host layout.  Use embedded_empty_signature to patch s:0,
+            // consistent with the EBO handling in layout_one_base_prefixed.
+            return FixedString{",@"} +
+                   to_fixed_string(offset_of(member).bytes + OffsetAdj) +
+                   FixedString{":"} +
+                   embedded_empty_signature<FieldType>();
         } else {
             // Primitive, union, enum, opaque class, or any type with a
             // custom TypeSignature specialization: emit as a leaf node.

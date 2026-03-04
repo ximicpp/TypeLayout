@@ -3,8 +3,10 @@
 //
 // Bug 1: Empty class members were "evaporated" during flattening because
 //   the recursive engine returned "" for classes with no bases and no
-//   fields.  After the fix, empty classes are treated as leaf nodes and
-//   emitted as "record[s:1,a:1]{}".
+//   fields.  After the fix, empty classes are treated as leaf nodes:
+//     - Standalone: emitted as "record[s:1,a:1]{}" (sizeof == 1)
+//     - Embedded member/base: emitted as "record[s:0,a:1]{}" (occupies 0 bytes
+//       in the host layout, consistent with padding bitmap)
 //
 // Bug 2: [[no_unique_address]] empty members overlap with adjacent fields
 //   at the same offset.  P2996 correctly reports their offset but does
@@ -94,14 +96,15 @@ static_assert(
 );
 
 // B1.2: Empty member must appear in the signature (not evaporate)
+// Embedded empty members use s:0 (they occupy 0 bytes in host layout)
 static_assert(
-    contains(sig_with_empty, "record[s:1,a:1]{}"),
-    "B1.2: WithEmptyMember must contain empty member record[s:1,a:1]{}"
+    contains(sig_with_empty, "record[s:0,a:1]{}"),
+    "B1.2: WithEmptyMember must contain empty member record[s:0,a:1]{}"
 );
 
 // B1.3: Empty member should be at offset 0
 static_assert(
-    contains(sig_with_empty, "@0:record[s:1,a:1]{}"),
+    contains(sig_with_empty, "@0:record[s:0,a:1]{}"),
     "B1.3: Empty member should be emitted at @0"
 );
 
@@ -113,16 +116,16 @@ static_assert(
 
 // B1.5: TwoEmpties should contain two empty member entries
 static_assert(
-    contains(sig_two_empties, "@0:record[s:1,a:1]{}") &&
-    contains(sig_two_empties, "@1:record[s:1,a:1]{}"),
+    contains(sig_two_empties, "@0:record[s:0,a:1]{}") &&
+    contains(sig_two_empties, "@1:record[s:0,a:1]{}"),
     "B1.5: TwoEmpties should show empty members at offsets 0 and 1"
 );
 
 // B1.6: DifferentEmpties should also contain two empty entries
-// (Empty and AlsoEmpty have identical layout signatures -- both record[s:1,a:1]{})
+// (Empty and AlsoEmpty have identical layout signatures -- both record[s:0,a:1]{} when embedded)
 static_assert(
-    contains(sig_diff_empties, "@0:record[s:1,a:1]{}") &&
-    contains(sig_diff_empties, "@1:record[s:1,a:1]{}"),
+    contains(sig_diff_empties, "@0:record[s:0,a:1]{}") &&
+    contains(sig_diff_empties, "@1:record[s:0,a:1]{}"),
     "B1.6: DifferentEmpties should show two empty members"
 );
 
@@ -135,7 +138,7 @@ constexpr auto sig_two_nua = get_layout_signature<TwoNoUniqueAddr>();
 
 // B2.1: [[no_unique_address]] empty member must appear in signature
 static_assert(
-    contains(sig_nua, "record[s:1,a:1]{}"),
+    contains(sig_nua, "record[s:0,a:1]{}"),
     "B2.1: [[no_unique_address]] empty member must not evaporate"
 );
 
@@ -146,7 +149,7 @@ static_assert(sizeof(WithNoUniqueAddr) == 4,
 
 // B2.3: Empty member and int32_t should overlap at offset 0
 static_assert(
-    contains(sig_nua, "@0:record[s:1,a:1]{}") &&
+    contains(sig_nua, "@0:record[s:0,a:1]{}") &&
     contains(sig_nua, "@0:i32[s:4,a:4]"),
     "B2.3: [[no_unique_address]] empty member overlaps with next field at @0"
 );
@@ -165,7 +168,7 @@ static_assert(sizeof(TwoNoUniqueAddr) == 4,
 
 // B2.6: TwoNoUniqueAddr should show two empty members and int at offset 0
 static_assert(
-    contains(sig_two_nua, "record[s:1,a:1]{}"),
+    contains(sig_two_nua, "record[s:0,a:1]{}"),
     "B2.6: TwoNoUniqueAddr contains empty member entries"
 );
 
@@ -179,7 +182,7 @@ constexpr auto sig_derived_two = get_layout_signature<DerivedFromTwoEmpties>();
 
 // B1.7: Nested struct -- Inner's empty member should appear in flattened Outer
 static_assert(
-    contains(sig_outer, "record[s:1,a:1]{}"),
+    contains(sig_outer, "record[s:0,a:1]{}"),
     "B1.7: Nested Inner's empty member should appear in Outer's flattened signature"
 );
 

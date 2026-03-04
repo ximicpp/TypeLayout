@@ -76,7 +76,7 @@ rather than descending into the type's data members and base classes.
 
 #### Scenario: Opaque type as struct field
 - **WHEN** a struct contains a field of an opaque-registered class type
-- **THEN** the Layout signature includes the opaque descriptor (e.g., `xstring[s:32,a:1]`) as a leaf node at the correct offset
+- **THEN** the Layout signature includes the opaque descriptor (e.g., `O!xstring[s:32,a:1]`) as a leaf node at the correct offset
 
 #### Scenario: Inheritance flattening
 - **WHEN** a derived class has base classes
@@ -177,7 +177,20 @@ Every signature SHALL include an architecture prefix.
 - **THEN** the signature SHALL reflect the actual size on the current platform
 
 ### Requirement: Empty Type Handling
-The library SHALL correctly handle empty types.
+The library SHALL correctly handle empty types in both standalone and embedded contexts.
+
+#### Scenario: Standalone empty type
+- **GIVEN** `struct Empty {};`
+- **WHEN** signature is generated for `Empty` as a top-level type
+- **THEN** the record header SHALL use `s:1` (reflecting `sizeof(Empty) == 1`)
+
+#### Scenario: Embedded empty member
+- **GIVEN** `struct Host { Empty e; int x; };`
+- **WHEN** signature is generated for `Host`
+- **THEN** the embedded `Empty` member SHALL use `s:0` in its record header
+- **AND** the member SHALL NOT contribute to byte coverage in the padding bitmap
+- **NOTE** This ensures consistency between the signature-based padding parser
+  (`sig_has_padding`) and the compile-time bitmap-based detector (`compute_has_padding`)
 
 #### Scenario: Empty base optimization
 - **GIVEN** `struct Empty {}; struct WithEmpty : Empty { int x; double y; };`

@@ -158,13 +158,13 @@ Register a non-template type with a fixed opaque signature.
 | `size` | `sizeof(Type)` -- verified by `static_assert` |
 | `align` | `alignof(Type)` -- verified by `static_assert` |
 
-**Generated signature**: `name[s:SIZE,a:ALIGN]`
+**Generated signature**: `O!name[s:SIZE,a:ALIGN]`
 
 **Example**:
 ```cpp
 namespace boost { namespace typelayout {
 TYPELAYOUT_OPAQUE_TYPE(MyLib::XString, "xstring", 32, 8)
-}} // produces: xstring[s:32,a:8]
+}} // produces: O!xstring[s:32,a:8]
 ```
 
 ---
@@ -181,12 +181,12 @@ includes the element type's signature.
 | `size` | `sizeof(Template<T>)` -- must be constant for all `T` |
 | `align` | `alignof(Template<T>)` |
 
-**Generated signature**: `name[s:SIZE,a:ALIGN]<element_signature>`
+**Generated signature**: `O!name[s:SIZE,a:ALIGN]<element_signature>`
 
 **Example**:
 ```cpp
 TYPELAYOUT_OPAQUE_CONTAINER(MyLib::XVector, "xvector", 24, 1)
-// XVector<int32_t> -> xvector[s:24,a:1]<i32[s:4,a:4]>
+// XVector<int32_t> -> O!xvector[s:24,a:1]<i32[s:4,a:4]>
 ```
 
 ---
@@ -203,12 +203,12 @@ includes both key and value type signatures.
 | `size` | `sizeof(Template<K, V>)` -- must be constant for all `K`, `V` |
 | `align` | `alignof(Template<K, V>)` |
 
-**Generated signature**: `name[s:SIZE,a:ALIGN]<key_signature,value_signature>`
+**Generated signature**: `O!name[s:SIZE,a:ALIGN]<key_signature,value_signature>`
 
 **Example**:
 ```cpp
 TYPELAYOUT_OPAQUE_MAP(MyLib::XMap, "xmap", 48, 1)
-// XMap<int32_t, double> -> xmap[s:48,a:1]<i32[s:4,a:4],f64[s:8,a:8]>
+// XMap<int32_t, double> -> O!xmap[s:48,a:1]<i32[s:4,a:4],f64[s:8,a:8]>
 ```
 
 ---

@@ -36,7 +36,7 @@
 //
 // Example:
 //   TYPELAYOUT_OPAQUE_TYPE(MyLib::XString, "string", 32, 8)
-//   // generates: string[s:32,a:8]
+//   // generates: O!string[s:32,a:8]
 // ---------------------------------------------------------------------------
 #define TYPELAYOUT_OPAQUE_TYPE(Type, name, size, align)                        \
     static_assert(sizeof(Type) == (size),                                       \
@@ -49,7 +49,7 @@
         static constexpr bool pointer_free = false;                            \
         static consteval auto calculate() noexcept {                           \
             return ::boost::typelayout::FixedString{                           \
-                name "[s:" #size ",a:" #align "]"};                            \
+                "O!" name "[s:" #size ",a:" #align "]"};                       \
         }                                                                      \
     };
 
@@ -65,7 +65,7 @@
 //
 // Example:
 //   TYPELAYOUT_OPAQUE_CONTAINER(MyLib::XVector, "vector", 32, 8)
-//   // generates: vector[s:32,a:8]<element_signature>
+//   // generates: O!vector[s:32,a:8]<element_signature>
 // ---------------------------------------------------------------------------
 #define TYPELAYOUT_OPAQUE_CONTAINER(Template, name, size, align)               \
     template <typename T_>                                                      \
@@ -80,7 +80,7 @@
                 "TYPELAYOUT_OPAQUE_CONTAINER: align does not match "            \
                 "alignof(" #Template "<T>)");                                   \
             return ::boost::typelayout::FixedString{                           \
-                       name "[s:" #size ",a:" #align "]<"} +                   \
+                       "O!" name "[s:" #size ",a:" #align "]<"} +                   \
                    TypeSignature<T_>::calculate() +                            \
                    ::boost::typelayout::FixedString{">"};                      \
         }                                                                      \
@@ -98,7 +98,7 @@
 //
 // Example:
 //   TYPELAYOUT_OPAQUE_MAP(MyLib::XMap, "map", 32, 8)
-//   // generates: map[s:32,a:8]<key_signature,value_signature>
+//   // generates: O!map[s:32,a:8]<key_signature,value_signature>
 // ---------------------------------------------------------------------------
 #define TYPELAYOUT_OPAQUE_MAP(Template, name, size, align)                     \
     template <typename K_, typename V_>                                         \
@@ -113,7 +113,7 @@
                 "TYPELAYOUT_OPAQUE_MAP: align does not match "                  \
                 "alignof(" #Template "<K,V>)");                                 \
             return ::boost::typelayout::FixedString{                           \
-                       name "[s:" #size ",a:" #align "]<"} +                   \
+                       "O!" name "[s:" #size ",a:" #align "]<"} +                   \
                    TypeSignature<K_>::calculate() +                            \
                    ::boost::typelayout::FixedString{","} +                     \
                    TypeSignature<V_>::calculate() +                            \
@@ -146,7 +146,7 @@
 //
 // Example:
 //   TYPELAYOUT_OPAQUE_TYPE_AUTO(MyLib::XString, "string")
-//   // generates: string[s:32,a:8]  (assuming sizeof=32, alignof=8)
+//   // generates: O!string[s:32,a:8]  (assuming sizeof=32, alignof=8)
 // ---------------------------------------------------------------------------
 #define TYPELAYOUT_OPAQUE_TYPE_AUTO(Type, name)                                \
     template <>                                                                 \
@@ -154,7 +154,7 @@
         static constexpr bool is_opaque = true;                                \
         static constexpr bool pointer_free = false;                            \
         static consteval auto calculate() noexcept {                           \
-            return ::boost::typelayout::FixedString{name "[s:"} +              \
+            return ::boost::typelayout::FixedString{"O!" name "[s:"} +              \
                    ::boost::typelayout::to_fixed_string(sizeof(Type)) +        \
                    ::boost::typelayout::FixedString{",a:"} +                   \
                    ::boost::typelayout::to_fixed_string(alignof(Type)) +       \
@@ -170,7 +170,7 @@
 //
 // Example:
 //   TYPELAYOUT_OPAQUE_CONTAINER_AUTO(MyLib::XVector, "vector")
-//   // generates: vector[s:32,a:8]<element_signature>
+//   // generates: O!vector[s:32,a:8]<element_signature>
 // ---------------------------------------------------------------------------
 #define TYPELAYOUT_OPAQUE_CONTAINER_AUTO(Template, name)                       \
     template <typename T_>                                                      \
@@ -178,7 +178,7 @@
         static constexpr bool is_opaque = true;                                \
         static constexpr bool pointer_free = false;                            \
         static consteval auto calculate() noexcept {                           \
-            return ::boost::typelayout::FixedString{name "[s:"} +              \
+            return ::boost::typelayout::FixedString{"O!" name "[s:"} +              \
                    ::boost::typelayout::to_fixed_string(                       \
                        sizeof(Template<T_>)) +                                 \
                    ::boost::typelayout::FixedString{",a:"} +                   \
@@ -198,7 +198,7 @@
 //
 // Example:
 //   TYPELAYOUT_OPAQUE_MAP_AUTO(MyLib::XMap, "map")
-//   // generates: map[s:32,a:8]<key_signature,value_signature>
+//   // generates: O!map[s:32,a:8]<key_signature,value_signature>
 // ---------------------------------------------------------------------------
 #define TYPELAYOUT_OPAQUE_MAP_AUTO(Template, name)                             \
     template <typename K_, typename V_>                                         \
@@ -206,7 +206,7 @@
         static constexpr bool is_opaque = true;                                \
         static constexpr bool pointer_free = false;                            \
         static consteval auto calculate() noexcept {                           \
-            return ::boost::typelayout::FixedString{name "[s:"} +              \
+            return ::boost::typelayout::FixedString{"O!" name "[s:"} +              \
                    ::boost::typelayout::to_fixed_string(                       \
                        sizeof(Template<K_, V_>)) +                             \
                    ::boost::typelayout::FixedString{",a:"} +                   \

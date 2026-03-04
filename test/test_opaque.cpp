@@ -48,8 +48,8 @@ TYPELAYOUT_OPAQUE_MAP(opaque_test::XMap, "xmap", 48, 1)
 // 1. Basic signature format
 static_assert(
     TypeSignature<opaque_test::XString>::calculate()
-        == "xstring[s:32,a:1]",
-    "OPAQUE_TYPE signature should be xstring[s:32,a:1]"
+        == "O!xstring[s:32,a:1]",
+    "OPAQUE_TYPE signature should be O!xstring[s:32,a:1]"
 );
 
 // --- OPAQUE_CONTAINER tests ---
@@ -58,8 +58,8 @@ static_assert(
 constexpr auto xvec_i32_layout =
     TypeSignature<opaque_test::XVector<int32_t>>::calculate();
 static_assert(
-    contains(xvec_i32_layout, "xvector[s:24,a:1]<"),
-    "OPAQUE_CONTAINER Layout should start with xvector[s:24,a:1]<"
+    contains(xvec_i32_layout, "O!xvector[s:24,a:1]<"),
+    "OPAQUE_CONTAINER Layout should start with O!xvector[s:24,a:1]<"
 );
 static_assert(
     contains(xvec_i32_layout, "i32[s:4,a:4]"),
@@ -93,8 +93,8 @@ static_assert(
 constexpr auto xmap_sig =
     TypeSignature<opaque_test::XMap<int32_t, double>>::calculate();
 static_assert(
-    contains(xmap_sig, "xmap[s:48,a:1]<"),
-    "OPAQUE_MAP should start with xmap[s:48,a:1]<"
+    contains(xmap_sig, "O!xmap[s:48,a:1]<"),
+    "OPAQUE_MAP should start with O!xmap[s:48,a:1]<"
 );
 static_assert(
     contains(xmap_sig, "i32[s:4,a:4]"),
@@ -109,7 +109,7 @@ static_assert(
 constexpr auto xmap_same_kv =
     TypeSignature<opaque_test::XMap<int32_t, int32_t>>::calculate();
 static_assert(
-    contains(xmap_same_kv, "xmap[s:48,a:1]<"),
+    contains(xmap_same_kv, "O!xmap[s:48,a:1]<"),
     "OPAQUE_MAP with same K,V: should produce valid signature"
 );
 
@@ -169,8 +169,8 @@ constexpr auto block_layout =
 
 // 11. Opaque field emitted as leaf in containing struct's Layout signature
 static_assert(
-    contains(block_layout, "xstring[s:32,a:1]"),
-    "Integration: Layout should contain opaque xstring[s:32,a:1] as leaf"
+    contains(block_layout, "O!xstring[s:32,a:1]"),
+    "Integration: Layout should contain opaque O!xstring[s:32,a:1] as leaf"
 );
 
 // 12. Primitive fields around the opaque are still flattened normally
@@ -200,8 +200,8 @@ constexpr auto derived_opaque_layout =
 
 // 13. Opaque base class emitted as leaf in Layout signature
 static_assert(
-    contains(derived_opaque_layout, "xstring[s:32,a:1]"),
-    "F4 fix: opaque base class should appear as xstring[s:32,a:1] leaf"
+    contains(derived_opaque_layout, "O!xstring[s:32,a:1]"),
+    "F4 fix: opaque base class should appear as O!xstring[s:32,a:1] leaf"
 );
 
 // 14. Derived class's own field still present

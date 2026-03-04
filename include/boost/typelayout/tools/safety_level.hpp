@@ -228,7 +228,7 @@ constexpr bool sig_has_padding(std::string_view sig) noexcept {
 /// Classify a layout signature string at runtime.
 ///
 /// Priority order (matches the compile-time classify<T>):
-///   1. Opaque          -- contains "O(" marker
+///   1. Opaque          -- contains "O(" or "O!" marker
 ///   2. PointerRisk     -- ptr[, fnptr[, memptr[, ref[, rref[
 ///   3. PlatformVariant -- wchar[, f80[, bits<
 ///   4. PaddingRisk     -- record size exceeds coverage of leaf fields
@@ -247,8 +247,11 @@ constexpr bool sig_has_padding(std::string_view sig) noexcept {
 inline SafetyLevel classify_signature(std::string_view sig) noexcept {
     using detail::sig_contains_token;
 
-    // 1. Opaque: look for the opaque marker "O("
-    if (sig.find("O(") != std::string_view::npos)
+    // 1. Opaque: look for opaque markers.
+    //    "O(" -- new-style (TYPELAYOUT_REGISTER_OPAQUE)
+    //    "O!" -- legacy-style (TYPELAYOUT_OPAQUE_TYPE / _CONTAINER / _MAP)
+    if (sig.find("O(") != std::string_view::npos ||
+        sig.find("O!") != std::string_view::npos)
         return SafetyLevel::Opaque;
 
     // 2. Pointer risk: pointer-like fields make memcpy produce dangling refs.
