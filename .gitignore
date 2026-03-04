@@ -44,3 +44,8 @@ doc/test/
 
 # Temporary files
 -p/build-linux/
+
+# Temporary task/analysis files
+task*.md
+task*.md.local
+include/all_files_merged.txt
