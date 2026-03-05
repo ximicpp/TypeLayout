@@ -73,7 +73,7 @@ namespace typelayout {
             return FixedString<name.size()>(name);
         } else {
             return FixedString{"<anon:"} +
-                   to_fixed_string(Index) +
+                   to_fixed_string<Index>() +
                    FixedString{">"};
         }
     }

@@ -155,9 +155,9 @@
         static constexpr bool pointer_free = false;                            \
         static consteval auto calculate() noexcept {                           \
             return ::boost::typelayout::FixedString{"O!" name "[s:"} +              \
-                   ::boost::typelayout::to_fixed_string(sizeof(Type)) +        \
+                   ::boost::typelayout::to_fixed_string<sizeof(Type)>() +      \
                    ::boost::typelayout::FixedString{",a:"} +                   \
-                   ::boost::typelayout::to_fixed_string(alignof(Type)) +       \
+                   ::boost::typelayout::to_fixed_string<alignof(Type)>() +     \
                    ::boost::typelayout::FixedString{"]"};                      \
         }                                                                      \
     };
@@ -179,11 +179,9 @@
         static constexpr bool pointer_free = false;                            \
         static consteval auto calculate() noexcept {                           \
             return ::boost::typelayout::FixedString{"O!" name "[s:"} +              \
-                   ::boost::typelayout::to_fixed_string(                       \
-                       sizeof(Template<T_>)) +                                 \
+                   ::boost::typelayout::to_fixed_string<sizeof(Template<T_>)>() + \
                    ::boost::typelayout::FixedString{",a:"} +                   \
-                   ::boost::typelayout::to_fixed_string(                       \
-                       alignof(Template<T_>)) +                                \
+                   ::boost::typelayout::to_fixed_string<alignof(Template<T_>)>() + \
                    ::boost::typelayout::FixedString{"]<"} +                    \
                    TypeSignature<T_>::calculate() +                            \
                    ::boost::typelayout::FixedString{">"};                      \
@@ -207,11 +205,9 @@
         static constexpr bool pointer_free = false;                            \
         static consteval auto calculate() noexcept {                           \
             return ::boost::typelayout::FixedString{"O!" name "[s:"} +              \
-                   ::boost::typelayout::to_fixed_string(                       \
-                       sizeof(Template<K_, V_>)) +                             \
+                   ::boost::typelayout::to_fixed_string<sizeof(Template<K_, V_>)>() + \
                    ::boost::typelayout::FixedString{",a:"} +                   \
-                   ::boost::typelayout::to_fixed_string(                       \
-                       alignof(Template<K_, V_>)) +                            \
+                   ::boost::typelayout::to_fixed_string<alignof(Template<K_, V_>)>() + \
                    ::boost::typelayout::FixedString{"]<"} +                    \
                    TypeSignature<K_>::calculate() +                            \
                    ::boost::typelayout::FixedString{","} +                     \
@@ -261,9 +257,9 @@
             return ::boost::typelayout::FixedString{"O("} +                    \
                    ::boost::typelayout::FixedString{Tag} +                     \
                    ::boost::typelayout::FixedString{"|"} +                     \
-                   ::boost::typelayout::to_fixed_string(sizeof(Type)) +        \
+                   ::boost::typelayout::to_fixed_string<sizeof(Type)>() +      \
                    ::boost::typelayout::FixedString{"|"} +                     \
-                   ::boost::typelayout::to_fixed_string(alignof(Type)) +       \
+                   ::boost::typelayout::to_fixed_string<alignof(Type)>() +     \
                    ::boost::typelayout::FixedString{")"};                      \
         }                                                                      \
     };

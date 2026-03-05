@@ -132,12 +132,15 @@ namespace typelayout {
         if constexpr (is_bit_field(member)) {
             // Full precision: emit @byte.bit:bits<width,type>
             constexpr auto bit_off = offset_of(member);
+            constexpr std::size_t byte_pos = bit_off.bytes + OffsetAdj;
+            constexpr std::size_t bit_pos  = bit_off.bits;
+            constexpr std::size_t bwidth   = bit_size_of(member);
             return FixedString{",@"} +
-                   to_fixed_string(bit_off.bytes + OffsetAdj) +
+                   to_fixed_string<byte_pos>() +
                    FixedString{"."} +
-                   to_fixed_string(bit_off.bits) +
+                   to_fixed_string<bit_pos>() +
                    FixedString{":bits<"} +
-                   to_fixed_string(bit_size_of(member)) +
+                   to_fixed_string<bwidth>() +
                    FixedString{","} +
                    TypeSignature<FieldType>::calculate() +
                    FixedString{">"};
@@ -153,15 +156,17 @@ namespace typelayout {
             // Empty member (possibly [[no_unique_address]]): occupies 0 bytes
             // in the host layout.  Use embedded_empty_signature to patch s:0,
             // consistent with the EBO handling in layout_one_base_prefixed.
+            constexpr std::size_t emb_off = offset_of(member).bytes + OffsetAdj;
             return FixedString{",@"} +
-                   to_fixed_string(offset_of(member).bytes + OffsetAdj) +
+                   to_fixed_string<emb_off>() +
                    FixedString{":"} +
                    embedded_empty_signature<FieldType>();
         } else {
             // Primitive, union, enum, opaque class, or any type with a
             // custom TypeSignature specialization: emit as a leaf node.
+            constexpr std::size_t leaf_off = offset_of(member).bytes + OffsetAdj;
             return FixedString{",@"} +
-                   to_fixed_string(offset_of(member).bytes + OffsetAdj) +
+                   to_fixed_string<leaf_off>() +
                    FixedString{":"} +
                    TypeSignature<FieldType>::calculate();
         }
@@ -181,14 +186,16 @@ namespace typelayout {
         if constexpr (std::is_empty_v<BaseType>) {
             // Empty base: EBO makes it occupy 0 bytes.  Use
             // embedded_empty_signature to emit s:0 in the host signature.
+            constexpr std::size_t base_emb_off = offset_of(base_info).bytes + OffsetAdj;
             return FixedString{",@"} +
-                   to_fixed_string(offset_of(base_info).bytes + OffsetAdj) +
+                   to_fixed_string<base_emb_off>() +
                    FixedString{":"} +
                    embedded_empty_signature<BaseType>();
         } else if constexpr (has_opaque_signature<BaseType>) {
             // Opaque base: emit as leaf node at base offset, not flattened.
+            constexpr std::size_t base_opq_off = offset_of(base_info).bytes + OffsetAdj;
             return FixedString{",@"} +
-                   to_fixed_string(offset_of(base_info).bytes + OffsetAdj) +
+                   to_fixed_string<base_opq_off>() +
                    FixedString{":"} +
                    TypeSignature<BaseType>::calculate();
         } else {
@@ -230,18 +237,22 @@ namespace typelayout {
 
         if constexpr (is_bit_field(member)) {
             constexpr auto bit_off = offset_of(member);
+            constexpr std::size_t ubyte_pos = bit_off.bytes;
+            constexpr std::size_t ubit_pos  = bit_off.bits;
+            constexpr std::size_t ubwidth   = bit_size_of(member);
             return FixedString{"@"} +
-                   to_fixed_string(bit_off.bytes) +
+                   to_fixed_string<ubyte_pos>() +
                    FixedString{"."} +
-                   to_fixed_string(bit_off.bits) +
+                   to_fixed_string<ubit_pos>() +
                    FixedString{":bits<"} +
-                   to_fixed_string(bit_size_of(member)) +
+                   to_fixed_string<ubwidth>() +
                    FixedString{","} +
                    TypeSignature<FieldType>::calculate() +
                    FixedString{">"};
         } else {
+            constexpr std::size_t uf_off = offset_of(member).bytes;
             return FixedString{"@"} +
-                   to_fixed_string(offset_of(member).bytes) +
+                   to_fixed_string<uf_off>() +
                    FixedString{":"} +
                    TypeSignature<FieldType>::calculate();
         }

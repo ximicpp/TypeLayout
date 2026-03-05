@@ -17,12 +17,12 @@ namespace typelayout {
     // Helper: format "name[s:SIZE,a:ALIGN]"
     // =========================================================================
 
-    template<size_t N>
-    consteval auto format_size_align(const char (&name)[N], size_t size, size_t align) noexcept {
+    template<size_t Size, size_t Align, size_t N>
+    consteval auto format_size_align(const char (&name)[N]) noexcept {
         return FixedString{name} + FixedString{"[s:"} +
-               to_fixed_string(size) +
+               to_fixed_string<Size>() +
                FixedString{",a:"} +
-               to_fixed_string(align) +
+               to_fixed_string<Align>() +
                FixedString{"]"};
     }
 
@@ -113,7 +113,7 @@ namespace typelayout {
     template <> struct TypeSignature<float>    { static consteval auto calculate() noexcept { return FixedString{"f32[s:4,a:4]"}; } };
     template <> struct TypeSignature<double>   { static consteval auto calculate() noexcept { return FixedString{"f64[s:8,a:8]"}; } };
     template <> struct TypeSignature<long double> {
-        static consteval auto calculate() noexcept { return format_size_align("f80", sizeof(long double), alignof(long double)); }
+        static consteval auto calculate() noexcept { return format_size_align<sizeof(long double), alignof(long double)>("f80"); }
     };
 
     // =========================================================================
@@ -121,7 +121,7 @@ namespace typelayout {
     // =========================================================================
 
     template <> struct TypeSignature<char>     { static consteval auto calculate() noexcept { return FixedString{"char[s:1,a:1]"}; } };
-    template <> struct TypeSignature<wchar_t>  { static consteval auto calculate() noexcept { return format_size_align("wchar", sizeof(wchar_t), alignof(wchar_t)); } };
+    template <> struct TypeSignature<wchar_t>  { static consteval auto calculate() noexcept { return format_size_align<sizeof(wchar_t), alignof(wchar_t)>("wchar"); } };
     template <> struct TypeSignature<char8_t>  { static consteval auto calculate() noexcept { return FixedString{"char8[s:1,a:1]"}; } };
     template <> struct TypeSignature<char16_t> { static consteval auto calculate() noexcept { return FixedString{"char16[s:2,a:2]"}; } };
     template <> struct TypeSignature<char32_t> { static consteval auto calculate() noexcept { return FixedString{"char32[s:4,a:4]"}; } };
@@ -131,7 +131,7 @@ namespace typelayout {
     // =========================================================================
 
     template <> struct TypeSignature<bool>     { static consteval auto calculate() noexcept { return FixedString{"bool[s:1,a:1]"}; } };
-    template <> struct TypeSignature<std::nullptr_t> { static consteval auto calculate() noexcept { return format_size_align("nullptr", sizeof(std::nullptr_t), alignof(std::nullptr_t)); } };
+    template <> struct TypeSignature<std::nullptr_t> { static consteval auto calculate() noexcept { return format_size_align<sizeof(std::nullptr_t), alignof(std::nullptr_t)>("nullptr"); } };
     template <> struct TypeSignature<std::byte> { static consteval auto calculate() noexcept { return FixedString{"byte[s:1,a:1]"}; } };
 
     // =========================================================================
@@ -141,28 +141,28 @@ namespace typelayout {
     template <typename R, typename... Args>
     struct TypeSignature<R(*)(Args...)> {
         static consteval auto calculate() noexcept {
-            return format_size_align("fnptr", sizeof(R(*)(Args...)), alignof(R(*)(Args...)));
+            return format_size_align<sizeof(R(*)(Args...)), alignof(R(*)(Args...))>("fnptr");
         }
     };
 
     template <typename R, typename... Args>
     struct TypeSignature<R(*)(Args...) noexcept> {
         static consteval auto calculate() noexcept {
-            return format_size_align("fnptr", sizeof(R(*)(Args...) noexcept), alignof(R(*)(Args...) noexcept));
+            return format_size_align<sizeof(R(*)(Args...) noexcept), alignof(R(*)(Args...) noexcept)>("fnptr");
         }
     };
 
     template <typename R, typename... Args>
     struct TypeSignature<R(*)(Args..., ...)> {
         static consteval auto calculate() noexcept {
-            return format_size_align("fnptr", sizeof(R(*)(Args..., ...)), alignof(R(*)(Args..., ...)));
+            return format_size_align<sizeof(R(*)(Args..., ...)), alignof(R(*)(Args..., ...))>("fnptr");
         }
     };
 
     template <typename R, typename... Args>
     struct TypeSignature<R(*)(Args..., ...) noexcept> {
         static consteval auto calculate() noexcept {
-            return format_size_align("fnptr", sizeof(R(*)(Args..., ...) noexcept), alignof(R(*)(Args..., ...) noexcept));
+            return format_size_align<sizeof(R(*)(Args..., ...) noexcept), alignof(R(*)(Args..., ...) noexcept)>("fnptr");
         }
     };
 
@@ -189,7 +189,7 @@ namespace typelayout {
 
     template <typename T>
     struct TypeSignature<T*> {
-        static consteval auto calculate() noexcept { return format_size_align("ptr", sizeof(T*), alignof(T*)); }
+        static consteval auto calculate() noexcept { return format_size_align<sizeof(T*), alignof(T*)>("ptr"); }
     };
     template <typename T>
     struct TypeSignature<T&> {
@@ -197,16 +197,16 @@ namespace typelayout {
         // sizeof(T&) == sizeof(T) in C++, which does NOT reflect the
         // actual storage size of a reference-as-member.  We use sizeof(T*)
         // and alignof(T*) to correctly represent cross-platform layout identity.
-        static consteval auto calculate() noexcept { return format_size_align("ref", sizeof(T*), alignof(T*)); }
+        static consteval auto calculate() noexcept { return format_size_align<sizeof(T*), alignof(T*)>("ref"); }
     };
     template <typename T>
     struct TypeSignature<T&&> {
         // Same rationale as T& above: rvalue references are stored as pointers.
-        static consteval auto calculate() noexcept { return format_size_align("rref", sizeof(T*), alignof(T*)); }
+        static consteval auto calculate() noexcept { return format_size_align<sizeof(T*), alignof(T*)>("rref"); }
     };
     template <typename T, typename C>
     struct TypeSignature<T C::*> {
-        static consteval auto calculate() noexcept { return format_size_align("memptr", sizeof(T C::*), alignof(T C::*)); }
+        static consteval auto calculate() noexcept { return format_size_align<sizeof(T C::*), alignof(T C::*)>("memptr"); }
     };
 
     // =========================================================================
@@ -233,12 +233,12 @@ namespace typelayout {
     struct TypeSignature<T[N]> {
         static consteval auto calculate() noexcept {
             if constexpr (is_byte_element<T>()) {
-                return FixedString{"bytes[s:"} + to_fixed_string(N) + FixedString{",a:1]"};
+                return FixedString{"bytes[s:"} + to_fixed_string<N>() + FixedString{",a:1]"};
             } else {
-                return FixedString{"array[s:"} + to_fixed_string(sizeof(T[N])) +
-                       FixedString{",a:"} + to_fixed_string(alignof(T[N])) +
+                return FixedString{"array[s:"} + to_fixed_string<sizeof(T[N])>() +
+                       FixedString{",a:"} + to_fixed_string<alignof(T[N])>() +
                        FixedString{"]<"} + TypeSignature<T>::calculate() +
-                       FixedString{","} + to_fixed_string(N) + FixedString{">"};
+                       FixedString{","} + to_fixed_string<N>() + FixedString{">"};
             }
         }
     };
@@ -256,21 +256,21 @@ namespace typelayout {
             else if constexpr (std::is_enum_v<T>) {
                 using U = std::underlying_type_t<T>;
                 return FixedString{"enum[s:"} +
-                       to_fixed_string(sizeof(T)) +
+                       to_fixed_string<sizeof(T)>() +
                        FixedString{",a:"} +
-                       to_fixed_string(alignof(T)) +
+                       to_fixed_string<alignof(T)>() +
                        FixedString{"]<"} + TypeSignature<U>::calculate() + FixedString{">"};
             }
             else if constexpr (std::is_union_v<T>) {
-                return FixedString{"union[s:"} + to_fixed_string(sizeof(T)) +
-                       FixedString{",a:"} + to_fixed_string(alignof(T)) +
+                return FixedString{"union[s:"} + to_fixed_string<sizeof(T)>() +
+                       FixedString{",a:"} + to_fixed_string<alignof(T)>() +
                        FixedString{"]{"} + get_layout_union_content<T>() + FixedString{"}"};
             }
             else if constexpr (std::is_class_v<T> && !std::is_array_v<T>) {
                 return FixedString{"record[s:"} +
-                       to_fixed_string(sizeof(T)) +
+                       to_fixed_string<sizeof(T)>() +
                        FixedString{",a:"} +
-                       to_fixed_string(alignof(T)) +
+                       to_fixed_string<alignof(T)>() +
                        FixedString{"]{"} +
                        get_layout_content<T>() +
                        FixedString{"}"};

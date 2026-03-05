@@ -163,13 +163,16 @@ namespace typelayout {
         static constexpr size_t npos = static_cast<size_t>(-1);
 
         // Strip leading character (used to remove leading comma after fold-expression).
+        // Returns FixedString<N-1> (exact capacity) for N > 0, FixedString<0> for N == 0.
         consteval auto skip_first() const noexcept {
-            char result[N + 1] = {};
-            if (value[0] != '\0') {
-                for (size_t i = 1; i <= N; ++i)
+            if constexpr (N == 0) {
+                return FixedString<0>{};
+            } else {
+                char result[N] = {};  // N-1 content chars + 1 null terminator
+                for (size_t i = 1; i < N; ++i)
                     result[i - 1] = value[i];
+                return FixedString<N - 1>(result);
             }
-            return FixedString<N>(result);
         }
     };
 
@@ -181,6 +184,42 @@ namespace typelayout {
     std::ostream& operator<<(std::ostream& os, const FixedString<N>& str) {
         return os << str.value;
     }
+
+    // =========================================================================
+    // to_fixed_string<V>() -- exact-sized NTTP form (preferred in consteval)
+    //
+    // Returns FixedString<count_digits(V)> with zero wasted capacity.
+    // Use this in consteval contexts where V is a compile-time constant
+    // (sizeof, alignof, offset_of results, template parameters, etc.).
+    // =========================================================================
+
+    // Helper: count decimal digits of a non-negative integer at compile time.
+    consteval size_t count_digits(size_t v) noexcept {
+        if (v == 0) return 1;
+        size_t n = 0;
+        while (v > 0) { v /= 10; ++n; }
+        return n;
+    }
+
+    template <size_t V>
+    consteval auto to_fixed_string() noexcept {
+        constexpr size_t digits = count_digits(V);
+        char result[digits + 1] = {};
+        if constexpr (V == 0) {
+            result[0] = '0';
+        } else {
+            size_t pos = digits;
+            size_t v = V;
+            while (v > 0) { result[--pos] = '0' + char(v % 10); v /= 10; }
+        }
+        return FixedString<digits>(result);
+    }
+
+    // =========================================================================
+    // to_fixed_string(num) -- legacy runtime form, always returns FixedString<20>.
+    // Kept for external callers and runtime use.  Prefer to_fixed_string<V>()
+    // in consteval contexts to avoid capacity bloat.
+    // =========================================================================
 
     // Free function: integer to FixedString<20> (uint64_t max = 20 digits).
     // Writes digits right-to-left, no reversal needed.
