@@ -365,10 +365,15 @@ struct layout_traits {
     // Guard: only for record types (non-empty, non-union classes) where
     // sig_has_padding can actually parse the outermost record block.
     // For non-record types both paths trivially return false.
+    //
+    // check_padding_consistency also passes when sig_has_padding_impl was
+    // truncated (>512 leaf fields) -- in that case the signature parser
+    // returns a conservative true that may not match the bitmap result,
+    // and we trust the bitmap (which has no field-count limit).
     static_assert(
         !(std::is_class_v<T> && !std::is_union_v<T> && !std::is_empty_v<T>) ||
-        has_padding == detail::sig_has_padding(
-                          std::string_view(signature)),
+        detail::check_padding_consistency(has_padding,
+                                          std::string_view(signature)),
         "layout_traits cross-validation failure: compile-time has_padding "
         "disagrees with runtime sig_has_padding. This indicates a bug in "
         "the coverage bitmap or the signature parser.");

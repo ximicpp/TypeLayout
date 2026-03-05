@@ -26,7 +26,7 @@ Every C++ developer has written `static_assert(sizeof(MyStruct) == 64)` — and 
 
 This talk introduces **TypeLayout**, a header-only C++26 library that replaces those fragile, per-field asserts with a single `static_assert` that automatically verifies the *complete* memory layout of any type — every field offset, every byte of padding, every alignment constraint, every level of inheritance — at compile time, with zero runtime cost.
 
-TypeLayout uses P2996 static reflection to generate deterministic, human-readable **type layout signatures**: compact strings that encode everything the compiler knows about a type's layout. A two-layer signature system separates byte-level identity (Layout layer: flattened, nameless — "are these bytes the same?") from structural identity (Definition layer: preserving field names, inheritance hierarchy, and enum qualified names — "do these types mean the same thing?"). A Projection Theorem formally guarantees that a Definition match strictly implies a Layout match, giving developers a clear decision rule for IPC, plugin systems, file formats, and ODR violation detection.
+TypeLayout uses P2996 static reflection to generate deterministic, human-readable **type layout signatures**: compact strings that encode everything the compiler knows about a type's layout — every field offset, every alignment constraint, every level of inheritance. A formal soundness guarantee ensures that a signature match implies identical byte layouts, giving developers a zero-false-positive verification primitive for IPC, plugin systems, file formats, and cross-platform binary protocol verification.
 
 We will demonstrate real-world applications with live cross-platform comparisons (Linux x86_64, macOS ARM64, Windows x64), walk through the denotational semantics proofs that back the library's zero-false-positive guarantee, and show how the cross-platform toolchain lets you verify struct compatibility across platforms — without needing P2996 on every machine.
 
@@ -55,12 +55,10 @@ We will demonstrate real-world applications with live cross-platform comparisons
   [64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:u64[s:8,a:8]}
   ```
 - Live coding: from `struct Message` to its signature in 3 lines of code
-- The entire public API — 4 functions:
+- The entire public API — 2 core functions:
   ```cpp
   get_layout_signature<T>();
-  get_definition_signature<T>();
   layout_signatures_match<T, U>();
-  definition_signatures_match<T, U>();
   ```
 
 **Part 3: Two Layers — Layout vs Definition (10 min)**

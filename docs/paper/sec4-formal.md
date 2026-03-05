@@ -4,6 +4,10 @@
 > proofs (S1-S7, ~1,000 lines), see [`PROOFS.md`](../../PROOFS.md) at the
 > repository root.
 
+> **Implementation note**: Only the Layout layer is currently implemented.
+> Theorems relating to the Definition layer (Definition Faithfulness, Projection)
+> are retained as part of the design specification for future work.
+
 This section develops the formal semantics of TypeLayout's two-layer signature
 system. We define the semantic domains, the signature denotation functions,
 and prove six key results: Encoding Faithfulness and its Injectivity corollary,

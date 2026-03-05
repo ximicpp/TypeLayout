@@ -13,12 +13,8 @@ using namespace boost::typelayout;
 
 struct Message { uint32_t id; uint64_t timestamp; };
 
-// Two layers of compile-time layout analysis:
-constexpr auto layout = get_layout_signature<Message>();
+constexpr auto sig = get_layout_signature<Message>();
 // → "[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:u64[s:8,a:8]}"
-
-constexpr auto defn = get_definition_signature<Message>();
-// → "[64-le]record[s:16,a:8]{@0[id]:u32[s:4,a:4],@8[timestamp]:u64[s:8,a:8]}"
 ```
 
 ## What It Does
@@ -54,70 +50,35 @@ Cross-platform (two-phase, only Phase 2 needs C++17):
 It is the **automated, complete replacement** for hand-written
 `static_assert(sizeof(T) == N)` / `static_assert(offsetof(T, f) == M)` checks.
 
-## Two-Layer Signature System
-
-TypeLayout provides two complementary layers of type identity:
-
-```
-Definition Signature ──project()──→ Layout Signature
-    (many)                              (one)
-```
-
-| Layer | What it captures | Inheritance | Field Names | Use case |
-|-------|-----------------|-------------|-------------|----------|
-| **Layout** | Pure byte identity | Flattened | No | Binary compatibility |
-| **Definition** | Full type structure | Preserved | Yes | API/ABI identity |
-
-**Core Values**:
-
-| # | Promise | Formal Guarantee |
-|---|---------|-----------------|
-| V1 | Layout **reliability** | `layout_sig(T) == layout_sig(U) ⟹ memcmp-compatible(T, U)` |
-| V2 | Definition **precision** | `def_sig(T) == def_sig(U) ⟹ identical field names, types, hierarchy` |
-| V3 | **Projection** relationship | `definition_match(T, U) ⟹ layout_match(T, U)` |
-
-The converse of V3 does not hold — two types can be byte-identical (Layout match) yet
-structurally different (Definition mismatch):
-
-```cpp
-struct Base { int32_t x; };
-struct Derived : Base { int32_t y; };
-struct Flat { int32_t x; int32_t y; };
-
-static_assert( layout_signatures_match<Derived, Flat>());   // same bytes
-static_assert(!definition_signatures_match<Derived, Flat>()); // different structure
-```
-
 ## API
 
-Four `consteval` functions — the entire public surface:
+Two `consteval` functions — the entire public surface for layout verification:
 
 ```cpp
 namespace boost::typelayout {
-    // Recommended — full structural comparison (names + hierarchy + layout)
-    template<class T>        consteval auto get_definition_signature();
-    template<class T, class U> consteval bool definition_signatures_match();
-
-    // Byte-only comparison (offsets + sizes, no names)
-    template<class T>        consteval auto get_layout_signature();
+    // Byte-identity comparison (offsets + sizes, no names)
+    template<class T>          consteval auto get_layout_signature();
     template<class T, class U> consteval bool layout_signatures_match();
 }
 ```
 
-### Which function should I use?
+A `true` result from `layout_signatures_match<T, U>()` guarantees that `T` and `U`
+are `memcpy`-compatible: identical field offsets, sizes, and alignments.
 
-**Rule of thumb**: Use `definition_signatures_match` unless you have a specific
-reason to use `layout_signatures_match`.
+```cpp
+struct SenderMsg   { uint32_t id; uint64_t timestamp; double value; };
+struct ReceiverMsg { uint32_t id; uint64_t timestamp; double value; };
 
-| Question | Answer |
-|----------|--------|
-| "Are these two types structurally identical?" | `definition_signatures_match` ✅ |
-| "Can I safely `memcpy` between these types?" | `layout_signatures_match` ✅ |
-| "I'm not sure which one I need" | `definition_signatures_match` ✅ (safer default) |
+static_assert(layout_signatures_match<SenderMsg, ReceiverMsg>(),
+    "Binary layout mismatch -- unsafe to memcpy");
+```
 
-Why? By V3 (Projection), `definition_match ⟹ layout_match` — so the Definition
-layer is strictly safer. It catches everything Layout catches, plus field renames,
-inheritance changes, and ODR violations.
+## Core Guarantee
+
+| Promise | Formal Statement |
+|---------|-----------------|
+| **Soundness** | `layout_sig(T) == layout_sig(U)` ⟹ `memcmp`-compatible byte layouts |
+| **Injectivity** | Different layouts ⟹ different signatures |
 
 ## Supported Types
 
@@ -131,39 +92,7 @@ inheritance changes, and ODR violations.
 | Arrays | `T[N]`, byte arrays normalized (`char[N]` ≡ `uint8_t[N]` ≡ `std::byte[N]`) |
 | Structs & classes | fields, padding, alignment, base classes |
 | Inheritance | single, multiple, multi-level, empty base optimization |
-| Polymorphic types | `virtual` marker in Definition layer |
 | Unions | member-level signatures |
-
-## Design Philosophy
-
-TypeLayout performs **Structural Analysis**, not Nominal Analysis. Two differently-named
-types with identical field names, types, and layout will produce identical Definition
-signatures. The signature **does not include the type's own name** — by design, TypeLayout
-answers *"are these two types structurally equivalent?"*, not *"are they the same type?"*.
-
-## When to Use Which Layer
-
-| Use Case | Layer | Why |
-|----------|-------|-----|
-| Shared memory / IPC | **Layout** | Only byte-layout compatibility matters |
-| Network protocols | **Layout** | Only byte alignment and offsets matter |
-| ABI verification | **Layout** | Binary compatibility check |
-| Serialization versioning | **Definition** | Detects field renames and structural changes |
-| API compatibility | **Definition** | Semantic-level structural consistency |
-| ODR violation detection | **Definition** | Requires full structural information |
-
-## Formal Proofs
-
-The correctness of the two-layer signature system is formally proven in
-[`PROOFS.md`](PROOFS.md). Key results:
-
-| Theorem | Statement |
-|---------|-----------|
-| **Soundness** | Signature match ⟹ identical byte layout (zero false positives) |
-| **Injectivity** | Different layouts ⟹ different signatures |
-| **Conservativeness** | Same layout may produce different signatures (safe direction) |
-| **Projection** | `definition_match ⟹ layout_match` (strict refinement) |
-| **Compiler-verified** | All offsets from P2996 intrinsics, not manual calculation |
 
 ## Known Design Limits
 
@@ -172,7 +101,7 @@ These are intentional choices, not bugs:
 | Limit | Rationale |
 |-------|-----------|
 | Signature match is `⟹` not `⟺` | Conservative — `int[3]` and `int,int,int` are byte-identical but semantically distinct |
-| Type's own name not in signature | Structural analysis, not nominal |
+| Type's own name not in signature | Structural byte analysis, not nominal |
 | Union members not recursively flattened | Flattening would collide overlapping members |
 | Arrays not expanded to discrete fields | Preserves semantic boundary; signatures stay precise |
 

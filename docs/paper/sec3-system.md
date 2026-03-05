@@ -1,5 +1,8 @@
 # §3 The TypeLayout Signature System
 
+> **Implementation note**: Only the Layout layer is currently implemented.
+> The Definition layer is described here as a design specification for future work.
+
 This section presents the design of TypeLayout's two-layer signature system:
 the signature grammar, the generation algorithm, and the key design decisions
 that enable both soundness and practical utility.

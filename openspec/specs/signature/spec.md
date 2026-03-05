@@ -2,9 +2,12 @@
 
 > **Layer**: Core (`<boost/typelayout.hpp>`)
 
+> **Implementation note**: Only the Layout signature layer is currently implemented.
+> References to the Definition layer in this specification describe planned future work.
+
 ## Purpose
 
-Defines the two-layer signature generation system — the core capability of Boost.TypeLayout.
+Defines the Layout signature generation system — the core capability of Boost.TypeLayout.
 Signatures provide deterministic, human-readable descriptions of type memory layouts
 for compile-time type identity verification.
 

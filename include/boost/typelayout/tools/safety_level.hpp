@@ -109,6 +109,15 @@ constexpr bool sig_contains_token(std::string_view haystack,
     return false;
 }
 
+/// Padding detection result: whether padding was found and whether the
+/// result is reliable (false when the field count exceeded MAX_FIELDS).
+/// When truncated is true, has_padding is conservatively set to true but
+/// may be a false positive for types with no actual padding.
+struct SigPaddingResult {
+    bool has_padding;
+    bool truncated;
+};
+
 /// Parse a top-level layout signature to detect padding gaps.
 ///
 /// Extracts (offset, size) pairs from leaf field entries inside the
@@ -116,12 +125,14 @@ constexpr bool sig_contains_token(std::string_view haystack,
 /// bytes in [0, SIZE) are covered by at least one field.  Uncovered
 /// bytes indicate compiler-inserted alignment padding.
 ///
-/// Returns false for non-record signatures (primitives, unions, etc.)
+/// Returns {false, false} for non-record signatures (primitives, unions, etc.)
 /// or if the signature cannot be parsed.
-constexpr bool sig_has_padding(std::string_view sig) noexcept {
+/// Returns {true, true} when the field count exceeds MAX_FIELDS (truncated;
+/// result is conservative but may be a false positive).
+constexpr SigPaddingResult sig_has_padding_impl(std::string_view sig) noexcept {
     // 1. Find outer record and parse total size
     auto rec_pos = sig.find("record[s:");
-    if (rec_pos == std::string_view::npos) return false;
+    if (rec_pos == std::string_view::npos) return {false, false};
 
     std::size_t total_size = 0;
     std::size_t i = rec_pos + 9;  // length of "record[s:"
@@ -129,11 +140,11 @@ constexpr bool sig_has_padding(std::string_view sig) noexcept {
         total_size = total_size * 10 + (sig[i] - '0');
         ++i;
     }
-    if (total_size == 0) return false;
+    if (total_size == 0) return {false, false};
 
     // 2. Find the outermost '{' and its matching '}'
     auto brace_start = sig.find('{', rec_pos);
-    if (brace_start == std::string_view::npos) return false;
+    if (brace_start == std::string_view::npos) return {false, false};
 
     int depth = 1;
     std::size_t brace_end = brace_start + 1;
@@ -145,7 +156,7 @@ constexpr bool sig_has_padding(std::string_view sig) noexcept {
     --brace_end;  // point to closing '}'
 
     auto content = sig.substr(brace_start + 1, brace_end - brace_start - 1);
-    if (content.empty()) return false;  // empty body (empty class)
+    if (content.empty()) return {false, false};  // empty body (empty class)
 
     // 3. Split content into top-level entries (by depth-0 commas)
     //    and parse each entry's (offset, size) pair.
@@ -156,7 +167,8 @@ constexpr bool sig_has_padding(std::string_view sig) noexcept {
 
     std::size_t pos = 0;
     while (pos < content.size()) {
-        if (count >= MAX_FIELDS) return true;  // too many fields to verify: conservatively assume padding
+        if (count >= MAX_FIELDS)
+            return {true, true};  // too many fields: conservative, result may be a false positive
         // Delimit this entry: find next depth-0 comma or end
         std::size_t entry_start = pos;
         int d = 0;
@@ -200,7 +212,7 @@ constexpr bool sig_has_padding(std::string_view sig) noexcept {
         if (pos < content.size() && content[pos] == ',') ++pos;
     }
 
-    if (count == 0) return false;
+    if (count == 0) return {false, false};
 
     // 4. Sort intervals by start offset (insertion sort)
     for (std::size_t a = 1; a < count; ++a) {
@@ -217,11 +229,27 @@ constexpr bool sig_has_padding(std::string_view sig) noexcept {
     std::size_t covered_end = 0;
     for (std::size_t f = 0; f < count; ++f) {
         if (intervals[f].start > covered_end)
-            return true;  // gap before this field
+            return {true, false};  // gap before this field
         if (intervals[f].end > covered_end)
             covered_end = intervals[f].end;
     }
-    return covered_end < total_size;  // tail padding
+    return {covered_end < total_size, false};  // tail padding check
+}
+
+/// Public wrapper: returns true if the signature has padding.
+/// Note: may return a conservative true for types with >512 leaf fields.
+/// Use sig_has_padding_impl() directly to check whether the result is reliable.
+constexpr bool sig_has_padding(std::string_view sig) noexcept {
+    return sig_has_padding_impl(sig).has_padding;
+}
+
+/// Returns true if the two padding analyses agree, or if the signature-based
+/// analysis was truncated (too many fields to verify).  Used by layout_traits
+/// cross-validation to avoid false assertion failures on very large types.
+constexpr bool check_padding_consistency(bool ct_has_padding,
+                                         std::string_view sig) noexcept {
+    auto r = sig_has_padding_impl(sig);
+    return r.truncated || (ct_has_padding == r.has_padding);
 }
 
 } // namespace detail

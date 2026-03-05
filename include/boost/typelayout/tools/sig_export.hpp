@@ -53,7 +53,7 @@ public:
 
         entries_.push_back({
             name,
-            std::string(layout.value, layout.length())
+            std::string(layout.value, layout.size)  // .size is exact capacity (no scan needed)
         });
     }
 

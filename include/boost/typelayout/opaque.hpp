@@ -48,8 +48,11 @@
         static constexpr bool is_opaque = true;                                \
         static constexpr bool pointer_free = false;                            \
         static consteval auto calculate() noexcept {                           \
-            return ::boost::typelayout::FixedString{                           \
-                "O!" name "[s:" #size ",a:" #align "]"};                       \
+            return ::boost::typelayout::FixedString{"O!" name "[s:"} +         \
+                   ::boost::typelayout::to_fixed_string<(size)>() +            \
+                   ::boost::typelayout::FixedString{",a:"} +                   \
+                   ::boost::typelayout::to_fixed_string<(align)>() +           \
+                   ::boost::typelayout::FixedString{"]"};                      \
         }                                                                      \
     };
 
@@ -79,8 +82,11 @@
         static constexpr bool is_opaque = true;                                \
         static constexpr bool pointer_free = false;                            \
         static consteval auto calculate() noexcept {                           \
-            return ::boost::typelayout::FixedString{                           \
-                       "O!" name "[s:" #size ",a:" #align "]<"} +                   \
+            return ::boost::typelayout::FixedString{"O!" name "[s:"} +         \
+                   ::boost::typelayout::to_fixed_string<(size)>() +            \
+                   ::boost::typelayout::FixedString{",a:"} +                   \
+                   ::boost::typelayout::to_fixed_string<(align)>() +           \
+                   ::boost::typelayout::FixedString{"]<"} +                    \
                    TypeSignature<T_>::calculate() +                            \
                    ::boost::typelayout::FixedString{">"};                      \
         }                                                                      \
@@ -112,8 +118,11 @@
         static constexpr bool is_opaque = true;                                \
         static constexpr bool pointer_free = false;                            \
         static consteval auto calculate() noexcept {                           \
-            return ::boost::typelayout::FixedString{                           \
-                       "O!" name "[s:" #size ",a:" #align "]<"} +                   \
+            return ::boost::typelayout::FixedString{"O!" name "[s:"} +         \
+                   ::boost::typelayout::to_fixed_string<(size)>() +            \
+                   ::boost::typelayout::FixedString{",a:"} +                   \
+                   ::boost::typelayout::to_fixed_string<(align)>() +           \
+                   ::boost::typelayout::FixedString{"]<"} +                    \
                    TypeSignature<K_>::calculate() +                            \
                    ::boost::typelayout::FixedString{","} +                     \
                    TypeSignature<V_>::calculate() +                            \

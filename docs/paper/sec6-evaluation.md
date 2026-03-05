@@ -1,5 +1,9 @@
 # §6 Evaluation
 
+> **Implementation note**: Only the Layout layer is currently implemented.
+> References to Definition signatures and `definition_signatures_match` in
+> this section describe the planned future work.
+
 This section evaluates TypeLayout along four dimensions: type coverage,
 signature correctness, compile-time overhead, and comparison with existing
 approaches.

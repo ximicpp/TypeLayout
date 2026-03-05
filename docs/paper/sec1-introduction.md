@@ -1,5 +1,10 @@
 # §1 Introduction
 
+> **Implementation note**: This paper describes the full two-layer design of TypeLayout,
+> including the Definition signature layer. As of the current release, only the
+> **Layout signature layer** (`get_layout_signature`, `layout_signatures_match`) is
+> implemented. The Definition layer is retained as a design specification for future work.
+
 The C++ memory model grants programmers direct control over data layout—a
 power that enables zero-copy inter-process communication, memory-mapped file
 I/O, and hardware register access. This power, however, comes with an implicit

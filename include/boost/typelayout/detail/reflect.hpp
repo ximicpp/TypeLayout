@@ -20,6 +20,9 @@ namespace typelayout {
 
     // Qualified name builder -- P2996 Bloomberg toolchain lacks
     // qualified_name_of, so we walk parent_of chains and join with "::".
+    // Handles both namespace parents and nested class parents.
+    // Recursion stops when the parent has no identifier (global namespace,
+    // translation unit, or anonymous namespace).
     // TODO(P2996): Replace with std::meta::qualified_name_of when available.
 
     template<std::meta::info R>
@@ -27,7 +30,7 @@ namespace typelayout {
         using namespace std::meta;
         constexpr auto parent = parent_of(R);
         constexpr std::string_view self = identifier_of(R);
-        if constexpr (is_namespace(parent) && has_identifier(parent)) {
+        if constexpr (has_identifier(parent)) {
             return qualified_name_for<parent>() +
                    FixedString{"::"} +
                    FixedString<self.size()>(self);
@@ -44,25 +47,6 @@ namespace typelayout {
     template <typename T>
     consteval std::size_t get_base_count() noexcept {
         return std::meta::bases_of(^^T, std::meta::access_context::unchecked()).size();
-    }
-
-    /// Check whether an enum type has a fixed underlying type and is thus
-    /// trivially portable across processes on the same architecture.
-    /// Scoped enums (enum class) always have a fixed underlying type.
-    /// Unscoped enums have a fixed type only when explicitly specified.
-    ///
-    /// NOTE: C++ provides no API to distinguish between an explicitly specified
-    /// underlying type (`enum E : int`) and a compiler-inferred one (`enum E {A}`).
-    /// std::underlying_type_t resolves to a concrete type in both cases.
-    /// This function therefore returns true for ALL enums with an integral
-    /// underlying type (excluding bool).  For unscoped enums without an explicit
-    /// underlying type, the result is a best-effort approximation -- the user
-    /// should ensure that cross-platform enums use explicit `: type` specifiers.
-    template <typename T>
-    [[nodiscard]] consteval bool is_fixed_enum() noexcept {
-        static_assert(std::is_enum_v<T>, "is_fixed_enum requires an enum type");
-        using U = std::underlying_type_t<T>;
-        return std::is_integral_v<U> && !std::is_same_v<U, bool>;
     }
 
     template<std::meta::info Member, std::size_t Index>

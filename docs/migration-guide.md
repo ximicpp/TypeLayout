@@ -45,11 +45,11 @@ boost/typelayout/
     config.hpp              -- Platform macros (endianness)
     fwd.hpp                 -- SignatureMode, always_false, forward declarations
     fixed_string.hpp        -- FixedString<N>, to_fixed_string()
-    signature.hpp           -- get_layout_signature<T>(), get_definition_signature<T>()
+    signature.hpp           -- get_layout_signature<T>(), layout_signatures_match<T,U>()
     opaque.hpp              -- TYPELAYOUT_OPAQUE_TYPE/CONTAINER/MAP macros
     detail/
         reflect.hpp         -- P2996 reflection wrappers (internal)
-        signature_impl.hpp  -- Layout + Definition engines (internal)
+        signature_impl.hpp  -- Layout engine (internal)
         type_map.hpp        -- TypeSignature specializations (internal)
     tools/                  -- Export and compatibility checking tools
 ```

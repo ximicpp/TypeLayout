@@ -122,6 +122,10 @@ public:
         static_assert(is_local_serialization_free_v<T>,
             "Only locally serialization-free types can be registered.");
 
+        // layout_traits<T>::signature is a static constexpr data member with
+        // static storage duration -- string_view is permanently valid.
+        // Do not change signature to a local or non-static variable without
+        // switching local_signatures_ values to std::string.
         local_signatures_[std::string(key)] =
             std::string_view(layout_traits<T>::signature);
     }
@@ -137,6 +141,7 @@ public:
             "Only locally serialization-free types can be registered.");
 
         auto key = default_type_key<T>();
+        // layout_traits<T>::signature is static constexpr -- string_view is safe.
         local_signatures_[key] = std::string_view(layout_traits<T>::signature);
     }
 

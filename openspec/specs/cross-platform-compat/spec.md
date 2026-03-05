@@ -46,7 +46,6 @@ The library SHALL provide a tool to export TypeLayout signatures to C++ header f
 - **GIVEN** a type T
 - **WHEN** exported via `SigExporter::add<T>(name)`
 - **THEN** the stored layout signature SHALL be identical to `get_layout_signature<T>()`
-- **AND** the stored definition signature SHALL be identical to `get_definition_signature<T>()`
 
 ### Requirement: Compile-Time Compatibility Check
 The library SHALL provide constexpr functions (`sig_match`, `layout_match`, `definition_match`) for comparing signatures across platforms. The `layout_match` and `definition_match` functions SHALL delegate to `sig_match` and serve as semantic aliases. All shared preprocessor machinery (FOR_EACH macros) SHALL be defined in a single `detail/foreach.hpp` header, included by both `sig_export.hpp` and `compat_auto.hpp`. Code comments SHALL use terse, developer-oriented style without marketing language or academic jargon.

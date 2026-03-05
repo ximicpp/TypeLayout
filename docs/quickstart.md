@@ -23,19 +23,15 @@ using namespace boost::typelayout;
 struct SenderMsg   { uint32_t id; uint64_t timestamp; double value; };
 struct ReceiverMsg { uint32_t id; uint64_t timestamp; double value; };
 
-// Compile-time verification: both layers
+// Compile-time layout verification
 static_assert(layout_signatures_match<SenderMsg, ReceiverMsg>(),
     "Binary layout mismatch -- unsafe to memcpy");
-static_assert(definition_signatures_match<SenderMsg, ReceiverMsg>(),
-    "Structural mismatch -- field names or hierarchy differ");
 
 int main() {
-    // Print the signatures for inspection
+    // Print the signature for inspection
     constexpr auto layout = get_layout_signature<SenderMsg>();
-    constexpr auto defn   = get_definition_signature<SenderMsg>();
 
-    std::cout << "Layout:     " << layout     << "\n";
-    std::cout << "Definition: " << defn        << "\n";
+    std::cout << "Layout: " << layout << "\n";
     std::cout << "Match: YES\n";
     return 0;
 }
@@ -55,8 +51,7 @@ clang++ -std=c++26 -freflection -I include check.cpp -o check
 Expected output (on x86-64, little-endian):
 
 ```
-Layout:     [64-le]record[s:24,a:8]{@0:u32[s:4,a:4],@8:u64[s:8,a:8],@16:f64[s:8,a:8]}
-Definition: [64-le]record[s:24,a:8]{@0[id]:u32[s:4,a:4],@8[timestamp]:u64[s:8,a:8],@16[value]:f64[s:8,a:8]}
+Layout: [64-le]record[s:24,a:8]{@0:u32[s:4,a:4],@8:u64[s:8,a:8],@16:f64[s:8,a:8]}
 Match: YES
 ```
 
@@ -76,12 +71,11 @@ static_assert(layout_signatures_match<SenderMsg, ReceiverMsg>());
 ## 4. Reading a Signature
 
 ```
-[64-le]record[s:24,a:8]{@0[id]:u32[s:4,a:4],@8[timestamp]:u64[s:8,a:8],@16[value]:f64[s:8,a:8]}
- ^      ^      ^    ^    ^  ^    ^    ^   ^
- |      |      |    |    |  |    |    |   alignment
- |      |      |    |    |  |    |    size
- |      |      |    |    |  |    type name
- |      |      |    |    |  field name (Definition only)
+[64-le]record[s:24,a:8]{@0:u32[s:4,a:4],@8:u64[s:8,a:8],@16:f64[s:8,a:8]}
+ ^      ^      ^    ^    ^    ^    ^   ^
+ |      |      |    |    |    |    |   alignment
+ |      |      |    |    |    |    size
+ |      |      |    |    |    type name
  |      |      |    |    byte offset
  |      |      |    struct alignment
  |      |      struct size
@@ -89,17 +83,15 @@ static_assert(layout_signatures_match<SenderMsg, ReceiverMsg>());
  platform prefix: pointer width + endianness
 ```
 
-## 5. Which Function to Use?
+## 5. Layout Matching
 
-| Question | Function |
-|----------|----------|
-| "Can I safely `memcpy` between these types?" | `layout_signatures_match<T, U>()` |
-| "Are these types structurally identical?" | `definition_signatures_match<T, U>()` |
-| "I am not sure which one I need" | `definition_signatures_match` (safer default) |
+`layout_signatures_match<T, U>()` is the primary function. It returns `true` when
+`T` and `U` have identical byte layouts — same field offsets, sizes, and alignments.
 
-`definition_match` implies `layout_match` (Projection property), so
-Definition is strictly safer -- it catches everything Layout catches,
-plus field renames and inheritance changes.
+```cpp
+static_assert(layout_signatures_match<SenderMsg, ReceiverMsg>(),
+    "Binary layout mismatch -- unsafe to memcpy");
+```
 
 ## 6. Cross-Platform Verification
 

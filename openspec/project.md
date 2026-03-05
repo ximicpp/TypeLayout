@@ -1,11 +1,11 @@
 # Project Context
 
 ## Purpose
-Boost.TypeLayout 是一个 C++26 header-only 库，使用 P2996 静态反射提供编译时内存布局分析和验证。通过两层签名系统（Layout / Definition）唯一标识类型的内存布局和结构。
+Boost.TypeLayout 是一个 C++26 header-only 库，使用 P2996 静态反射提供编译时内存布局分析和验证。通过 Layout 签名系统唯一标识类型的内存布局。
+
+> **实现状态**: 当前版本仅实现 Layout 签名层（`get_layout_signature`、`layout_signatures_match`）。Definition 签名层为未来规划功能。
 
 **核心保证**: `Identical layout signature ⟹ Identical memory layout`（相同签名→相同内存布局；反之不一定成立，如数组 vs 散字段）
-
-**投影关系**: `definition_match(T, U) ⟹ layout_match(T, U)`（反之不成立）
 
 ### 核心价值（V1/V2/V3）
 

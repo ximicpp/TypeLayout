@@ -1,7 +1,11 @@
-# Application Scenario Analysis: Two-Layer Signature System
+# Application Scenario Analysis: Layout Signature System
 
-本文档系统分析 Boost.TypeLayout 两层签名系统（Layout / Definition）在 6 个典型应用场景中的
-具体角色、层选择理由、形式化正确性保证和边界条件。
+> **实现状态**: 当前版本仅实现 **Layout 签名层**（`get_layout_signature`、`layout_signatures_match`）。
+> 本文档部分内容引用了 Definition 签名层（`definition_signatures_match` 等），
+> 这些属于未来规划功能，当前不可用。
+
+本文档系统分析 Boost.TypeLayout Layout 签名系统在 6 个典型应用场景中的
+具体角色、形式化正确性保证和边界条件。
 
 **前置阅读：** 本文档假设读者熟悉 `PROOFS.md` 中的核心定理和术语。
 

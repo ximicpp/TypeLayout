@@ -38,32 +38,6 @@ constexpr auto sig = get_layout_signature<Msg>();
 
 ---
 
-### `get_definition_signature<T>()`
-
-```cpp
-// Header: <boost/typelayout/signature.hpp>
-template <typename T>
-[[nodiscard]] consteval auto get_definition_signature() noexcept;
-```
-
-Returns a `FixedString` containing the **Definition signature** of `T`.
-
-Definition signatures preserve full type structure: field names, inheritance
-hierarchy (base classes with qualified names), virtual bases, and polymorphic
-markers. This is a strict refinement of the Layout layer.
-
-**Preconditions**: Same as `get_layout_signature`.
-
-**Example**:
-```cpp
-struct Base { int32_t x; };
-struct Derived : Base { double y; };
-constexpr auto sig = get_definition_signature<Derived>();
-// sig == "[64-le]record[s:16,a:8]{~base<Base>:record[...]{@0[x]:i32[...]},@8[y]:f64[...]}"
-```
-
----
-
 ### `layout_signatures_match<T, U>()`
 
 ```cpp
@@ -86,28 +60,6 @@ static_assert(layout_signatures_match<A, B>());
 
 ---
 
-### `definition_signatures_match<T, U>()`
-
-```cpp
-// Header: <boost/typelayout/signature.hpp>
-template <typename T1, typename T2>
-[[nodiscard]] consteval bool definition_signatures_match() noexcept;
-```
-
-Returns `true` if `T1` and `T2` have identical Definition signatures.
-
-**Projection property**: `definition_signatures_match<T, U>()` implies
-`layout_signatures_match<T, U>()`, but not the converse.
-
-**Example**:
-```cpp
-struct A { int32_t x; int32_t y; };
-struct B { int32_t x; int32_t y; };
-static_assert(definition_signatures_match<A, B>());  // same names + layout
-```
-
----
-
 ### `get_arch_prefix()`
 
 ```cpp
@@ -118,26 +70,8 @@ static_assert(definition_signatures_match<A, B>());  // same names + layout
 Returns the platform prefix string: `"[64-le]"`, `"[64-be]"`, `"[32-le]"`,
 or `"[32-be]"` based on `sizeof(void*)` and endianness.
 
-This prefix is automatically prepended by `get_layout_signature` and
-`get_definition_signature`. You rarely need to call this directly.
-
----
-
-### `is_fixed_enum<T>()`
-
-```cpp
-// Header: <boost/typelayout/detail/reflect.hpp>
-template <typename T>
-[[nodiscard]] consteval bool is_fixed_enum() noexcept;
-```
-
-Returns `true` if enum type `T` has a fixed underlying type.
-
-**Preconditions**: `T` must be an enum type (`static_assert` enforced).
-
-**Known limitation**: For unscoped enums without an explicit underlying type,
-this function returns `true` (best-effort; the compiler infers a type that
-appears fixed). This is a documented conservative behavior.
+This prefix is automatically prepended by `get_layout_signature`. You rarely
+need to call this directly.
 
 ---
 
@@ -350,18 +284,6 @@ CTAD: `FixedString("hello")` deduces `FixedString<5>`.
 
 ---
 
-### `SignatureMode`
-
-```cpp
-// Header: <boost/typelayout/fwd.hpp>
-enum class SignatureMode { Layout, Definition };
-```
-
-Selects which signature layer to compute. Used internally by `TypeSignature`
-specializations and by the opaque macros.
-
----
-
 ### `to_fixed_string(num)`
 
 ```cpp
@@ -381,10 +303,9 @@ signatures.
 | Header | Contents |
 |--------|----------|
 | `typelayout.hpp` | Umbrella -- includes everything below |
-| `signature.hpp` | `get_layout_signature`, `get_definition_signature`, match functions |
+| `signature.hpp` | `get_layout_signature`, `layout_signatures_match`, `get_arch_prefix` |
 | `fixed_string.hpp` | `FixedString<N>`, `to_fixed_string` |
-| `fwd.hpp` | `SignatureMode`, forward declarations |
+| `fwd.hpp` | Forward declarations |
 | `opaque.hpp` | `TYPELAYOUT_OPAQUE_*` macros |
 | `tools/sig_export.hpp` | `SigExporter`, `TYPELAYOUT_EXPORT_TYPES` |
 | `tools/compat_check.hpp` | `CompatReporter` |
-| `tools/compat_auto.hpp` | `TYPELAYOUT_CHECK_COMPAT`, `TYPELAYOUT_ASSERT_COMPAT` |
