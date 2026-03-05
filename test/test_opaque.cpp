@@ -363,6 +363,40 @@ static_assert(
 );
 
 // =========================================================================
+// Part 9: CV-qualified opaque member handling
+// =========================================================================
+// A 'const OpaqueType' member must be treated as an opaque leaf node, not
+// flattened into its internal bytes.  This exercises the fix to
+// has_opaque_signature<T> which now strips cv-qualifiers before the check.
+
+namespace cv_opaque_test {
+    struct WithConstOpaque {
+        int32_t x;
+        const opaque_test::XString name;
+        double value;
+    };
+}
+
+constexpr auto cv_block_layout =
+    TypeSignature<cv_opaque_test::WithConstOpaque>::calculate();
+
+// 22. const-qualified opaque member appears as opaque leaf, not expanded
+static_assert(
+    contains(cv_block_layout, "O!xstring[s:32,a:1]"),
+    "CV-qualified opaque member must be emitted as opaque leaf, not flattened"
+);
+
+// 23. Other fields still present
+static_assert(
+    contains(cv_block_layout, "i32[s:4,a:4]"),
+    "CV-qualified opaque test: i32 field should still be present"
+);
+static_assert(
+    contains(cv_block_layout, "f64[s:8,a:8]"),
+    "CV-qualified opaque test: f64 field should still be present"
+);
+
+// =========================================================================
 // Main -- runtime confirmation
 // =========================================================================
 

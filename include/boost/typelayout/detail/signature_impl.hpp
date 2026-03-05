@@ -81,8 +81,8 @@ namespace typelayout {
     // Opaque specializations define `static constexpr bool is_opaque = true`.
     template <typename T>
     concept has_opaque_signature = requires {
-        { TypeSignature<T>::is_opaque } -> std::convertible_to<bool>;
-    } && TypeSignature<T>::is_opaque;
+        { TypeSignature<std::remove_cv_t<T>>::is_opaque } -> std::convertible_to<bool>;
+    } && TypeSignature<std::remove_cv_t<T>>::is_opaque;
 
     // Helper: generate an "embedded" signature for an empty type.
     //

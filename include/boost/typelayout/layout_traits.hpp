@@ -320,9 +320,9 @@ struct layout_traits {
     /// is determined by the user's pointer_free assertion (inverted).
     /// For all other types, it is detected by scanning the signature.
     static constexpr bool has_pointer = []() consteval {
-        if constexpr (requires { TypeSignature<T>::pointer_free; }) {
+        if constexpr (requires { TypeSignature<std::remove_cv_t<T>>::pointer_free; }) {
             // Opaque type with explicit user assertion
-            return !TypeSignature<T>::pointer_free;
+            return !TypeSignature<std::remove_cv_t<T>>::pointer_free;
         } else {
             return detail::sig_has_pointer(signature);
         }
