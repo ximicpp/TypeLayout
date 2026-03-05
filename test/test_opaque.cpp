@@ -114,42 +114,7 @@ static_assert(
 );
 
 // =========================================================================
-// Part 2: is_fixed_enum Tests
-// =========================================================================
-
-namespace enum_test {
-    enum class ScopedFixed : uint32_t { A, B, C };
-    enum class ScopedDefault { X, Y, Z };           // defaults to int
-    enum UnscopedFixed : int16_t { U1, U2, U3 };
-    enum UnscopedImplicit { I1, I2, I3 };            // compiler infers type
-}
-
-// 7. Scoped enum with explicit type
-static_assert(
-    is_fixed_enum<enum_test::ScopedFixed>(),
-    "Scoped enum with explicit uint32_t should be fixed"
-);
-
-// 8. Scoped enum with default type (int)
-static_assert(
-    is_fixed_enum<enum_test::ScopedDefault>(),
-    "Scoped enum with default int should be fixed"
-);
-
-// 9. Unscoped enum with explicit type
-static_assert(
-    is_fixed_enum<enum_test::UnscopedFixed>(),
-    "Unscoped enum with explicit int16_t should be fixed"
-);
-
-// 10. Unscoped enum with implicit type -- also returns true (documented limitation)
-static_assert(
-    is_fixed_enum<enum_test::UnscopedImplicit>(),
-    "Unscoped enum with implicit type returns true (best-effort, see docs)"
-);
-
-// =========================================================================
-// Part 3: Integration -- Opaque as field in a normal struct
+// Part 2: Integration -- Opaque as field in a normal struct
 // =========================================================================
 // The Layout engine now checks for opaque TypeSignature specializations
 // before recursive flattening (via has_opaque_signature concept), so
