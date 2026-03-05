@@ -70,15 +70,15 @@
 #define TYPELAYOUT_OPAQUE_CONTAINER(Template, name, size, align)               \
     template <typename T_>                                                      \
     struct TypeSignature<Template<T_>> {                                        \
+        static_assert(sizeof(Template<T_>) == (size),                           \
+            "TYPELAYOUT_OPAQUE_CONTAINER: size does not match "                 \
+            "sizeof(" #Template "<T>)");                                        \
+        static_assert(alignof(Template<T_>) == (align),                         \
+            "TYPELAYOUT_OPAQUE_CONTAINER: align does not match "                \
+            "alignof(" #Template "<T>)");                                       \
         static constexpr bool is_opaque = true;                                \
         static constexpr bool pointer_free = false;                            \
         static consteval auto calculate() noexcept {                           \
-            static_assert(sizeof(Template<T_>) == (size),                       \
-                "TYPELAYOUT_OPAQUE_CONTAINER: size does not match "             \
-                "sizeof(" #Template "<T>)");                                    \
-            static_assert(alignof(Template<T_>) == (align),                     \
-                "TYPELAYOUT_OPAQUE_CONTAINER: align does not match "            \
-                "alignof(" #Template "<T>)");                                   \
             return ::boost::typelayout::FixedString{                           \
                        "O!" name "[s:" #size ",a:" #align "]<"} +                   \
                    TypeSignature<T_>::calculate() +                            \
@@ -103,15 +103,15 @@
 #define TYPELAYOUT_OPAQUE_MAP(Template, name, size, align)                     \
     template <typename K_, typename V_>                                         \
     struct TypeSignature<Template<K_, V_>> {                                    \
+        static_assert(sizeof(Template<K_, V_>) == (size),                       \
+            "TYPELAYOUT_OPAQUE_MAP: size does not match "                       \
+            "sizeof(" #Template "<K,V>)");                                      \
+        static_assert(alignof(Template<K_, V_>) == (align),                     \
+            "TYPELAYOUT_OPAQUE_MAP: align does not match "                      \
+            "alignof(" #Template "<K,V>)");                                     \
         static constexpr bool is_opaque = true;                                \
         static constexpr bool pointer_free = false;                            \
         static consteval auto calculate() noexcept {                           \
-            static_assert(sizeof(Template<K_, V_>) == (size),                   \
-                "TYPELAYOUT_OPAQUE_MAP: size does not match "                   \
-                "sizeof(" #Template "<K,V>)");                                  \
-            static_assert(alignof(Template<K_, V_>) == (align),                 \
-                "TYPELAYOUT_OPAQUE_MAP: align does not match "                  \
-                "alignof(" #Template "<K,V>)");                                 \
             return ::boost::typelayout::FixedString{                           \
                        "O!" name "[s:" #size ",a:" #align "]<"} +                   \
                    TypeSignature<K_>::calculate() +                            \

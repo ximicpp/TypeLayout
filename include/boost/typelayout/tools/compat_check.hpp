@@ -58,7 +58,7 @@ inline const char* safety_stars(SafetyLevel level) noexcept {
     switch (level) {
         case SafetyLevel::TrivialSafe:     return "***";
         case SafetyLevel::PaddingRisk:     return "**-";
-        case SafetyLevel::PointerRisk:     return "**-";
+        case SafetyLevel::PointerRisk:     return "*!-";
         case SafetyLevel::PlatformVariant: return "*--";
         case SafetyLevel::Opaque:          return "---";
     }
@@ -182,7 +182,7 @@ public:
         }
         os << "\n";
 
-        os << "Safety: *** = zero-copy ok, **- = has pointers/padding, *-- = platform-variant.\n\n";
+        os << "Safety: *** = zero-copy ok, **- = padding risk, *!- = pointer risk, *-- = platform-variant.\n\n";
 
         os << std::string(72, '-') << "\n";
         os << "  " << std::left << std::setw(24) << "Type"

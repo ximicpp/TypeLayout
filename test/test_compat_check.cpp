@@ -214,7 +214,7 @@ void test_safety_classification() {
     assert(std::string(safety_label(SafetyLevel::PointerRisk)) == "Warn");
     assert(std::string(safety_label(SafetyLevel::PlatformVariant)) == "Risk");
     assert(std::string(safety_stars(SafetyLevel::TrivialSafe)) == "***");
-    assert(std::string(safety_stars(SafetyLevel::PointerRisk)) == "**-");
+    assert(std::string(safety_stars(SafetyLevel::PointerRisk)) == "*!-");
     assert(std::string(safety_stars(SafetyLevel::PlatformVariant)) == "*--");
 
     std::cout << "  [PASS] Safety classification\n";

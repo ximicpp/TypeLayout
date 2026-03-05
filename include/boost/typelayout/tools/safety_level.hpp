@@ -155,7 +155,8 @@ constexpr bool sig_has_padding(std::string_view sig) noexcept {
     std::size_t count = 0;
 
     std::size_t pos = 0;
-    while (pos < content.size() && count < MAX_FIELDS) {
+    while (pos < content.size()) {
+        if (count >= MAX_FIELDS) return true;  // too many fields to verify: conservatively assume padding
         // Delimit this entry: find next depth-0 comma or end
         std::size_t entry_start = pos;
         int d = 0;
