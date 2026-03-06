@@ -63,6 +63,11 @@ We will demonstrate real-world applications with live cross-platform comparisons
 
 **Part 3: Two Layers — Layout vs Definition (10 min)**
 
+> **Note**: The Definition signature layer described in this section is a
+> planned feature (not yet implemented). The current talk outline can be
+> adapted to focus solely on the Layout layer and safety classification, or
+> this section can be presented as roadmap/future work.
+
 *"Same bytes, different meaning."*
 
 - Why one layer isn't enough:
@@ -173,6 +178,6 @@ The formal correctness and detailed application sections would be condensed into
 
 *(All materials available upon acceptance; anonymous repository link provided to reviewers on request.)*
 
-- **Formal Proofs**: 900+ lines of denotational semantics proofs (Soundness, Injectivity, Projection Theorem)
+- **Formal Proofs**: Denotational semantics proofs (Soundness, Injectivity) in `docs/proofs/`
 - **Application Analysis**: 1100+ lines covering 6 real-world scenarios (IPC, plugins, file formats, ODR detection)
 - **Cross-Platform Demo**: 3-platform comparison with pre-generated signatures

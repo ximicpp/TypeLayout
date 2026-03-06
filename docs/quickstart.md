@@ -202,17 +202,17 @@ Platforms compared: 3
   * x86_64_windows_msvc [64-le]
     pointer=8B, long=4B, wchar_t=2B, long_double=8B, max_align=16B
 
-Safety: *** = zero-copy ok, **- = has pointers/vptr, *-- = bit-fields.
+Safety: *** = zero-copy ok, **- = padding risk, *!- = pointer risk, *-- = platform-variant.
 
---------------------------------------------------------------------------------
-  Type                      Layout  Definition  Safety  Verdict
---------------------------------------------------------------------------------
-  PacketHeader               MATCH       MATCH    ***  Serialization-free
-  SharedMemRegion             MATCH       MATCH    ***  Serialization-free
-  SensorRecord                MATCH       MATCH    ***  Serialization-free
-  UnsafeStruct               DIFFER      DIFFER    *--  Needs serialization
-  UnsafeWithPointer           MATCH       MATCH    **-  Layout OK (pointer values not portable)
---------------------------------------------------------------------------------
+------------------------------------------------------------------------
+  Type                      Layout  Safety  Verdict
+------------------------------------------------------------------------
+  PacketHeader               MATCH    ***  Serialization-free
+  SharedMemRegion            MATCH    ***  Serialization-free
+  SensorRecord               MATCH    ***  Serialization-free
+  UnsafeStruct              DIFFER    *--  Needs serialization
+  UnsafeWithPointer          MATCH    *!-  Layout OK (pointer values not portable)
+------------------------------------------------------------------------
 
   [DIFFER] UnsafeStruct layout signatures:
     x86_64_linux_clang: [64-le]record[s:48,a:16]{@0:i64[s:8,a:8],...}

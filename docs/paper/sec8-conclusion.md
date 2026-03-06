@@ -70,15 +70,17 @@ Similar systems could be built for Rust (using procedural macros), Zig
 We have presented TypeLayout, a compile-time type layout signature system
 for C++ based on C++26 static reflection (P2996). The key contributions are:
 
-1. **A two-layer signature system** that distinguishes byte identity (Layout)
-   from structural identity (Definition), enabling users to choose the
-   appropriate level of verification strictness for their use case.
+1. **A layout signature system** that encodes complete byte-level type
+   identity — every field offset, alignment, padding, and inheritance level —
+   in a single deterministic string, enabling compile-time layout verification
+   with zero false positives.
+   *(A planned two-layer extension adding a Definition signature layer for
+   structural name-preserving identity is not yet implemented.)*
 
 2. **Formal correctness proofs** establishing that the system is *sound*
-   (zero false positives), *injective* (different layouts produce different
-   signatures), and *well-ordered* (Definition strictly refines Layout).
-   These proofs, grounded in denotational semantics and refinement theory,
-   provide a level of correctness assurance rare in C++ libraries.
+   (zero false positives) and *injective* (different layouts produce different
+   signatures). These proofs, grounded in denotational semantics, provide a
+   level of correctness assurance rare in C++ libraries.
 
 3. **A cross-platform verification toolchain** that decouples signature
    generation (requiring P2996) from signature comparison (any C++17

@@ -249,28 +249,6 @@ error would be caught.
 **Mitigation**: The cross-validation `static_assert` acts as a safety net.
 
 
-### (!) 4. `is_fixed_enum` is Defined but Not Used
-
-```cpp
-template <typename T>
-[[nodiscard]] consteval bool is_fixed_enum() noexcept { ... }
-```
-
-This function is defined in `reflect.hpp` but never called in signature generation or
-classification. The primary template's enum branch unconditionally generates a signature
-without checking whether the underlying type is explicitly fixed.
-
-This means `enum E { A, B, C };` (no explicit underlying type) will produce the same
-signature as `enum E : int { A, B, C };`, even though the former's underlying type may
-theoretically differ across platforms.
-
-**Mitigation**: The function's own comments (lines 54-60 of `reflect.hpp`) acknowledge
-this limitation -- C++ provides no API to distinguish an explicitly specified underlying
-type from a compiler-inferred one, so the function is a best-effort approximation.
-In practice, all major compilers use `int` as the default underlying type for unscoped
-enums.
-
-
 ---
 
 ## Conclusion

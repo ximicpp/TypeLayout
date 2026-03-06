@@ -102,6 +102,10 @@ proofs as a means of establishing trust in safety-critical tools.
 
 ## 7.5 Structural vs Nominal Type Equivalence
 
+> **Implementation Note**: The Definition signature layer described in this
+> section is a planned feature and is **not yet implemented** in the current
+> codebase. The current implementation provides the Layout signature layer only.
+
 The distinction between TypeLayout's Layout and Definition signatures
 connects to a classical PL theory question: *structural* vs *nominal*
 type equivalence [Pierce 2002].

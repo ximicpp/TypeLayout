@@ -64,7 +64,7 @@ namespace platform_a {
         {"PacketHeader", PacketHeader_layout},
         {"UnsafeType", UnsafeType_layout},
     };
-    inline constexpr int type_count = 2;
+    inline constexpr std::size_t type_count = 2;
 }
 
 namespace platform_b {
@@ -80,7 +80,7 @@ namespace platform_b {
         {"PacketHeader", PacketHeader_layout},
         {"UnsafeType", UnsafeType_layout},
     };
-    inline constexpr int type_count = 2;
+    inline constexpr std::size_t type_count = 2;
 }
 
 void test_compat_reporter() {
