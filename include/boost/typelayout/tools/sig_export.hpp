@@ -188,7 +188,7 @@ private:
         }
         os << "};\n";
         os << "\n";
-        os << "inline constexpr int type_count = "
+        os << "inline constexpr std::size_t type_count = "
            << entries_.size() << ";\n";
         os << "\n";
     }

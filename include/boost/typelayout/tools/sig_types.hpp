@@ -20,7 +20,7 @@ struct PlatformInfo {
     const char*      platform_name;
     const char*      arch_prefix;
     const TypeEntry* types;
-    int              type_count;
+    std::size_t      type_count;
     std::size_t      pointer_size;
     std::size_t      sizeof_long;
     std::size_t      sizeof_wchar_t;

@@ -44,7 +44,7 @@ namespace typelayout {
 //                          detect uncovered bytes in the layout)
 //
 // Structural metadata (from reflection, zero cost):
-//   field_count         -- number of non-static data members
+//   field_count         -- number of direct non-static data members (no bases)
 //   total_size          -- sizeof(T)
 //   alignment           -- alignof(T)
 // =========================================================================
@@ -134,6 +134,10 @@ template <typename T>
 consteval bool type_has_opaque() noexcept {
     if constexpr (has_opaque_signature<T>) {
         return true;
+    } else if constexpr (std::is_array_v<T>) {
+        // Strip all array dimensions and check the element type.
+        // OpaqueType[3] and OpaqueType[3][4] both reach the base type.
+        return type_has_opaque<std::remove_all_extents_t<T>>();
     } else if constexpr (std::is_class_v<T> && !std::is_union_v<T>) {
         constexpr std::size_t fc = get_member_count<T>();
         constexpr std::size_t bc = get_base_count<T>();
@@ -253,6 +257,38 @@ consteval void mark_type_coverage(std::array<bool, ArrSize>& covered) noexcept {
     mark_member_coverage<ArrSize, T, 0, fc, OffsetAdj>(covered);
 }
 
+// Forward declaration needed for mutual recursion between
+// compute_has_padding and any_member_array_elem_has_padding.
+template <typename T>
+consteval bool compute_has_padding() noexcept;
+
+// Check whether any direct member of T that is an array type has an element
+// type with internal padding.  This detects the case where the byte coverage
+// bitmap (which treats arrays as atomic leaf nodes) would miss padding inside
+// array elements, e.g. struct Foo { PaddedStruct arr[2]; }.
+//
+// The bitmap correctly identifies NO outer gap in Foo (the array field covers
+// all sizeof(Foo) bytes), but the element type PaddedStruct itself has padding.
+// This helper catches that by recursively calling compute_has_padding on the
+// base element type of every array field.
+template <typename T, std::size_t I, std::size_t N>
+consteval bool any_member_array_elem_has_padding() noexcept {
+    if constexpr (I >= N) {
+        return false;
+    } else {
+        using namespace std::meta;
+        constexpr auto member = nonstatic_data_members_of(^^T, access_context::unchecked())[I];
+        using FieldType = [:type_of(member):];
+        if constexpr (std::is_array_v<FieldType>) {
+            using ElemType = std::remove_all_extents_t<FieldType>;
+            if constexpr (compute_has_padding<ElemType>()) {
+                return true;
+            }
+        }
+        return any_member_array_elem_has_padding<T, I + 1, N>();
+    }
+}
+
 // Compute has_padding for type T using byte coverage analysis.
 //
 // Creates a bool bitmap of sizeof(T) bytes, recursively marks every
@@ -263,6 +299,10 @@ consteval void mark_type_coverage(std::array<bool, ArrSize>& covered) noexcept {
 // This correctly handles EBO, [[no_unique_address]], bit-fields, and
 // nested struct internal padding (which the old sizeof-summation
 // approach could not).
+//
+// Array fields are treated as atomic by the bitmap (the full array byte
+// range is marked covered), but any_member_array_elem_has_padding is
+// called afterward to detect padding inside array element types.
 template <typename T>
 consteval bool compute_has_padding() noexcept {
     if constexpr (std::is_fundamental_v<T> || std::is_pointer_v<T> ||
@@ -290,7 +330,10 @@ consteval bool compute_has_padding() noexcept {
             for (std::size_t i = 0; i < sizeof(T); ++i) {
                 if (!covered[i]) return true;
             }
-            return false;
+            // The bitmap treats array fields as atomic leaf nodes, so it
+            // cannot detect padding inside array element types.  Check
+            // each array member's element type separately.
+            return any_member_array_elem_has_padding<T, 0, fc>();
         }
     } else {
         return false;
@@ -382,7 +425,9 @@ struct layout_traits {
     // Structural metadata (from sizeof/alignof and reflection)
     // =================================================================
 
-    /// Number of direct non-static data members.
+    /// Number of direct non-static data members (does NOT include members
+    /// inherited from base classes).  For the total flattened field count,
+    /// sum field_count across the inheritance hierarchy manually.
     static constexpr std::size_t field_count = []() consteval {
         if constexpr (std::is_class_v<T> || std::is_union_v<T>) {
             return get_member_count<T>();

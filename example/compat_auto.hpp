@@ -36,7 +36,7 @@ namespace detail {
 inline constexpr bool all_layouts_match(const PlatformInfo& a,
                                         const PlatformInfo& b) {
     if (a.type_count != b.type_count) return false;
-    for (int i = 0; i < a.type_count; ++i) {
+    for (std::size_t i = 0; i < a.type_count; ++i) {
         const char* sa = a.types[i].layout_sig;
         const char* sb = b.types[i].layout_sig;
         int j = 0;

@@ -88,7 +88,7 @@ struct TypeResult {
 struct PlatformData {
     std::string       name;
     const TypeEntry*  types;
-    int               type_count;
+    std::size_t       type_count;
     std::size_t       pointer_size      = 0;
     std::size_t       sizeof_long       = 0;
     std::size_t       sizeof_wchar_t    = 0;
@@ -112,7 +112,7 @@ public:
     void add_platform(const PlatformData& pd) { platforms_.push_back(pd); }
 
     void add_platform(const std::string& name,
-                      const TypeEntry* types, int count) {
+                      const TypeEntry* types, std::size_t count) {
         platforms_.push_back({name, types, count});
     }
 
@@ -122,9 +122,9 @@ public:
 
         const auto& ref = platforms_[0];
         std::vector<TypeResult> results;
-        results.reserve(static_cast<std::size_t>(ref.type_count));
+        results.reserve(ref.type_count);
 
-        for (int i = 0; i < ref.type_count; ++i) {
+        for (std::size_t i = 0; i < ref.type_count; ++i) {
             TypeResult tr;
             tr.name = ref.types[i].name;
             tr.layout_match = true;
@@ -275,7 +275,7 @@ private:
 
     static const TypeEntry* find_type(const PlatformData& plat,
                                       const std::string& name) {
-        for (int i = 0; i < plat.type_count; ++i) {
+        for (std::size_t i = 0; i < plat.type_count; ++i) {
             if (std::string_view(plat.types[i].name) == name)
                 return &plat.types[i];
         }
