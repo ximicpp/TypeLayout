@@ -72,6 +72,32 @@ namespace typelayout {
         return qualified_name_for<^^T>();
     }
 
+    // Recursively check whether T (or any of its base classes) uses
+    // virtual inheritance.  Virtual bases introduce hidden vbptrs whose
+    // layout is compiler-specific, and diamond inheritance causes the
+    // flattening engine to double-count the shared virtual base.
+    template <typename T>
+    consteval bool has_virtual_base() noexcept;
+
+    template <typename T, std::size_t I, std::size_t N>
+    consteval bool any_base_is_virtual() noexcept {
+        if constexpr (I >= N) return false;
+        else {
+            constexpr auto base_info =
+                std::meta::bases_of(^^T, std::meta::access_context::unchecked())[I];
+            using BaseType = [:std::meta::type_of(base_info):];
+            if constexpr (std::meta::is_virtual(base_info)) return true;
+            else if constexpr (has_virtual_base<BaseType>()) return true;
+            else return any_base_is_virtual<T, I + 1, N>();
+        }
+    }
+
+    template <typename T>
+    consteval bool has_virtual_base() noexcept {
+        if constexpr (!std::is_class_v<T>) return false;
+        else return any_base_is_virtual<T, 0, get_base_count<T>()>();
+    }
+
 } // namespace typelayout
 } // namespace boost
 

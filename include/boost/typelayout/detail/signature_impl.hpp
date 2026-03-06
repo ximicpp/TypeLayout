@@ -211,6 +211,11 @@ namespace typelayout {
 
     template <typename T, std::size_t OffsetAdj>
     consteval auto layout_all_prefixed() noexcept {
+        static_assert(!has_virtual_base<T>(),
+            "TypeLayout: types with virtual inheritance are not supported. "
+            "Virtual bases introduce hidden vbptrs whose layout is "
+            "compiler-specific, and diamond inheritance causes the "
+            "flattening engine to double-count the shared virtual base.");
         constexpr std::size_t bc = get_base_count<T>();
         constexpr std::size_t fc = get_member_count<T>();
         if constexpr (bc == 0 && fc == 0) return FixedString{""};

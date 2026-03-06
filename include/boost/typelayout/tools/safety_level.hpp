@@ -233,6 +233,35 @@ constexpr SigPaddingResult check_one_record(std::string_view sig,
     return {covered_end < total_size, false};  // tail padding check
 }
 
+/// Helper: compute the "union nesting depth" at a given position.
+/// Scans sig[0..pos) and counts how many union block braces are open.
+/// A union block starts with "union[" ... "{" and ends with the matching "}".
+constexpr std::size_t union_depth_at(std::string_view sig,
+                                     std::size_t pos) noexcept {
+    constexpr std::string_view union_tag = "union[";
+    std::size_t depth = 0;
+    std::size_t i = 0;
+    while (i < pos) {
+        if (i + union_tag.size() <= sig.size() &&
+            sig.substr(i, union_tag.size()) == union_tag) {
+            // Found "union[" — skip to its '{' to enter the block.
+            auto brace = sig.find('{', i + union_tag.size());
+            if (brace != std::string_view::npos && brace < pos) {
+                ++depth;
+                i = brace + 1;
+                continue;
+            }
+        }
+        if (depth > 0 && sig[i] == '{') {
+            ++depth;
+        } else if (depth > 0 && sig[i] == '}') {
+            --depth;
+        }
+        ++i;
+    }
+    return depth;
+}
+
 /// Parse a layout signature to detect padding gaps at any nesting level.
 ///
 /// Scans the ENTIRE signature string for ALL "record[s:SIZE,...]{...}"
@@ -244,10 +273,12 @@ constexpr SigPaddingResult check_one_record(std::string_view sig,
 ///   struct Foo { PaddedStruct arr[2]; };
 /// where the outer record has no outer gap, but the element type does.
 ///
+/// Records nested inside union blocks are SKIPPED because union padding
+/// is semantically ambiguous (depends on the active member at runtime).
+/// See compute_has_padding in layout_traits.hpp for rationale.
+///
 /// Returns {false, false} if no record with padding is found.
 /// Returns {true, true}  if any record exceeded MAX_FIELDS (conservative).
-/// Note: union blocks ("union[s:...") are NOT checked for padding.
-/// See compute_has_padding in layout_traits.hpp for rationale.
 constexpr SigPaddingResult sig_has_padding_impl(std::string_view sig) noexcept {
     std::size_t search_pos = 0;
     constexpr std::string_view needle = "record[s:";
@@ -256,6 +287,12 @@ constexpr SigPaddingResult sig_has_padding_impl(std::string_view sig) noexcept {
     while (search_pos < sig.size()) {
         auto rec_pos = sig.find(needle, search_pos);
         if (rec_pos == std::string_view::npos) break;
+
+        // Skip records nested inside union blocks.
+        if (union_depth_at(sig, rec_pos) > 0) {
+            search_pos = rec_pos + needle.size();
+            continue;
+        }
 
         auto result = check_one_record(sig, rec_pos);
         if (result.has_padding) return result;
