@@ -246,6 +246,8 @@ constexpr SigPaddingResult check_one_record(std::string_view sig,
 ///
 /// Returns {false, false} if no record with padding is found.
 /// Returns {true, true}  if any record exceeded MAX_FIELDS (conservative).
+/// Note: union blocks ("union[s:...") are NOT checked for padding.
+/// See compute_has_padding in layout_traits.hpp for rationale.
 constexpr SigPaddingResult sig_has_padding_impl(std::string_view sig) noexcept {
     std::size_t search_pos = 0;
     constexpr std::string_view needle = "record[s:";

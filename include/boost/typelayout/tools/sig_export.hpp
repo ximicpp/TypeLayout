@@ -49,6 +49,12 @@ public:
     /// Register a type for export.
     template <typename T>
     void add(const std::string& name) {
+        static_assert(std::is_trivially_copyable_v<T>,
+            "SigExporter::add<T>: only trivially copyable types should be exported. "
+            "Non-trivially-copyable types (e.g. polymorphic classes) cannot be safely "
+            "memcpy'd, and the cross-platform compatibility report cannot detect this "
+            "from the signature string alone.");
+
         constexpr auto layout = get_layout_signature<T>();
 
         entries_.push_back({

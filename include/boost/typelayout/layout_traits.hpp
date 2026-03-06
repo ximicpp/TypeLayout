@@ -336,6 +336,12 @@ consteval bool compute_has_padding() noexcept {
             return any_member_array_elem_has_padding<T, 0, fc>();
         }
     } else {
+        // Union types: all members share offset 0, so "padding" in a union
+        // is semantically ambiguous — the unused bytes depend on which member
+        // is active at runtime.  We return false to match sig_has_padding
+        // (which only parses "record[s:..." blocks).  Users dealing with
+        // information-leakage scenarios should manually audit union-containing
+        // types.
         return false;
     }
 }
