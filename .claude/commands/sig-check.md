@@ -39,7 +39,7 @@ int main() {
     using T = USER_TYPE;
     constexpr auto sig = get_layout_signature<T>();
     constexpr auto traits = layout_traits<T>{};
-    auto safety = tools::classify<T>();
+    constexpr auto level = classify_v<T>;
 
     std::cout << "Type:         USER_TYPE\n";
     std::cout << "Signature:    " << sig.value << "\n";
@@ -49,7 +49,14 @@ int main() {
     std::cout << "has_opaque:   " << traits.has_opaque << "\n";
     std::cout << "has_padding:  " << traits.has_padding << "\n";
     std::cout << "field_count:  " << traits.field_count << "\n";
-    std::cout << "Safety:       " << static_cast<int>(safety.level) << " (" << safety.reason << ")\n";
+    std::cout << "Safety:       " << static_cast<int>(level)
+              << (level == SafetyLevel::TrivialSafe    ? " (TrivialSafe)"    :
+                  level == SafetyLevel::PaddingRisk    ? " (PaddingRisk)"    :
+                  level == SafetyLevel::PointerRisk    ? " (PointerRisk)"    :
+                  level == SafetyLevel::PlatformVariant? " (PlatformVariant)":
+                  level == SafetyLevel::Opaque         ? " (Opaque)"         :
+                                                         " (Unknown)")
+              << "\n";
     return 0;
 }
 SRCEOF
