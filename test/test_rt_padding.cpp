@@ -40,6 +40,38 @@ void test_edge() {
     std::cout << "  [PASS] edge cases\n";
 }
 
+void test_nested_array_element_padding() {
+    using detail::sig_has_padding;
+
+    // Outer record has no outer gap (array field covers all bytes), but
+    // the element type record[s:8,a:4]{@0:i8,@4:i32} has an inner gap.
+    // Fixes P1b: sig_has_padding_impl must scan all nested record blocks.
+    //
+    // Signature for struct Foo { PaddedStruct items[2]; }:
+    //   record[s:16,a:4]{@0:array[s:16,a:4]<record[s:8,a:4]{@0:i8[s:1,a:1],@4:i32[s:4,a:4]},2>}
+    assert(sig_has_padding(
+        "[64-le]record[s:16,a:4]"
+        "{@0:array[s:16,a:4]"
+        "<record[s:8,a:4]{@0:i8[s:1,a:1],@4:i32[s:4,a:4]},2>}"));
+
+    // Same but with a compact element type (no element padding): must be false.
+    // record[s:8,a:4]{@0:i32[s:4,a:4],@4:i32[s:4,a:4]} has no gap.
+    assert(!sig_has_padding(
+        "[64-le]record[s:16,a:4]"
+        "{@0:array[s:16,a:4]"
+        "<record[s:8,a:4]{@0:i32[s:4,a:4],@4:i32[s:4,a:4]},2>}"));
+
+    // Deeply nested: outer ok, middle ok, inner has padding.
+    assert(sig_has_padding(
+        "[64-le]record[s:32,a:4]"
+        "{@0:array[s:32,a:4]"
+        "<record[s:16,a:4]"
+        "{@0:array[s:16,a:4]<record[s:8,a:4]{@0:i8[s:1,a:1],@4:i32[s:4,a:4]},2>}"
+        ",2>}"));
+
+    std::cout << "  [PASS] nested array element padding\n";
+}
+
 void test_consistency() {
     using detail::sig_has_padding;
     assert(sig_has_padding("[64-le]record[s:8,a:4]{@0:i8[s:1,a:1],@4:i32[s:4,a:4]}"));
@@ -55,6 +87,7 @@ int main() {
     std::cout << "=== test_rt_padding ===\n";
     test_basic();
     test_edge();
+    test_nested_array_element_padding();
     test_consistency();
     std::cout << "All runtime padding tests passed.\n";
     return 0;

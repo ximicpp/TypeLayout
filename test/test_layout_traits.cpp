@@ -193,6 +193,20 @@ static_assert(
     "P3.4: ContainsOpaqueBlob contains an opaque member (recursive detection)"
 );
 
+// Test array-of-opaque detection: a struct whose member is an array of opaque type.
+// Fixes P0: type_has_opaque<OpaqueBlob[N]> must recurse into the element type.
+namespace test_types {
+struct ContainsOpaqueBlobArray {
+    int32_t count;
+    OpaqueBlob blobs[3];
+};
+} // namespace test_types
+
+static_assert(
+    layout_traits<test_types::ContainsOpaqueBlobArray>::has_opaque,
+    "P3.5: ContainsOpaqueBlobArray -- array of opaque elements must be detected as opaque"
+);
+
 // =========================================================================
 // Part 4: is_platform_variant detection
 // =========================================================================
@@ -336,6 +350,20 @@ static_assert(
     "P7.5: PaddedStruct has alignment padding between int8_t and int32_t"
 );
 
+// Array-of-padded-struct: the outer struct has no outer padding gap
+// (the array field covers all bytes), but the element type has internal
+// padding.  Fixes P1: compute_has_padding must recurse into array elements.
+namespace test_types {
+struct ArrayOfPadded {
+    PaddedStruct items[2];
+};
+} // namespace test_types
+
+static_assert(
+    layout_traits<test_types::ArrayOfPadded>::has_padding,
+    "P7.6: ArrayOfPadded -- array of padded elements must be detected as having padding"
+);
+
 // =========================================================================
 // Part 8: has_bit_field (no bit-field types defined, verify false for normal)
 // =========================================================================
@@ -439,7 +467,7 @@ static_assert(
 // =========================================================================
 
 int main() {
-    constexpr int total_tests = 37;
+    constexpr int total_tests = 39;
 
     std::cout << "=== layout_traits & signature_compare Tests ===\n\n";
 
@@ -455,6 +483,8 @@ int main() {
     std::cout << "WithMemPtr:   " << layout_traits<test_types::WithMemPtr>::signature.value << "\n";
     std::cout << "WithMemFnPtr: " << layout_traits<test_types::WithMemFnPtr>::signature.value << "\n";
     std::cout << "StandaloneFnPtr: " << layout_traits<test_types::StandaloneFnPtr>::signature.value << "\n";
+    std::cout << "ContainsOpaqueBlobArray: " << layout_traits<test_types::ContainsOpaqueBlobArray>::signature.value << "\n";
+    std::cout << "ArrayOfPadded:   " << layout_traits<test_types::ArrayOfPadded>::signature.value << "\n";
 
     std::cout << "\n--- Member pointer sizes ---\n";
     std::cout << "sizeof(int Base::*):              " << sizeof(int test_types::Base::*) << "\n";

@@ -57,6 +57,17 @@ struct ContainsOpaque {
     OpaqueData blob;
 };
 
+// -- Struct containing an array of opaque members (P0 fix: array element detection)
+struct ArrayOfOpaque {
+    int32_t count;
+    OpaqueData arr[3];
+};
+
+// -- Struct containing an array of padded structs (P1 fix: element padding detection)
+struct ArrayOfPadded {
+    PaddedStruct items[2];
+};
+
 struct WithWchar {
     wchar_t ch;
 };
@@ -135,6 +146,16 @@ static_assert(classify_v<PaddedStruct> == SafetyLevel::PaddingRisk,
 static_assert(classify_v<ContainsOpaque> == SafetyLevel::Opaque,
     "ContainsOpaque should be Opaque (contains an opaque member)");
 
+// P0 fix: array of opaque elements must be detected as Opaque.
+// type_has_opaque<OpaqueData[3]> must recurse into OpaqueData.
+static_assert(classify_v<ArrayOfOpaque> == SafetyLevel::Opaque,
+    "ArrayOfOpaque should be Opaque (array element is opaque)");
+
+// P1 fix: array of padded structs must be detected as PaddingRisk.
+// compute_has_padding must recurse into array element types.
+static_assert(classify_v<ArrayOfPadded> == SafetyLevel::PaddingRisk,
+    "ArrayOfPadded should be PaddingRisk (array element has padding)");
+
 // --- PlatformVariant ---
 static_assert(classify_v<WithWchar> == SafetyLevel::PlatformVariant,
     "WithWchar should be PlatformVariant (wchar_t varies across platforms)");
@@ -201,6 +222,8 @@ int main() {
     print_classify<int32_t*>("int32_t*");
     print_classify<PaddedStruct>("PaddedStruct");
     print_classify<ContainsOpaque>("ContainsOpaque");
+    print_classify<ArrayOfOpaque>("ArrayOfOpaque");
+    print_classify<ArrayOfPadded>("ArrayOfPadded");
 
     std::cout << "\nAll static_assert tests passed at compile time.\n";
     return 0;

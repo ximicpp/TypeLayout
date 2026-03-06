@@ -247,6 +247,51 @@ fail compilation if any type's layout differs across the listed platforms.
 
 ---
 
+## `layout_traits<T>`
+
+```cpp
+// Header: <boost/typelayout/layout_traits.hpp>
+template <typename T>
+struct layout_traits {
+    // Primary product
+    static constexpr auto signature;         // FixedString — full layout signature
+
+    // By-products derived from the signature string
+    static constexpr bool has_pointer;       // contains ptr, fnptr, memptr, ref, rref
+    static constexpr bool has_bit_field;     // contains bit-fields
+    static constexpr bool is_platform_variant; // wchar_t, long double
+
+    // By-products derived from P2996 reflection
+    static constexpr bool has_opaque;        // contains opaque-registered sub-type (recursive)
+    static constexpr bool has_padding;       // has uncovered bytes (recursive)
+
+    // Structural metadata
+    static constexpr std::size_t field_count;  // direct non-static data members only
+    static constexpr std::size_t total_size;   // sizeof(T)
+    static constexpr std::size_t alignment;    // alignof(T)
+};
+```
+
+**Requires**: P2996 for struct/class/union types. Fundamental types and opaque-registered types work without P2996.
+
+**`has_opaque`**: Recursively checks all members and bases — including through array dimensions — for opaque-registered types. For example, `struct Foo { OpaqueType arr[3]; }` produces `has_opaque = true`.
+
+**`has_padding`**: Recursively checks all members and bases using a byte coverage bitmap. Array members are expanded: if an array element type has internal padding, the containing struct is also flagged. For example, `struct Foo { PaddedStruct arr[2]; }` produces `has_padding = true`.
+
+**`field_count`**: Counts only *direct* non-static data members — inherited members from base classes are **not** included. For the flattened count, sum across the inheritance hierarchy manually.
+
+**Example**:
+```cpp
+struct A { int32_t x; double y; };  // padding between x and y
+struct B { A items[4]; };
+
+static_assert(layout_traits<B>::has_padding);      // true: element type A has padding
+static_assert(layout_traits<B>::field_count == 1); // direct members only: items
+static_assert(layout_traits<B>::total_size == sizeof(B));
+```
+
+---
+
 ## Supporting Types
 
 ### `FixedString<N>`
@@ -304,6 +349,7 @@ signatures.
 |--------|----------|
 | `typelayout.hpp` | Umbrella -- includes everything below |
 | `signature.hpp` | `get_layout_signature`, `layout_signatures_match`, `get_arch_prefix` |
+| `layout_traits.hpp` | `layout_traits<T>`, `signature_compare` |
 | `fixed_string.hpp` | `FixedString<N>`, `to_fixed_string` |
 | `fwd.hpp` | Forward declarations |
 | `opaque.hpp` | `TYPELAYOUT_OPAQUE_*` macros |
