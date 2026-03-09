@@ -266,7 +266,7 @@ namespace typelayout {
                        FixedString{",a:"} + to_fixed_string<alignof(T)>() +
                        FixedString{"]{"} + get_layout_union_content<T>() + FixedString{"}"};
             }
-            else if constexpr (std::is_class_v<T> && !std::is_array_v<T>) {
+            else if constexpr (std::is_class_v<T>) {
                 return FixedString{"record[s:"} +
                        to_fixed_string<sizeof(T)>() +
                        FixedString{",a:"} +

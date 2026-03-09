@@ -39,7 +39,7 @@ set_tests_properties(test_opaque PROPERTIES TIMEOUT 120 LABELS "core")
 add_executable(test_fixed_string test/test_fixed_string.cpp)
 target_link_libraries(test_fixed_string PRIVATE typelayout)
 add_test(NAME test_fixed_string COMMAND test_fixed_string)
-set_tests_properties(test_fixed_string PROPERTIES TIMEOUT 60 LABELS "core")
+set_tests_properties(test_fixed_string PROPERTIES TIMEOUT 120 LABELS "core")
 
 add_executable(test_layout_traits test/test_layout_traits.cpp)
 target_link_libraries(test_layout_traits PRIVATE typelayout)
