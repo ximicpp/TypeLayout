@@ -24,7 +24,7 @@
 
 - **static_assert preferred**: Every compile-time property should be validated with `static_assert` first, then optionally printed at runtime for debugging.
 - **Inline test types**: Test structs/classes are defined inside the test .cpp file, not in shared headers.
-- **Timeout values**: P2996 tests get 60-120s timeout; C++17-only tests get 30s timeout.
+- **Timeout values**: P2996 tests get 120s timeout; C++17-only tests get 30s timeout.
 - **P2996 core tests**: Use `LABELS "core"`, link to `typelayout` interface library (provides compile flags automatically)
 - **P2996 tools tests**: Use `LABELS "tools"`, link to `typelayout` interface library
 - **C++17-only tests**: Use `LABELS "tools"`, set `-std=c++17 -stdlib=libc++` manually, do NOT link `typelayout`
