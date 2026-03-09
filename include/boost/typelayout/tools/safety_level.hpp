@@ -28,8 +28,9 @@ namespace typelayout {
 
 /// Safety classification for zero-copy / memcpy / cross-boundary transfer.
 ///
-/// Ordered from most restrictive (worst) to least restrictive (best).
-/// classify<T> returns the WORST applicable level.
+/// Ordered from best (TrivialSafe = 0) to worst (Opaque = 4).
+/// Higher integer value = higher risk.  classify<T> returns the
+/// WORST (highest) applicable level.
 enum class SafetyLevel {
     /// The type is safe for memcpy, cross-process, and cross-platform transfer.
     /// No pointers, no padding, trivially copyable, platform-independent layout.

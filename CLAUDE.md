@@ -114,31 +114,16 @@ include/boost/typelayout/tools/
 - **Opaque types**: Unanalyzable types registered with macros. `O!tag[s:N,a:A]` (legacy) or `O(Tag|N|A)` (new).
 - **Array element recursion**: `type_has_opaque` and `compute_has_padding` recurse into array element types via `std::remove_all_extents_t`.
 
-## Code Map — Key Entry Points
+## Available Skills (.claude/commands/)
 
-| Task | Start here |
-|------|-----------|
-| How signatures are generated | `detail/signature_impl.hpp` → `TypeSignature<T>::calculate()` |
-| How types are classified | `detail/reflect.hpp` → `classify_type()`, `detail/type_map.hpp` |
-| How layout_traits works | `layout_traits.hpp` → `layout_traits<T>` struct |
-| How padding is detected | `layout_traits.hpp` → `compute_has_padding<T>()` (bitmap) |
-| How safety is classified | `tools/classify.hpp` → `classify<T>`, `tools/safety_level.hpp` → `classify_signature()` |
-| How opaque types work | `opaque.hpp` → macros + `has_opaque_signature` concept |
-| Cross-platform pipeline | `tools/sig_export.hpp` (Phase 1) → `tools/compat_check.hpp` (Phase 2) |
-
-## Tests
-
-10 tests total (5 core + 5 tools). All use `static_assert` for compile-time + runtime verification.
-
-| Test | Layer | What it validates |
-|------|-------|-------------------|
-| `test_fixed_string.cpp` | Core | FixedString ops, to_fixed_string |
-| `test_opaque.cpp` | Core | Opaque registration, CV-qualified, base class, EBO |
-| `test_layout_traits.cpp` | Core | Signature consistency, has_pointer/opaque/padding, field_count |
-| `test_empty_member_probe.cpp` | Core | Empty member/NUA/EBO signature correctness |
-| `test_padding_precision.cpp` | Core | Byte-coverage bitmap vs sig parser, classify consistency |
-| `test_classify.cpp` | Tools | Five-tier classify<T> for all type categories |
-| `test_serialization_free.cpp` | Tools | is_local_serialization_free, SignatureRegistry |
-| `test_sig_export.cpp` | Tools | SigExporter output structure |
-| `test_rt_padding.cpp` | Tools | Runtime sig_has_padding (C++17 only, no P2996) |
-| `test_compat_check.cpp` | Tools | CompatReporter, classify_signature (C++17 only) |
+| Skill | Purpose |
+|-------|---------|
+| `/build-test` | Build and run all 10 tests |
+| `/commit`, `/push` | Git workflow |
+| `/sig-check <Type>` | Generate signature for a type interactively |
+| `/add-type-category` | Add a new type to signature generation |
+| `/add-tool` | Add a new analyzer to the tools layer |
+| `/add-test` | Write a new test following conventions |
+| `/debug-signature` | Debug signature generation issues |
+| `/modify-signature-format` | Change the signature grammar (breaking) |
+| `/review` | Review code design and implementation quality |

@@ -69,7 +69,7 @@ inline const char* safety_reason(SafetyLevel level) noexcept {
     switch (level) {
         case SafetyLevel::TrivialSafe:     return "fixed-width scalars only";
         case SafetyLevel::PaddingRisk:     return "has alignment padding";
-        case SafetyLevel::PointerRisk:     return "contains pointers or union";
+        case SafetyLevel::PointerRisk:     return "contains pointers or references";
         case SafetyLevel::PlatformVariant: return "bit-fields or platform-dependent types (wchar_t, long double)";
         case SafetyLevel::Opaque:          return "contains opaque (unanalyzable) fields";
     }
