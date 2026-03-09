@@ -155,6 +155,152 @@ public:
         return results;
     }
 
+    /// Print the report with character-level diff annotations for DIFFER entries.
+    ///
+    /// Like print_report(), but each DIFFER block is followed immediately by a
+    /// '^--- diverges at position N' annotation pinpointing the first character
+    /// where the two platform signatures diverge.  Useful for diagnosing subtle
+    /// layout differences (e.g., a single field size or alignment change).
+    ///
+    /// Example output for a DIFFER entry:
+    ///   [DIFFER] MyStruct layout signatures:
+    ///     x86_64-linux : [64-le]record[s:8,a:4]{@0:i32[s:4,a:4],@4:i32[s:4,a:4]}
+    ///     aarch64-linux: [64-le]record[s:8,a:4]{@0:i32[s:4,a:4],@8:i32[s:4,a:4]}
+    ///                                                            ^--- diverges at position 40 ('4' vs '8')
+    void print_diff_report(std::ostream& os = std::cout) const {
+        auto results = compare();
+        int serialization_free = 0;
+        int layout_compatible = 0;
+        int total = static_cast<int>(results.size());
+
+        os << std::string(72, '=') << "\n";
+        os << "  Cross-Platform Compatibility Report (with diff annotations)\n";
+        os << std::string(72, '=') << "\n\n";
+
+        os << "Platforms compared: " << platforms_.size() << "\n";
+        for (const auto& p : platforms_) {
+            os << "  * " << p.name;
+            if (p.arch_prefix[0] != '\0')
+                os << " " << p.arch_prefix;
+            os << "\n";
+            if (p.pointer_size > 0) {
+                os << "    pointer=" << p.pointer_size << "B"
+                   << ", long=" << p.sizeof_long << "B"
+                   << ", wchar_t=" << p.sizeof_wchar_t << "B"
+                   << ", long_double=" << p.sizeof_long_double << "B"
+                   << ", max_align=" << p.max_align << "B\n";
+            }
+        }
+        os << "\n";
+
+        os << "Safety: *** = zero-copy ok, **- = padding risk, *!- = pointer risk, *-- = platform-variant.\n\n";
+
+        os << std::string(72, '-') << "\n";
+        os << "  " << std::left << std::setw(24) << "Type"
+           << std::right << std::setw(8) << "Layout"
+           << std::setw(8) << "Safety"
+           << "  Verdict\n";
+        os << std::string(72, '-') << "\n";
+
+        for (const auto& r : results) {
+            std::string layout_str = r.layout_match ? "MATCH" : "DIFFER";
+            std::string verdict;
+
+            if (r.layout_match) {
+                ++layout_compatible;
+                if (r.safety == SafetyLevel::TrivialSafe) {
+                    ++serialization_free;
+                    verdict = "Serialization-free";
+                } else if (r.safety == SafetyLevel::PaddingRisk)
+                    verdict = "Layout OK (padding may leak uninitialized bytes)";
+                else if (r.safety == SafetyLevel::PointerRisk)
+                    verdict = "Layout OK (pointer values not portable)";
+                else if (r.safety == SafetyLevel::Opaque)
+                    verdict = "Layout OK (contains opaque fields, verify manually)";
+                else
+                    verdict = "Layout OK (verify bit-fields manually)";
+            } else {
+                verdict = "Needs serialization";
+            }
+
+            os << "  " << std::left << std::setw(24) << r.name
+               << std::right << std::setw(8) << layout_str
+               << "    " << safety_stars(r.safety)
+               << "  " << verdict << "\n";
+        }
+
+        os << std::string(72, '-') << "\n\n";
+
+        // Emit DIFFER blocks with inline diff annotations.
+        // Each mismatching pair is followed immediately by a '^---' line
+        // aligned to the first diverging character.
+        for (const auto& r : results) {
+            if (!r.layout_match) {
+                os << "  [DIFFER] " << r.name << " layout signatures:\n";
+                // Compute the widest platform name for alignment
+                std::size_t max_name = 0;
+                for (const auto& p : platforms_)
+                    if (p.name.size() > max_name) max_name = p.name.size();
+                // prefix width: "    " + name + ": " = 4 + max_name + 2
+                const std::size_t prefix_w = 4 + max_name + 2;
+
+                const std::string& ref_sig = r.layout_sigs[0];
+                for (std::size_t i = 0; i < platforms_.size(); ++i) {
+                    // Pad platform name to max_name for alignment
+                    os << "    " << platforms_[i].name;
+                    for (std::size_t pad = platforms_[i].name.size(); pad < max_name; ++pad)
+                        os << ' ';
+                    os << ": " << r.layout_sigs[i] << "\n";
+
+                    // Emit diff annotation for every platform vs. platform[0]
+                    if (i > 0) {
+                        std::string ann = format_diff(ref_sig, r.layout_sigs[i], prefix_w);
+                        if (!ann.empty())
+                            os << ann << "\n";
+                    }
+                }
+                os << "\n";
+            }
+        }
+
+        bool has_warnings = false;
+        for (const auto& r : results) {
+            if (r.layout_match && r.safety != SafetyLevel::TrivialSafe) {
+                if (!has_warnings) {
+                    os << "  Safety warnings:\n";
+                    has_warnings = true;
+                }
+                os << "  [" << safety_stars(r.safety) << "] "
+                   << r.name << " -- " << safety_reason(r.safety) << "\n";
+            }
+        }
+        if (has_warnings) os << "\n";
+
+        os << std::string(72, '=') << "\n";
+        if (serialization_free == total) {
+            os << "  ALL " << total
+               << " type(s) are serialization-free across all platforms!\n";
+        } else {
+            int zst_pct = total > 0 ? (serialization_free * 100 / total) : 0;
+            os << "  Serialization-free (C1+C2): " << serialization_free
+               << "/" << total << " (" << zst_pct << "%)\n";
+            if (layout_compatible > serialization_free) {
+                os << "  Layout-compatible (C1):     " << layout_compatible
+                   << "/" << total
+                   << " (layout matches but has pointers/bit-fields)\n";
+            }
+            os << "  Needs serialization:        " << (total - layout_compatible)
+               << "/" << total << "\n";
+        }
+        os << std::string(72, '=') << "\n\n";
+
+        os << "  Assumptions:\n";
+        os << "  - IEEE 754 floating point on all compared platforms\n";
+        os << "  - Identical struct packing / alignment rules\n";
+        os << "  - Fixed-width integers have the same representation\n";
+        os << "  - Enums with explicit underlying types are stable\n\n";
+    }
+
     /// Print the report to `os`.
     void print_report(std::ostream& os = std::cout) const {
         auto results = compare();
@@ -272,6 +418,36 @@ public:
 
 private:
     std::vector<PlatformData> platforms_;
+
+    /// Returns a diff annotation string pointing to the first divergence between
+    /// signature strings `a` and `b`.  Returns empty string if they are identical.
+    ///
+    /// `prefix_width` is the number of characters printed before the signature
+    /// on each line (e.g. "    x86_64-linux: " = 4 + name_len + 2).  The
+    /// annotation is indented by `prefix_width + pos` spaces so the `^---`
+    /// marker aligns with the first differing character in the printed output.
+    static std::string format_diff(const std::string& a, const std::string& b,
+                                   std::size_t prefix_width) {
+        std::size_t pos = 0;
+        while (pos < a.size() && pos < b.size() && a[pos] == b[pos]) ++pos;
+        if (pos == a.size() && pos == b.size()) return "";  // identical
+
+        std::string arrow(prefix_width + pos, ' ');
+        arrow += "^--- diverges at position ";
+        arrow += std::to_string(pos);
+        if (pos < a.size() && pos < b.size()) {
+            arrow += " ('";
+            arrow += a[pos];
+            arrow += "' vs '";
+            arrow += b[pos];
+            arrow += "')";
+        } else if (pos >= a.size()) {
+            arrow += " (first string ends here)";
+        } else {
+            arrow += " (second string ends here)";
+        }
+        return arrow;
+    }
 
     static const TypeEntry* find_type(const PlatformData& plat,
                                       const std::string& name) {

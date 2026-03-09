@@ -30,6 +30,7 @@
 #define BOOST_TYPELAYOUT_TOOLS_SERIALIZATION_FREE_HPP
 
 #include <boost/typelayout/layout_traits.hpp>
+#include <boost/typelayout/signature.hpp>
 #include <type_traits>
 #include <string>
 #include <string_view>
@@ -85,6 +86,55 @@ struct serialization_free_assert {
 
     static constexpr bool value = true;
 };
+
+// =========================================================================
+// is_transfer_safe<T>(remote_sig)
+//
+// Runtime function that checks all three serialization-free conditions
+// in a single call:
+//   (1) trivially_copyable(T)           -- memcpy does not break object model
+//   (2) !has_pointer(T)                 -- no address-space dependencies
+//   (3) signature_match(local, remote)  -- both endpoints have identical layout
+//
+// Conditions (1) and (2) are checked at compile time via is_local_serialization_free_v<T>.
+// Condition (3) is checked at runtime because the remote signature is only
+// known at connection/handshake time.
+//
+// Returns true only if all three conditions hold.  This is a sufficient
+// condition for safe raw-memcpy transfer between the local endpoint and
+// the remote endpoint that provided `remote_sig`.
+//
+// Parameters:
+//   remote_sig -- the layout signature string received from the remote endpoint
+//                 (e.g. via get_layout_signature<T>().c_str() exported by peer)
+//
+// Example:
+//   // Handshake: receive remote signature string
+//   std::string remote_sig = receive_handshake_sig();
+//
+//   if (!is_transfer_safe<PacketHeader>(remote_sig)) {
+//       // Layout mismatch or type is not serialization-free locally.
+//       // Fall back to explicit serialization.
+//   } else {
+//       // Safe to memcpy directly.
+//       memcpy(buf, &pkt, sizeof(PacketHeader));
+//   }
+// =========================================================================
+
+template <typename T>
+[[nodiscard]] inline bool is_transfer_safe(std::string_view remote_sig) noexcept {
+    // Conditions (1) + (2): compile-time local check.
+    // If T fails these, it can never be transfer-safe regardless of the remote.
+    if constexpr (!is_local_serialization_free_v<T>) {
+        return false;
+    } else {
+        // Condition (3): runtime signature comparison.
+        // get_layout_signature<T>() is consteval — evaluated at compile time.
+        // FixedString has an implicit conversion to std::string_view.
+        constexpr auto local_sig = get_layout_signature<T>();
+        return std::string_view(local_sig) == remote_sig;
+    }
+}
 
 // =========================================================================
 // SignatureRegistry

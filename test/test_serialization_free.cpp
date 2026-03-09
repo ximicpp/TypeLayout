@@ -422,9 +422,53 @@ int main() {
              "P7.2: diagnose() shows (not registered) for missing remote", passed, failed);
     }
 
-    // --- Part 8: Signature info dump ---
+    // --- Part 8: is_transfer_safe ---
 
-    std::cout << "\n--- Signature info ---\n";
+    std::cout << "\n--- Part 8: is_transfer_safe ---\n";
+
+    // 8.1: Same endpoint, matching signature → true
+    {
+        constexpr auto local_sig = get_layout_signature<sf_test::Vec3>();
+        bool result = is_transfer_safe<sf_test::Vec3>(std::string_view(local_sig));
+        TEST(result, "P8.1: Vec3 same signature -> is_transfer_safe", passed, failed);
+    }
+
+    // 8.2: Same endpoint, different signature → false (condition 3 fails)
+    {
+        bool result = is_transfer_safe<sf_test::Vec3>("[32-le]record[s:12,a:4]{@0:f32[s:4,a:4]}");
+        TEST(!result, "P8.2: Vec3 wrong signature -> not is_transfer_safe", passed, failed);
+    }
+
+    // 8.3: WithPtr: condition 2 (!has_pointer) fails → always false
+    {
+        constexpr auto local_sig = get_layout_signature<sf_test::Vec3>();
+        // Even if we pass a matching-looking sig, WithPtr has a pointer → false
+        bool result = is_transfer_safe<sf_test::WithPtr>(std::string_view(local_sig));
+        TEST(!result, "P8.3: WithPtr (has_pointer) -> not is_transfer_safe", passed, failed);
+    }
+
+    // 8.4: Opaque type, matching signature → true
+    {
+        constexpr auto local_sig = get_layout_signature<sf_test::AesKey256>();
+        bool result = is_transfer_safe<sf_test::AesKey256>(std::string_view(local_sig));
+        TEST(result, "P8.4: AesKey256 matching signature -> is_transfer_safe", passed, failed);
+    }
+
+    // 8.5: Opaque type, wrong tag in remote signature → false
+    {
+        constexpr auto wrong_sig = get_layout_signature<sf_test::ActuatorRaw>();
+        bool result = is_transfer_safe<sf_test::SensorRaw>(std::string_view(wrong_sig));
+        TEST(!result, "P8.5: SensorRaw vs ActuatorRaw signature -> not is_transfer_safe", passed, failed);
+    }
+
+    // 8.6: LibHandle has_pointer=true → always false even with exact signature
+    {
+        constexpr auto local_sig = get_layout_signature<sf_test::LibHandle>();
+        bool result = is_transfer_safe<sf_test::LibHandle>(std::string_view(local_sig));
+        TEST(!result, "P8.6: LibHandle (has_pointer=true) -> not is_transfer_safe", passed, failed);
+    }
+
+    std::cout << "\n--- Part 9: Signature info ---\n";
     std::cout << "Vec3 signature:       "
               << layout_traits<sf_test::Vec3>::signature.value << "\n";
     std::cout << "Vec3 has_opaque:      "

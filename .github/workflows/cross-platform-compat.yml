@@ -1,0 +1,173 @@
+# cross-platform-compat.yml
+#
+# Standalone CI workflow template for cross-platform type layout checking.
+#
+# Copy this file into your own repository's .github/workflows/ directory
+# and customize the two variables at the top of the "env" block.
+#
+# Prerequisites in your repository:
+#   1. A Phase 1 source file (EXPORT_SOURCE) using TYPELAYOUT_EXPORT_TYPES(...)
+#   2. A Phase 2 source file (CHECK_SOURCE)  using TYPELAYOUT_CHECK_COMPAT(...)
+#   3. Type headers under the directory listed in INCLUDE_DIRS
+#
+# Two-phase pipeline:
+#   Phase 1 [export-signatures]: Compile and run the exporter on each platform
+#              via the TypeLayout P2996 Docker image → produces .sig.hpp files.
+#   Phase 2 [check-compat]:      Download all .sig.hpp, compile the checker
+#              with a standard C++17 compiler, run it → produces a report.
+#
+# The Phase 2 check exits with code 0 (informational) even when layout
+# differences are found.  To make the CI job fail on layout differences,
+# use TYPELAYOUT_ASSERT_COMPAT(...) in CHECK_SOURCE instead of
+# TYPELAYOUT_CHECK_COMPAT(...).
+#
+# Copyright (c) 2024-2026 TypeLayout Development Team
+# Distributed under the Boost Software License, Version 1.0.
+
+name: Cross-Platform Type Layout Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  # ── Customize these two paths for your repository ──────────────────────
+  EXPORT_SOURCE: src/export_types.cpp   # Phase 1: uses TYPELAYOUT_EXPORT_TYPES(...)
+  CHECK_SOURCE:  src/check_compat.cpp   # Phase 2: uses TYPELAYOUT_CHECK_COMPAT(...)
+  # Optional: space-separated list of -I directories relative to repo root
+  INCLUDE_DIRS:  include
+  # ────────────────────────────────────────────────────────────────────────
+
+  TYPELAYOUT_IMAGE: ghcr.io/ximicpp/typelayout-p2996:latest
+  TYPELAYOUT_LD:    /opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu
+
+jobs:
+  # =========================================================================
+  # Phase 1: Export layout signatures on each target platform.
+  # Each matrix entry runs the same exporter binary in the P2996 Docker image.
+  # =========================================================================
+  export-signatures:
+    name: Export (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - x86_64-linux
+          # Add more platforms here, e.g.:
+          # - aarch64-linux
+          # - riscv64-linux
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build include flags
+        id: inc
+        run: |
+          FLAGS=""
+          for d in ${{ env.INCLUDE_DIRS }}; do
+            FLAGS="$FLAGS -I/workspace/$d"
+          done
+          echo "flags=$FLAGS" >> $GITHUB_OUTPUT
+
+      - name: Export signatures via Docker
+        run: |
+          mkdir -p _sigs
+
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            -e LD_LIBRARY_PATH=${{ env.TYPELAYOUT_LD }} \
+            ${{ env.TYPELAYOUT_IMAGE }} \
+            bash -c "
+              set -e
+              clang++ \
+                -std=c++26 -freflection -freflection-latest -stdlib=libc++ \
+                -I/workspace/include \
+                ${{ steps.inc.outputs.flags }} \
+                -o /tmp/sig_export \
+                /workspace/${{ env.EXPORT_SOURCE }}
+              /tmp/sig_export /workspace/_sigs/
+              echo 'Generated signatures:'
+              ls -la /workspace/_sigs/
+            "
+
+      - name: Upload signature artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sigs-${{ matrix.platform }}
+          path: _sigs/*.sig.hpp
+          retention-days: 7
+
+  # =========================================================================
+  # Phase 2: Download all signatures and run the compatibility checker.
+  # Uses only a standard C++17 compiler — no P2996 required.
+  # =========================================================================
+  check-compat:
+    name: Compatibility Check
+    needs: export-signatures
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all signature artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: _sigs
+          pattern: sigs-*
+          merge-multiple: true
+
+      - name: List downloaded signatures
+        run: |
+          echo "Signature files:"
+          ls -la _sigs/
+
+      - name: Build include flags
+        id: inc
+        run: |
+          FLAGS=""
+          for d in ${{ env.INCLUDE_DIRS }}; do
+            FLAGS="$FLAGS -I$d"
+          done
+          echo "flags=$FLAGS" >> $GITHUB_OUTPUT
+
+      - name: Compile and run compatibility checker (C++17)
+        run: |
+          g++ -std=c++17 \
+            -I include \
+            -I _sigs \
+            ${{ steps.inc.outputs.flags }} \
+            -o _build_check \
+            ${{ env.CHECK_SOURCE }}
+
+          echo ""
+          echo "=== Compatibility Report ==="
+          echo ""
+          ./_build_check | tee _report.txt
+
+      - name: Summarize results
+        run: |
+          if grep -q "ALL.*serialization-free" _report.txt; then
+            echo "✅ All types are layout-compatible and serialization-free across all platforms."
+          elif grep -q "\[DIFFER\]" _report.txt; then
+            echo "⚠️  Layout differences detected between platforms. See report above."
+            echo ""
+            echo "Types with differences:"
+            grep "\[DIFFER\]" _report.txt || true
+          else
+            echo "ℹ️  Layout check complete. See report above for details."
+          fi
+
+      - name: Upload compatibility report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-report
+          path: |
+            _report.txt
+            _sigs/*.sig.hpp
+          retention-days: 30

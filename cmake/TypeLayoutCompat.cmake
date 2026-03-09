@@ -16,6 +16,41 @@
 include_guard(GLOBAL)
 
 # ---------------------------------------------------------------------------
+# typelayout_add_sig_check
+# ---------------------------------------------------------------------------
+# Convenience wrapper: adds a post-build step to an existing target that
+# runs the target executable and writes signatures to `sig_dir`.
+#
+# Use this when you already manage your own CMake target and just want
+# TypeLayout to add the post-build signature export step.
+#
+# Usage:
+#   add_executable(my_exporter export_types.cpp)
+#   target_link_libraries(my_exporter PRIVATE typelayout)
+#   typelayout_add_sig_check(my_exporter ${CMAKE_BINARY_DIR}/sigs)
+#
+# Arguments:
+#   target  - An existing CMake executable target
+#   sig_dir - Directory where .sig.hpp files will be written
+#
+function(typelayout_add_sig_check target sig_dir)
+    if(NOT TARGET ${target})
+        message(FATAL_ERROR "typelayout_add_sig_check: '${target}' is not a CMake target")
+    endif()
+
+    file(MAKE_DIRECTORY "${sig_dir}")
+
+    add_custom_command(
+        TARGET ${target} POST_BUILD
+        COMMAND $<TARGET_FILE:${target}> "${sig_dir}"
+        COMMENT "[TypeLayout] Exporting signatures from '${target}' to ${sig_dir}"
+        VERBATIM
+    )
+
+    message(STATUS "[TypeLayout] sig_check post-build step added: '${target}' → ${sig_dir}")
+endfunction()
+
+# ---------------------------------------------------------------------------
 # typelayout_add_sig_export
 # ---------------------------------------------------------------------------
 # Creates an executable that exports TypeLayout signatures to a .sig.hpp file.

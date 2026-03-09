@@ -1,10 +1,5 @@
 # §1 Introduction
 
-> **Implementation note**: This paper describes the full two-layer design of TypeLayout,
-> including the Definition signature layer. As of the current release, only the
-> **Layout signature layer** (`get_layout_signature`, `layout_signatures_match`) is
-> implemented. The Definition layer is retained as a design specification for future work.
-
 The C++ memory model grants programmers direct control over data layout—a
 power that enables zero-copy inter-process communication, memory-mapped file
 I/O, and hardware register access. This power, however, comes with an implicit
@@ -81,22 +76,10 @@ identical byte layouts: same field types, same sizes, same alignments, same
 offsets, same padding—automatically derived from the type definitions
 themselves via compile-time reflection.
 
-TypeLayout introduces a *two-layer signature system* that distinguishes
-between two notions of type compatibility:
-
-- **Layout signatures** capture *byte identity*: the flattened sequence of
-  field offsets, sizes, and alignments, with inheritance hierarchies fully
-  expanded and field names stripped. Two types with matching Layout signatures
-  are `memcpy`-compatible.
-
-- **Definition signatures** capture *structural identity*: the full type
-  structure including field names, inheritance trees, enum qualified names,
-  and polymorphism markers. Two types with matching Definition signatures are
-  structurally equivalent—same bytes *and* same meaning.
-
-The two layers are related by a *projection*: every Definition match implies
-a Layout match, but not vice versa. This allows users to choose the
-appropriate level of strictness for their use case.
+TypeLayout generates *Layout signatures* that capture *byte identity*: the
+flattened sequence of field offsets, sizes, and alignments, with inheritance
+hierarchies fully expanded and field names stripped. Two types with matching
+Layout signatures are `memcpy`-compatible.
 
 ## 1.3 Motivating Example
 
@@ -122,31 +105,28 @@ namespace receiver {
 }
 ```
 
-With TypeLayout, both byte-level and structural compatibility can be verified
-at compile time:
+With TypeLayout, byte-level compatibility is verified at compile time:
 
 ```cpp
 // Byte-level: can we memcpy safely?
 static_assert(layout_signatures_match<
     sender::Message, receiver::Message>());
-
-// Structural: are they truly the same structure?
-static_assert(definition_signatures_match<
-    sender::Message, receiver::Message>());
 ```
 
-If Team B renames `payload` to `value`, the Layout check still passes (same
-bytes), but the Definition check catches the semantic drift—preventing a
-class of bugs that no amount of `sizeof`/`offsetof` checking can detect.
+If Team B renames `payload` to `value` but keeps the same type, the Layout
+check still passes—the byte layout is identical. If Team B changes the field
+type or reorders fields, the Layout check fails immediately at compile
+time—before any data is exchanged.
 
 ## 1.4 Contributions
 
 This paper makes the following contributions:
 
-1. **A two-layer type layout signature system** that distinguishes byte
-   identity (Layout) from structural identity (Definition), built on C++26
-   static reflection (P2996). The system is fully automatic, requiring no
-   annotations or code generation. (§3)
+1. **A compile-time type layout signature system** built on C++26 static
+   reflection (P2996) that generates a deterministic, human-readable Layout
+   signature encoding the complete byte-level memory identity of any C++ type.
+   The system is fully automatic, requiring no annotations or code generation.
+   (§3)
 
 2. **A formal semantics** grounded in denotational semantics and refinement
    theory, with proofs of three key properties: (§4)
@@ -154,8 +134,8 @@ This paper makes the following contributions:
      positives)
    - *Encoding Faithfulness (Injectivity)*: distinct layouts produce distinct
      signatures
-   - *Strict Refinement*: Definition signatures are a strict refinement of
-     Layout signatures (`definition_match ⟹ layout_match`)
+   - *Conservativeness*: the system errs in the safe direction (false negatives
+     possible; false positives impossible)
 
 3. **A cross-platform verification toolchain** using a two-phase architecture:
    Phase 1 exports signatures on platforms with P2996 support; Phase 2
@@ -172,7 +152,7 @@ This paper makes the following contributions:
 
 The remainder of this paper is organized as follows. §2 provides background
 on the C++ memory layout model and P2996 static reflection. §3 presents the
-two-layer signature system design and generation algorithm. §4 develops the
+Layout signature system design and generation algorithm. §4 develops the
 formal semantics and proves the core theorems. §5 describes the cross-platform
 toolchain. §6 presents the evaluation. §7 discusses related work. §8
 discusses limitations and future work, and §9 concludes.

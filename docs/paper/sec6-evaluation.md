@@ -1,43 +1,38 @@
 # §6 Evaluation
 
-> **Implementation note**: Only the Layout layer is currently implemented.
-> References to Definition signatures and `definition_signatures_match` in
-> this section describe the planned future work.
-
 This section evaluates TypeLayout along four dimensions: type coverage,
 signature correctness, compile-time overhead, and comparison with existing
 approaches.
 
 ## 6.1 Type Coverage
 
-We systematically tested TypeLayout's signature generation across all C++
-type categories to verify completeness. The test suite (`test_two_layer.cpp`)
-uses `static_assert` for all checks—compilation success constitutes test
-passage.
+We systematically tested TypeLayout's Layout signature generation across all C++
+type categories to verify completeness. The test suite uses `static_assert`
+for all checks—compilation success constitutes test passage.
 
-| Category | Types tested | Layout ✓ | Definition ✓ |
-|----------|-------------|----------|-------------|
-| Fixed-width integers | i8, u8, i16, u16, i32, u32, i64, u64 | ✅ | ✅ |
-| Floating point | float, double, long double | ✅ | ✅ |
-| Characters | char, char8_t, char16_t, char32_t, wchar_t | ✅ | ✅ |
-| Boolean | bool | ✅ | ✅ |
-| Pointers | T\*, T&, T&&, T C::\*, function pointers | ✅ | ✅ |
-| Enums | scoped, unscoped, various underlying types | ✅ | ✅ |
-| Arrays | T[N], byte arrays (char[N], uint8_t[N], byte[N]) | ✅ | ✅ |
-| Simple structs | 1-5 fields, mixed types | ✅ | ✅ |
-| Nested structs | 2-3 levels of nesting | ✅ | ✅ |
-| Single inheritance | 1-3 levels | ✅ | ✅ |
-| Multiple inheritance | 2 base classes | ✅ | ✅ |
-| Virtual inheritance | single virtual base | ✅ | ✅ |
-| Polymorphic types | virtual function, abstract class | ✅ | ✅ |
-| Empty Base Optimization | empty base + derived fields | ✅ | ✅ |
-| Unions | simple and nested | ✅ | ✅ |
-| Bit-fields | various widths, packed | ✅ | ✅ |
-| CV-qualified fields | const, volatile members | ✅ | ✅ |
+| Category | Types tested | Layout ✓ |
+|----------|-------------|----------|
+| Fixed-width integers | i8, u8, i16, u16, i32, u32, i64, u64 | ✅ |
+| Floating point | float, double, long double | ✅ |
+| Characters | char, char8_t, char16_t, char32_t, wchar_t | ✅ |
+| Boolean | bool | ✅ |
+| Pointers | T\*, T&, T&&, T C::\*, function pointers | ✅ |
+| Enums | scoped, unscoped, various underlying types | ✅ |
+| Arrays | T[N], byte arrays (char[N], uint8_t[N], byte[N]) | ✅ |
+| Simple structs | 1-5 fields, mixed types | ✅ |
+| Nested structs | 2-3 levels of nesting | ✅ |
+| Single inheritance | 1-3 levels | ✅ |
+| Multiple inheritance | 2 base classes | ✅ |
+| Virtual inheritance | single virtual base | ✅ |
+| Polymorphic types | virtual function, abstract class | ✅ |
+| Empty Base Optimization | empty base + derived fields | ✅ |
+| Unions | simple and nested | ✅ |
+| Bit-fields | various widths, packed | ✅ |
+| CV-qualified fields | const, volatile members | ✅ |
 
 **Result:** TypeLayout generates correct signatures for all 17 type
 categories. The test suite contains 100+ `static_assert` statements that
-verify both signature generation and cross-type comparison.
+verify signature generation and cross-type comparison.
 
 ## 6.2 Signature Correctness Verification
 
@@ -51,12 +46,8 @@ hand-computed reference signature. The `static_assert` verifies that
 (e.g., `Derived` vs `Flat`), we verify `layout_signatures_match` returns
 `true`. For types designed to differ, we verify it returns `false`.
 
-**Method 3: Projection consistency.** For every type pair where
-`definition_signatures_match` is `true`, we verify that
-`layout_signatures_match` is also `true` (Theorem 4.14).
-
 **Result:** All 100+ verification assertions pass. Zero false positives
-observed. Zero projection violations observed.
+observed.
 
 ## 6.3 Compile-Time Overhead
 
@@ -66,17 +57,16 @@ overhead on the Bloomberg Clang P2996 fork.
 
 ### 6.3.1 Signature Length Scaling
 
-| Struct fields | Layout sig length | Definition sig length | Characters per field |
-|--------------|-------------------|----------------------|---------------------|
-| 20 | ~361 chars | ~1,032 chars | ~18 (L) / ~52 (D) |
-| 40 | ~717 chars | ~2,052 chars | ~18 (L) / ~51 (D) |
-| 60 | ~1,077 chars | ~3,072 chars | ~18 (L) / ~51 (D) |
-| 80 | ~1,437 chars | ~4,092 chars | ~18 (L) / ~51 (D) |
-| 100 | ~1,797 chars | ~5,112 chars | ~18 (L) / ~51 (D) |
+| Struct fields | Layout sig length | Characters per field |
+|--------------|-------------------|---------------------|
+| 20 | ~361 chars | ~18 |
+| 40 | ~717 chars | ~18 |
+| 60 | ~1,077 chars | ~18 |
+| 80 | ~1,437 chars | ~18 |
+| 100 | ~1,797 chars | ~18 |
 
 Signature length scales linearly with the number of fields, at approximately
-18 characters per field (Layout) or 51 characters per field (Definition).
-The ~3x difference is due to field names and structural markers.
+18 characters per field.
 
 ### 6.3.2 Constexpr Step Consumption
 

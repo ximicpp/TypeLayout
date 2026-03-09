@@ -31,29 +31,37 @@ namespace typelayout {
 /// Ordered from best (TrivialSafe = 0) to worst (Opaque = 4).
 /// Higher integer value = higher risk.  classify<T> returns the
 /// WORST (highest) applicable level.
+///
+/// Severity ordering (worst to best):
+///   Opaque > PointerRisk > PlatformVariant > PaddingRisk > TrivialSafe
+///
+/// PointerRisk (3) > PlatformVariant (2) because pointer-containing types
+/// cause dangling pointers / double-free on memcpy — a hard semantic error.
+/// PlatformVariant types are merely layout-unstable across platforms, which
+/// is a portability concern but not an immediate memory safety violation.
 enum class SafetyLevel {
     /// The type is safe for memcpy, cross-process, and cross-platform transfer.
     /// No pointers, no padding, trivially copyable, platform-independent layout.
-    TrivialSafe,
+    TrivialSafe,     // = 0
 
     /// Layout is fixed and portable, but padding bytes exist.
     /// memcpy works correctly, but padding may leak uninitialized memory
     /// (information disclosure risk in serialization/network scenarios).
-    PaddingRisk,
+    PaddingRisk,     // = 1
+
+    /// Layout differs across platforms due to platform-dependent types
+    /// (wchar_t, long double / f80, bit-fields).
+    /// Same-platform memcpy may be fine, but cross-platform transfer is unsafe.
+    PlatformVariant, // = 2
 
     /// Layout contains pointer-like fields (ptr, fnptr, memptr, ref, rref).
     /// Byte-level copy produces dangling pointers or double-free scenarios.
     /// Also used conservatively when !is_trivially_copyable (e.g. vtable).
-    PointerRisk,
-
-    /// Layout differs across platforms due to platform-dependent types
-    /// (wchar_t, long double / f80, pointer size).
-    /// Same-platform memcpy may be fine, but cross-platform transfer is unsafe.
-    PlatformVariant,
+    PointerRisk,     // = 3
 
     /// Contains opaque (unanalyzable) fields.  Safety cannot be determined.
     /// The user is responsible for manual verification.
-    Opaque,
+    Opaque,          // = 4
 };
 
 // =========================================================================

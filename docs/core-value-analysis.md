@@ -22,7 +22,33 @@ This breaks down into three pillars:
 
 ---
 
-## 2. Signature Grammar
+## 2. Positioning vs Existing Tools
+
+TypeLayout occupies a specific niche that existing tools do not cover.
+
+| Tool | How it works | Timing | Scope | Key gap vs TypeLayout |
+|------|-------------|--------|-------|----------------------|
+| `sizeof`/`offsetof` asserts | Manual per-field constants | Compile-time | One type, one platform | O(n) maintenance; cannot compare two types; no cross-platform story |
+| Boost.PFR | Aggregate reflection for field iteration | Compile/Runtime | Field access, serialization | No portable layout identity string; cannot compare across compilation units |
+| abi-compliance-checker / libabigail | Analyzes compiled binaries + DWARF | Post-build | Data layout + vtable + symbols | Requires binaries; post-build only; broader scope than data layout |
+| Protocol Buffers / Cap'n Proto | Schema-defined wire format | Codegen + Runtime | Cross-language serialization | Requires schema authoring and codegen; does not work on existing native C++ types |
+| TypeLayout | P2996 reflection → compile-time string | Compile-time | Data layout only | — |
+
+**Key differentiator:** TypeLayout is the only tool that produces a portable, self-describing, zero-overhead compile-time *layout identity string* that can be used directly in `static_assert`, embedded in binary protocols, or compared across platforms without recompilation.
+
+### Relationship to each tool
+
+**vs `sizeof`/`offsetof`**: TypeLayout replaces the manual O(n) assertion battery with a single `static_assert(layout_signatures_match<A, B>())`. It checks every field offset, every alignment, every padding gap—automatically. The verification effort drops from O(n) to O(1) per change.
+
+**vs Boost.PFR**: Boost.PFR iterates over fields at runtime for serialization and reflection purposes; it does not produce a portable layout identity string and cannot compare struct layouts across independently compiled modules. TypeLayout and Boost.PFR address orthogonal problems and can coexist.
+
+**vs abi-compliance-checker / libabigail**: These tools perform comprehensive post-build ABI analysis including vtables, exported symbols, and name mangling—far beyond data layout. TypeLayout covers the data-layout subset, but does so at compile time with formal correctness proofs. The two are complementary: TypeLayout for real-time compile-time monitoring, binary ABI checkers for comprehensive post-build audits.
+
+**vs serialization frameworks**: Protocol Buffers and Cap'n Proto define their own schema languages and generate code. They are the right tool when cross-language or cross-version compatibility is needed. TypeLayout is the right tool when you have existing native C++ types and need to verify that two endpoints agree on their layout—with zero friction, zero codegen, and zero runtime overhead.
+
+---
+
+## 3. Signature Grammar
 
 The signature is a self-describing string following a formal grammar
 (documented in `signature_impl.hpp`):
@@ -62,7 +88,7 @@ Key properties:
 
 ---
 
-## 3. Architecture
+## 4. Architecture
 
 Header-only, two-layer design:
 
@@ -102,7 +128,7 @@ Phase 2 (C++17): CompatReporter.compare() → compatibility report
 
 ---
 
-## 4. Signature Generation Engine
+## 5. Signature Generation Engine
 
 ### 4.1 Type Mapping (`detail/type_map.hpp`)
 
@@ -185,7 +211,7 @@ The top-level `get_layout_content<T>()` strips the leading comma via
 
 ---
 
-## 5. Safety Classification
+## 6. Safety Classification
 
 ### 5.1 Five-Tier Model
 
@@ -239,7 +265,7 @@ is semantically ambiguous (depends on the active member at runtime).
 
 ---
 
-## 6. Safety Guards
+## 7. Safety Guards
 
 ### 6.1 Virtual Inheritance Rejection
 
@@ -291,7 +317,7 @@ Three conditions must hold for zero-copy transfer:
 
 ---
 
-## 7. Opaque Type System
+## 8. Opaque Type System
 
 Opaque types have size/alignment identity but no internal structural identity.
 The user guarantees internal layout consistency.
@@ -316,7 +342,7 @@ classes transitively. Any opaque type at any nesting level is captured.
 
 ---
 
-## 8. Cross-Platform Pipeline
+## 9. Cross-Platform Pipeline
 
 ```
     Platform A (P2996)         Platform B (P2996)
@@ -348,7 +374,7 @@ the generation phase.
 
 ---
 
-## 9. Verified Edge Cases
+## 10. Verified Edge Cases
 
 All edge cases have been verified with compilation tests:
 
@@ -373,7 +399,7 @@ All edge cases have been verified with compilation tests:
 
 ---
 
-## 10. Known Limitations
+## 11. Known Limitations
 
 ### 10.1 Union Padding Semantics
 
@@ -404,7 +430,7 @@ false negative.
 
 ---
 
-## 11. Conclusion
+## 12. Conclusion
 
 | Dimension | Assessment |
 |-----------|------------|

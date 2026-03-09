@@ -61,26 +61,16 @@ We will demonstrate real-world applications with live cross-platform comparisons
   layout_signatures_match<T, U>();
   ```
 
-**Part 3: Two Layers — Layout vs Definition (10 min)**
+**Part 3: Safety Classification (10 min)**
 
-> **Note**: The Definition signature layer described in this section is a
-> planned feature (not yet implemented). The current talk outline can be
-> adapted to focus solely on the Layout layer and safety classification, or
-> this section can be presented as roadmap/future work.
+*"Not all structs are equal."*
 
-*"Same bytes, different meaning."*
-
-- Why one layer isn't enough:
-  ```cpp
-  struct v1 { uint32_t timeout_ms; };
-  struct v2 { uint32_t timeout_seconds; }; // renamed!
-  // Layout: MATCH (same bytes) — but the semantics drifted!
-  // Definition: MISMATCH — caught!
-  ```
-- Layout layer: flattens inheritance, strips names → pure byte identity
-- Definition layer: preserves names, inheritance tree, enum qualified names → structural identity
-- Projection Theorem: `definition_match ⟹ layout_match` (formally proven, zero exceptions)
-- Decision rule: "When in doubt, use Definition."
+- Five-tier safety model: `TrivialSafe → PaddingRisk → PlatformVariant → PointerRisk → Opaque`
+- Why tier ordering matters: PointerRisk (dangling pointers on any platform) > PlatformVariant (size differs cross-platform)
+- Compile-time: `classify<T>::value` — powered by `layout_traits<T>`
+- Runtime: `classify_signature(string_view)` — parses signature string, same priority order
+- Dual-path cross-validation: compile-time bitmap vs runtime parser, enforced by `static_assert`
+- Use case: `is_transfer_safe<T>(remote_sig)` — three-condition runtime check
 
 **Part 4: Real-World Applications (10 min)**
 
@@ -92,7 +82,7 @@ We will demonstrate real-world applications with live cross-platform comparisons
   ```
 - **Plugin systems**: export signature via `dlsym`, verify at load time
 - **Cross-platform file formats**: Layout match + Safety classification = zero-copy decision
-- **ODR violation detection**: catches data-layout-related "same name, different definition" mismatches across compilation units at compile time
+- **ABI mismatch detection**: catches data-layout differences between independently compiled modules at load time
 - Live demo: the cross-platform compatibility report across 3 platforms
 
 **Part 5: Formal Correctness (5 min)**
@@ -101,7 +91,7 @@ We will demonstrate real-world applications with live cross-platform comparisons
 
 - Soundness: signature match ⟹ memcpy-compatible (zero false positives under stated assumptions)
 - Encoding Faithfulness: signatures are injective (different layouts → different signatures)
-- Projection Theorem + Strictness: Definition match strictly implies Layout match, but not vice versa — two layers are genuinely distinct
+- Conservativeness: some byte-equal types have different signatures (intentional safe direction)
 - Why denotational semantics proofs matter for a safety-critical verification tool
 
 **Part 6: Cross-Platform Toolchain (5 min)**
@@ -123,7 +113,7 @@ We will demonstrate real-world applications with live cross-platform comparisons
 
 1. `sizeof`/`offsetof` are necessary but manually incomplete — TypeLayout automates them completely
 2. P2996 reflection enables a new category of compile-time safety tools
-3. Two-layer signatures solve both byte compatibility (IPC) and semantic compatibility (serialization)
+3. Five-tier safety classification gives actionable guidance beyond a binary "safe/unsafe" answer
 4. Cross-platform struct verification is now possible without serialization frameworks
 5. Formal proofs give the library a level of correctness assurance rare in C++ libraries
 
@@ -166,7 +156,7 @@ If a shorter session is preferred, the talk can be condensed to 30 minutes with 
 |------|-------|------|
 | 1 | The Problem — live demo + why sizeof is insufficient | 5 min |
 | 2 | The Solution — signatures + API | 10 min |
-| 3 | Two Layers + Projection Theorem | 7 min |
+| 3 | Safety Classification + is_transfer_safe | 7 min |
 | 4 | Cross-Platform Toolchain + one application demo | 5 min |
 | 5 | Q&A | 3 min |
 
@@ -179,5 +169,5 @@ The formal correctness and detailed application sections would be condensed into
 *(All materials available upon acceptance; anonymous repository link provided to reviewers on request.)*
 
 - **Formal Proofs**: Denotational semantics proofs (Soundness, Injectivity) in `docs/proofs/`
-- **Application Analysis**: 1100+ lines covering 6 real-world scenarios (IPC, plugins, file formats, ODR detection)
+- **Application Analysis**: covering real-world scenarios (IPC, plugins, file formats, network protocols)
 - **Cross-Platform Demo**: 3-platform comparison with pre-generated signatures

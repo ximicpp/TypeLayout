@@ -1,7 +1,7 @@
-// Convenience macros for registering opaque container type signatures.
-// Use these when a container's internal layout should be hidden behind a
-// fixed-size/alignment descriptor (e.g., shared-memory containers whose
-// internals are implementation-defined).
+// Macros for registering opaque type signatures.
+// Use these when a type's internal layout should be hidden behind a
+// fixed-size/alignment descriptor (e.g., types whose internals are
+// implementation-defined or not analyzable via reflection).
 //
 // DESIGN NOTE -- Opaque Signatures:
 //   Opaque types produce a signature based solely on sizeof/alignof,
@@ -20,8 +20,81 @@
 
 #include <boost/typelayout/fixed_string.hpp>
 
+// ===========================================================================
+// TYPELAYOUT_REGISTER_OPAQUE -- Recommended API
+//
+// Registers an opaque type whose internal layout is invisible to
+// TypeLayout.  The user provides a semantic tag string and declares
+// whether the type contains pointers.
+//
+// sizeof and alignof are deduced automatically from the type.
+//
+// Signature format:  O(Tag|size|alignment)
+//
+// Parameters:
+//   Type        -- fully qualified type name
+//   Tag         -- semantic tag string (must be globally unique across
+//                  all registered opaque types)
+//   HasPointer  -- bool: true if the type contains pointers.
+//                  If true, has_pointer will be true, preventing
+//                  serialization-free transfer.
+//
+// User responsibilities:
+//   1. Tag is unique among all registered opaque types.
+//   2. HasPointer accurately reflects the type's contents.
+//   3. The type is trivially_copyable (enforced by static_assert).
+//   4. Both endpoints use the same opaque type definition (layout match).
+//
+// Example:
+//   TYPELAYOUT_REGISTER_OPAQUE(AesKey256, "AesKey256", false)
+//   // signature: "[64-le]O(AesKey256|32|1)"
+// ===========================================================================
+#define TYPELAYOUT_REGISTER_OPAQUE(Type, Tag, HasPointer)                      \
+    static_assert(std::is_trivially_copyable_v<Type>,                           \
+        "TYPELAYOUT_REGISTER_OPAQUE: opaque type must be trivially copyable");  \
+    template <>                                                                 \
+    struct TypeSignature<Type> {                                                \
+        static constexpr bool is_opaque = true;                                \
+        static constexpr bool pointer_free = !(HasPointer);                    \
+        static consteval auto calculate() noexcept {                           \
+            return ::boost::typelayout::FixedString{"O("} +                    \
+                   ::boost::typelayout::FixedString{Tag} +                     \
+                   ::boost::typelayout::FixedString{"|"} +                     \
+                   ::boost::typelayout::to_fixed_string<sizeof(Type)>() +      \
+                   ::boost::typelayout::FixedString{"|"} +                     \
+                   ::boost::typelayout::to_fixed_string<alignof(Type)>() +     \
+                   ::boost::typelayout::FixedString{")"};                      \
+        }                                                                      \
+    };
+
+// ===========================================================================
+// DEPRECATED MACROS
+//
+// The macros below (TYPELAYOUT_OPAQUE_TYPE, TYPELAYOUT_OPAQUE_TYPE_AUTO,
+// TYPELAYOUT_OPAQUE_CONTAINER, TYPELAYOUT_OPAQUE_CONTAINER_AUTO,
+// TYPELAYOUT_OPAQUE_MAP, TYPELAYOUT_OPAQUE_MAP_AUTO) are deprecated.
+//
+// Use TYPELAYOUT_REGISTER_OPAQUE(Type, Tag, HasPointer) instead.
+//
+// Differences:
+//   - Old macros produce O!name[s:N,a:M] signatures.
+//   - New macro produces O(Tag|N|M) and requires trivially_copyable.
+//   - New macro accepts an explicit HasPointer flag for precise classification.
+//
+// Migration:
+//   TYPELAYOUT_OPAQUE_TYPE(T, "foo", 32, 8)
+//     → TYPELAYOUT_REGISTER_OPAQUE(T, "foo", true)   // if T may contain pointers
+//     → TYPELAYOUT_REGISTER_OPAQUE(T, "foo", false)  // if T is pointer-free
+//
+// Note: TYPELAYOUT_OPAQUE_*_AUTO variants have no direct equivalent because
+// TYPELAYOUT_REGISTER_OPAQUE already deduces sizeof/alignof automatically.
+//
+// These macros will be removed in a future version.
+// ===========================================================================
+
 // ---------------------------------------------------------------------------
-// TYPELAYOUT_OPAQUE_TYPE(Type, name, size, align)
+// [DEPRECATED] TYPELAYOUT_OPAQUE_TYPE(Type, name, size, align)
+// Use TYPELAYOUT_REGISTER_OPAQUE(Type, Tag, HasPointer) instead.
 //
 // Register a non-template type with a fixed opaque signature.
 //   Type  -- fully qualified type name (e.g., MyLib::XString)
@@ -57,7 +130,8 @@
     };
 
 // ---------------------------------------------------------------------------
-// TYPELAYOUT_OPAQUE_CONTAINER(Template, name, size, align)
+// [DEPRECATED] TYPELAYOUT_OPAQUE_CONTAINER(Template, name, size, align)
+// Use TYPELAYOUT_REGISTER_OPAQUE(Template<T>, Tag, HasPointer) instead.
 //
 // Register a single-type-parameter template with an opaque signature
 // that includes the element type's signature.
@@ -93,7 +167,8 @@
     };
 
 // ---------------------------------------------------------------------------
-// TYPELAYOUT_OPAQUE_MAP(Template, name, size, align)
+// [DEPRECATED] TYPELAYOUT_OPAQUE_MAP(Template, name, size, align)
+// Use TYPELAYOUT_REGISTER_OPAQUE(Template<K,V>, Tag, HasPointer) instead.
 //
 // Register a two-type-parameter template with an opaque signature
 // that includes both key and value type signatures.
@@ -131,7 +206,9 @@
     };
 
 // ===========================================================================
-// Auto-deducing variants — TYPELAYOUT_OPAQUE_*_AUTO
+// [DEPRECATED] Auto-deducing variants — TYPELAYOUT_OPAQUE_*_AUTO
+// Use TYPELAYOUT_REGISTER_OPAQUE(Type, Tag, HasPointer) instead.
+// TYPELAYOUT_REGISTER_OPAQUE already deduces sizeof/alignof automatically.
 //
 // These macros deduce sizeof/alignof from the type itself, eliminating the
 // need for the caller to provide numeric size/align literals.
@@ -147,7 +224,8 @@
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
-// TYPELAYOUT_OPAQUE_TYPE_AUTO(Type, name)
+// [DEPRECATED] TYPELAYOUT_OPAQUE_TYPE_AUTO(Type, name)
+// Use TYPELAYOUT_REGISTER_OPAQUE(Type, Tag, HasPointer) instead.
 //
 // Like TYPELAYOUT_OPAQUE_TYPE but deduces size/align from sizeof/alignof.
 //   Type  -- fully qualified type name
@@ -172,7 +250,8 @@
     };
 
 // ---------------------------------------------------------------------------
-// TYPELAYOUT_OPAQUE_CONTAINER_AUTO(Template, name)
+// [DEPRECATED] TYPELAYOUT_OPAQUE_CONTAINER_AUTO(Template, name)
+// Use TYPELAYOUT_REGISTER_OPAQUE for each Template<T> instantiation instead.
 //
 // Like TYPELAYOUT_OPAQUE_CONTAINER but deduces size/align automatically.
 // Uses sizeof/alignof(Template<T_>) inside the consteval body.
@@ -198,7 +277,8 @@
     };
 
 // ---------------------------------------------------------------------------
-// TYPELAYOUT_OPAQUE_MAP_AUTO(Template, name)
+// [DEPRECATED] TYPELAYOUT_OPAQUE_MAP_AUTO(Template, name)
+// Use TYPELAYOUT_REGISTER_OPAQUE for each Template<K,V> instantiation instead.
 //
 // Like TYPELAYOUT_OPAQUE_MAP but deduces size/align automatically.
 // Uses sizeof/alignof(Template<K_, V_>) inside the consteval body.
@@ -222,54 +302,6 @@
                    ::boost::typelayout::FixedString{","} +                     \
                    TypeSignature<V_>::calculate() +                            \
                    ::boost::typelayout::FixedString{">"};                      \
-        }                                                                      \
-    };
-
-// ===========================================================================
-// TYPELAYOUT_REGISTER_OPAQUE -- Serialization-Free Opaque Registration
-//
-// Registers an opaque type whose internal layout is invisible to
-// TypeLayout.  The user provides a semantic tag string and declares
-// whether the type contains pointers.
-//
-// sizeof and alignof are deduced automatically from the type.
-//
-// Signature format:
-//   O(Tag|size|alignment)
-//
-// Parameters:
-//   Type        -- fully qualified type name
-//   Tag         -- semantic tag string (must be globally unique across
-//                  all registered opaque types)
-//   HasPointer  -- bool, user assertion: true if the type contains
-//                  pointers.  If true, has_pointer will be true,
-//                  preventing serialization-free transfer.
-//
-// User responsibilities:
-//   1. Tag is unique among all registered opaque types.
-//   2. HasPointer accurately reflects the type's contents.
-//   3. The type is trivially_copyable (enforced by static_assert).
-//   4. Both endpoints use the same opaque type definition (layout match).
-//
-// Example:
-//   TYPELAYOUT_REGISTER_OPAQUE(AesKey256, "AesKey256", false)
-//   // signature: "[64-le]O(AesKey256|32|1)"
-// ===========================================================================
-#define TYPELAYOUT_REGISTER_OPAQUE(Type, Tag, HasPointer)                      \
-    static_assert(std::is_trivially_copyable_v<Type>,                           \
-        "TYPELAYOUT_REGISTER_OPAQUE: opaque type must be trivially copyable");  \
-    template <>                                                                 \
-    struct TypeSignature<Type> {                                                \
-        static constexpr bool is_opaque = true;                                \
-        static constexpr bool pointer_free = !(HasPointer);                    \
-        static consteval auto calculate() noexcept {                           \
-            return ::boost::typelayout::FixedString{"O("} +                    \
-                   ::boost::typelayout::FixedString{Tag} +                     \
-                   ::boost::typelayout::FixedString{"|"} +                     \
-                   ::boost::typelayout::to_fixed_string<sizeof(Type)>() +      \
-                   ::boost::typelayout::FixedString{"|"} +                     \
-                   ::boost::typelayout::to_fixed_string<alignof(Type)>() +     \
-                   ::boost::typelayout::FixedString{")"};                      \
         }                                                                      \
     };
 
