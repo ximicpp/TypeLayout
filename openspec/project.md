@@ -1,37 +1,33 @@
 # Project Context
 
 ## Purpose
-Boost.TypeLayout 是一个 C++26 header-only 库，使用 P2996 静态反射提供编译时内存布局分析和验证。通过 Layout 签名系统唯一标识类型的内存布局。
-
-> **实现状态**: 当前版本仅实现 Layout 签名层（`get_layout_signature`、`layout_signatures_match`）。Definition 签名层为未来规划功能。
+Boost.TypeLayout 是一个 C++26 header-only 库，使用 P2996 静态反射提供编译时内存布局分析和验证。通过 Layout 签名系统唯一标识类型的字节级内存布局。
 
 **核心保证**: `Identical layout signature ⟹ Identical memory layout`（相同签名→相同内存布局；反之不一定成立，如数组 vs 散字段）
 
-### 核心价值（V1/V2/V3）
+### 核心价值
 
 | # | 承诺 | 形式化表达 | 说明 |
 |---|------|-----------|------|
 | V1 | 布局签名的**可靠性** | `layout_sig(T) == layout_sig(U) ⟹ memcmp-compatible(T, U)` | 签名相同→字节布局相同，方向正确且保守 |
-| V2 | 结构签名的**精确性** | `def_sig(T) == def_sig(U) ⟹ T 和 U 的字段名、类型、层次完全一致` | 区分所有结构差异（名称、类型、继承、命名空间） |
-| V3 | 两层的**投影关系** | `def_match(T, U) ⟹ layout_match(T, U)` | Definition 是 Layout 的细化（refinement），反之不成立 |
+| V2 | 布局签名的**单射性** | 不同布局→不同签名 | 保证无误报（false positive）不可能发生 |
+| V3 | 布局签名的**保守性** | false negative 允许存在 | 如 `int[3]` vs `int,int,int` 字节等价但签名不同 |
 
 ### 设计哲学：结构分析 vs 名义分析
 
 TypeLayout 执行**结构分析（Structural Analysis）**而非名义分析（Nominal Analysis）。
-两个不同名称的类型（`struct Point` 和 `struct Coord`），如果它们的字段名、类型、布局完全相同，
-则 Definition 签名相同。签名**不包含类型自身的名称**——这是有意的设计选择，
-因为 TypeLayout 关注的是"两个类型的结构是否等价"，而非"它们是否是同一个类型"。
+签名**不包含类型自身的名称**——关注的是"两个类型的字节布局是否等价"，而非"它们是否是同一个类型"。
+字段名、继承层次等结构信息在签名中被展平擦除，只保留字节身份。
 
-### 两层签名使用场景指导
+### Layout 签名使用场景
 
-| 场景 | 推荐层 | 理由 |
-|------|--------|------|
-| 共享内存 / IPC | Layout | 只关心字节布局是否 memcpy 兼容 |
-| 网络协议验证 | Layout | 只关心字节对齐和偏移 |
-| 编译器 ABI 验证 | Layout | 验证二进制兼容性 |
-| 序列化版本检查 | Definition | 需要检测字段名变更等结构变化 |
-| API 兼容检查 | Definition | 关心语义级结构一致性 |
-| ODR 违规检测 | Definition | 需要完整结构信息 |
+| 场景 | TypeLayout 能保证什么 | 局限 |
+|------|----------------------|------|
+| 共享内存 / IPC | 字节布局一致，memcpy 安全 | 不保证指针值跨进程有效 |
+| 网络协议验证 | 字段偏移/大小/对齐一致 | 不执行字节序转换 |
+| 编译器 ABI 验证 | 数据布局二进制兼容 | 不覆盖虚函数表/符号 |
+| 插件 ABI 验证 | 结构体布局匹配 | 成员函数签名需其他工具检测 |
+| 跨平台兼容分析 | 两阶段签名导出/对比 | 需在各目标平台运行 Phase 1 |
 
 ## Tech Stack
 - **语言**: C++26

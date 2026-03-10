@@ -2,9 +2,6 @@
 
 > **Layer**: Core (`<boost/typelayout.hpp>`)
 
-> **Implementation note**: Only the Layout signature layer is currently implemented.
-> References to the Definition layer in this specification describe planned future work.
-
 ## Purpose
 
 Defines the Layout signature generation system — the core capability of Boost.TypeLayout.
@@ -16,30 +13,30 @@ for compile-time type identity verification.
 | # | Value | Formal Expression | Description |
 |---|-------|-------------------|-------------|
 | V1 | Layout signature **reliability** | `layout_sig(T) == layout_sig(U) ⟹ memcmp-compatible(T, U)` | Same signature → same byte layout (conservative: reverse does not hold) |
-| V2 | Definition signature **precision** | `def_sig(T) == def_sig(U) ⟹ identical field names, types, and hierarchy` | Distinguishes all structural differences |
-| V3 | Two-layer **projection** | `def_match(T, U) ⟹ layout_match(T, U)` | Definition is a refinement of Layout; reverse does not hold |
+| V2 | Layout signature **injectivity** | Distinct layouts → distinct signatures | False positives impossible |
+| V3 | Layout signature **conservativeness** | False negatives allowed | e.g. `int[3]` vs `int,int,int` are byte-identical but produce different signatures |
 
 ## Design Philosophy
 
 TypeLayout performs **Structural Analysis**, not Nominal Analysis.
-Two differently-named types (`struct Point`, `struct Coord`) with identical field names, types, and layout
-will have identical Definition signatures. The signature **does not include the type's own name** — this is
-an intentional design choice because TypeLayout answers "are two types structurally equivalent?", not "are they
-the same type?".
+Two differently-named types (`struct Point`, `struct Coord`) with identical byte layout
+will have identical Layout signatures. The signature **does not include the type's own name** — this is
+an intentional design choice because TypeLayout answers "do these two types have identical byte layouts?",
+not "are they the same type?". Field names and inheritance hierarchies are flattened and erased;
+only byte-level identity is preserved.
 
 ## Usage Guidance
 
-| Use Case | Recommended Layer | Rationale |
-|----------|-------------------|-----------|
-| Shared memory / IPC | Layout | Only byte-layout compatibility matters |
-| Network protocol verification | Layout | Only byte alignment and offsets matter |
-| Compiler ABI verification | Layout | Binary compatibility check |
-| Serialization version check | Definition | Detects field renames and structural changes |
-| API compatibility check | Definition | Semantic-level structural consistency |
-| ODR violation detection | Definition | Requires full structural information |
+| Use Case | What TypeLayout Guarantees | Limitation |
+|----------|-----------------------------|------------|
+| Shared memory / IPC | Byte layout match → memcpy safe | Pointer values not valid across address spaces |
+| Network protocol verification | Field offsets/sizes/alignment identical | Does not perform byte-order conversion |
+| Compiler ABI verification | Data layout binary compatibility | Does not cover vtables or function signatures |
+| Plugin ABI validation | Struct layout match | Member function signatures need other tools |
+| Cross-platform analysis | Two-phase export/compare pipeline | Phase 1 must run on each target platform |
 ## Requirements
-### Requirement: Two-Layer Signature Architecture
-The library SHALL provide two complementary layers of compile-time type signatures.
+### Requirement: Layout Signature Architecture
+The library SHALL provide compile-time Layout signatures for C++ types.
 
 #### Scenario: Cross-platform correctness guarantee
 - **GIVEN** the same type T compiled on platforms A and B
@@ -60,11 +57,6 @@ The library SHALL provide compile-time signature comparison functions.
 - **GIVEN** two types T and U
 - **WHEN** calling `layout_signatures_match<T, U>()`
 - **THEN** the result SHALL be true if and only if their Layout signatures are identical
-
-#### Scenario: Definition comparison
-- **GIVEN** two types T and U
-- **WHEN** calling `definition_signatures_match<T, U>()`
-- **THEN** the result SHALL be true if and only if their Definition signatures are identical
 
 ### Requirement: Layout Signature Flattening
 The Layout engine SHALL recursively flatten non-opaque class-type fields
@@ -95,31 +87,6 @@ The library SHALL distinguish polymorphic from non-polymorphic types in Layout s
 - **AND** the synthesized pointer field SHALL be emitted only when `introduces_vptr<T>` is true (i.e., T is polymorphic and no direct base of T is polymorphic)
 - **AND** the signature SHALL NOT match a non-polymorphic type with the same fields
 
-### Requirement: Qualified Names in Definition
-The Definition layer SHALL use fully qualified names for disambiguation.
-Qualified names SHALL include the complete namespace path from the global namespace,
-regardless of nesting depth.
-
-#### Scenario: Base class qualified names
-- **GIVEN** `namespace ns1 { struct Tag { int id; }; }` and `namespace ns2 { struct Tag { int id; }; }`
-- **AND** `struct A : ns1::Tag {}; struct B : ns2::Tag {};`
-- **WHEN** Definition signatures are compared
-- **THEN** `definition_signatures_match<A, B>()` SHALL return false
-
-#### Scenario: Enum qualified names
-- **GIVEN** `namespace ns { enum class Color : uint8_t {}; enum class Shape : uint8_t {}; }`
-- **WHEN** Definition signatures are compared
-- **THEN** `definition_signatures_match<Color, Shape>()` SHALL return false
-- **AND** `layout_signatures_match<Color, Shape>()` SHALL return true
-
-#### Scenario: Deep namespace qualified names
-- **GIVEN** `namespace a { namespace b { namespace c { struct T { int x; }; } } }`
-- **AND** `namespace d { namespace b { namespace c { struct T { int x; }; } } }`
-- **WHEN** Definition signatures are compared
-- **THEN** the qualified name for the first SHALL contain `a::b::c::T`
-- **AND** the qualified name for the second SHALL contain `d::b::c::T`
-- **AND** `definition_signatures_match` between types using these as bases SHALL return false
-
 ### Requirement: Type Categories
 The library SHALL support the following type categories in signatures.
 
@@ -137,8 +104,6 @@ The library SHALL support the following type categories in signatures.
 - **GIVEN** an enum type with underlying type U
 - **WHEN** Layout signature is generated
 - **THEN** the format SHALL be `enum[s:SIZE,a:ALIGN]<underlying_sig>`
-- **WHEN** Definition signature is generated
-- **THEN** the format SHALL be `enum<QualifiedName>[s:SIZE,a:ALIGN]<underlying_sig>`
 
 #### Scenario: Union types
 - **GIVEN** a union type
@@ -154,13 +119,7 @@ The library SHALL support the following type categories in signatures.
 #### Scenario: Bit-field types
 - **GIVEN** a struct with bit-fields
 - **WHEN** signature is generated
-- **THEN** the format SHALL be `@BYTE.BIT:bits<WIDTH,underlying_sig>` (Layout)
-- **OR** `@BYTE.BIT[NAME]:bits<WIDTH,underlying_sig>` (Definition)
-
-#### Scenario: Anonymous members
-- **GIVEN** a struct with anonymous members
-- **WHEN** Definition signature is generated
-- **THEN** anonymous members SHALL use `<anon:N>` placeholder
+- **THEN** the format SHALL be `@BYTE.BIT:bits<WIDTH,underlying_sig>`
 
 #### Scenario: Function pointer types
 - **GIVEN** any function pointer type including noexcept and variadic variants
@@ -265,18 +224,6 @@ The library SHALL document the correctness boundary and assumptions for each cor
 - **AND** false positives (signature match but layout mismatch) SHALL be impossible under stated assumptions
 - **AND** false negatives (layout match but signature mismatch) are acceptable and documented (e.g., `int[3]` vs `int,int,int`)
 
-#### Scenario: V2 discrimination boundary
-- **GIVEN** the V2 guarantee `def_sig(T) == def_sig(U) ⟹ identical field names, types, and hierarchy`
-- **THEN** the library SHALL document that V2 does NOT distinguish:
-  - Types with different names but identical structure (by design: structural analysis)
-  - cv-qualifiers (`const int` vs `int`)
-- **AND** V2 SHALL distinguish all structural differences including field names, inheritance, namespaces, and enum qualified names
-
-#### Scenario: V3 algebraic correctness
-- **GIVEN** the V3 guarantee `def_match(T, U) ⟹ layout_match(T, U)`
-- **THEN** the library SHALL document that this is an algebraic consequence of Definition being a refinement of Layout
-- **AND** the reverse SHALL NOT hold (layout match does not imply definition match)
-
 ### Requirement: Competitive Positioning
 The library SHALL document its differentiated positioning relative to alternative approaches.
 
@@ -289,12 +236,6 @@ The library SHALL document its differentiated positioning relative to alternativ
 
 ### Requirement: Architecture Decision Documentation
 The library SHALL document the rationale for key architectural decisions.
-
-#### Scenario: Two-layer justification
-- **GIVEN** the library provides two signature layers (Layout and Definition)
-- **THEN** the documentation SHALL explain why a single layer is insufficient
-- **AND** the documentation SHALL explain why a third layer (semantic) is unnecessary
-- **AND** the documentation SHALL describe Layout as answering "can I memcpy?" and Definition as answering "is the structure identical?"
 
 #### Scenario: Two-phase pipeline justification
 - **GIVEN** the library separates signature export (Phase 1) from compatibility check (Phase 2)
@@ -384,9 +325,8 @@ The signature system SHALL provide a formal analysis document defining the neces
 The library SHALL provide macro-based registration for types whose internal layout is opaque (not introspectable via P2996 reflection), generating fixed-size/alignment signatures without requiring member-level reflection.
 
 #### Scenario: Non-template opaque type
-- **WHEN** a user registers a non-template type via `TYPELAYOUT_OPAQUE_TYPE(Type, name, size, align)`
-- **THEN** the generated signature SHALL be `name[s:size,a:align]`
-- **AND** the signature SHALL be identical for both Layout and Definition modes
+- **WHEN** a user registers a non-template type via `TYPELAYOUT_OPAQUE_TYPE(Type, name, size, align)` (deprecated) or `TYPELAYOUT_REGISTER_OPAQUE(Type, Tag, HasPointer)` (recommended)
+- **THEN** the generated signature SHALL be `O!name[s:size,a:align]` (legacy) or `O(Tag|size|align)` (new format)
 
 #### Scenario: Single-parameter template container
 - **WHEN** a user registers a single-type-parameter template via `TYPELAYOUT_OPAQUE_CONTAINER(Template, name, size, align)`
@@ -503,8 +443,7 @@ compilable, structurally correct .sig.hpp files.
 
 #### Scenario: Exported signatures match runtime values
 - **WHEN** `SigExporter::write()` generates a .sig.hpp file
-- **THEN** the signature strings in the file SHALL match the values from
-  `get_layout_signature<T>()` and `get_definition_signature<T>()`
+- **THEN** the signature strings in the file SHALL match the values from `get_layout_signature<T>()`
 
 ### Requirement: Header Organization
 The library SHALL organize headers following Boost conventions:
@@ -525,7 +464,7 @@ The library SHALL organize headers following Boost conventions:
 #### Scenario: Signature engine modularity
 - **WHEN** a contributor modifies a TypeSignature specialization
 - **THEN** the change SHALL be isolated to `detail/type_map.hpp`
-- **AND** the Layout/Definition engine code in `detail/signature_impl.hpp` SHALL not need editing
+- **AND** the Layout engine code in `detail/signature_impl.hpp` SHALL not need editing
 
 #### Scenario: Config isolation
 - **WHEN** a user includes `boost/typelayout/config.hpp`

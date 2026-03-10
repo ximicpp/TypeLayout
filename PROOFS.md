@@ -1,4 +1,4 @@
-# Formal Accuracy Proofs for Two-Layer Signature System
+# Formal Accuracy Proofs for the Layout Signature System
 
 > **Cross-reference:** For the condensed paper version of these proofs, see
 > [`docs/paper/sec4-formal.md`](docs/paper/sec4-formal.md) (S4 Formal Semantics).
@@ -6,22 +6,15 @@
 > [`docs/applications.md`](docs/applications.md).
 
 This document provides rigorous mathematical proofs for the correctness of
-Boost.TypeLayout's two-layer signature system, grounded in **Denotational Semantics**
-and **Refinement Theory**.
+Boost.TypeLayout's Layout signature system, grounded in **Denotational Semantics**.
 
-**Formal Framework.** The proof methodology draws from two established traditions:
-
-- **Denotational Semantics** (Scott-Strachey): Signature functions are treated as
-  *semantic denotation functions* mapping C++ types to mathematical string objects.
-  This framework naturally captures the compositionality of recursive signature
-  generation and enables the Encoding Faithfulness theorem.
-
-- **Refinement Theory** (Z/B methods, seL4-style): The two-layer relationship
-  (Definition ⊑ Layout) is modeled as an *observational refinement*, where the
-  Definition layer strictly refines the Layout layer.
+**Formal Framework.** Signature functions are treated as *semantic denotation
+functions* (Scott-Strachey) mapping C++ types to mathematical string objects.
+This framework naturally captures the compositionality of recursive signature
+generation and enables the Encoding Faithfulness theorem.
 
 **Document Architecture.** The proof document follows a *Layered Denotational*
-structure with seven sections, each building on the previous:
+structure with six sections, each building on the previous:
 
 | Section | Title | Role |
 |---------|-------|------|
@@ -29,9 +22,8 @@ structure with seven sections, each building on the previous:
 | S2 | Encoding: Signatures as Strings | HOW we encode (denotation functions + grammar) |
 | S3 | Encoding Properties | WHY the encoding is correct (faithfulness) |
 | S4 | Safety Theorems | WHAT guarantees users get (soundness, conservativeness) |
-| S5 | Refinement | HOW the two layers relate (projection, strict refinement) |
-| S6 | Structural Verification | PER-CATEGORY correctness (offsets, 8 type constructors) |
-| S7 | Summary & Reference | Index, classification, assumptions |
+| S5 | Structural Verification | PER-CATEGORY correctness (offsets, 8 type constructors) |
+| S6 | Summary & Reference | Index, classification, assumptions |
 
 All proofs reference the implementation in
 `include/boost/typelayout/detail/signature_impl.hpp` and

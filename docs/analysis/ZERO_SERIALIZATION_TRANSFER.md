@@ -2,7 +2,7 @@
 
 > A systematic analysis of when C++ types can be transmitted as raw bytes
 > across platforms without serialization/deserialization, grounded in
-> Boost.TypeLayout's two-layer signature system and formal verification theory.
+> Boost.TypeLayout's Layout signature system and formal verification theory.
 
 ## Table of Contents
 

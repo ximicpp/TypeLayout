@@ -1,7 +1,7 @@
 # cross-platform-compat Specification
 
 ## Purpose
-TBD - created by archiving change add-cross-platform-compat-checker. Update Purpose after archive.
+Defines the two-phase cross-platform compatibility pipeline: Phase 1 exports Layout signatures from each target platform (requires P2996); Phase 2 compares all signatures and produces a compatibility report (C++17 only).
 ## Requirements
 ### Requirement: Platform Detection
 The library SHALL provide automatic detection of the current platform identity.
@@ -29,7 +29,7 @@ The library SHALL provide a tool to export TypeLayout signatures to C++ header f
 - **GIVEN** a set of user-defined types registered via `SigExporter::add<T>(name)`
 - **WHEN** calling `SigExporter::write(path)`
 - **THEN** a `.sig.hpp` header file SHALL be generated at the specified path
-- **AND** the file SHALL contain `inline constexpr const char[]` variables for each type's layout and definition signatures
+- **AND** the file SHALL contain `inline constexpr const char[]` variables for each type's layout signature
 - **AND** the file SHALL be compilable by any C++17 or later compiler (no P2996 required)
 
 #### Scenario: Generated header structure
@@ -37,7 +37,6 @@ The library SHALL provide a tool to export TypeLayout signatures to C++ header f
 - **WHEN** the `.sig.hpp` is generated
 - **THEN** it SHALL contain:
   - `inline constexpr const char PacketHeader_layout[] = "...";`
-  - `inline constexpr const char PacketHeader_definition[] = "...";`
   - Platform metadata: `platform_name`, `arch_prefix`, `pointer_size`, `sizeof_long`, `sizeof_wchar_t`, `sizeof_long_double`
   - A `TypeEntry` struct and `types[]` registry array for runtime iteration
 - **AND** all content SHALL be wrapped in `namespace boost::typelayout::platform::{platform_name}`
