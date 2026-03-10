@@ -1,16 +1,14 @@
 # TypeLayout Quickstart
 
-Get started with TypeLayout in under 5 minutes.
+## 1. Prerequisites
 
-## Prerequisites
-
-- **Compiler**: Bloomberg Clang P2996 fork (C++26 with static reflection)
-- **Standard**: C++26 (`-std=c++26 -freflection`)
+- **Compiler**: Bloomberg Clang P2996 fork with `-freflection` (C++26 static reflection)
+- **Standard**: C++26 for core functions; C++17 suffices for the tools layer
 - **Dependencies**: None (header-only library)
 
-## 1. Minimal Example
+## 2. Minimal Example
 
-Create a file `check.cpp`:
+Create `check.cpp`:
 
 ```cpp
 #include <boost/typelayout/typelayout.hpp>
@@ -19,175 +17,203 @@ Create a file `check.cpp`:
 
 using namespace boost::typelayout;
 
-// Two structs in different subsystems -- are they compatible?
 struct SenderMsg   { uint32_t id; uint64_t timestamp; double value; };
 struct ReceiverMsg { uint32_t id; uint64_t timestamp; double value; };
 
-// Compile-time layout verification
 static_assert(layout_signatures_match<SenderMsg, ReceiverMsg>(),
     "Binary layout mismatch -- unsafe to memcpy");
 
 int main() {
-    // Print the signature for inspection
-    constexpr auto layout = get_layout_signature<SenderMsg>();
-
-    std::cout << "Layout: " << layout << "\n";
-    std::cout << "Match: YES\n";
-    return 0;
+    constexpr auto sig = get_layout_signature<SenderMsg>();
+    std::cout << sig << "\n";
 }
 ```
 
-## 2. Build and Run
+Compile and run:
 
 ```bash
-cmake -B build
-cmake --build build
-
-# Or compile directly:
-clang++ -std=c++26 -freflection -I include check.cpp -o check
+clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ \
+    -I include check.cpp -o check
 ./check
 ```
 
-Expected output (on x86-64, little-endian):
-
-```
-Layout: [64-le]record[s:24,a:8]{@0:u32[s:4,a:4],@8:u64[s:8,a:8],@16:f64[s:8,a:8]}
-Match: YES
-```
-
-## 3. Catching Mismatches
-
-If a field is renamed or reordered, the compiler catches it immediately:
-
-```cpp
-struct SenderMsg   { uint32_t id; uint64_t timestamp; double value; };
-struct ReceiverMsg { uint32_t id; double value; uint64_t timestamp; };  // reordered!
-
-// This static_assert FAILS at compile time:
-static_assert(layout_signatures_match<SenderMsg, ReceiverMsg>());
-//            ^^^ error: layout mismatch -- offsets differ
-```
-
-## 4. Reading a Signature
+Expected output on x86-64 little-endian:
 
 ```
 [64-le]record[s:24,a:8]{@0:u32[s:4,a:4],@8:u64[s:8,a:8],@16:f64[s:8,a:8]}
- ^      ^      ^    ^    ^    ^    ^   ^
- |      |      |    |    |    |    |   alignment
- |      |      |    |    |    |    size
- |      |      |    |    |    type name
- |      |      |    |    byte offset
- |      |      |    struct alignment
- |      |      struct size
- |      aggregate type (record / union / enum)
- platform prefix: pointer width + endianness
 ```
 
-## 5. Layout Matching
+## 3. Reading a Signature
 
-`layout_signatures_match<T, U>()` is the primary function. It returns `true` when
-`T` and `U` have identical byte layouts — same field offsets, sizes, and alignments.
+```
+[64-le]record[s:24,a:8]{@0:u32[s:4,a:4],@8:u64[s:8,a:8],@16:f64[s:8,a:8]}
+  ^      ^      ^    ^    ^    ^    ^   ^
+  |      |      |    |    |    |    |   alignment of this field
+  |      |      |    |    |    |    size of this field
+  |      |      |    |    |    field type name
+  |      |      |    |    byte offset of this field
+  |      |      |    alignment of the record
+  |      |      total size of the record
+  |      aggregate kind: record / union / enum / array
+  platform prefix: pointer width + endianness
+```
+
+The gap between `@0:u32[s:4]` (covers bytes 0-3) and `@8:u64[s:8]` (starts at byte 8)
+indicates four padding bytes at offsets 4-7. Padding is not encoded explicitly; it is
+implied by the offset gaps.
+
+## 4. Catching Mismatches
+
+If fields are reordered, the static assertion fails at compile time:
 
 ```cpp
-static_assert(layout_signatures_match<SenderMsg, ReceiverMsg>(),
-    "Binary layout mismatch -- unsafe to memcpy");
+struct SenderMsg   { uint32_t id; uint64_t timestamp; double value; };
+struct ReceiverMsg { uint32_t id; double value; uint64_t timestamp; }; // reordered
+
+static_assert(layout_signatures_match<SenderMsg, ReceiverMsg>());
+// error: static assertion failed -- offsets differ
 ```
 
-## 6. Cross-Platform Verification
+The compiler reports the failure immediately; no runtime test is needed.
 
-For comparing types across different platforms (e.g., ARM64 vs x86-64),
-TypeLayout uses a **two-phase pipeline**:
+## 5. layout_traits\<T\>
 
-```
-Phase 1: Export (per-platform, requires P2996)
-+--------------------------+
-| x86_64 Linux (Clang)    |
-| compile + run sig_export |---> x86_64_linux_clang.sig.hpp
-+--------------------------+
-+--------------------------+
-| x86_64 Windows (MSVC)   |
-| compile + run sig_export |---> x86_64_windows_msvc.sig.hpp
-+--------------------------+
-         |
-         v
-Phase 2: Check (any platform, C++17 only -- no P2996 needed)
-+---------------------------------------+
-| #include all .sig.hpp headers         |
-|                                       |
-| TYPELAYOUT_CHECK_COMPAT(              |
-|   x86_64_linux_clang,                 |
-|   x86_64_windows_msvc)               |
-+---------------------------------------+
-```
-
-### Step 1: Write the Export Source (Phase 1)
+`layout_traits<T>` aggregates the signature and derived properties in one place:
 
 ```cpp
-// cross_platform_check.cpp -- 3 lines of user code
+#include <boost/typelayout/layout_traits.hpp>
+using namespace boost::typelayout;
+
+struct Packet {
+    uint32_t id;
+    double   value;  // 4 bytes of padding before this on most platforms
+};
+
+using T = layout_traits<Packet>;
+
+static_assert(T::has_padding);           // true: gap between id and value
+static_assert(!T::has_pointer);          // no pointers
+static_assert(!T::has_opaque);           // no opaque-registered sub-types
+static_assert(!T::is_platform_variant);  // no wchar_t or long double
+static_assert(T::field_count == 2);      // direct non-static data members only
+static_assert(T::total_size == sizeof(Packet));
+static_assert(T::alignment == alignof(Packet));
+```
+
+All members:
+
+| Member | Type | Description |
+|--------|------|-------------|
+| `signature` | `FixedString` | Full layout signature string |
+| `has_pointer` | `bool` | Contains `ptr`, `fnptr`, `memptr`, `ref`, or `rref` |
+| `has_bit_field` | `bool` | Contains bit-fields |
+| `has_opaque` | `bool` | Contains opaque-registered sub-types (recursive) |
+| `is_platform_variant` | `bool` | Contains `wchar_t` or `long double` |
+| `has_padding` | `bool` | Uncovered bytes in layout (bitmap analysis, recursive) |
+| `field_count` | `size_t` | Direct non-static data members (not inherited) |
+| `total_size` | `size_t` | `sizeof(T)` |
+| `alignment` | `size_t` | `alignof(T)` |
+
+## 6. Safety Classification
+
+The tools layer classifies any type or signature string into one of five tiers.
+
+```cpp
+#include <boost/typelayout/tools/classify.hpp>
+#include <boost/typelayout/tools/safety_level.hpp>
+using namespace boost::typelayout;
+
+struct Safe   { uint32_t x; uint32_t y; };
+struct Padded { uint32_t x; double   y; };
+
+static_assert(classify_v<Safe>   == SafetyLevel::TrivialSafe);
+static_assert(classify_v<Padded> == SafetyLevel::PaddingRisk);
+
+// Convenience predicates:
+static_assert(is_trivial_safe_v<Safe>);    // only TrivialSafe
+static_assert(is_memcpy_safe_v<Padded>);   // TrivialSafe or PaddingRisk
+```
+
+SafetyLevel enum (ordered best to worst):
+
+| Enumerator | Value | Meaning |
+|------------|-------|---------|
+| `TrivialSafe` | 0 | Safe for zero-copy and cross-platform transfer |
+| `PaddingRisk` | 1 | Padding bytes may leak uninitialized data |
+| `PlatformVariant` | 2 | Layout differs across platforms |
+| `PointerRisk` | 3 | Contains pointers; dangling after memcpy |
+| `Opaque` | 4 | Unanalyzable; safety unknown |
+
+Runtime classification from a string (C++17, no P2996 needed):
+
+```cpp
+#include <boost/typelayout/tools/safety_level.hpp>
+SafetyLevel level = classify_signature("[64-le]record[s:8,a:4]{@0:u32[s:4,a:4],@4:u32[s:4,a:4]}");
+// SafetyLevel::TrivialSafe
+```
+
+## 7. Cross-Platform Verification
+
+For comparing types across platforms, TypeLayout uses a two-phase pipeline.
+
+### Phase 1: Export (per-platform, requires P2996)
+
+Write one file that lists the types to export:
+
+```cpp
+// export_types.cpp
 #include <boost/typelayout/tools/sig_export.hpp>
-#include "my_types.hpp"    // your struct definitions
+#include "my_types.hpp"
 
 TYPELAYOUT_EXPORT_TYPES(PacketHeader, SensorRecord, SharedMemRegion)
 ```
 
-`TYPELAYOUT_EXPORT_TYPES(...)` generates `main()` for you.
-
-### Step 2: Compile and Run on Each Platform
+`TYPELAYOUT_EXPORT_TYPES` generates `main()`. Compile and run on each target platform:
 
 ```bash
-# Build the signature exporter on each target platform
 clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ \
-    -I./include -o sig_export example/cross_platform_check.cpp
-
-# Run it to generate a .sig.hpp for this platform
+    -I./include -o sig_export export_types.cpp
 ./sig_export sigs/
-# -> creates sigs/x86_64_linux_clang.sig.hpp
+# writes sigs/x86_64_linux_clang.sig.hpp
 ```
 
-Using Docker:
+Using Docker (any platform):
+
 ```bash
 docker run --rm -v $(pwd):/workspace -w /workspace \
     -e LD_LIBRARY_PATH=/opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu \
     ghcr.io/ximicpp/typelayout-p2996:latest \
     bash -c 'clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ \
-        -I./include -o sig_export example/cross_platform_check.cpp && \
-        ./sig_export sigs/'
+        -I./include -o sig_export export_types.cpp && ./sig_export sigs/'
 ```
 
-### Step 3: Write the Check Source (Phase 2)
+### Phase 2: Check (any platform, C++17 only)
+
+Write one file that includes the generated headers and selects the comparison macro:
 
 ```cpp
-// compat_check.cpp
+// check_compat.cpp
 #include "sigs/x86_64_linux_clang.sig.hpp"
 #include "sigs/arm64_macos_clang.sig.hpp"
 #include "sigs/x86_64_windows_msvc.sig.hpp"
 #include <boost/typelayout/tools/compat_auto.hpp>
 
-// Option A: Runtime report
+// Option A: runtime report, exits 0
 TYPELAYOUT_CHECK_COMPAT(x86_64_linux_clang, arm64_macos_clang, x86_64_windows_msvc)
+
+// Option B: compile-time -- fails to compile on any mismatch
+// TYPELAYOUT_ASSERT_COMPAT(x86_64_linux_clang, arm64_macos_clang, x86_64_windows_msvc)
 ```
 
-Or for compile-time verification:
-
-```cpp
-// compat_assert.cpp
-#include "sigs/x86_64_linux_clang.sig.hpp"
-#include "sigs/arm64_linux_clang.sig.hpp"
-#include <boost/typelayout/tools/compat_auto.hpp>
-
-// Option B: Compile-time -- fails if any type differs
-TYPELAYOUT_ASSERT_COMPAT(x86_64_linux_clang, arm64_linux_clang)
-```
-
-### Step 4: Compile and Run the Check
+Compile and run the checker with any C++17 compiler:
 
 ```bash
 clang++ -std=c++17 -stdlib=libc++ -I./include -I./example \
-    -o compat_check example/compat_check.cpp
+    -o compat_check check_compat.cpp
 ./compat_check
 ```
 
-### Example Output
+### Example Report Output
 
 ```
 ========================================================================
@@ -202,68 +228,25 @@ Platforms compared: 3
   * x86_64_windows_msvc [64-le]
     pointer=8B, long=4B, wchar_t=2B, long_double=8B, max_align=16B
 
-Safety: *** = zero-copy ok, **- = padding risk, *!- = pointer risk, *-- = platform-variant.
-
 ------------------------------------------------------------------------
   Type                      Layout  Safety  Verdict
 ------------------------------------------------------------------------
   PacketHeader               MATCH    ***  Serialization-free
-  SharedMemRegion            MATCH    ***  Serialization-free
   SensorRecord               MATCH    ***  Serialization-free
   UnsafeStruct              DIFFER    *--  Needs serialization
-  UnsafeWithPointer          MATCH    *!-  Layout OK (pointer values not portable)
 ------------------------------------------------------------------------
-
-  [DIFFER] UnsafeStruct layout signatures:
-    x86_64_linux_clang: [64-le]record[s:48,a:16]{@0:i64[s:8,a:8],...}
-    x86_64_windows_msvc: [64-le]record[s:32,a:8]{@0:i32[s:4,a:4],...}
-
-========================================================================
-  Serialization-free (C1+C2): 3/5 (60%)
-  Layout-compatible (C1):     4/5
-  Needs serialization:        1/5
-========================================================================
 ```
 
-### Platform Naming Convention
+### Manual SigExporter Usage
 
-Platform names follow the format `{arch}_{os}_{compiler}`:
-
-| Platform | Name |
-|----------|------|
-| x86-64 Linux, Clang | `x86_64_linux_clang` |
-| x86-64 Linux, GCC | `x86_64_linux_gcc` |
-| AArch64 Linux, Clang | `arm64_linux_clang` |
-| x86-64 Windows, MSVC | `x86_64_windows_msvc` |
-| AArch64 macOS, Clang | `arm64_macos_clang` |
-
-The platform is auto-detected from compiler macros. You can override it:
+When you need fine-grained control rather than the macro:
 
 ```cpp
-boost::typelayout::SigExporter ex("my_custom_platform");
-```
-
-### Fine-Grained Compile-Time Checks
-
-Mix macros with manual `static_assert`:
-
-```cpp
-#include "sigs/x86_64_linux_clang.sig.hpp"
-#include "sigs/arm64_macos_clang.sig.hpp"
-#include <boost/typelayout/tools/compat_auto.hpp>
-
-namespace linux_plat = boost::typelayout::platform::x86_64_linux_clang;
-namespace macos_plat = boost::typelayout::platform::arm64_macos_clang;
-
-using boost::typelayout::compat::layout_match;
-
-// Check individual types
-static_assert(layout_match(linux_plat::PacketHeader_layout,
-                           macos_plat::PacketHeader_layout),
-    "PacketHeader: Linux/macOS layout mismatch!");
-
-// Use the macro for the runtime report
-TYPELAYOUT_CHECK_COMPAT(x86_64_linux_clang, arm64_macos_clang)
+boost::typelayout::SigExporter ex;                   // auto-detect platform
+// boost::typelayout::SigExporter ex("my_platform"); // or explicit name
+ex.add<PacketHeader>("PacketHeader");
+ex.add<SensorRecord>("SensorRecord");
+ex.write("sigs/x86_64_linux_clang.sig.hpp");         // returns int: 0 on success
 ```
 
 ### CMake Integration
@@ -271,50 +254,109 @@ TYPELAYOUT_CHECK_COMPAT(x86_64_linux_clang, arm64_macos_clang)
 ```cmake
 include(cmake/TypeLayoutCompat.cmake)
 
-# One-liner: creates both export and check targets
 typelayout_add_compat_pipeline(
     NAME          my_compat
-    EXPORT_SOURCE example/cross_platform_check.cpp
-    CHECK_SOURCE  example/compat_check.cpp
-    SIGS_DIR      ${CMAKE_SOURCE_DIR}/example/sigs
+    EXPORT_SOURCE export_types.cpp
+    CHECK_SOURCE  check_compat.cpp
+    SIGS_DIR      ${CMAKE_SOURCE_DIR}/sigs
     ADD_TEST
-)
-
-# Or fine-grained:
-typelayout_add_sig_export(
-    TARGET sig_export
-    SOURCE example/cross_platform_check.cpp
-    OUTPUT_DIR ${CMAKE_BINARY_DIR}/sigs
-)
-
-typelayout_add_compat_check(
-    TARGET compat_check
-    SOURCE example/compat_check.cpp
-    SIGS_DIR ${CMAKE_SOURCE_DIR}/example/sigs
 )
 ```
 
-## Common Pitfalls
+## 8. Opaque Types
 
-### Padding bytes are uninitialized
+Types that cannot be reflected (third-party containers, non-trivial types) can be
+registered as opaque so that structs containing them still produce signatures.
 
-Layout signature match guarantees identical field offsets and sizes, but
-**padding bytes between fields are uninitialized**. If you `memcmp` two
-structs that are layout-compatible, the comparison may fail due to
-differing padding contents. Always compare field-by-field, or zero-fill
-the struct before use (`= {}` or `memset`).
+```cpp
+#include <boost/typelayout/opaque.hpp>
 
-### Unsupported types
+namespace boost { namespace typelayout {
 
-The following types cannot produce signatures (compile error):
+// Recommended form: type must be trivially copyable
+TYPELAYOUT_REGISTER_OPAQUE(MyLib::Handle, "handle", false)
+// Signature fragment: O(handle|8|8)
 
-- `void` -- use `void*` instead
-- `T[]` (unbounded array) -- use `T[N]` with a known size
-- Bare function types like `void(int)` -- use function pointers `void(*)(int)`
+}} // namespace boost::typelayout
+```
+
+`TYPELAYOUT_REGISTER_OPAQUE(Type, Tag, HasPointer)`:
+- `Type` — the C++ type to register; must satisfy `std::is_trivially_copyable_v<Type>`
+- `Tag` — string tag embedded in the signature
+- `HasPointer` — `true` if the type internally contains pointer-like fields
+
+Legacy macros (`TYPELAYOUT_OPAQUE_TYPE`, `TYPELAYOUT_OPAQUE_CONTAINER`,
+`TYPELAYOUT_OPAQUE_MAP`) are kept for backward compatibility and produce the
+`O!name[s:N,a:M]` signature format.
+
+## 9. Runtime Handshake with is_transfer_safe
+
+For scenarios where the remote type's signature is received at runtime (e.g., a
+plugin that exports its signature string over IPC or RPC):
+
+```cpp
+#include <boost/typelayout/tools/serialization_free.hpp>
+using namespace boost::typelayout;
+
+// Plugin exports at load time:
+extern "C" const char* get_packet_sig() {
+    static constexpr auto sig = get_layout_signature<PacketHeader>();
+    return sig.c_str();
+}
+
+// Host verifies after dlopen:
+const char* remote_sig = get_packet_sig_from_plugin();
+if (!is_transfer_safe<PacketHeader>(remote_sig)) {
+    // layout mismatch or safety concern -- refuse the connection
+}
+```
+
+For managing multiple types across a session, use `SignatureRegistry`:
+
+```cpp
+SignatureRegistry reg;
+reg.register_local<PacketHeader>();
+reg.register_local<SensorRecord>();
+
+reg.register_remote("PacketHeader", received_packet_sig);
+reg.register_remote("SensorRecord", received_sensor_sig);
+
+if (!reg.is_serialization_free<PacketHeader>()) {
+    std::cerr << reg.diagnose<PacketHeader>() << "\n";
+}
+```
+
+## 10. CMake Integration
+
+The library is header-only. The minimum CMake setup is:
+
+```cmake
+target_include_directories(my_target PRIVATE path/to/typelayout/include)
+target_compile_options(my_target PRIVATE
+    -std=c++26 -freflection -freflection-latest -stdlib=libc++)
+```
+
+## 11. Common Pitfalls
+
+**Padding bytes are uninitialized.** `layout_signatures_match` guarantees identical
+field offsets and sizes, not identical byte values. `memcmp` on layout-compatible
+structs may return non-zero if padding bytes differ. Zero-fill with `= {}` or
+`memset` before comparing or transmitting.
+
+**Signature match does not imply semantic equivalence.** If a field is renamed
+(`timeout_ms` to `timeout_seconds`) but its type and position are unchanged, the
+signatures are identical. TypeLayout operates on byte identity, not field names.
+
+**Unsupported types.** `void`, unbounded arrays (`T[]`), and bare function types
+(`void(int)`) cannot produce signatures and will cause a compile error. Use
+`void*`, `T[N]`, or function pointers (`void(*)(int)`) instead.
+
+**Phase 1 requires P2996; Phase 2 does not.** The `.sig.hpp` files produced by
+Phase 1 are plain C++17 headers. If your CI runs Phase 2 on a standard compiler,
+no special flags are needed.
 
 ## Next Steps
 
-- [API Reference](api-reference.md) -- all public symbols with signatures and examples
-- [Migration Guide](migration-guide.md) -- upgrading from earlier versions
-- [Best Practices](best-practices.md) -- field ordering, naming, CI integration
-- [Examples](../example/) -- source code for the pipeline demos
+- [API Reference](api-reference.md) — all public symbols with declarations and examples
+- [Applications](applications.md) — IPC, network protocol, plugin ABI, cross-platform file use cases
+- [Examples](../example/) — runnable demo sources

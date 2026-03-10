@@ -1,28 +1,56 @@
-# Boost.TypeLayout — Cross-Platform Compatibility Toolchain
+# Boost.TypeLayout Tools
 
-A command-line toolchain for verifying binary layout compatibility of C++ types
-across different platforms, architectures, and compilers.
+Cross-platform layout compatibility toolchain for verifying that C++ struct
+layouts are identical across compilers, operating systems, and architectures.
 
-## Overview
+## Two-Phase Pipeline
 
-The toolchain implements a **two-phase pipeline**:
+The toolchain separates layout analysis into two independent phases:
 
-1. **Phase 1 (Export)**: Compile your types on each target platform using a P2996
-   Clang compiler. This produces `.sig.hpp` header files containing `constexpr`
-   signature data.
+**Phase 1 (Export)** runs on each target platform. It requires Bloomberg Clang
+P2996 with `-freflection`. The output is a self-contained `.sig.hpp` header
+containing `constexpr` signature strings and platform metadata.
 
-2. **Phase 2 (Compare)**: Include all `.sig.hpp` headers in a single C++17 program
-   and compare signatures. No P2996 required — any standard compiler works.
+**Phase 2 (Check)** runs on any single machine. It requires only a C++17
+compiler. It includes all `.sig.hpp` headers produced in Phase 1 and compares
+signatures across platforms.
 
-**Key design**: Both phases use declarative C++ macros. You write two small `.cpp`
-files — the toolchain compiles and runs them. No header scanning, no code
-generation, no templates.
+```
+Phase 1: per-platform (P2996 required)
+  x86_64 Linux  --> sig_export --> x86_64_linux_clang.sig.hpp  --+
+  ARM64 macOS   --> sig_export --> arm64_macos_clang.sig.hpp   --+--> Phase 2
+  x86_64 Windows -> sig_export --> x86_64_windows_msvc.sig.hpp --+
 
-## Quick Start
+Phase 2: any machine (C++17 only)
+  #include all .sig.hpp headers
+  TYPELAYOUT_CHECK_COMPAT(x86_64_linux_clang, arm64_macos_clang, x86_64_windows_msvc)
+```
 
-### 1. Write the Export Source (Phase 1)
+## SigExporter
 
-Create a `.cpp` file that lists your types:
+`SigExporter` (header `<boost/typelayout/tools/sig_export.hpp>`) collects type
+signatures on the current platform and writes a `.sig.hpp` file.
+
+```cpp
+#include <boost/typelayout/tools/sig_export.hpp>
+#include "my_types.hpp"
+
+int main() {
+    boost::typelayout::SigExporter ex;          // auto-detect platform name
+    ex.add<PacketHeader>("PacketHeader");
+    ex.add<SensorRecord>("SensorRecord");
+    int rc = ex.write("sigs/x86_64_linux_clang.sig.hpp");  // 0 on success
+    return rc;
+}
+```
+
+`add<T>` enforces `std::is_trivially_copyable_v<T>` via `static_assert`. The
+platform name is auto-detected from compiler macros (e.g., `x86_64_linux_clang`).
+To override: `SigExporter ex("my_custom_platform")`.
+
+## TYPELAYOUT_EXPORT_TYPES
+
+The macro generates `main()` for you, reducing Phase 1 to three lines:
 
 ```cpp
 // export_types.cpp
@@ -32,254 +60,88 @@ Create a `.cpp` file that lists your types:
 TYPELAYOUT_EXPORT_TYPES(PacketHeader, SensorRecord, SharedMemRegion)
 ```
 
-### 2. Write the Check Source (Phase 2)
+Compile with P2996 and run:
 
-Create a `.cpp` file that lists the platforms to compare:
+```bash
+clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ \
+    -I./include -o sig_export export_types.cpp
+./sig_export sigs/
+# writes sigs/<platform_name>.sig.hpp
+```
+
+To register types on an existing exporter without generating `main()`:
 
 ```cpp
-// check_compat.cpp
-#include "sigs/x86_64_linux_clang.sig.hpp"
-#include "sigs/arm64_linux_clang.sig.hpp"
-#include <boost/typelayout/tools/compat_auto.hpp>
-
-TYPELAYOUT_CHECK_COMPAT(x86_64_linux_clang, arm64_linux_clang)
+boost::typelayout::SigExporter ex("custom_platform");
+TYPELAYOUT_REGISTER_TYPES(ex, PacketHeader, SensorRecord)
+ex.write("sigs/custom_platform.sig.hpp");
 ```
 
-### 3. Run the Pipeline
+## CompatReporter
 
-```bash
-# Full pipeline: export on each platform + compare
-./tools/typelayout-compat check \
-    --export-source export_types.cpp \
-    --check-source check_compat.cpp \
-    --platforms x86_64-linux-clang,arm64-linux-clang
-
-# Export only (on one platform)
-./tools/typelayout-compat export \
-    --source export_types.cpp \
-    --output sigs/
-
-# Compare only (from pre-exported signatures)
-./tools/typelayout-compat compare \
-    --source check_compat.cpp \
-    --sigs sigs/
-```
-
-## Commands
-
-### `check` — Full Pipeline
-
-Runs both phases: exports signatures on each platform (via Docker or locally),
-then compiles and runs the Phase 2 check source.
-
-```bash
-typelayout-compat check \
-    --export-source <export.cpp> \
-    --check-source <check.cpp> \
-    --platforms <platform1,platform2,...> \
-    [--output <dir>] \
-    [--include <dir>]
-```
-
-| Option | Description |
-|--------|-------------|
-| `--export-source` | Phase 1 source (uses `TYPELAYOUT_EXPORT_TYPES(...)`) |
-| `--check-source` | Phase 2 source (uses `TYPELAYOUT_CHECK_COMPAT(...)`) |
-| `--platforms`, `-p` | Comma-separated list of target platforms |
-| `--output`, `-o` | Output directory for `.sig.hpp` files (default: `./typelayout-sigs`) |
-| `--include`, `-I` | Additional include directory |
-
-### `export` — Export Current Platform
-
-Compiles and runs the Phase 1 export source for a single platform.
-Requires a P2996-capable Clang compiler.
-
-```bash
-typelayout-compat export \
-    --source <export.cpp> \
-    [--output <dir>]
-```
-
-### `compare` — Compare Existing Signatures
-
-Compiles and runs the Phase 2 check source against pre-exported signatures.
-
-```bash
-typelayout-compat compare \
-    --source <check.cpp> \
-    --sigs <directory>
-```
-
-### `list-platforms` — Show Available Platforms
-
-Lists all platforms defined in `platforms.conf`.
-
-```bash
-typelayout-compat list-platforms
-```
-
-## Declarative Macros
-
-### Phase 1: `TYPELAYOUT_EXPORT_TYPES(...)`
-
-Generates a complete `main()` that exports type signatures to a `.sig.hpp` file.
-
-```cpp
-#include <boost/typelayout/tools/sig_export.hpp>
-#include "my_types.hpp"
-
-TYPELAYOUT_EXPORT_TYPES(PacketHeader, SensorRecord, MyStruct)
-// → Compile with P2996, run with: ./export sigs/
-```
-
-### Phase 2: `TYPELAYOUT_CHECK_COMPAT(...)` (Runtime Report)
-
-Generates a `main()` that prints a detailed compatibility report.
+`CompatReporter` (header `<boost/typelayout/tools/compat_check.hpp>`) compares
+`.sig.hpp` files and produces a report. It requires only C++17.
 
 ```cpp
 #include "sigs/x86_64_linux_clang.sig.hpp"
-#include "sigs/arm64_linux_clang.sig.hpp"
-#include <boost/typelayout/tools/compat_auto.hpp>
+#include "sigs/arm64_macos_clang.sig.hpp"
+#include <boost/typelayout/tools/compat_check.hpp>
 
-TYPELAYOUT_CHECK_COMPAT(x86_64_linux_clang, arm64_linux_clang)
-// → Compile with any C++17 compiler. Run for report.
+namespace lx = boost::typelayout::platform::x86_64_linux_clang;
+namespace mc = boost::typelayout::platform::arm64_macos_clang;
+
+boost::typelayout::compat::CompatReporter reporter;
+reporter.add_platform(lx::get_platform_info());
+reporter.add_platform(mc::get_platform_info());
+reporter.print_report(std::cout);
+// or reporter.print_diff_report(std::cout) for ^--- diff annotations
 ```
 
-### Phase 2: `TYPELAYOUT_ASSERT_COMPAT(...)` (Compile-Time Assert)
+## TYPELAYOUT_CHECK_COMPAT and TYPELAYOUT_ASSERT_COMPAT
 
-Emits `static_assert` checks — compilation fails if layouts differ.
+The macros reduce Phase 2 to a few `#include` lines. Both are in
+`<boost/typelayout/tools/compat_auto.hpp>`.
+
+**Runtime report** (`TYPELAYOUT_CHECK_COMPAT`): generates `main()` that prints
+the compatibility table and exits 0.
 
 ```cpp
 #include "sigs/x86_64_linux_clang.sig.hpp"
-#include "sigs/arm64_linux_clang.sig.hpp"
+#include "sigs/arm64_macos_clang.sig.hpp"
+#include "sigs/x86_64_windows_msvc.sig.hpp"
 #include <boost/typelayout/tools/compat_auto.hpp>
 
-TYPELAYOUT_ASSERT_COMPAT(x86_64_linux_clang, arm64_linux_clang)
-// → Compilation succeeds iff all types match.
+TYPELAYOUT_CHECK_COMPAT(x86_64_linux_clang, arm64_macos_clang, x86_64_windows_msvc)
 ```
 
-## Platform Registry (`platforms.conf`)
+**Compile-time assertion** (`TYPELAYOUT_ASSERT_COMPAT`): uses `static_assert` for
+each type. Compilation fails if any type's layout differs across the listed platforms.
 
-Platforms are configured in `tools/platforms.conf` using INI-style sections:
-
-```ini
-[x86_64-linux-clang]
-description = x86-64 Linux (Bloomberg Clang P2996)
-mode = docker
-docker_image = ghcr.io/aspect-labs/typelayout-p2996:latest
-compiler = clang++
-flags = -std=c++26 -freflection -freflection-latest -stdlib=libc++
+```cpp
+TYPELAYOUT_ASSERT_COMPAT(x86_64_linux_clang, arm64_macos_clang)
 ```
 
-### Configuration Fields
+Both macros accept two or more platform names. Platform names must match the
+namespace names in the `.sig.hpp` headers.
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `description` | No | Human-readable platform description |
-| `mode` | No | `docker` (default) or `local` |
-| `docker_image` | For `docker` mode | Docker image with P2996 Clang |
-| `compiler` | No | Compiler binary name (default: `clang++`) |
-| `flags` | No | Compiler flags |
-| `link_flags` | No | Linker flags |
-| `env` | No | Comma-separated `KEY=VALUE` environment variables |
+## Safety Levels
 
-### Adding a Custom Platform
+The compatibility report classifies each type using five tiers from
+`SafetyLevel` (`<boost/typelayout/tools/safety_level.hpp>`):
 
-Add a new section to `platforms.conf`:
+| Level | Value | Meaning |
+|-------|-------|---------|
+| `TrivialSafe` | 0 | Safe for zero-copy and cross-platform transfer |
+| `PaddingRisk` | 1 | Padding bytes may leak uninitialized data |
+| `PlatformVariant` | 2 | Layout differs across platforms (`wchar_t`, `long double`, bit-fields) |
+| `PointerRisk` | 3 | Contains pointers; values are address-space-specific |
+| `Opaque` | 4 | Unanalyzable type; safety cannot be determined |
 
-```ini
-[my-custom-platform]
-description = My Custom Build Environment
-mode = docker
-docker_image = myregistry.io/my-p2996-clang:latest
-compiler = clang++
-flags = -std=c++26 -freflection -freflection-latest -stdlib=libc++
-```
+Runtime classification from a signature string (C++17, no P2996):
 
-## Signature Format
-
-Exported `.sig.hpp` files contain `inline constexpr const char[]` arrays with
-normalized layout strings:
-
-```
-[64-le]record[s:16,a:4]{@0:u32[s:4,a:4],@4:u16[s:2,a:2],@6:u16[s:2,a:2],@8:u32[s:4,a:4],@12:u32[s:4,a:4]}
-```
-
-This format captures:
-- Architecture prefix (`[64-le]`)
-- Total size and alignment (`s:16,a:4`)
-- Each field's offset, type, size, and alignment (`@0:u32[s:4,a:4]`)
-
-## Comparison Report
-
-The compatibility report shows which types are safe for zero-copy transfer:
-
-```
-========================================================================
-  Boost.TypeLayout — Cross-Platform Compatibility Report
-========================================================================
-
-Platforms compared: 3
-  * arm64_macos_clang [64-le]
-    pointer=8B, long=8B, wchar_t=4B, long_double=8B, max_align=16B
-  * x86_64_linux_clang [64-le]
-    pointer=8B, long=8B, wchar_t=4B, long_double=16B, max_align=16B
-  * x86_64_windows_msvc [64-le]
-    pointer=8B, long=4B, wchar_t=2B, long_double=8B, max_align=16B
-
-------------------------------------------------------------------------
-  Type                            Layout   Definition  Verdict
-------------------------------------------------------------------------
-  PacketHeader                     MATCH        MATCH  Serialization-free
-  UnsafeStruct                    DIFFER       DIFFER  Needs serialization
-------------------------------------------------------------------------
-
-  87% of types (7/8) are serialization-free across all platforms.
-  1 type(s) need serialization for cross-platform use.
-========================================================================
-```
-
-## CI/CD Integration
-
-### GitHub Actions (Reusable Workflow)
-
-Use the provided reusable workflow in your repository:
-
-```yaml
-# .github/workflows/compat-check.yml
-name: Type Compatibility
-on: [push, pull_request]
-
-jobs:
-  compat-check:
-    uses: aspect-labs/typelayout/.github/workflows/compat-check.yml@v1
-    with:
-      export_source: 'src/export_types.cpp'
-      check_source: 'src/check_compat.cpp'
-      platforms: 'x86_64-linux-clang,arm64-linux-clang'
-```
-
-The workflow:
-1. Parses the platform list into a GitHub Actions matrix
-2. Compiles and runs your `export_source` on each platform (via Docker)
-3. Downloads all `.sig.hpp` artifacts
-4. Compiles and runs your `check_source` with all signatures available
-5. Uploads a compatibility report artifact
-
-### Custom CI Pipeline
-
-For non-GitHub CI systems, use the CLI directly:
-
-```bash
-# On each build agent (Phase 1):
-./tools/typelayout-compat export \
-    --source src/export_types.cpp \
-    --output /shared/sigs/
-
-# On any machine (Phase 2):
-./tools/typelayout-compat compare \
-    --source src/check_compat.cpp \
-    --sigs /shared/sigs/
+```cpp
+#include <boost/typelayout/tools/safety_level.hpp>
+SafetyLevel level = boost::typelayout::classify_signature(sig_string);
 ```
 
 ## CMake Integration
@@ -287,75 +149,45 @@ For non-GitHub CI systems, use the CLI directly:
 ```cmake
 include(cmake/TypeLayoutCompat.cmake)
 
-# Option A: High-level one-liner
+# One-liner: creates export target, check target, and optional CTest entry
 typelayout_add_compat_pipeline(
-    NAME            myproject_compat
-    EXPORT_SOURCE   src/export_types.cpp
-    CHECK_SOURCE    src/check_compat.cpp
-    SIGS_DIR        ${CMAKE_SOURCE_DIR}/sigs
+    NAME          my_compat
+    EXPORT_SOURCE export_types.cpp
+    CHECK_SOURCE  check_compat.cpp
+    SIGS_DIR      ${CMAKE_SOURCE_DIR}/sigs
     ADD_TEST
 )
 
-# Option B: Fine-grained control
+# Fine-grained:
 typelayout_add_sig_export(
     TARGET sig_export
-    SOURCE src/export_types.cpp
+    SOURCE export_types.cpp
     OUTPUT_DIR ${CMAKE_BINARY_DIR}/sigs
 )
 
 typelayout_add_compat_check(
     TARGET compat_check
-    SOURCE src/check_compat.cpp
+    SOURCE check_compat.cpp
     SIGS_DIR ${CMAKE_SOURCE_DIR}/sigs
 )
 ```
-
-## Correctness Boundary
-
-TypeLayout guarantees that if two platforms produce identical Layout signatures for a type,
-then `sizeof`, `alignof`, and all field offsets are identical on both platforms.
-
-**What this means in practice:**
-
-| Type Category | Signature Match → Safe? | Notes |
-|---------------|------------------------|-------|
-| Fixed-width integers (`uint32_t`, `int64_t`, ...) | ✅ **Yes** | Zero-copy via `memcpy` is safe |
-| IEEE 754 floats (`float`, `double`) | ✅ **Yes** | Assumes both platforms use IEEE 754 (all mainstream platforms do) |
-| Enums with fixed underlying type | ✅ **Yes** | Signature encodes underlying type size |
-| Byte arrays (`char[]`, `uint8_t[]`) | ✅ **Yes** | Signature encodes exact size |
-| Platform-dependent types (`long`, `wchar_t`) | ✅ **Correctly detected** | Signatures naturally differ, reported as DIFFER |
-| Pointer types | ⚠️ **Layout OK, values not portable** | Pointer *size* matches but *values* are address-space-specific |
-| Bit-fields | ⚠️ **Risk** | Ordering is implementation-defined; may differ across compilers |
-| Padding bytes | ✅ **Layout OK** | Field offsets match; padding byte *values* may differ |
-
-**Safety classification** in the compatibility report:
-
-| Rating | Meaning |
-|--------|---------|
-| `***` Safe | Only fixed-width scalars — safe for zero-copy transfer |
-| `**-` Warn | Layout matches but contains pointers or vptr — values not portable |
-| `*--` Risk | Contains bit-fields or platform-dependent types — verify manually |
-
-**Assumptions:**
-- IEEE 754 floating-point representation (satisfied by all mainstream platforms: x86, ARM, RISC-V)
-- Same endianness across compared platforms (encoded in the `[64-le]`/`[64-be]` architecture prefix)
-
-## Requirements
-
-- **Phase 1**: Bloomberg Clang P2996 (or compatible fork) with `-freflection`
-- **Phase 2**: Any C++17 compiler (`g++`, `clang++`, MSVC)
-- **Docker mode**: Docker Engine for cross-platform builds
-- **Bash**: GNU Bash 4.0+ (Linux/macOS/WSL)
 
 ## File Reference
 
 | File | Description |
 |------|-------------|
-| `tools/typelayout-compat` | Main CLI orchestration script |
+| `tools/typelayout-compat` | CLI orchestration script |
 | `tools/platforms.conf` | Platform registry (INI format) |
-| `include/boost/typelayout/tools/sig_export.hpp` | `SigExporter` class + `TYPELAYOUT_EXPORT_TYPES` macro |
-| `include/boost/typelayout/tools/compat_auto.hpp` | `TYPELAYOUT_CHECK_COMPAT` / `TYPELAYOUT_ASSERT_COMPAT` macros |
-| `include/boost/typelayout/tools/compat_check.hpp` | `CompatReporter` class + `layout_match()` |
-| `include/boost/typelayout/tools/sig_types.hpp` | Shared `TypeEntry` / `PlatformInfo` types |
-| `cmake/TypeLayoutCompat.cmake` | CMake integration functions |
-| `.github/workflows/compat-check.yml` | GitHub Actions reusable workflow |
+| `include/boost/typelayout/tools/sig_export.hpp` | `SigExporter`, `TYPELAYOUT_EXPORT_TYPES`, `TYPELAYOUT_REGISTER_TYPES` |
+| `include/boost/typelayout/tools/compat_check.hpp` | `CompatReporter` |
+| `include/boost/typelayout/tools/compat_auto.hpp` | `TYPELAYOUT_CHECK_COMPAT`, `TYPELAYOUT_ASSERT_COMPAT` |
+| `include/boost/typelayout/tools/safety_level.hpp` | `SafetyLevel`, `classify_signature`, `sig_has_padding` |
+| `include/boost/typelayout/tools/sig_types.hpp` | `TypeEntry`, `PlatformInfo` (C++17 shared types) |
+| `include/boost/typelayout/tools/platform_detect.hpp` | Compiler/arch detection macros |
+| `cmake/TypeLayoutCompat.cmake` | CMake helper functions |
+
+## Requirements
+
+- **Phase 1**: Bloomberg Clang P2996 with `-freflection -freflection-latest -stdlib=libc++`
+- **Phase 2**: Any C++17 compiler (`clang++`, `g++`, MSVC)
+- **Docker mode**: Docker Engine (for cross-platform Phase 1 builds on a single machine)
