@@ -421,7 +421,7 @@ struct layout_traits {
     static constexpr bool has_bit_field =
         detail::sig_has_bit_field(signature);
 
-    /// True if the type is registered as opaque (via TYPELAYOUT_OPAQUE_*).
+    /// True if the type is registered as opaque (via TYPELAYOUT_REGISTER_OPAQUE).
     /// Opaque types have size/alignment identity but no internal structural
     /// identity -- the user is responsible for ensuring internal consistency.
     static constexpr bool has_opaque =
