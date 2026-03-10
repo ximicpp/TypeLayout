@@ -42,27 +42,11 @@ namespace typelayout {
     // =========================================================================
     // Fundamental types (only when distinct from fixed-width aliases)
     //
-    // C++ allows signed char / long / long long to be the same type as
-    // int8_t / int32_t / int64_t on some platforms.  We must not provide
-    // duplicate specializations in that case, so we use compile-time
-    // type identity checks guarded by `if constexpr` inside a helper,
-    // and then conditionally define the specialization via a constexpr
-    // bool + requires on a *partial* specialization workaround.
-    //
-    // Because `template<> requires(...)` is ill-formed on an explicit
-    // (full) specialization, we use a static dispatching approach
-    // instead: the primary template's catch-all branch already handles
-    // `long`, `long long`, etc. if they are not the same type as a
-    // fixed-width alias, so we provide explicit specializations only
-    // for the cases where the type IS distinct.
+    // Types like long / long long may alias int32_t / int64_t.  The primary
+    // template catch-all dispatches through fundamental_int_signature() for
+    // types that are distinct from the fixed-width aliases above.
     // =========================================================================
 
-    // -- signed char: on most platforms signed char != int8_t
-    //    but on some they alias. Guard with a macro-free constexpr check.
-    //    We use a wrapper helper to avoid ill-formed full-specialization +
-    //    requires.
-
-    // Inline constexpr bool helpers for type distinctness checks
     inline constexpr bool signed_char_is_int8    = std::is_same_v<signed char, int8_t>;
     inline constexpr bool unsigned_char_is_uint8  = std::is_same_v<unsigned char, uint8_t>;
     inline constexpr bool long_is_fixed           = std::is_same_v<long, int32_t> || std::is_same_v<long, int64_t>;
@@ -70,9 +54,6 @@ namespace typelayout {
     inline constexpr bool llong_is_int64          = std::is_same_v<long long, int64_t>;
     inline constexpr bool ullong_is_uint64        = std::is_same_v<unsigned long long, uint64_t>;
 
-    // Helper: map any fundamental integer to its layout signature string.
-    // This is used by the primary template catch-all to handle types like
-    // long / long long that may or may not alias fixed-width types.
     template <typename T>
     consteval auto fundamental_int_signature() noexcept {
         if constexpr (std::is_same_v<T, signed char> && !signed_char_is_int8) {
@@ -95,8 +76,6 @@ namespace typelayout {
         }
     }
 
-    // Helper: check if T is a fundamental integer that is distinct from
-    // all fixed-width aliases and needs special handling.
     template <typename T>
     inline constexpr bool is_distinct_fundamental_int_v =
         (std::is_same_v<T, signed char> && !signed_char_is_int8) ||
@@ -193,15 +172,11 @@ namespace typelayout {
     };
     template <typename T>
     struct TypeSignature<T&> {
-        // A reference member is stored as a pointer internally.
-        // sizeof(T&) == sizeof(T) in C++, which does NOT reflect the
-        // actual storage size of a reference-as-member.  We use sizeof(T*)
-        // and alignof(T*) to correctly represent cross-platform layout identity.
+        // References are stored as pointers; use sizeof(T*) for layout identity.
         static consteval auto calculate() noexcept { return format_size_align<sizeof(T*), alignof(T*)>("ref"); }
     };
     template <typename T>
     struct TypeSignature<T&&> {
-        // Same rationale as T& above: rvalue references are stored as pointers.
         static consteval auto calculate() noexcept { return format_size_align<sizeof(T*), alignof(T*)>("rref"); }
     };
     template <typename T, typename C>

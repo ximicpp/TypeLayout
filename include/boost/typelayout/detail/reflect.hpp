@@ -1,8 +1,7 @@
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 //
-// P2996 reflection meta-operations used by the signature engines.
-// Requires the Bloomberg P2996 experimental toolchain.
+// P2996 reflection helpers. Requires Bloomberg P2996 toolchain.
 
 #ifndef BOOST_TYPELAYOUT_DETAIL_REFLECT_HPP
 #define BOOST_TYPELAYOUT_DETAIL_REFLECT_HPP
@@ -14,17 +13,8 @@
 namespace boost {
 namespace typelayout {
 
-    // =========================================================================
-    // P2996 Reflection Meta-Operations
-    // =========================================================================
-
-    // Qualified name builder -- P2996 Bloomberg toolchain lacks
-    // qualified_name_of, so we walk parent_of chains and join with "::".
-    // Handles both namespace parents and nested class parents.
-    // Recursion stops when the parent has no identifier (global namespace,
-    // translation unit, or anonymous namespace).
+    // Qualified name via parent_of chain (Bloomberg toolchain lacks qualified_name_of).
     // TODO(P2996): Replace with std::meta::qualified_name_of when available.
-
     template<std::meta::info R>
     consteval auto qualified_name_for() noexcept {
         using namespace std::meta;
@@ -72,10 +62,7 @@ namespace typelayout {
         return qualified_name_for<^^T>();
     }
 
-    // Recursively check whether T (or any of its base classes) uses
-    // virtual inheritance.  Virtual bases introduce hidden vbptrs whose
-    // layout is compiler-specific, and diamond inheritance causes the
-    // flattening engine to double-count the shared virtual base.
+    // Recursively check for virtual inheritance in T's base hierarchy.
     template <typename T>
     consteval bool has_virtual_base() noexcept;
 

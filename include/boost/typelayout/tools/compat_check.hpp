@@ -1,9 +1,4 @@
-// Compatibility checking utilities for comparing .sig.hpp data across platforms.
-// Provides constexpr comparators (for static_assert) and a runtime reporter.
-// Requires C++17. Does not require P2996.
-//
-// Uses the unified SafetyLevel enum and classify_signature() from
-// safety_level.hpp to avoid duplicating safety classification logic.
+// Cross-platform compatibility checking (C++17, no P2996).
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
@@ -35,13 +30,6 @@ constexpr bool sig_match(const char* a, const char* b) noexcept {
 constexpr bool layout_match(const char* a, const char* b) noexcept {
     return sig_match(a, b);
 }
-
-// =========================================================================
-// Safety display helpers
-//
-// These map the unified SafetyLevel enum to compact labels for the
-// compatibility report output.
-// =========================================================================
 
 inline const char* safety_label(SafetyLevel level) noexcept {
     switch (level) {
@@ -116,12 +104,6 @@ public:
         platforms_.push_back({name, types, count});
     }
 
-    /// Compare all types across registered platforms.
-    ///
-    /// Collects the union of all type names across ALL platforms (not just
-    /// the first), so types present on any platform are included in the
-    /// results.  A type missing from a platform is marked "<missing>" and
-    /// treated as a layout mismatch.
     std::vector<TypeResult> compare() const {
         if (platforms_.empty()) return {};
 
@@ -187,8 +169,6 @@ public:
 private:
     std::vector<PlatformData> platforms_;
 
-    /// Shared report implementation.  When `with_diff` is true, DIFFER
-    /// blocks include character-level diff annotations.
     void print_report_impl(std::ostream& os, bool with_diff) const {
         auto results = compare();
         int serialization_free = 0;
@@ -319,7 +299,6 @@ private:
         os << "  - Enums with explicit underlying types are stable\n\n";
     }
 
-    /// Format the verdict string for a type result, updating counters.
     static std::string format_verdict(const TypeResult& r,
                                       int& serialization_free,
                                       int& layout_compatible) {
@@ -340,7 +319,6 @@ private:
         return "Needs serialization";
     }
 
-    /// Returns a diff annotation string pointing to the first divergence.
     static std::string format_diff(const std::string& a, const std::string& b,
                                    std::size_t prefix_width) {
         std::size_t pos = 0;

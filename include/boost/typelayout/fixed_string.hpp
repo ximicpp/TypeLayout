@@ -10,15 +10,8 @@
 namespace boost {
 namespace typelayout {
 
-    // =========================================================================
-    // FixedString<N> -- Compile-Time Fixed-Size String
-    //
-    // N is the character count (excluding the null terminator), consistent
-    // with C++ proposal P2484 (std::basic_fixed_string). The internal
-    // buffer is N + 1 bytes to accommodate the null terminator.
-    //
+    // FixedString<N> -- compile-time fixed-size string (N = char count, excl. null).
     // TODO(P2484): Replace with std::basic_fixed_string when standardized.
-    // =========================================================================
 
     template <size_t N>
     struct FixedString {
@@ -35,7 +28,6 @@ namespace typelayout {
         constexpr FixedString(std::string_view sv) : value{} {
             for (size_t i = 0; i < N && i < sv.size(); ++i)
                 value[i] = sv[i];
-            // value[N] is already zero-initialized
         }
 
         template <size_t M>
@@ -67,7 +59,6 @@ namespace typelayout {
                 if (value[i] != other[i]) return false;
                 if (value[i] == '\0') return true;
             }
-            // value[N] is always '\0', so this point is unreachable in practice.
             return true;
         }
 
@@ -83,8 +74,7 @@ namespace typelayout {
             return {value, length()};
         }
 
-        // Compile-time substring search. Returns the index of the first
-        // occurrence of `needle` in this string, or npos if not found.
+        // Returns index of first occurrence of `needle`, or npos.
         template <size_t M>
         constexpr size_t find(const FixedString<M>& needle) const noexcept {
             size_t haystack_len = length();
@@ -104,21 +94,13 @@ namespace typelayout {
             return npos;
         }
 
-        // Convenience: does this string contain `needle`?
         template <size_t M>
         constexpr bool contains(const FixedString<M>& needle) const noexcept {
             return find(needle) != npos;
         }
 
-        // Token-boundary-aware contains: matches `needle` only when the
-        // character immediately before the match is NOT an ASCII letter.
-        // This prevents e.g. "ptr[" from matching inside "nullptr[".
-        //
-        // In TypeLayout signatures, type markers (ptr[, fnptr[, ref[, etc.)
-        // are always preceded by '{', ',', or appear at position 0 -- never
-        // preceded by a letter.  So this predicate correctly distinguishes
-        // "ptr[" (a real pointer marker) from "nullptr[" (a different marker
-        // that happens to contain "ptr[" as a substring).
+        // Token-boundary-aware contains: matches only when the preceding
+        // character is not alphanumeric (prevents "ptr[" matching "nullptr[").
         template <size_t M>
         constexpr bool contains_token(const FixedString<M>& needle) const noexcept {
             size_t haystack_len = length();
@@ -134,19 +116,12 @@ namespace typelayout {
                     }
                 }
                 if (match) {
-                    // Check token boundary: preceding char must NOT be
-                    // alphanumeric (letters or digits).  This prevents
-                    // e.g. "ptr[" from matching inside "nullptr[" (letter
-                    // boundary) and similar digit-prefixed false positives.
                     if (i == 0) return true;
                     char prev = value[i - 1];
                     bool prev_is_alnum = (prev >= 'a' && prev <= 'z') ||
                                          (prev >= 'A' && prev <= 'Z') ||
                                          (prev >= '0' && prev <= '9');
                     if (!prev_is_alnum) return true;
-                    // Otherwise, this is a substring match inside a longer
-                    // token (e.g. "nullptr[" matching "ptr[") -- skip it
-                    // and keep searching.
                 }
             }
             return false;
@@ -154,13 +129,12 @@ namespace typelayout {
 
         static constexpr size_t npos = static_cast<size_t>(-1);
 
-        // Strip leading character (used to remove leading comma after fold-expression).
-        // Returns FixedString<N-1> (exact capacity) for N > 0, FixedString<0> for N == 0.
+        // Strip leading character; returns FixedString<N-1>.
         consteval auto skip_first() const noexcept {
             if constexpr (N == 0) {
                 return FixedString<0>{};
             } else {
-                char result[N] = {};  // N-1 content chars + 1 null terminator
+                char result[N] = {};
                 for (size_t i = 1; i < N; ++i)
                     result[i - 1] = value[i];
                 return FixedString<N - 1>(result);
@@ -177,15 +151,7 @@ namespace typelayout {
         return os << str.value;
     }
 
-    // =========================================================================
-    // to_fixed_string<V>() -- exact-sized NTTP form (preferred in consteval)
-    //
-    // Returns FixedString<count_digits(V)> with zero wasted capacity.
-    // Use this in consteval contexts where V is a compile-time constant
-    // (sizeof, alignof, offset_of results, template parameters, etc.).
-    // =========================================================================
-
-    // Helper: count decimal digits of a non-negative integer at compile time.
+    // to_fixed_string<V>() -- exact-sized NTTP form.
     consteval size_t count_digits(size_t v) noexcept {
         if (v == 0) return 1;
         size_t n = 0;
@@ -207,14 +173,7 @@ namespace typelayout {
         return FixedString<digits>(result);
     }
 
-    // =========================================================================
-    // to_fixed_string(num) -- legacy runtime form, always returns FixedString<20>.
-    // Kept for external callers and runtime use.  Prefer to_fixed_string<V>()
-    // in consteval contexts to avoid capacity bloat.
-    // =========================================================================
-
-    // Free function: integer to FixedString<20> (uint64_t max = 20 digits).
-    // Writes digits right-to-left, no reversal needed.
+    // to_fixed_string(num) -- runtime form, returns FixedString<20>.
     template <typename T>
     constexpr FixedString<20> to_fixed_string(T num) noexcept {
         constexpr int last = 19; // rightmost digit position (buf[20] = '\0')
@@ -227,8 +186,6 @@ namespace typelayout {
 
         bool negative = std::is_signed_v<T> && num < 0;
         using UnsignedT = std::make_unsigned_t<T>;
-        // Avoid signed-integer-overflow UB for INT_MIN / INT64_MIN:
-        // cast to unsigned first, then negate in unsigned arithmetic.
         UnsignedT abs_num = negative
             ? UnsignedT(0) - static_cast<UnsignedT>(num)
             : static_cast<UnsignedT>(num);
