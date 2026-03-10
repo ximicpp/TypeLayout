@@ -387,28 +387,53 @@ not known at compile time.
 ```cpp
 class SignatureRegistry {
 public:
+    // Register a local type with an explicit binary-stable key (preferred).
+    // The key must match whatever the remote uses in register_remote().
+    template <typename T> void register_local(std::string_view key);
+
+    // Register a local type using typeid(T).name() as key (legacy convenience).
+    // Not binary-stable across compilers -- avoid in cross-compiler scenarios.
     template <typename T> void register_local();
-    void register_remote(const std::string& key, std::string_view sig);
-    template <typename T> bool is_serialization_free();
-    template <typename T> std::string diagnose();
+
+    // Record the remote endpoint's signature for a named type.
+    void register_remote(std::string_view type_name, std::string_view remote_sig);
+
+    // Check by template (uses typeid(T).name() as key -- legacy overload).
+    template <typename T> [[nodiscard]] bool is_serialization_free() const;
+
+    // Check by explicit key.
+    [[nodiscard]] bool is_serialization_free(std::string_view key) const;
+
+    // Human-readable diagnostic for a type (template overload uses typeid key).
+    template <typename T> [[nodiscard]] std::string diagnose() const;
+    [[nodiscard]] std::string diagnose(std::string_view key) const;
 };
 ```
 
 Runtime registry for managing multiple types across a session.
 
-**Example**:
+**Example** (explicit key — cross-compiler safe):
 
 ```cpp
 SignatureRegistry reg;
-reg.register_local<PacketHeader>();
-reg.register_local<SensorRecord>();
+reg.register_local<PacketHeader>("PacketHeader");
+reg.register_local<SensorRecord>("SensorRecord");
 
 reg.register_remote("PacketHeader", received_sig_a);
 reg.register_remote("SensorRecord", received_sig_b);
 
-if (!reg.is_serialization_free<PacketHeader>()) {
-    std::cerr << reg.diagnose<PacketHeader>() << "\n";
+if (!reg.is_serialization_free("PacketHeader")) {
+    std::cerr << reg.diagnose("PacketHeader") << "\n";
 }
+```
+
+**Example** (no-arg overload — single-compiler convenience):
+
+```cpp
+SignatureRegistry reg;
+reg.register_local<PacketHeader>();  // key = typeid(PacketHeader).name()
+reg.register_remote(typeid(PacketHeader).name(), received_sig);
+if (!reg.is_serialization_free<PacketHeader>()) { ... }
 ```
 
 ---
