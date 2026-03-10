@@ -117,34 +117,53 @@ public:
     }
 
     /// Compare all types across registered platforms.
+    ///
+    /// Collects the union of all type names across ALL platforms (not just
+    /// the first), so types present on any platform are included in the
+    /// results.  A type missing from a platform is marked "<missing>" and
+    /// treated as a layout mismatch.
     std::vector<TypeResult> compare() const {
         if (platforms_.empty()) return {};
 
-        const auto& ref = platforms_[0];
-        std::vector<TypeResult> results;
-        results.reserve(ref.type_count);
+        // Collect the union of all type names, preserving first-seen order.
+        std::vector<std::string> all_names;
+        for (const auto& plat : platforms_) {
+            for (std::size_t i = 0; i < plat.type_count; ++i) {
+                std::string name(plat.types[i].name);
+                bool found = false;
+                for (const auto& existing : all_names) {
+                    if (existing == name) { found = true; break; }
+                }
+                if (!found) all_names.push_back(std::move(name));
+            }
+        }
 
-        for (std::size_t i = 0; i < ref.type_count; ++i) {
+        std::vector<TypeResult> results;
+        results.reserve(all_names.size());
+
+        for (const auto& name : all_names) {
             TypeResult tr;
-            tr.name = ref.types[i].name;
+            tr.name = name;
             tr.layout_match = true;
 
             SafetyLevel worst_safety = SafetyLevel::TrivialSafe;
+            std::string first_sig;
 
             for (const auto& plat : platforms_) {
-                const TypeEntry* entry = find_type(plat, tr.name);
+                const TypeEntry* entry = find_type(plat, name);
                 if (!entry) {
                     tr.layout_sigs.emplace_back("<missing>");
                     tr.layout_match = false;
                     continue;
                 }
-                tr.layout_sigs.emplace_back(entry->layout_sig);
-
-                if (std::string_view(entry->layout_sig) !=
-                    std::string_view(ref.types[i].layout_sig))
+                std::string sig(entry->layout_sig);
+                if (first_sig.empty()) {
+                    first_sig = sig;
+                } else if (sig != first_sig) {
                     tr.layout_match = false;
+                }
+                tr.layout_sigs.push_back(std::move(sig));
 
-                // Use the unified runtime classifier
                 auto level = classify_signature(entry->layout_sig);
                 if (static_cast<int>(level) > static_cast<int>(worst_safety))
                     worst_safety = level;
@@ -156,25 +175,30 @@ public:
     }
 
     /// Print the report with character-level diff annotations for DIFFER entries.
-    ///
-    /// Like print_report(), but each DIFFER block is followed immediately by a
-    /// '^--- diverges at position N' annotation pinpointing the first character
-    /// where the two platform signatures diverge.  Useful for diagnosing subtle
-    /// layout differences (e.g., a single field size or alignment change).
-    ///
-    /// Example output for a DIFFER entry:
-    ///   [DIFFER] MyStruct layout signatures:
-    ///     x86_64-linux : [64-le]record[s:8,a:4]{@0:i32[s:4,a:4],@4:i32[s:4,a:4]}
-    ///     aarch64-linux: [64-le]record[s:8,a:4]{@0:i32[s:4,a:4],@8:i32[s:4,a:4]}
-    ///                                                            ^--- diverges at position 40 ('4' vs '8')
     void print_diff_report(std::ostream& os = std::cout) const {
+        print_report_impl(os, true);
+    }
+
+    /// Print the report to `os`.
+    void print_report(std::ostream& os = std::cout) const {
+        print_report_impl(os, false);
+    }
+
+private:
+    std::vector<PlatformData> platforms_;
+
+    /// Shared report implementation.  When `with_diff` is true, DIFFER
+    /// blocks include character-level diff annotations.
+    void print_report_impl(std::ostream& os, bool with_diff) const {
         auto results = compare();
         int serialization_free = 0;
         int layout_compatible = 0;
         int total = static_cast<int>(results.size());
 
         os << std::string(72, '=') << "\n";
-        os << "  Cross-Platform Compatibility Report (with diff annotations)\n";
+        os << "  Cross-Platform Compatibility Report";
+        if (with_diff) os << " (with diff annotations)";
+        os << "\n";
         os << std::string(72, '=') << "\n\n";
 
         os << "Platforms compared: " << platforms_.size() << "\n";
@@ -204,24 +228,8 @@ public:
 
         for (const auto& r : results) {
             std::string layout_str = r.layout_match ? "MATCH" : "DIFFER";
-            std::string verdict;
-
-            if (r.layout_match) {
-                ++layout_compatible;
-                if (r.safety == SafetyLevel::TrivialSafe) {
-                    ++serialization_free;
-                    verdict = "Serialization-free";
-                } else if (r.safety == SafetyLevel::PaddingRisk)
-                    verdict = "Layout OK (padding may leak uninitialized bytes)";
-                else if (r.safety == SafetyLevel::PointerRisk)
-                    verdict = "Layout OK (pointer values not portable)";
-                else if (r.safety == SafetyLevel::Opaque)
-                    verdict = "Layout OK (contains opaque fields, verify manually)";
-                else
-                    verdict = "Layout OK (verify bit-fields manually)";
-            } else {
-                verdict = "Needs serialization";
-            }
+            std::string verdict = format_verdict(r, serialization_free,
+                                                 layout_compatible);
 
             os << "  " << std::left << std::setw(24) << r.name
                << std::right << std::setw(8) << layout_str
@@ -231,38 +239,47 @@ public:
 
         os << std::string(72, '-') << "\n\n";
 
-        // Emit DIFFER blocks with inline diff annotations.
-        // Each mismatching pair is followed immediately by a '^---' line
-        // aligned to the first diverging character.
+        // Emit DIFFER blocks.
         for (const auto& r : results) {
             if (!r.layout_match) {
                 os << "  [DIFFER] " << r.name << " layout signatures:\n";
-                // Compute the widest platform name for alignment
-                std::size_t max_name = 0;
-                for (const auto& p : platforms_)
-                    if (p.name.size() > max_name) max_name = p.name.size();
-                // prefix width: "    " + name + ": " = 4 + max_name + 2
-                const std::size_t prefix_w = 4 + max_name + 2;
 
-                const std::string& ref_sig = r.layout_sigs[0];
-                for (std::size_t i = 0; i < platforms_.size(); ++i) {
-                    // Pad platform name to max_name for alignment
-                    os << "    " << platforms_[i].name;
-                    for (std::size_t pad = platforms_[i].name.size(); pad < max_name; ++pad)
-                        os << ' ';
-                    os << ": " << r.layout_sigs[i] << "\n";
+                if (with_diff) {
+                    // Compute the widest platform name for alignment
+                    std::size_t max_name = 0;
+                    for (const auto& p : platforms_)
+                        if (p.name.size() > max_name) max_name = p.name.size();
+                    const std::size_t prefix_w = 4 + max_name + 2;
 
-                    // Emit diff annotation for every platform vs. platform[0]
-                    if (i > 0) {
-                        std::string ann = format_diff(ref_sig, r.layout_sigs[i], prefix_w);
-                        if (!ann.empty())
-                            os << ann << "\n";
+                    // Find first non-missing sig as reference
+                    std::string ref_sig;
+                    for (const auto& s : r.layout_sigs) {
+                        if (s != "<missing>") { ref_sig = s; break; }
+                    }
+
+                    for (std::size_t i = 0; i < platforms_.size(); ++i) {
+                        os << "    " << platforms_[i].name;
+                        for (std::size_t pad = platforms_[i].name.size(); pad < max_name; ++pad)
+                            os << ' ';
+                        os << ": " << r.layout_sigs[i] << "\n";
+
+                        if (i > 0 && r.layout_sigs[i] != ref_sig) {
+                            std::string ann = format_diff(ref_sig, r.layout_sigs[i], prefix_w);
+                            if (!ann.empty())
+                                os << ann << "\n";
+                        }
+                    }
+                } else {
+                    for (std::size_t i = 0; i < platforms_.size(); ++i) {
+                        os << "    " << platforms_[i].name << ": "
+                           << r.layout_sigs[i] << "\n";
                     }
                 }
                 os << "\n";
             }
         }
 
+        // Safety warnings
         bool has_warnings = false;
         for (const auto& r : results) {
             if (r.layout_match && r.safety != SafetyLevel::TrivialSafe) {
@@ -276,6 +293,7 @@ public:
         }
         if (has_warnings) os << "\n";
 
+        // Summary
         os << std::string(72, '=') << "\n";
         if (serialization_free == total) {
             os << "  ALL " << total
@@ -301,131 +319,28 @@ public:
         os << "  - Enums with explicit underlying types are stable\n\n";
     }
 
-    /// Print the report to `os`.
-    void print_report(std::ostream& os = std::cout) const {
-        auto results = compare();
-        int serialization_free = 0;
-        int layout_compatible = 0;
-        int total = static_cast<int>(results.size());
-
-        os << std::string(72, '=') << "\n";
-        os << "  Cross-Platform Compatibility Report\n";
-        os << std::string(72, '=') << "\n\n";
-
-        os << "Platforms compared: " << platforms_.size() << "\n";
-        for (const auto& p : platforms_) {
-            os << "  * " << p.name;
-            if (p.arch_prefix[0] != '\0')
-                os << " " << p.arch_prefix;
-            os << "\n";
-            if (p.pointer_size > 0) {
-                os << "    pointer=" << p.pointer_size << "B"
-                   << ", long=" << p.sizeof_long << "B"
-                   << ", wchar_t=" << p.sizeof_wchar_t << "B"
-                   << ", long_double=" << p.sizeof_long_double << "B"
-                   << ", max_align=" << p.max_align << "B\n";
-            }
+    /// Format the verdict string for a type result, updating counters.
+    static std::string format_verdict(const TypeResult& r,
+                                      int& serialization_free,
+                                      int& layout_compatible) {
+        if (r.layout_match) {
+            ++layout_compatible;
+            if (r.safety == SafetyLevel::TrivialSafe) {
+                ++serialization_free;
+                return "Serialization-free";
+            } else if (r.safety == SafetyLevel::PaddingRisk)
+                return "Layout OK (padding may leak uninitialized bytes)";
+            else if (r.safety == SafetyLevel::PointerRisk)
+                return "Layout OK (pointer values not portable)";
+            else if (r.safety == SafetyLevel::Opaque)
+                return "Layout OK (contains opaque fields, verify manually)";
+            else
+                return "Layout OK (verify bit-fields manually)";
         }
-        os << "\n";
-
-        os << "Safety: *** = zero-copy ok, **- = padding risk, *!- = pointer risk, *-- = platform-variant.\n\n";
-
-        os << std::string(72, '-') << "\n";
-        os << "  " << std::left << std::setw(24) << "Type"
-           << std::right << std::setw(8) << "Layout"
-           << std::setw(8) << "Safety"
-           << "  Verdict\n";
-        os << std::string(72, '-') << "\n";
-
-        for (const auto& r : results) {
-            std::string layout_str  = r.layout_match ? "MATCH" : "DIFFER";
-            std::string verdict;
-
-            if (r.layout_match) {
-                ++layout_compatible;
-                if (r.safety == SafetyLevel::TrivialSafe) {
-                    ++serialization_free;
-                    verdict = "Serialization-free";
-                } else if (r.safety == SafetyLevel::PaddingRisk)
-                    verdict = "Layout OK (padding may leak uninitialized bytes)";
-                else if (r.safety == SafetyLevel::PointerRisk)
-                    verdict = "Layout OK (pointer values not portable)";
-                else if (r.safety == SafetyLevel::Opaque)
-                    verdict = "Layout OK (contains opaque fields, verify manually)";
-                else
-                    verdict = "Layout OK (verify bit-fields manually)";
-            } else {
-                verdict = "Needs serialization";
-            }
-
-            os << "  " << std::left << std::setw(24) << r.name
-               << std::right << std::setw(8) << layout_str
-               << "    " << safety_stars(r.safety)
-               << "  " << verdict << "\n";
-        }
-
-        os << std::string(72, '-') << "\n\n";
-
-        for (const auto& r : results) {
-            if (!r.layout_match) {
-                os << "  [DIFFER] " << r.name << " layout signatures:\n";
-                for (std::size_t i = 0; i < platforms_.size(); ++i) {
-                    os << "    " << platforms_[i].name << ": "
-                       << r.layout_sigs[i] << "\n";
-                }
-                os << "\n";
-            }
-        }
-
-        bool has_warnings = false;
-        for (const auto& r : results) {
-            if (r.layout_match && r.safety != SafetyLevel::TrivialSafe) {
-                if (!has_warnings) {
-                    os << "  Safety warnings:\n";
-                    has_warnings = true;
-                }
-                os << "  [" << safety_stars(r.safety) << "] "
-                   << r.name << " -- " << safety_reason(r.safety) << "\n";
-            }
-        }
-        if (has_warnings) os << "\n";
-
-        os << std::string(72, '=') << "\n";
-        if (serialization_free == total) {
-            os << "  ALL " << total
-               << " type(s) are serialization-free across all platforms!\n";
-        } else {
-            int zst_pct = total > 0 ? (serialization_free * 100 / total) : 0;
-            os << "  Serialization-free (C1+C2): " << serialization_free
-               << "/" << total << " (" << zst_pct << "%)\n";
-            if (layout_compatible > serialization_free) {
-                os << "  Layout-compatible (C1):     " << layout_compatible
-                   << "/" << total
-                   << " (layout matches but has pointers/bit-fields)\n";
-            }
-            os << "  Needs serialization:        " << (total - layout_compatible)
-               << "/" << total << "\n";
-        }
-        os << std::string(72, '=') << "\n\n";
-
-        // Assumptions that underlie the safety classification
-        os << "  Assumptions:\n";
-        os << "  - IEEE 754 floating point on all compared platforms\n";
-        os << "  - Identical struct packing / alignment rules\n";
-        os << "  - Fixed-width integers have the same representation\n";
-        os << "  - Enums with explicit underlying types are stable\n\n";
+        return "Needs serialization";
     }
 
-private:
-    std::vector<PlatformData> platforms_;
-
-    /// Returns a diff annotation string pointing to the first divergence between
-    /// signature strings `a` and `b`.  Returns empty string if they are identical.
-    ///
-    /// `prefix_width` is the number of characters printed before the signature
-    /// on each line (e.g. "    x86_64-linux: " = 4 + name_len + 2).  The
-    /// annotation is indented by `prefix_width + pos` spaces so the `^---`
-    /// marker aligns with the first differing character in the printed output.
+    /// Returns a diff annotation string pointing to the first divergence.
     static std::string format_diff(const std::string& a, const std::string& b,
                                    std::size_t prefix_width) {
         std::size_t pos = 0;

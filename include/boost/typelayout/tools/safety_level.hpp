@@ -108,6 +108,16 @@ constexpr const char* safety_level_name(SafetyLevel level) noexcept {
 /// leaf field entries.  The record's total size (from the "record[s:N,...]"
 /// header) is compared against the coverage of all "@offset:type[s:N,...]"
 /// entries.  Any uncovered byte indicates padding.
+///
+/// LIMITATION: This function operates on the signature string alone and
+/// cannot detect whether the original type is trivially_copyable.  The
+/// compile-time classify<T> checks is_trivially_copyable and returns
+/// PointerRisk for non-trivially-copyable types (e.g. types with virtual
+/// destructors or user-defined copy constructors), but the signature does
+/// not encode this property.  All TypeLayout entry points that produce
+/// exportable signatures (SigExporter::add, TYPELAYOUT_REGISTER_OPAQUE)
+/// enforce trivially_copyable via static_assert, so in normal usage this
+/// limitation does not cause false negatives.
 inline SafetyLevel classify_signature(std::string_view sig) noexcept {
     using detail::sig_contains_token;
 

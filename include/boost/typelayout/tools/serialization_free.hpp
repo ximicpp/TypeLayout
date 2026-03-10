@@ -172,12 +172,8 @@ public:
         static_assert(is_local_serialization_free_v<T>,
             "Only locally serialization-free types can be registered.");
 
-        // layout_traits<T>::signature is a static constexpr data member with
-        // static storage duration -- string_view is permanently valid.
-        // Do not change signature to a local or non-static variable without
-        // switching local_signatures_ values to std::string.
         local_signatures_[std::string(key)] =
-            std::string_view(layout_traits<T>::signature);
+            std::string(std::string_view(layout_traits<T>::signature));
     }
 
     // Register a local type using typeid(T).name() as a convenience key.
@@ -191,8 +187,8 @@ public:
             "Only locally serialization-free types can be registered.");
 
         auto key = default_type_key<T>();
-        // layout_traits<T>::signature is static constexpr -- string_view is safe.
-        local_signatures_[key] = std::string_view(layout_traits<T>::signature);
+        local_signatures_[key] =
+            std::string(std::string_view(layout_traits<T>::signature));
     }
 
     // Record a remote endpoint's signature for a named type.
@@ -248,7 +244,7 @@ public:
     }
 
     // Access the local signatures map (for building SIG_OFFER messages).
-    [[nodiscard]] const std::map<std::string, std::string_view>&
+    [[nodiscard]] const std::map<std::string, std::string>&
     local_signatures() const noexcept {
         return local_signatures_;
     }
@@ -260,7 +256,7 @@ public:
     }
 
 private:
-    std::map<std::string, std::string_view> local_signatures_;
+    std::map<std::string, std::string> local_signatures_;
     std::map<std::string, std::string> remote_signatures_;
 
     // Default key derived from typeid.  Not binary-stable across compilers,
