@@ -193,7 +193,40 @@ struct Level3 {
 // Level2 = 12 bytes, d = 4 bytes => sizeof = 16
 static_assert(sizeof(Level3) == 16);
 
-// ----- 7. Trivially packed (no padding at any level) -----
+// ----- 7. Base class with array of padded elements -----
+
+// An array of padded structs inherited from a base class.
+// The bitmap marks the array as atomic (all bytes covered), but the
+// element type has internal padding.  any_base_array_elem_has_padding
+// must detect this.
+struct BaseWithPaddedArray {
+    InnerPadded arr[2];
+};
+static_assert(sizeof(BaseWithPaddedArray) == 16);
+
+struct DerivedFromPaddedArray : BaseWithPaddedArray {
+    int32_t extra;
+};
+
+// Same pattern but with a non-padded array element -- should be clean.
+struct BaseWithCleanArray {
+    NoPad_TwoInt arr[2];
+};
+
+struct DerivedFromCleanArray : BaseWithCleanArray {
+    int32_t extra;
+};
+
+// Multi-level: grandparent has the padded array.
+struct MidLevel : BaseWithPaddedArray {
+    int32_t mid;
+};
+
+struct GrandChild : MidLevel {
+    int32_t gc;
+};
+
+// ----- 8. Trivially packed (no padding at any level) -----
 
 struct FullyPacked {
     int32_t a;
@@ -293,26 +326,36 @@ static_assert(layout_traits<Level2>::has_padding,
 static_assert(layout_traits<Level3>::has_padding,
     "P6.3: Level3 contains Level2 (deeply padded)");
 
+// -- Base class with array of padded elements --
+static_assert(layout_traits<DerivedFromPaddedArray>::has_padding,
+    "P7.1: Base class has array of InnerPadded -- element has internal padding");
+
+static_assert(!layout_traits<DerivedFromCleanArray>::has_padding,
+    "P7.2: Base class has array of NoPad_TwoInt -- no element padding");
+
+static_assert(layout_traits<GrandChild>::has_padding,
+    "P7.3: Grandparent has array of InnerPadded -- transitive detection");
+
 // -- Fully packed --
 static_assert(!layout_traits<FullyPacked>::has_padding,
-    "P7.1: Four int32_t -- fully packed, no padding");
+    "P8.1: Four int32_t -- fully packed, no padding");
 
 static_assert(!layout_traits<FullyPackedNested>::has_padding,
-    "P7.2: FullyPacked + int32_t -- no padding at any level");
+    "P8.2: FullyPacked + int32_t -- no padding at any level");
 
 // -- Single field --
 static_assert(!layout_traits<SingleChar>::has_padding,
-    "P8.1: Single char -- no padding");
+    "P9.1: Single char -- no padding");
 
 static_assert(!layout_traits<SingleInt64>::has_padding,
-    "P8.2: Single int64_t -- no padding");
+    "P9.2: Single int64_t -- no padding");
 
 // -- Scalars --
 static_assert(!layout_traits<int32_t>::has_padding,
-    "P9.1: Scalar int32_t -- no padding");
+    "P10.1: Scalar int32_t -- no padding");
 
 static_assert(!layout_traits<double>::has_padding,
-    "P9.2: Scalar double -- no padding");
+    "P10.2: Scalar double -- no padding");
 
 // =========================================================================
 // Part 2: classify<T> consistency -- PaddingRisk where expected
@@ -439,7 +482,7 @@ int main() {
 
     // Part 1 and Part 2 are all static_assert -- verified at compile time.
     std::cout << "  [PASS] Compile-time has_padding (Part 1: "
-              << "19 static_assert checks)\n";
+              << "22 static_assert checks)\n";
     std::cout << "  [PASS] Compile-time classify consistency (Part 2: "
               << "7 static_assert checks)\n";
 

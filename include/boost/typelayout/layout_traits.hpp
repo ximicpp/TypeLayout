@@ -289,6 +289,43 @@ consteval bool any_member_array_elem_has_padding() noexcept {
     }
 }
 
+// Check whether any base class of T (at index I..N-1) contains an array
+// member whose element type has internal padding.  This complements
+// any_member_array_elem_has_padding which only checks T's direct members.
+//
+// Without this, a pattern like:
+//   struct Base { PaddedStruct arr[2]; };
+//   struct Derived : Base { int x; };
+// would be missed: the bitmap marks the inherited array as atomic (all
+// bytes covered), and any_member_array_elem_has_padding only iterates
+// Derived's direct members, skipping Base::arr.
+//
+// This helper recurses into each non-empty, non-opaque base class and
+// checks its members (and its bases, transitively) for array-element
+// padding via compute_has_padding on the base type itself.  Since
+// compute_has_padding already calls both any_member_array_elem_has_padding
+// and any_base_array_elem_has_padding, the full inheritance tree is covered.
+template <typename T, std::size_t I, std::size_t N>
+consteval bool any_base_array_elem_has_padding() noexcept {
+    if constexpr (I >= N) {
+        return false;
+    } else {
+        using namespace std::meta;
+        constexpr auto base_info = bases_of(^^T, access_context::unchecked())[I];
+        using BaseType = [:type_of(base_info):];
+        if constexpr (!std::is_empty_v<BaseType> && !has_opaque_signature<BaseType>) {
+            // Check the base's own members and bases for array-element padding.
+            constexpr std::size_t base_fc = get_member_count<BaseType>();
+            constexpr std::size_t base_bc = get_base_count<BaseType>();
+            if constexpr (any_member_array_elem_has_padding<BaseType, 0, base_fc>() ||
+                          any_base_array_elem_has_padding<BaseType, 0, base_bc>()) {
+                return true;
+            }
+        }
+        return any_base_array_elem_has_padding<T, I + 1, N>();
+    }
+}
+
 // Compute has_padding for type T using byte coverage analysis.
 //
 // Creates a bool bitmap of sizeof(T) bytes, recursively marks every
@@ -332,8 +369,10 @@ consteval bool compute_has_padding() noexcept {
             }
             // The bitmap treats array fields as atomic leaf nodes, so it
             // cannot detect padding inside array element types.  Check
-            // each array member's element type separately.
-            return any_member_array_elem_has_padding<T, 0, fc>();
+            // each array member's element type separately, including
+            // arrays inherited from base classes.
+            return any_member_array_elem_has_padding<T, 0, fc>() ||
+                   any_base_array_elem_has_padding<T, 0, bc>();
         }
     } else {
         // Union types: all members share offset 0, so "padding" in a union
