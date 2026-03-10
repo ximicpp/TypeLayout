@@ -27,9 +27,7 @@
 name: Cross-Platform Type Layout Check
 
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 env:
   # ── Customize these two paths for your repository ──────────────────────
