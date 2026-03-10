@@ -106,7 +106,7 @@ struct Outer {
 
 // Register OpaqueBlob as an opaque type
 namespace boost { namespace typelayout {
-TYPELAYOUT_OPAQUE_TYPE(test_types::OpaqueBlob, "blob", 64, 1)
+TYPELAYOUT_REGISTER_OPAQUE(test_types::OpaqueBlob, "blob", false)
 }} // namespace boost::typelayout
 
 // =========================================================================

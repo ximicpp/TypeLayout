@@ -285,9 +285,10 @@ TYPELAYOUT_REGISTER_OPAQUE(MyLib::Handle, "handle", false)
 - `Tag` — string tag embedded in the signature
 - `HasPointer` — `true` if the type internally contains pointer-like fields
 
-Legacy macros (`TYPELAYOUT_OPAQUE_TYPE`, `TYPELAYOUT_OPAQUE_CONTAINER`,
-`TYPELAYOUT_OPAQUE_MAP`) are kept for backward compatibility and produce the
-`O!name[s:N,a:M]` signature format.
+For template types, register each instantiation separately:
+```cpp
+TYPELAYOUT_REGISTER_OPAQUE(MyLib::XVector<int>, "xvector_int", true)
+```
 
 ## 9. Runtime Handshake with is_transfer_safe
 

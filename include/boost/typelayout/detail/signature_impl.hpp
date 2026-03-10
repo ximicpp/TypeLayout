@@ -48,12 +48,8 @@
 //                       | 'bytes' '[' params ']'
 //   count            ::= DIGIT+
 //
-//   opaque-signature ::= opaque-legacy | opaque-registered
-//   opaque-legacy    ::= NAME '[' params ']' ('<' type-args '>')?
-//   opaque-registered::= 'O(' TAG '|' size '|' alignment ')'
-//   type-args        ::= type-signature (',' type-signature)*
+//   opaque-signature ::= 'O(' TAG '|' size '|' alignment ')'
 //   TAG              ::= [^|)]+
-//   NAME             ::= [a-zA-Z_][a-zA-Z0-9_]*
 //   size             ::= DIGIT+
 //   alignment        ::= DIGIT+
 //

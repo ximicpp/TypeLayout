@@ -394,9 +394,7 @@ The Layout signature follows a deterministic grammar (simplified):
     union    ::= 'union' meta '{' fields '}'
     enum     ::= 'enum' meta '<' typesig '>'
     bits     ::= '@' NUM '.' NUM ':bits<' NUM ',' typesig '>'
-    opaque   ::= 'O!' IDENT meta
-               | 'O!' IDENT meta '<' typesig '>'
-               | 'O!' IDENT meta '<' typesig ',' typesig '>'
+    opaque   ::= 'O(' TAG '|' NUM '|' NUM ')'
 
 **Lemma 2.3.1 (Grammar unambiguity).** The grammar is unambiguous: each valid signature
 string has exactly one parse tree.
@@ -407,7 +405,7 @@ verify this for every decision point in the grammar:
 
 | Non-terminal | Productions | FIRST sets |
 |---|---|---|
-| `typesig` | `scalar \| record \| array \| union \| enum \| bits \| opaque` | `{i,u,f,char*,bool,byte,nullptr,ptr,ref,rref,memptr,fnptr}`, `{record}`, `{array,bytes}`, `{union}`, `{enum}`, `{@…·…}`, `{O!}` |
+| `typesig` | `scalar \| record \| array \| union \| enum \| bits \| opaque` | `{i,u,f,char*,bool,byte,nullptr,ptr,ref,rref,memptr,fnptr}`, `{record}`, `{array,bytes}`, `{union}`, `{enum}`, `{@…·…}`, `{O(}` |
 | `scalar` | `i8 \| u8 \| i16 \| ... \| ptr \| fnptr \| ...` | Each prefix is a distinct string literal |
 | `array` | `array... \| bytes...` | `{array}`, `{bytes}` |
 | `meta` | `[s:N,a:N]` | Single production; no ambiguity |

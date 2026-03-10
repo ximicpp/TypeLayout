@@ -83,13 +83,14 @@ include/boost/typelayout/
 ├── signature.hpp               # get_layout_signature, layout_signatures_match, get_arch_prefix
 ├── layout_traits.hpp           # layout_traits<T>: signature + has_pointer/padding/opaque/etc.
 ├── fixed_string.hpp            # FixedString<N>: compile-time string, to_fixed_string()
-├── opaque.hpp                  # TYPELAYOUT_OPAQUE_TYPE/CONTAINER/MAP, TYPELAYOUT_REGISTER_OPAQUE
+├── opaque.hpp                  # TYPELAYOUT_REGISTER_OPAQUE macro
 ├── fwd.hpp                     # Forward declarations
 ├── config.hpp                  # Configuration macros
 └── detail/
     ├── signature_impl.hpp      # TypeSignature<T>::calculate() — the core recursive engine
     ├── reflect.hpp             # P2996 reflection helpers (type classification, primitives)
-    └── type_map.hpp            # Type → canonical name mapping (int→i32, double→f64, etc.)
+    ├── type_map.hpp            # Type → canonical name mapping (int→i32, double→f64, etc.)
+    └── sig_parser.hpp          # Signature string parser (C++17): padding detection, token matching
 ```
 
 **Tools layer** (mostly C++17, no P2996 needed) — safety analysis + cross-platform:
@@ -111,7 +112,7 @@ include/boost/typelayout/tools/
 - **Flattening**: Structs are recursively flattened — field names and inheritance erased, only byte identity preserved.
 - **Safety levels** (ordered worst→best): `Opaque > PlatformVariant > PointerRisk > PaddingRisk > TrivialSafe`
 - **Dual-path padding detection**: `compute_has_padding` (compile-time bitmap via P2996) cross-validated against `sig_has_padding` (runtime string parser), enforced by `static_assert`.
-- **Opaque types**: Unanalyzable types registered with macros. `O!tag[s:N,a:A]` (legacy) or `O(Tag|N|A)` (new).
+- **Opaque types**: Unanalyzable types registered via `TYPELAYOUT_REGISTER_OPAQUE`. Signature format: `O(Tag|N|A)`.
 - **Array element recursion**: `type_has_opaque` and `compute_has_padding` recurse into array element types via `std::remove_all_extents_t`.
 
 ## Available Skills (.claude/commands/)

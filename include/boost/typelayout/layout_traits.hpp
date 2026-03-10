@@ -19,7 +19,7 @@
 
 #include <boost/typelayout/signature.hpp>
 #include <boost/typelayout/detail/reflect.hpp>
-#include <boost/typelayout/tools/safety_level.hpp>
+#include <boost/typelayout/detail/sig_parser.hpp>
 #include <array>
 
 namespace boost {

@@ -1,4 +1,4 @@
-// Opaque type registration and is_fixed_enum tests.
+// Opaque type registration tests.
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
@@ -37,89 +37,76 @@ namespace opaque_test {
 // Register opaque types — must be in boost::typelayout namespace
 namespace boost { namespace typelayout {
 
-TYPELAYOUT_OPAQUE_TYPE(opaque_test::XString, "xstring", 32, 1)
-TYPELAYOUT_OPAQUE_CONTAINER(opaque_test::XVector, "xvector", 24, 1)
-TYPELAYOUT_OPAQUE_MAP(opaque_test::XMap, "xmap", 48, 1)
+TYPELAYOUT_REGISTER_OPAQUE(opaque_test::XString, "xstring", false)
+
+// For template types, register specific instantiations
+TYPELAYOUT_REGISTER_OPAQUE(opaque_test::XVector<int32_t>, "xvector_i32", false)
+TYPELAYOUT_REGISTER_OPAQUE(opaque_test::XVector<double>, "xvector_f64", false)
 
 }} // namespace boost::typelayout
 
-// --- OPAQUE_TYPE tests ---
-
-// 1. Basic signature format
-static_assert(
-    TypeSignature<opaque_test::XString>::calculate()
-        == "O!xstring[s:32,a:1]",
-    "OPAQUE_TYPE signature should be O!xstring[s:32,a:1]"
-);
-
-// --- OPAQUE_CONTAINER tests ---
-
-// 2. Container with int32_t element
-constexpr auto xvec_i32_layout =
-    TypeSignature<opaque_test::XVector<int32_t>>::calculate();
-static_assert(
-    contains(xvec_i32_layout, "O!xvector[s:24,a:1]<"),
-    "OPAQUE_CONTAINER Layout should start with O!xvector[s:24,a:1]<"
-);
-static_assert(
-    contains(xvec_i32_layout, "i32[s:4,a:4]"),
-    "OPAQUE_CONTAINER Layout should contain element signature"
-);
-
-// 3. Container with enum element
+// Register enum-element vector outside the namespace block above
+// (Color must be defined first)
 namespace opaque_test {
     enum class Color : uint8_t { Red, Green, Blue };
 }
 
-constexpr auto xvec_color_layout =
-    TypeSignature<opaque_test::XVector<opaque_test::Color>>::calculate();
+namespace boost { namespace typelayout {
+TYPELAYOUT_REGISTER_OPAQUE(opaque_test::XVector<opaque_test::Color>, "xvector_color", false)
+// Typedefs needed because macros can't handle template commas
+using XMap_i32_f64 = opaque_test::XMap<int32_t, double>;
+using XMap_i32_i32 = opaque_test::XMap<int32_t, int32_t>;
+TYPELAYOUT_REGISTER_OPAQUE(XMap_i32_f64, "xmap_i32_f64", false)
+TYPELAYOUT_REGISTER_OPAQUE(XMap_i32_i32, "xmap_i32_i32", false)
+}} // namespace boost::typelayout
 
-// Layout: enum without qualified name
+// --- REGISTER_OPAQUE tests ---
+
+// 1. Basic signature format
 static_assert(
-    contains(xvec_color_layout, "enum[s:"),
-    "OPAQUE_CONTAINER: element enum should use layout encoding"
+    TypeSignature<opaque_test::XString>::calculate()
+        == "O(xstring|32|1)",
+    "REGISTER_OPAQUE signature should be O(xstring|32|1)"
 );
 
-// 4. Different element types produce different signatures
+// 2. XVector<int32_t> registered with explicit tag
+static_assert(
+    TypeSignature<opaque_test::XVector<int32_t>>::calculate()
+        == "O(xvector_i32|24|1)",
+    "REGISTER_OPAQUE: XVector<int32_t> should be O(xvector_i32|24|1)"
+);
+
+// 3. XVector<Color> registered separately
+static_assert(
+    TypeSignature<opaque_test::XVector<opaque_test::Color>>::calculate()
+        == "O(xvector_color|24|1)",
+    "REGISTER_OPAQUE: XVector<Color> should be O(xvector_color|24|1)"
+);
+
+// 4. Different element types produce different signatures (different tags)
 static_assert(
     !(TypeSignature<opaque_test::XVector<int32_t>>::calculate()
         == TypeSignature<opaque_test::XVector<double>>::calculate()),
-    "OPAQUE_CONTAINER: different element types should produce different signatures"
+    "REGISTER_OPAQUE: different instantiations should produce different signatures"
 );
-
-// --- OPAQUE_MAP tests ---
 
 // 5. Map with int32_t key and double value
-constexpr auto xmap_sig =
-    TypeSignature<opaque_test::XMap<int32_t, double>>::calculate();
 static_assert(
-    contains(xmap_sig, "O!xmap[s:48,a:1]<"),
-    "OPAQUE_MAP should start with O!xmap[s:48,a:1]<"
-);
-static_assert(
-    contains(xmap_sig, "i32[s:4,a:4]"),
-    "OPAQUE_MAP should contain key signature"
-);
-static_assert(
-    contains(xmap_sig, "f64[s:8,a:8]"),
-    "OPAQUE_MAP should contain value signature"
+    TypeSignature<opaque_test::XMap<int32_t, double>>::calculate()
+        == "O(xmap_i32_f64|48|1)",
+    "REGISTER_OPAQUE: XMap<int32_t, double> should be O(xmap_i32_f64|48|1)"
 );
 
-// 6. Map with same K,V types produces valid signature
-constexpr auto xmap_same_kv =
-    TypeSignature<opaque_test::XMap<int32_t, int32_t>>::calculate();
+// 6. Map with same K,V types
 static_assert(
-    contains(xmap_same_kv, "O!xmap[s:48,a:1]<"),
-    "OPAQUE_MAP with same K,V: should produce valid signature"
+    TypeSignature<opaque_test::XMap<int32_t, int32_t>>::calculate()
+        == "O(xmap_i32_i32|48|1)",
+    "REGISTER_OPAQUE: XMap<int32_t, int32_t> should be O(xmap_i32_i32|48|1)"
 );
 
 // =========================================================================
 // Part 2: Integration -- Opaque as field in a normal struct
 // =========================================================================
-// The Layout engine now checks for opaque TypeSignature specializations
-// before recursive flattening (via has_opaque_signature concept), so
-// opaque class-type fields are emitted as leaf nodes instead of being
-// expanded into their internal byte members.
 
 namespace integration_test {
     struct SharedBlock {
@@ -132,13 +119,13 @@ namespace integration_test {
 constexpr auto block_layout =
     TypeSignature<integration_test::SharedBlock>::calculate();
 
-// 11. Opaque field emitted as leaf in containing struct's Layout signature
+// 7. Opaque field emitted as leaf in containing struct's Layout signature
 static_assert(
-    contains(block_layout, "O!xstring[s:32,a:1]"),
-    "Integration: Layout should contain opaque O!xstring[s:32,a:1] as leaf"
+    contains(block_layout, "O(xstring|32|1)"),
+    "Integration: Layout should contain opaque O(xstring|32|1) as leaf"
 );
 
-// 12. Primitive fields around the opaque are still flattened normally
+// 8. Primitive fields around the opaque are still flattened normally
 static_assert(
     contains(block_layout, "i32[s:4,a:4]"),
     "Integration: Layout should contain i32 field"
@@ -149,10 +136,8 @@ static_assert(
 );
 
 // =========================================================================
-// Part 4: Opaque base class handling (F4 fix)
+// Part 3: Opaque base class handling
 // =========================================================================
-// The Layout engine must also respect opaque types used as base classes,
-// emitting them as leaf nodes instead of flattening their internals.
 
 namespace opaque_base_test {
     struct DerivedFromOpaque : opaque_test::XString {
@@ -163,32 +148,28 @@ namespace opaque_base_test {
 constexpr auto derived_opaque_layout =
     TypeSignature<opaque_base_test::DerivedFromOpaque>::calculate();
 
-// 13. Opaque base class emitted as leaf in Layout signature
+// 9. Opaque base class emitted as leaf in Layout signature
 static_assert(
-    contains(derived_opaque_layout, "O!xstring[s:32,a:1]"),
-    "F4 fix: opaque base class should appear as O!xstring[s:32,a:1] leaf"
+    contains(derived_opaque_layout, "O(xstring|32|1)"),
+    "Opaque base class should appear as O(xstring|32|1) leaf"
 );
 
-// 14. Derived class's own field still present
+// 10. Derived class's own field still present
 static_assert(
     contains(derived_opaque_layout, "i32[s:4,a:4]"),
-    "F4 fix: derived class direct field should still appear"
+    "Derived class direct field should still appear"
 );
 
 // =========================================================================
-// Part 5: Finding F5 -- Empty struct visibility
+// Part 4: Empty struct visibility
 // =========================================================================
-// An empty struct field contributes zero leaf nodes to the flat field list.
-// The outer record header (s:SIZE,a:ALIGN) still captures the total size,
-// so two records that differ only by an empty field will have different
-// size headers -- soundness is preserved.
 
 namespace f5_test {
     struct Empty {};
 
     struct WithEmpty {
         int32_t x;
-        Empty e;          // occupies 1 byte (sizeof(Empty)==1), at some offset
+        Empty e;
         int32_t y;
     };
 
@@ -203,20 +184,15 @@ constexpr auto with_empty_layout =
 constexpr auto without_empty_layout =
     TypeSignature<f5_test::WithoutEmpty>::calculate();
 
-// 15. Empty field is invisible in the flat field list (conservative)
-// The flat fields inside {} should only contain i32 entries, no entry for Empty.
-// But the size headers differ: WithEmpty has sizeof >= 9 (padding may differ),
-// while WithoutEmpty has sizeof == 8.
+// 11. Records differing only by empty field have different signatures
 static_assert(
     !(with_empty_layout == without_empty_layout),
-    "F5: records differing only by empty field must have different Layout signatures (size header differs)"
+    "Records differing only by empty field must have different Layout signatures (size header differs)"
 );
 
 // =========================================================================
-// Part 6: Finding F6 -- [[no_unique_address]] behavior
+// Part 5: [[no_unique_address]] behavior
 // =========================================================================
-// With [[no_unique_address]], an empty member may share its offset with
-// an adjacent member. The Layout engine reports what reflection sees.
 
 namespace f6_test {
     struct Tag {};
@@ -238,80 +214,59 @@ constexpr auto nua_layout =
 constexpr auto plain_two_int_layout =
     TypeSignature<f6_test::PlainTwoInt>::calculate();
 
-// 16. With [[no_unique_address]], if the empty member is optimized away
-// (offset overlaps with next field), the record size may equal PlainTwoInt.
-// Whether signatures match depends on compiler EBO decisions.
-// We just verify both compile and produce valid signatures.
 static_assert(
     nua_layout.length() > 0,
-    "F6: [[no_unique_address]] struct should produce a valid Layout signature"
+    "[[no_unique_address]] struct should produce a valid Layout signature"
 );
 static_assert(
     plain_two_int_layout.length() > 0,
-    "F6: plain two-int struct should produce a valid Layout signature"
+    "plain two-int struct should produce a valid Layout signature"
 );
 
-// Task 2.3 / Bug 1 fix: After fixing empty member evaporation, WithNUA and
-// PlainTwoInt MUST produce different signatures even when sizeof matches,
-// because WithNUA contains an empty member that is now correctly emitted
-// as a leaf node in the signature.  The two types have different member
-// structures and therefore different binary layout identities.
 static_assert(
     nua_layout != plain_two_int_layout,
-    "F6: WithNUA must differ from PlainTwoInt -- empty member is part of layout identity"
+    "WithNUA must differ from PlainTwoInt -- empty member is part of layout identity"
 );
 
 // =========================================================================
-// Part 7: Legacy opaque pointer_free conservatism
+// Part 6: Opaque pointer_free control
 // =========================================================================
-// Legacy opaque macros (TYPELAYOUT_OPAQUE_TYPE, _CONTAINER, _MAP) now
-// default to pointer_free = false, meaning has_pointer == true.
-// This is the conservative choice: opaque internals are unknown, so we
-// assume they may contain pointers unless the user explicitly asserts
-// otherwise via TYPELAYOUT_REGISTER_OPAQUE.
-//
-// This ensures classify() produces SafetyLevel::Opaque (or PointerRisk)
-// rather than falsely reporting TrivialSafe for opaque types.
 
-// 18. Legacy OPAQUE_TYPE: has_pointer defaults to true (conservative)
+// 12. REGISTER_OPAQUE with HasPointer=false: pointer_free=true, has_pointer=false
 static_assert(
-    layout_traits<opaque_test::XString>::has_pointer,
-    "Legacy OPAQUE_TYPE: has_pointer should default to true (pointer_free = false)"
+    !layout_traits<opaque_test::XString>::has_pointer,
+    "REGISTER_OPAQUE(false): has_pointer should be false"
 );
 
-// 19. Legacy OPAQUE_CONTAINER: has_pointer defaults to true
-static_assert(
-    layout_traits<opaque_test::XVector<int32_t>>::has_pointer,
-    "Legacy OPAQUE_CONTAINER: has_pointer should default to true (pointer_free = false)"
-);
-
-// 20. Legacy OPAQUE_MAP: has_pointer defaults to true
-static_assert(
-    layout_traits<opaque_test::XMap<int32_t, double>>::has_pointer,
-    "Legacy OPAQUE_MAP: has_pointer should default to true (pointer_free = false)"
-);
-
-// 21. Opaque types are still detected as opaque
+// 13. Opaque types are detected as opaque
 static_assert(
     layout_traits<opaque_test::XString>::has_opaque,
-    "Legacy OPAQUE_TYPE: has_opaque should be true"
+    "REGISTER_OPAQUE: has_opaque should be true"
+);
+
+// 14. Opaque type with HasPointer=true
+namespace opaque_ptr_test {
+    struct WithPtrs { void* p; int x; };
+}
+namespace boost { namespace typelayout {
+TYPELAYOUT_REGISTER_OPAQUE(opaque_ptr_test::WithPtrs, "with_ptrs", true)
+}} // namespace boost::typelayout
+
+static_assert(
+    layout_traits<opaque_ptr_test::WithPtrs>::has_pointer,
+    "REGISTER_OPAQUE(true): has_pointer should be true"
 );
 
 // =========================================================================
-// Part 8: Finding F8 -- long vs int64_t platform erasure
+// Part 7: long vs int64_t platform erasure
 // =========================================================================
-// On this platform, long and int64_t (or int32_t) should produce the
-// same Layout signature, since TypeLayout maps them to the same canonical
-// name based on sizeof.
 
 namespace f8_test {
     struct WithLong {
         long x;
     };
 
-    // Pick the matching fixed-width type based on sizeof(long)
     struct WithFixedWidth {
-        // sizeof(long)==8 -> int64_t, sizeof(long)==4 -> int32_t
         std::conditional_t<sizeof(long) == 8, int64_t, int32_t> x;
     };
 }
@@ -321,18 +276,15 @@ constexpr auto long_layout =
 constexpr auto fixed_layout =
     TypeSignature<f8_test::WithFixedWidth>::calculate();
 
-// 17. long and its corresponding fixed-width type produce identical Layout signatures
+// 15. long and its corresponding fixed-width type produce identical signatures
 static_assert(
     long_layout == fixed_layout,
-    "F8: long and matching fixed-width int should produce identical Layout signatures on same platform"
+    "long and matching fixed-width int should produce identical Layout signatures on same platform"
 );
 
 // =========================================================================
-// Part 9: CV-qualified opaque member handling
+// Part 8: CV-qualified opaque member handling
 // =========================================================================
-// A 'const OpaqueType' member must be treated as an opaque leaf node, not
-// flattened into its internal bytes.  This exercises the fix to
-// has_opaque_signature<T> which now strips cv-qualifiers before the check.
 
 namespace cv_opaque_test {
     struct WithConstOpaque {
@@ -345,13 +297,13 @@ namespace cv_opaque_test {
 constexpr auto cv_block_layout =
     TypeSignature<cv_opaque_test::WithConstOpaque>::calculate();
 
-// 22. const-qualified opaque member appears as opaque leaf, not expanded
+// 16. const-qualified opaque member appears as opaque leaf, not expanded
 static_assert(
-    contains(cv_block_layout, "O!xstring[s:32,a:1]"),
+    contains(cv_block_layout, "O(xstring|32|1)"),
     "CV-qualified opaque member must be emitted as opaque leaf, not flattened"
 );
 
-// 23. Other fields still present
+// 17. Other fields still present
 static_assert(
     contains(cv_block_layout, "i32[s:4,a:4]"),
     "CV-qualified opaque test: i32 field should still be present"
@@ -366,12 +318,12 @@ static_assert(
 // =========================================================================
 
 int main() {
-    std::cout << "=== Opaque & is_fixed_enum Tests ===\n\n";
+    std::cout << "=== Opaque Tests ===\n\n";
 
-    std::cout << "XString Layout:      " << TypeSignature<opaque_test::XString>::calculate().value << "\n";
-    std::cout << "XVector<i32> Layout: " << xvec_i32_layout.value << "\n";
-    std::cout << "XMap<i32,f64> Layout: " << xmap_sig.value << "\n";
-    std::cout << "SharedBlock Layout:  " << block_layout.value << "\n";
+    std::cout << "XString:             " << TypeSignature<opaque_test::XString>::calculate().value << "\n";
+    std::cout << "XVector<i32>:        " << TypeSignature<opaque_test::XVector<int32_t>>::calculate().value << "\n";
+    std::cout << "XMap<i32,f64>:       " << TypeSignature<opaque_test::XMap<int32_t, double>>::calculate().value << "\n";
+    std::cout << "SharedBlock:         " << block_layout.value << "\n";
 
     std::cout << "\n--- Finding Verification ---\n";
     std::cout << "WithEmpty Layout:    " << with_empty_layout.value << "\n";
@@ -381,12 +333,11 @@ int main() {
     std::cout << "Long Layout:         " << long_layout.value << "\n";
     std::cout << "FixedWidth Layout:   " << fixed_layout.value << "\n";
 
-    std::cout << "\n--- Legacy Opaque Pointer Safety ---\n";
-    std::cout << "XString has_pointer:     " << layout_traits<opaque_test::XString>::has_pointer << "\n";
-    std::cout << "XVector<i32> has_pointer:" << layout_traits<opaque_test::XVector<int32_t>>::has_pointer << "\n";
-    std::cout << "XMap<i32,f64> has_pointer:" << layout_traits<opaque_test::XMap<int32_t, double>>::has_pointer << "\n";
-    std::cout << "XString has_opaque:      " << layout_traits<opaque_test::XString>::has_opaque << "\n";
+    std::cout << "\n--- Pointer Safety ---\n";
+    std::cout << "XString has_pointer:      " << layout_traits<opaque_test::XString>::has_pointer << "\n";
+    std::cout << "WithPtrs has_pointer:     " << layout_traits<opaque_ptr_test::WithPtrs>::has_pointer << "\n";
+    std::cout << "XString has_opaque:       " << layout_traits<opaque_test::XString>::has_opaque << "\n";
 
-    std::cout << "\nAll " << 21 << " static_assert tests passed at compile time.\n";
+    std::cout << "\nAll 17 static_assert tests passed at compile time.\n";
     return 0;
 }

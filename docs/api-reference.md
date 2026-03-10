@@ -207,31 +207,14 @@ TYPELAYOUT_REGISTER_OPAQUE(MyLib::Handle, "handle", false)
 }}
 ```
 
-### `TYPELAYOUT_OPAQUE_TYPE(Type, name, size, align)` (deprecated)
+For template types, register each instantiation separately:
 
 ```cpp
-TYPELAYOUT_OPAQUE_TYPE(Type, name, size, align)
+namespace boost { namespace typelayout {
+TYPELAYOUT_REGISTER_OPAQUE(MyLib::XVector<int>, "xvector_int", true)
+TYPELAYOUT_REGISTER_OPAQUE(MyLib::XMap<int, double>, "xmap_int_double", true)
+}}
 ```
-
-Registers a non-template type. Generated signature: `O!name[s:size,a:align]`.
-
-```cpp
-TYPELAYOUT_OPAQUE_TYPE(MyLib::XString, "xstring", 32, 8)
-// -> O!xstring[s:32,a:8]
-```
-
-### `TYPELAYOUT_OPAQUE_CONTAINER(Template, name, size, align)` (deprecated)
-
-Registers a single-type-parameter template. The element type's signature is
-appended: `O!name[s:N,a:M]<element_signature>`.
-
-### `TYPELAYOUT_OPAQUE_MAP(Template, name, size, align)` (deprecated)
-
-Registers a two-type-parameter template. Key and value signatures are appended:
-`O!name[s:N,a:M]<key_signature,value_signature>`.
-
-AUTO variants (`TYPELAYOUT_OPAQUE_TYPE_AUTO`, `_CONTAINER_AUTO`, `_MAP_AUTO`)
-derive size and align from the type automatically.
 
 ---
 
@@ -576,7 +559,6 @@ enum-sig  ::= 'enum[s:' SIZE ',a:' ALIGN ']<' underlying '>'
 array     ::= 'array[s:' SIZE ',a:' ALIGN ']<' element ',' COUNT '>'
             | 'bytes[s:' SIZE ',a:1]'           -- byte arrays
 opaque    ::= 'O(' tag '|' SIZE '|' ALIGN ')'  -- TYPELAYOUT_REGISTER_OPAQUE
-            | 'O!' name '[s:' SIZE ',a:' ALIGN ']'  -- legacy macros
 
 member    ::= '@' OFFSET ':' type-signature
             | '@' BYTE '.' BIT ':bits<' WIDTH ',' leaf '>'  -- bit-field
@@ -595,7 +577,7 @@ and detected by comparing byte coverage against `sizeof(T)`.
 | `<boost/typelayout/signature.hpp>` | `get_layout_signature`, `layout_signatures_match`, `get_arch_prefix` |
 | `<boost/typelayout/layout_traits.hpp>` | `layout_traits<T>` |
 | `<boost/typelayout/fixed_string.hpp>` | `FixedString<N>`, `to_fixed_string` |
-| `<boost/typelayout/opaque.hpp>` | `TYPELAYOUT_REGISTER_OPAQUE`, legacy opaque macros |
+| `<boost/typelayout/opaque.hpp>` | `TYPELAYOUT_REGISTER_OPAQUE` |
 | `<boost/typelayout/fwd.hpp>` | Forward declarations |
 | `<boost/typelayout/config.hpp>` | Configuration macros |
 | `<boost/typelayout/tools/safety_level.hpp>` | `SafetyLevel`, `classify_signature`, `sig_has_padding` |

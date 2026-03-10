@@ -48,7 +48,7 @@ struct OpaqueData {
 
 // Register OpaqueData as opaque BEFORE any code that inspects it
 namespace boost { namespace typelayout {
-TYPELAYOUT_OPAQUE_TYPE(OpaqueData, "opaque_data", 32, 1)
+TYPELAYOUT_REGISTER_OPAQUE(OpaqueData, "opaque_data", false)
 }} // namespace boost::typelayout
 
 // -- Struct containing an opaque member (recursive opaque detection)

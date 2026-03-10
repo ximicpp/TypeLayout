@@ -42,18 +42,10 @@ namespace typelayout {
         constexpr auto operator+(const FixedString<M>& other) const noexcept {
             constexpr size_t new_size = N + M;
             char result[new_size + 1] = {};
-            size_t pos = 0;
-
-            while (pos < N && value[pos] != '\0') {
-                result[pos] = value[pos];
-                ++pos;
-            }
-
-            size_t j = 0;
-            while (j <= M) {
-                result[pos++] = other.value[j++];
-            }
-
+            for (size_t i = 0; i < N; ++i)
+                result[i] = value[i];
+            for (size_t i = 0; i <= M; ++i)
+                result[N + i] = other.value[i];
             return FixedString<new_size>(result);
         }
 

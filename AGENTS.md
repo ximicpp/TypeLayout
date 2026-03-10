@@ -15,9 +15,9 @@
 ## Architecture Invariants
 
 - **Two layers**: Core (requires P2996) and Tools (mostly C++17). Tools layer must not `#include` core headers unless the tool file is explicitly marked as P2996-required.
-- **Dual-path padding detection**: `compute_has_padding` (compile-time bitmap in `layout_traits.hpp`) must be cross-validated against `sig_has_padding` (runtime string parser in `safety_level.hpp`). Both must agree or `static_assert` fires.
+- **Dual-path padding detection**: `compute_has_padding` (compile-time bitmap in `layout_traits.hpp`) must be cross-validated against `sig_has_padding` (runtime string parser in `detail/sig_parser.hpp`). Both must agree or `static_assert` fires.
 - **Virtual inheritance rejection**: `signature_impl.hpp` rejects types with virtual bases at compile time.
-- **Opaque ordering**: Opaque types must be registered BEFORE any signature generation that encounters them. Registration order matters for `O!tag` encoding.
+- **Opaque ordering**: Opaque types must be registered BEFORE any signature generation that encounters them.
 - **Flattening**: Struct field names and inheritance hierarchy are erased. Only byte-level identity is preserved in signatures.
 
 ## Testing Invariants
@@ -34,7 +34,7 @@
 - **Arch prefix**: `[BITS-ENDIAN]` e.g. `[64-le]`, `[32-be]`
 - **Record format**: `record[s:SIZE,a:ALIGN]{@OFFSET:TYPE[s:SIZE,a:ALIGN],...}`
 - **Padding encoding**: `pad:N` for N padding bytes at a given offset
-- **Opaque encoding**: `O!tag[s:N,a:A]` (legacy) or `O(Tag|N|A)` (new format)
+- **Opaque encoding**: `O(Tag|N|A)` via `TYPELAYOUT_REGISTER_OPAQUE`
 - **Array encoding**: `TYPE[N]` for fixed-size arrays, element type is recursed into
 
 ## Code Map -- Key Entry Points

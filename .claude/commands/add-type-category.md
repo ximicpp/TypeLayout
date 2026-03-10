@@ -24,10 +24,7 @@ Use this when: adding support for a new fundamental type, pointer variant, aggre
    - Ensure recursive flattening: call `TypeSignature<FieldT>::calculate()` for each field
    - Compute correct offsets and padding
 
-4. **For opaque types** -- use registration macros in `opaque.hpp`:
-   - `TYPELAYOUT_OPAQUE_TYPE(Tag, Type)` for simple types
-   - `TYPELAYOUT_OPAQUE_CONTAINER(Tag, Template)` for containers
-   - `TYPELAYOUT_OPAQUE_MAP(Tag, Template)` for map-like containers
+4. **For opaque types** -- use `TYPELAYOUT_REGISTER_OPAQUE(Type, Tag, HasPointer)` in `opaque.hpp`
 
 5. **Update safety classification** in `tools/safety_level.hpp`:
    - If the new type needs a new safety level or classification rule, update `classify_signature()`
