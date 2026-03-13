@@ -48,6 +48,8 @@
 | How safety is classified | `tools/classify.hpp` -> `classify<T>`, `tools/safety_level.hpp` -> `classify_signature()` |
 | How opaque types work | `opaque.hpp` -> macros + `has_opaque_signature` concept |
 | Cross-platform pipeline | `tools/sig_export.hpp` (Phase 1) -> `tools/compat_check.hpp` (Phase 2) |
+| Serialization-free query | `tools/compat_check.hpp` -> `CompatReporter::are_serialization_free(types, platforms)` |
+| Data model / ABI detect | `tools/platform_detect.hpp` -> `get_data_model()` |
 
 ## Tests
 
@@ -64,4 +66,4 @@
 | `test_serialization_free.cpp` | Tools | is_local_serialization_free, SignatureRegistry |
 | `test_sig_export.cpp` | Tools | SigExporter output structure |
 | `test_rt_padding.cpp` | Tools | Runtime sig_has_padding (C++17 only, no P2996) |
-| `test_compat_check.cpp` | Tools | CompatReporter, classify_signature (C++17 only) |
+| `test_compat_check.cpp` | Tools | CompatReporter, classify_signature, are_serialization_free, ABI equivalence (C++17 only) |

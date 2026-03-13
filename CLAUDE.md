@@ -101,8 +101,8 @@ include/boost/typelayout/tools/
 ├── serialization_free.hpp      # is_local_serialization_free<T>, SignatureRegistry — requires P2996
 ├── sig_export.hpp              # SigExporter, TYPELAYOUT_EXPORT_TYPES — requires P2996
 ├── sig_types.hpp               # TypeEntry, PlatformInfo structs (shared data types)
-├── compat_check.hpp            # CompatReporter (compares .sig.hpp across platforms)
-├── platform_detect.hpp         # Arch/OS/compiler detection macros
+├── compat_check.hpp            # CompatReporter: are_serialization_free(types, platforms), ABI fingerprinting
+├── platform_detect.hpp         # Arch/OS/compiler detection macros + get_data_model()
 └── detail/foreach.hpp          # Variadic macro helper
 ```
 
