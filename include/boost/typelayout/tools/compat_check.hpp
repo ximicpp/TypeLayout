@@ -138,7 +138,7 @@ public:
     ///
     /// Returns true when every type in @p type_names has an identical
     /// layout signature across every platform in @p platform_names,
-    /// and none of those signatures contain pointers or opaque fields.
+    /// and none of those signatures contain pointers.
     ///
     /// Usage (brace-init):
     ///   reporter.are_serialization_free(
