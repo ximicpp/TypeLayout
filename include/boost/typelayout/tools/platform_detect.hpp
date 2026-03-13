@@ -81,6 +81,26 @@ namespace platform {
     #define TYPELAYOUT_COMPILER_DISPLAY "Unknown Compiler"
 #endif
 
+// --- Data Model ---
+//
+// Classifies the integer/pointer size ABI:
+//   ILP32:  int=4, long=4, ptr=4   (32-bit Unix/Windows)
+//   LLP64:  int=4, long=4, ptr=8   (64-bit Windows)
+//   LP64:   int=4, long=8, ptr=8   (64-bit Unix/macOS)
+//   ILP64:  int=8, long=8, ptr=8   (rare, some Cray/UNICOS)
+
+inline constexpr const char* get_data_model() noexcept {
+    if (sizeof(int) == 4 && sizeof(long) == 4 && sizeof(void*) == 4)
+        return "ILP32";
+    if (sizeof(int) == 4 && sizeof(long) == 4 && sizeof(void*) == 8)
+        return "LLP64";
+    if (sizeof(int) == 4 && sizeof(long) == 8 && sizeof(void*) == 8)
+        return "LP64";
+    if (sizeof(int) == 8 && sizeof(long) == 8 && sizeof(void*) == 8)
+        return "ILP64";
+    return "unknown";
+}
+
 // --- Combined identifiers ---
 
 inline std::string get_platform_name() {

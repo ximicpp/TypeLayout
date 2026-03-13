@@ -29,6 +29,7 @@ inline constexpr std::size_t sizeof_long        = 8;   // LP64: same as Linux
 inline constexpr std::size_t sizeof_wchar_t     = 4;   // same as Linux
 inline constexpr std::size_t sizeof_long_double = 8;   // ARM64: long double == double
 inline constexpr std::size_t max_align          = 16;
+inline constexpr const char data_model[]        = "LP64";
 
 // ---- Type Signatures ----
 
@@ -97,7 +98,7 @@ inline constexpr int type_count = 8;
 inline constexpr ::boost::typelayout::PlatformInfo get_platform_info() {
     return { platform_name, arch_prefix, types, type_count,
              pointer_size, sizeof_long, sizeof_wchar_t,
-             sizeof_long_double, max_align };
+             sizeof_long_double, max_align, data_model };
 }
 
 }}}} // namespace boost::typelayout::platform::arm64_macos_clang

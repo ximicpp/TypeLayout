@@ -169,6 +169,8 @@ private:
            << sizeof(long double) << ";\n";
         os << "inline constexpr std::size_t max_align          = "
            << alignof(std::max_align_t) << ";\n";
+        os << "inline constexpr const char data_model[]        = \""
+           << platform::get_data_model() << "\";\n";
         os << "\n";
     }
 
@@ -205,7 +207,7 @@ private:
         os << "inline constexpr ::boost::typelayout::PlatformInfo get_platform_info() {\n";
         os << "    return { platform_name, arch_prefix, types, type_count,\n";
         os << "             pointer_size, sizeof_long, sizeof_wchar_t,\n";
-        os << "             sizeof_long_double, max_align };\n";
+        os << "             sizeof_long_double, max_align, data_model };\n";
         os << "}\n";
         os << "\n";
     }

@@ -12,6 +12,7 @@
 #include <string_view>
 #include <string>
 #include <vector>
+#include <initializer_list>
 #include <iostream>
 #include <iomanip>
 #include <cstddef>
@@ -83,6 +84,20 @@ struct PlatformData {
     std::size_t       sizeof_long_double = 0;
     std::size_t       max_align         = 0;
     const char*       arch_prefix       = "";
+    std::string       data_model;
+
+    /// ABI fingerprint: the tuple of platform-level parameters that affect
+    /// type layout.  Matching fingerprints are a necessary (but not
+    /// sufficient) condition for identical signatures — compilers may
+    /// still differ in struct packing rules.
+    bool abi_matches(const PlatformData& other) const noexcept {
+        return pointer_size      == other.pointer_size &&
+               sizeof_long       == other.sizeof_long &&
+               sizeof_wchar_t    == other.sizeof_wchar_t &&
+               sizeof_long_double == other.sizeof_long_double &&
+               max_align         == other.max_align &&
+               std::string_view(arch_prefix) == std::string_view(other.arch_prefix);
+    }
 };
 
 /// Compares signatures across platforms and prints a compatibility matrix.
@@ -93,7 +108,8 @@ public:
         platforms_.push_back({
             pi.platform_name, pi.types, pi.type_count,
             pi.pointer_size, pi.sizeof_long, pi.sizeof_wchar_t,
-            pi.sizeof_long_double, pi.max_align, pi.arch_prefix
+            pi.sizeof_long_double, pi.max_align, pi.arch_prefix,
+            pi.data_model ? pi.data_model : ""
         });
     }
 
@@ -102,6 +118,50 @@ public:
     void add_platform(const std::string& name,
                       const TypeEntry* types, std::size_t count) {
         platforms_.push_back({name, types, count});
+    }
+
+    // Serialization-free criteria for a type across a set of platforms:
+    //   (1) trivially_copyable — guaranteed by SigExporter::add<T>'s static_assert
+    //   (2) no pointer/reference members — detected as PointerRisk
+    //   (3) layout signature matches across the specified platforms
+    // Opaque types are excluded (unverifiable).
+    // PaddingRisk and PlatformVariant do NOT disqualify: padding is an
+    // info-leak concern, and platform-variant types that match on the
+    // given platforms are fine for those platforms.
+
+    /// Check if the specified types are serialization-free across the
+    /// specified platforms.  This is the core query for the use case:
+    /// "given type set T and platform set P, can I memcpy safely?"
+    ///
+    /// Returns true when every type in @p type_names has an identical
+    /// layout signature across every platform in @p platform_names,
+    /// and none of those signatures contain pointers or opaque fields.
+    ///
+    /// Usage (brace-init):
+    ///   reporter.are_serialization_free(
+    ///       {"PacketHeader", "SensorRecord"},
+    ///       {"x86_64_linux_clang", "arm64_macos_clang"});
+    ///
+    /// Usage (programmatic):
+    ///   std::vector<std::string> types = read_config("types.txt");
+    ///   std::vector<std::string> plats = read_config("platforms.txt");
+    ///   reporter.are_serialization_free(types, plats);
+    [[nodiscard]] bool are_serialization_free(
+            std::initializer_list<std::string_view> type_names,
+            std::initializer_list<std::string_view> platform_names) const {
+        return check_serialization_free(type_names.begin(), type_names.end(),
+                                        platform_names.begin(), platform_names.end());
+    }
+
+    /// Overload accepting vectors (for programmatic use).
+    [[nodiscard]] bool are_serialization_free(
+            const std::vector<std::string>& type_names,
+            const std::vector<std::string>& platform_names) const {
+        // Build string_view spans over the owned strings.
+        std::vector<std::string_view> tv(type_names.begin(), type_names.end());
+        std::vector<std::string_view> pv(platform_names.begin(), platform_names.end());
+        return check_serialization_free(tv.begin(), tv.end(),
+                                        pv.begin(), pv.end());
     }
 
     std::vector<TypeResult> compare() const {
@@ -186,6 +246,8 @@ private:
             os << "  * " << p.name;
             if (p.arch_prefix[0] != '\0')
                 os << " " << p.arch_prefix;
+            if (!p.data_model.empty())
+                os << " " << p.data_model;
             os << "\n";
             if (p.pointer_size > 0) {
                 os << "    pointer=" << p.pointer_size << "B"
@@ -193,6 +255,21 @@ private:
                    << ", wchar_t=" << p.sizeof_wchar_t << "B"
                    << ", long_double=" << p.sizeof_long_double << "B"
                    << ", max_align=" << p.max_align << "B\n";
+            }
+        }
+
+        // ABI equivalence groups: platforms with identical ABI fingerprints
+        // are likely (but not guaranteed) to produce identical signatures.
+        auto groups = abi_equivalence_groups();
+        if (!groups.empty()) {
+            os << "\n  ABI equivalence (identical ABI fingerprint → layouts likely match):\n";
+            for (const auto& g : groups) {
+                os << "    {";
+                for (std::size_t i = 0; i < g.size(); ++i) {
+                    if (i > 0) os << ", ";
+                    os << g[i];
+                }
+                os << "}\n";
             }
         }
         os << "\n";
@@ -340,6 +417,78 @@ private:
             arrow += " (second string ends here)";
         }
         return arrow;
+    }
+
+    template <typename TIter, typename PIter>
+    bool check_serialization_free(TIter t_begin, TIter t_end,
+                                  PIter p_begin, PIter p_end) const {
+        if (t_begin == t_end || p_begin == p_end)
+            return false;
+
+        // Resolve platform indices.
+        std::vector<std::size_t> plat_idx;
+        for (auto it = p_begin; it != p_end; ++it) {
+            std::string_view pname(*it);
+            bool found = false;
+            for (std::size_t i = 0; i < platforms_.size(); ++i) {
+                if (platforms_[i].name == pname) {
+                    plat_idx.push_back(i);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return false;
+        }
+
+        // For each type, verify signature match + safety across selected platforms.
+        for (auto it = t_begin; it != t_end; ++it) {
+            std::string_view tname(*it);
+            std::string_view first_sig;
+            for (std::size_t pi : plat_idx) {
+                const TypeEntry* entry = find_type(platforms_[pi],
+                                                   std::string(tname));
+                if (!entry) return false;
+
+                auto level = classify_signature(entry->layout_sig);
+                if (level == SafetyLevel::PointerRisk ||
+                    level == SafetyLevel::Opaque)
+                    return false;
+
+                std::string_view sig(entry->layout_sig);
+                if (first_sig.empty())
+                    first_sig = sig;
+                else if (sig != first_sig)
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    /// Find groups of platforms with identical ABI fingerprints.
+    /// Matching fingerprints suggest (but do not guarantee) identical layouts.
+    /// Only returns groups of size >= 2 (singletons are not interesting).
+    std::vector<std::vector<std::string>> abi_equivalence_groups() const {
+        std::vector<std::vector<std::string>> groups;
+        std::vector<bool> visited(platforms_.size(), false);
+
+        for (std::size_t i = 0; i < platforms_.size(); ++i) {
+            if (visited[i]) continue;
+            if (platforms_[i].pointer_size == 0) continue;  // no metadata
+
+            std::vector<std::string> group;
+            group.push_back(platforms_[i].name);
+
+            for (std::size_t j = i + 1; j < platforms_.size(); ++j) {
+                if (visited[j]) continue;
+                if (platforms_[i].abi_matches(platforms_[j])) {
+                    group.push_back(platforms_[j].name);
+                    visited[j] = true;
+                }
+            }
+            if (group.size() >= 2)
+                groups.push_back(std::move(group));
+        }
+        return groups;
     }
 
     static const TypeEntry* find_type(const PlatformData& plat,

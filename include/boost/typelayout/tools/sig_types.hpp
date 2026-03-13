@@ -26,6 +26,7 @@ struct PlatformInfo {
     std::size_t      sizeof_wchar_t;
     std::size_t      sizeof_long_double;
     std::size_t      max_align;
+    const char*      data_model;        // "LP64", "LLP64", "ILP32", etc.
 };
 
 } // namespace typelayout

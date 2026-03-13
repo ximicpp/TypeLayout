@@ -245,7 +245,8 @@ void test_platform_metadata() {
         platform_a::types,
         platform_a::type_count,
         8, 8, 4, 16, 16,
-        "[64-le]"
+        "[64-le]",
+        "LP64"
     });
 
     std::ostringstream oss;
@@ -255,8 +256,251 @@ void test_platform_metadata() {
     assert(report.find("pointer=8B") != std::string::npos);
     assert(report.find("long=8B") != std::string::npos);
     assert(report.find("[64-le]") != std::string::npos);
+    assert(report.find("LP64") != std::string::npos);
 
     std::cout << "  [PASS] Platform metadata in report\n";
+}
+
+void test_abi_equivalence() {
+    // Two platforms with identical ABI fingerprints should be grouped.
+    CompatReporter reporter;
+    reporter.add_platform({
+        "x86_64_linux_clang",
+        platform_a::types, platform_a::type_count,
+        8, 8, 4, 16, 16, "[64-le]", "LP64"
+    });
+    reporter.add_platform({
+        "x86_64_linux_gcc",
+        platform_a::types, platform_a::type_count,
+        8, 8, 4, 16, 16, "[64-le]", "LP64"
+    });
+    reporter.add_platform({
+        "x86_64_windows_msvc",
+        platform_a::types, platform_a::type_count,
+        8, 4, 2, 8, 16, "[64-le]", "LLP64"
+    });
+
+    std::ostringstream oss;
+    reporter.print_report(oss);
+    std::string report = oss.str();
+
+    // Linux clang and gcc have identical ABI → grouped.
+    assert(report.find("ABI equivalence") != std::string::npos);
+    assert(report.find("x86_64_linux_clang") != std::string::npos);
+    assert(report.find("x86_64_linux_gcc") != std::string::npos);
+
+    // Windows has different ABI → not in the group.
+    // The group line should contain both linux platforms but not windows.
+    auto group_pos = report.find("ABI equivalence");
+    auto group_section = report.substr(group_pos, 200);
+    auto brace_pos = group_section.find("{");
+    assert(brace_pos != std::string::npos);
+    auto brace_end = group_section.find("}", brace_pos);
+    auto group_line = group_section.substr(brace_pos, brace_end - brace_pos);
+    assert(group_line.find("linux_clang") != std::string::npos);
+    assert(group_line.find("linux_gcc") != std::string::npos);
+    assert(group_line.find("windows") == std::string::npos);
+
+    std::cout << "  [PASS] ABI equivalence groups\n";
+}
+
+void test_no_abi_equivalence_when_all_different() {
+    // All platforms have different ABI → no equivalence section.
+    CompatReporter reporter;
+    reporter.add_platform({
+        "linux_lp64",
+        platform_a::types, platform_a::type_count,
+        8, 8, 4, 16, 16, "[64-le]", "LP64"
+    });
+    reporter.add_platform({
+        "windows_llp64",
+        platform_a::types, platform_a::type_count,
+        8, 4, 2, 8, 16, "[64-le]", "LLP64"
+    });
+
+    std::ostringstream oss;
+    reporter.print_report(oss);
+    std::string report = oss.str();
+
+    assert(report.find("ABI equivalence") == std::string::npos);
+
+    std::cout << "  [PASS] No ABI equivalence when all different\n";
+}
+
+// =========================================================================
+// 3. are_serialization_free() — subset query API tests
+// =========================================================================
+
+// Three platforms with a mix of types.
+
+namespace plat_linux {
+    inline constexpr const char SafeType_layout[] =
+        "[64-le]record[s:8,a:4]{@0:u32[s:4,a:4],@4:u32[s:4,a:4]}";
+    inline constexpr const char PadType_layout[] =
+        "[64-le]record[s:8,a:4]{@0:u32[s:4,a:4],@4:u16[s:2,a:2]}";
+    inline constexpr const char PtrType_layout[] =
+        "[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:ptr[s:8,a:8]}";
+    inline constexpr const char OpaqueType_layout[] =
+        "[64-le]record[s:8,a:4]{@0:O(MyOpaque|4|4),@4:u32[s:4,a:4]}";
+    inline constexpr const char WcharType_layout[] =
+        "[64-le]record[s:4,a:4]{@0:wchar[s:4,a:4]}";
+
+    inline constexpr TypeEntry types[] = {
+        {"SafeType",   SafeType_layout},
+        {"PadType",    PadType_layout},
+        {"PtrType",    PtrType_layout},
+        {"OpaqueType", OpaqueType_layout},
+        {"WcharType",  WcharType_layout},
+    };
+    inline constexpr std::size_t type_count = 5;
+}
+
+namespace plat_macos {
+    // SafeType: identical to linux
+    inline constexpr const char SafeType_layout[] =
+        "[64-le]record[s:8,a:4]{@0:u32[s:4,a:4],@4:u32[s:4,a:4]}";
+    // PadType: identical (padding present but layout matches)
+    inline constexpr const char PadType_layout[] =
+        "[64-le]record[s:8,a:4]{@0:u32[s:4,a:4],@4:u16[s:2,a:2]}";
+    // PtrType: identical (but contains pointer)
+    inline constexpr const char PtrType_layout[] =
+        "[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:ptr[s:8,a:8]}";
+    // OpaqueType: identical (but contains opaque)
+    inline constexpr const char OpaqueType_layout[] =
+        "[64-le]record[s:8,a:4]{@0:O(MyOpaque|4|4),@4:u32[s:4,a:4]}";
+    // WcharType: same wchar_t=4 as linux
+    inline constexpr const char WcharType_layout[] =
+        "[64-le]record[s:4,a:4]{@0:wchar[s:4,a:4]}";
+
+    inline constexpr TypeEntry types[] = {
+        {"SafeType",   SafeType_layout},
+        {"PadType",    PadType_layout},
+        {"PtrType",    PtrType_layout},
+        {"OpaqueType", OpaqueType_layout},
+        {"WcharType",  WcharType_layout},
+    };
+    inline constexpr std::size_t type_count = 5;
+}
+
+namespace plat_windows {
+    // SafeType: identical
+    inline constexpr const char SafeType_layout[] =
+        "[64-le]record[s:8,a:4]{@0:u32[s:4,a:4],@4:u32[s:4,a:4]}";
+    // PadType: DIFFERENT layout on windows (hypothetical)
+    inline constexpr const char PadType_layout[] =
+        "[64-le]record[s:12,a:4]{@0:u32[s:4,a:4],@4:u16[s:2,a:2],@8:u32[s:4,a:4]}";
+    // PtrType: identical
+    inline constexpr const char PtrType_layout[] =
+        "[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:ptr[s:8,a:8]}";
+    // OpaqueType: identical
+    inline constexpr const char OpaqueType_layout[] =
+        "[64-le]record[s:8,a:4]{@0:O(MyOpaque|4|4),@4:u32[s:4,a:4]}";
+    // WcharType: wchar_t=2 on windows → different signature
+    inline constexpr const char WcharType_layout[] =
+        "[64-le]record[s:2,a:2]{@0:wchar[s:2,a:2]}";
+
+    inline constexpr TypeEntry types[] = {
+        {"SafeType",   SafeType_layout},
+        {"PadType",    PadType_layout},
+        {"PtrType",    PtrType_layout},
+        {"OpaqueType", OpaqueType_layout},
+        {"WcharType",  WcharType_layout},
+    };
+    inline constexpr std::size_t type_count = 5;
+}
+
+void test_are_serialization_free_basic() {
+    CompatReporter reporter;
+    reporter.add_platform("linux",   plat_linux::types,   plat_linux::type_count);
+    reporter.add_platform("macos",   plat_macos::types,   plat_macos::type_count);
+    reporter.add_platform("windows", plat_windows::types,  plat_windows::type_count);
+
+    // SafeType is TrivialSafe and identical on all 3 platforms.
+    assert(reporter.are_serialization_free(
+        {"SafeType"}, {"linux", "macos", "windows"}));
+
+    // PadType matches on linux+macos but DIFFERS on windows.
+    assert(reporter.are_serialization_free(
+        {"PadType"}, {"linux", "macos"}));
+    assert(!reporter.are_serialization_free(
+        {"PadType"}, {"linux", "windows"}));
+
+    // Multiple types, subset of platforms.
+    assert(reporter.are_serialization_free(
+        {"SafeType", "PadType"}, {"linux", "macos"}));
+    assert(!reporter.are_serialization_free(
+        {"SafeType", "PadType"}, {"linux", "macos", "windows"}));
+
+    std::cout << "  [PASS] are_serialization_free() basic queries\n";
+}
+
+void test_are_serialization_free_safety() {
+    CompatReporter reporter;
+    reporter.add_platform("linux", plat_linux::types, plat_linux::type_count);
+    reporter.add_platform("macos", plat_macos::types, plat_macos::type_count);
+
+    // PtrType: layout matches but PointerRisk → NOT serialization-free.
+    assert(!reporter.are_serialization_free(
+        {"PtrType"}, {"linux", "macos"}));
+
+    // OpaqueType: layout matches but Opaque → NOT serialization-free.
+    assert(!reporter.are_serialization_free(
+        {"OpaqueType"}, {"linux", "macos"}));
+
+    // PadType: PaddingRisk but layout matches → IS serialization-free.
+    assert(reporter.are_serialization_free(
+        {"PadType"}, {"linux", "macos"}));
+
+    // WcharType: PlatformVariant but layout matches on linux+macos → IS serialization-free.
+    assert(reporter.are_serialization_free(
+        {"WcharType"}, {"linux", "macos"}));
+
+    // WcharType: differs on windows.
+    CompatReporter reporter2;
+    reporter2.add_platform("linux",   plat_linux::types,   plat_linux::type_count);
+    reporter2.add_platform("windows", plat_windows::types,  plat_windows::type_count);
+    assert(!reporter2.are_serialization_free(
+        {"WcharType"}, {"linux", "windows"}));
+
+    std::cout << "  [PASS] are_serialization_free() safety levels\n";
+}
+
+void test_are_serialization_free_edge_cases() {
+    CompatReporter reporter;
+    reporter.add_platform("linux", plat_linux::types, plat_linux::type_count);
+    reporter.add_platform("macos", plat_macos::types, plat_macos::type_count);
+
+    // Empty type set → false.
+    assert(!reporter.are_serialization_free({}, {"linux"}));
+
+    // Empty platform set → false.
+    assert(!reporter.are_serialization_free({"SafeType"}, {}));
+
+    // Non-existent platform → false.
+    assert(!reporter.are_serialization_free(
+        {"SafeType"}, {"linux", "solaris"}));
+
+    // Non-existent type → false.
+    assert(!reporter.are_serialization_free(
+        {"NoSuchType"}, {"linux", "macos"}));
+
+    // Mix of valid and invalid type → false.
+    assert(!reporter.are_serialization_free(
+        {"SafeType", "NoSuchType"}, {"linux"}));
+
+    // Single platform — self-match always works for safe types.
+    assert(reporter.are_serialization_free(
+        {"SafeType", "PadType", "WcharType"}, {"linux"}));
+
+    // Vector overload (programmatic use).
+    std::vector<std::string> vtypes = {"SafeType", "PadType"};
+    std::vector<std::string> vplats = {"linux", "macos"};
+    assert(reporter.are_serialization_free(vtypes, vplats));
+
+    vtypes.push_back("PtrType");
+    assert(!reporter.are_serialization_free(vtypes, vplats));
+
+    std::cout << "  [PASS] are_serialization_free() edge cases\n";
 }
 
 int main() {
@@ -268,6 +512,11 @@ int main() {
     test_safety_classification();
     test_safety_in_report();
     test_platform_metadata();
+    test_abi_equivalence();
+    test_no_abi_equivalence_when_all_different();
+    test_are_serialization_free_basic();
+    test_are_serialization_free_safety();
+    test_are_serialization_free_edge_cases();
 
     std::cout << "All compat_check tests passed.\n";
     return 0;
