@@ -124,7 +124,10 @@ public:
     //   (1) trivially_copyable — guaranteed by SigExporter::add<T>'s static_assert
     //   (2) no pointer/reference members — detected as PointerRisk
     //   (3) layout signature matches across the specified platforms
-    // Opaque types are excluded (unverifiable).
+    // Opaque types are allowed: the user registered them via
+    // TYPELAYOUT_REGISTER_OPAQUE and takes responsibility for their layout.
+    // If opaque signatures (O(Tag|N|A)) match across platforms, the type
+    // is considered serialization-free.
     // PaddingRisk and PlatformVariant do NOT disqualify: padding is an
     // info-leak concern, and platform-variant types that match on the
     // given platforms are fine for those platforms.
@@ -450,8 +453,7 @@ private:
                 if (!entry) return false;
 
                 auto level = classify_signature(entry->layout_sig);
-                if (level == SafetyLevel::PointerRisk ||
-                    level == SafetyLevel::Opaque)
+                if (level == SafetyLevel::PointerRisk)
                     return false;
 
                 std::string_view sig(entry->layout_sig);

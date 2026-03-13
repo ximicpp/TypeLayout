@@ -443,8 +443,8 @@ void test_are_serialization_free_safety() {
     assert(!reporter.are_serialization_free(
         {"PtrType"}, {"linux", "macos"}));
 
-    // OpaqueType: layout matches but Opaque → NOT serialization-free.
-    assert(!reporter.are_serialization_free(
+    // OpaqueType: layout matches and user guarantees opaque → IS serialization-free.
+    assert(reporter.are_serialization_free(
         {"OpaqueType"}, {"linux", "macos"}));
 
     // PadType: PaddingRisk but layout matches → IS serialization-free.

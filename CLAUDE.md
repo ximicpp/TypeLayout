@@ -112,7 +112,8 @@ include/boost/typelayout/tools/
 - **Flattening**: Structs are recursively flattened — field names and inheritance erased, only byte identity preserved.
 - **Safety levels** (ordered worst→best): `Opaque > PlatformVariant > PointerRisk > PaddingRisk > TrivialSafe`
 - **Dual-path padding detection**: `compute_has_padding` (compile-time bitmap via P2996) cross-validated against `sig_has_padding` (runtime string parser), enforced by `static_assert`.
-- **Opaque types**: Unanalyzable types registered via `TYPELAYOUT_REGISTER_OPAQUE`. Signature format: `O(Tag|N|A)`.
+- **Opaque types**: Unanalyzable types registered via `TYPELAYOUT_REGISTER_OPAQUE`. Signature format: `O(Tag|N|A)`. User takes responsibility for layout correctness; opaque types with matching signatures are considered serialization-free.
+- **Serialization-free blocking**: Only `PointerRisk` blocks serialization-free. `PaddingRisk`, `PlatformVariant`, and `Opaque` do not block when signatures match across the specified platforms.
 - **Array element recursion**: `type_has_opaque` and `compute_has_padding` recurse into array element types via `std::remove_all_extents_t`.
 
 ## Available Skills (.claude/commands/)
