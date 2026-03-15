@@ -41,6 +41,8 @@
 
 // TYPELAYOUT_OPAQUE_TYPE_RELOCATABLE(Type, name)
 //   Concrete type, pointer_free = true (no element type to scan).
+//   Relocatable semantics inherently exclude native pointers — types using
+//   offset_ptr are byte-copy safe and contain no address-space dependencies.
 #define TYPELAYOUT_OPAQUE_TYPE_RELOCATABLE(Type, name)                         \
     template <>                                                                 \
     struct TypeSignature<Type> {                                                \
@@ -59,7 +61,8 @@
 
 // TYPELAYOUT_OPAQUE_CONTAINER_RELOCATABLE(Template, name)
 //   Single-parameter container template.  Embeds element type signature.
-//   pointer_free is derived from the generated signature (scans for ptr[).
+//   pointer_free is derived from the generated signature (scans for all
+//   pointer-like tokens, matching layout_traits sig_has_pointer).
 #define TYPELAYOUT_OPAQUE_CONTAINER_RELOCATABLE(Template, name)                \
     template <typename T_>                                                      \
     struct TypeSignature<Template<T_>> {                                        \
@@ -79,12 +82,21 @@
         }                                                                      \
         static constexpr bool pointer_free =                                   \
             !calculate().contains_token(                                       \
-                ::boost::typelayout::FixedString{"ptr["});                     \
+                ::boost::typelayout::FixedString{"ptr["}) &&                   \
+            !calculate().contains_token(                                       \
+                ::boost::typelayout::FixedString{"fnptr["}) &&                 \
+            !calculate().contains_token(                                       \
+                ::boost::typelayout::FixedString{"memptr["}) &&                \
+            !calculate().contains_token(                                       \
+                ::boost::typelayout::FixedString{"ref["}) &&                   \
+            !calculate().contains_token(                                       \
+                ::boost::typelayout::FixedString{"rref["});                    \
     };
 
 // TYPELAYOUT_OPAQUE_MAP_RELOCATABLE(Template, name)
 //   Two-parameter container template.  Embeds key + value type signatures.
-//   pointer_free is derived from the generated signature.
+//   pointer_free is derived from the generated signature (scans for all
+//   pointer-like tokens, matching layout_traits sig_has_pointer).
 #define TYPELAYOUT_OPAQUE_MAP_RELOCATABLE(Template, name)                      \
     template <typename K_, typename V_>                                         \
     struct TypeSignature<Template<K_, V_>> {                                    \
@@ -106,7 +118,15 @@
         }                                                                      \
         static constexpr bool pointer_free =                                   \
             !calculate().contains_token(                                       \
-                ::boost::typelayout::FixedString{"ptr["});                     \
+                ::boost::typelayout::FixedString{"ptr["}) &&                   \
+            !calculate().contains_token(                                       \
+                ::boost::typelayout::FixedString{"fnptr["}) &&                 \
+            !calculate().contains_token(                                       \
+                ::boost::typelayout::FixedString{"memptr["}) &&                \
+            !calculate().contains_token(                                       \
+                ::boost::typelayout::FixedString{"ref["}) &&                   \
+            !calculate().contains_token(                                       \
+                ::boost::typelayout::FixedString{"rref["});                    \
     };
 
 #endif // BOOST_TYPELAYOUT_OPAQUE_HPP

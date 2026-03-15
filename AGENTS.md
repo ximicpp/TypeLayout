@@ -35,6 +35,8 @@
 - **Record format**: `record[s:SIZE,a:ALIGN]{@OFFSET:TYPE[s:SIZE,a:ALIGN],...}`
 - **Padding encoding**: `pad:N` for N padding bytes at a given offset
 - **Opaque encoding**: `O(Tag|N|A)` via `TYPELAYOUT_REGISTER_OPAQUE`
+- **Opaque container**: `O(Tag|N|A)<elem_sig>` via `TYPELAYOUT_OPAQUE_CONTAINER_RELOCATABLE`
+- **Opaque map**: `O(Tag|N|A)<key_sig,val_sig>` via `TYPELAYOUT_OPAQUE_MAP_RELOCATABLE`
 - **Array encoding**: `TYPE[N]` for fixed-size arrays, element type is recursed into
 
 ## Code Map -- Key Entry Points

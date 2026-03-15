@@ -187,6 +187,8 @@ Arch prefix:   [BITS-ENDIAN]            e.g. [64-le], [32-be]
 Record:        record[s:SIZE,a:ALIGN]{@OFFSET:TYPE[s:SIZE,a:ALIGN],...}
 Padding:       pad:N                    N padding bytes at given offset
 Opaque:        O(Tag|SIZE|ALIGN)        via TYPELAYOUT_REGISTER_OPAQUE
+Opaque container: O(Tag|SIZE|ALIGN)<elem_sig>    via TYPELAYOUT_OPAQUE_CONTAINER_RELOCATABLE
+Opaque map:       O(Tag|SIZE|ALIGN)<key,val>     via TYPELAYOUT_OPAQUE_MAP_RELOCATABLE
 Array:         TYPE[N]                  fixed-size array, element type recursed
 Bit-field:     @BYTE.BIT:bits<WIDTH,UNDERLYING_TYPE>
 ```

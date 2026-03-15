@@ -314,6 +314,69 @@ static_assert(
 );
 
 // =========================================================================
+// Part 9: Relocatable container pointer_free detection
+// =========================================================================
+
+namespace relocatable_test {
+    // Simulate a relocatable container (not trivially_copyable)
+    template <typename T>
+    struct RVec {
+        char storage_[32];
+        RVec() {}  // non-trivial to prevent trivially_copyable
+    };
+
+    template <typename K, typename V>
+    struct RMap {
+        char storage_[48];
+        RMap() {}
+    };
+} // namespace relocatable_test
+
+namespace boost { namespace typelayout {
+
+TYPELAYOUT_OPAQUE_CONTAINER_RELOCATABLE(relocatable_test::RVec, "rvec")
+TYPELAYOUT_OPAQUE_MAP_RELOCATABLE(relocatable_test::RMap, "rmap")
+
+}} // namespace boost::typelayout
+
+// 18. Container with plain scalar: pointer_free = true
+static_assert(
+    TypeSignature<relocatable_test::RVec<int32_t>>::pointer_free,
+    "CONTAINER_RELOCATABLE<i32>: pointer_free should be true"
+);
+
+// 19. Container with pointer element: pointer_free = false (ptr[ token)
+static_assert(
+    !TypeSignature<relocatable_test::RVec<void*>>::pointer_free,
+    "CONTAINER_RELOCATABLE<void*>: pointer_free should be false"
+);
+
+// 20. Container with function pointer element: pointer_free = false (fnptr[ token)
+using FnPtrType = void(*)();
+static_assert(
+    !TypeSignature<relocatable_test::RVec<FnPtrType>>::pointer_free,
+    "CONTAINER_RELOCATABLE<fnptr>: pointer_free should be false"
+);
+
+// 21. Map with plain scalars: pointer_free = true
+static_assert(
+    TypeSignature<relocatable_test::RMap<int32_t, double>>::pointer_free,
+    "MAP_RELOCATABLE<i32,f64>: pointer_free should be true"
+);
+
+// 22. Map with pointer value: pointer_free = false
+static_assert(
+    !TypeSignature<relocatable_test::RMap<int32_t, void*>>::pointer_free,
+    "MAP_RELOCATABLE<i32,void*>: pointer_free should be false"
+);
+
+// 23. Map with function pointer key: pointer_free = false
+static_assert(
+    !TypeSignature<relocatable_test::RMap<FnPtrType, int32_t>>::pointer_free,
+    "MAP_RELOCATABLE<fnptr,i32>: pointer_free should be false"
+);
+
+// =========================================================================
 // Main -- runtime confirmation
 // =========================================================================
 
@@ -338,6 +401,14 @@ int main() {
     std::cout << "WithPtrs has_pointer:     " << layout_traits<opaque_ptr_test::WithPtrs>::has_pointer << "\n";
     std::cout << "XString has_opaque:       " << layout_traits<opaque_test::XString>::has_opaque << "\n";
 
-    std::cout << "\nAll 17 static_assert tests passed at compile time.\n";
+    std::cout << "\n--- Relocatable Container ---\n";
+    std::cout << "RVec<i32> pointer_free:   " << TypeSignature<relocatable_test::RVec<int32_t>>::pointer_free << "\n";
+    std::cout << "RVec<void*> pointer_free: " << TypeSignature<relocatable_test::RVec<void*>>::pointer_free << "\n";
+    std::cout << "RVec<fnptr> pointer_free: " << TypeSignature<relocatable_test::RVec<FnPtrType>>::pointer_free << "\n";
+    std::cout << "RMap<i32,f64> ptr_free:   " << TypeSignature<relocatable_test::RMap<int32_t, double>>::pointer_free << "\n";
+    std::cout << "RMap<i32,void*> ptr_free: " << TypeSignature<relocatable_test::RMap<int32_t, void*>>::pointer_free << "\n";
+    std::cout << "RMap<fnptr,i32> ptr_free: " << TypeSignature<relocatable_test::RMap<FnPtrType, int32_t>>::pointer_free << "\n";
+
+    std::cout << "\nAll 23 static_assert tests passed at compile time.\n";
     return 0;
 }
