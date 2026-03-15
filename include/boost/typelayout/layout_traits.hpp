@@ -268,7 +268,11 @@ struct layout_traits {
         detail::compute_has_padding<T>();
 
     // Cross-validation: bitmap has_padding must agree with sig_has_padding.
+    // Skip for opaque types and types containing opaque members — the bitmap
+    // treats opaque fields as atomic blobs while the signature may embed
+    // sub-structure (element types) that contain padding markers.
     static_assert(
+        has_opaque_signature<T> || has_opaque ||
         !(std::is_class_v<T> && !std::is_union_v<T> && !std::is_empty_v<T>) ||
         detail::check_padding_consistency(has_padding,
                                           std::string_view(signature)),

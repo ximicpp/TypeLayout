@@ -31,4 +31,82 @@
         }                                                                      \
     };
 
+// ===========================================================================
+// Relocatable variants — no trivially_copyable assertion.
+//
+// For types that are not trivially_copyable in the C++ sense but are still
+// byte-copy safe under a relocation model (e.g. offset_ptr-based containers).
+// The caller takes responsibility for the byte-copy safety guarantee.
+// ===========================================================================
+
+// TYPELAYOUT_OPAQUE_TYPE_RELOCATABLE(Type, name)
+//   Concrete type, pointer_free = true (no element type to scan).
+#define TYPELAYOUT_OPAQUE_TYPE_RELOCATABLE(Type, name)                         \
+    template <>                                                                 \
+    struct TypeSignature<Type> {                                                \
+        static constexpr bool is_opaque = true;                                \
+        static constexpr bool pointer_free = true;                             \
+        static consteval auto calculate() noexcept {                           \
+            return ::boost::typelayout::FixedString{"O("} +                    \
+                   ::boost::typelayout::FixedString{name} +                    \
+                   ::boost::typelayout::FixedString{"|"} +                     \
+                   ::boost::typelayout::to_fixed_string<sizeof(Type)>() +      \
+                   ::boost::typelayout::FixedString{"|"} +                     \
+                   ::boost::typelayout::to_fixed_string<alignof(Type)>() +     \
+                   ::boost::typelayout::FixedString{")"};                      \
+        }                                                                      \
+    };
+
+// TYPELAYOUT_OPAQUE_CONTAINER_RELOCATABLE(Template, name)
+//   Single-parameter container template.  Embeds element type signature.
+//   pointer_free is derived from the generated signature (scans for ptr[).
+#define TYPELAYOUT_OPAQUE_CONTAINER_RELOCATABLE(Template, name)                \
+    template <typename T_>                                                      \
+    struct TypeSignature<Template<T_>> {                                        \
+        static constexpr bool is_opaque = true;                                \
+        static consteval auto calculate() noexcept {                           \
+            return ::boost::typelayout::FixedString{"O("} +                    \
+                   ::boost::typelayout::FixedString{name} +                    \
+                   ::boost::typelayout::FixedString{"|"} +                     \
+                   ::boost::typelayout::to_fixed_string<                       \
+                       sizeof(Template<T_>)>() +                               \
+                   ::boost::typelayout::FixedString{"|"} +                     \
+                   ::boost::typelayout::to_fixed_string<                       \
+                       alignof(Template<T_>)>() +                              \
+                   ::boost::typelayout::FixedString{")<"} +                    \
+                   TypeSignature<T_>::calculate() +                            \
+                   ::boost::typelayout::FixedString{">"};                      \
+        }                                                                      \
+        static constexpr bool pointer_free =                                   \
+            !calculate().contains_token(                                       \
+                ::boost::typelayout::FixedString{"ptr["});                     \
+    };
+
+// TYPELAYOUT_OPAQUE_MAP_RELOCATABLE(Template, name)
+//   Two-parameter container template.  Embeds key + value type signatures.
+//   pointer_free is derived from the generated signature.
+#define TYPELAYOUT_OPAQUE_MAP_RELOCATABLE(Template, name)                      \
+    template <typename K_, typename V_>                                         \
+    struct TypeSignature<Template<K_, V_>> {                                    \
+        static constexpr bool is_opaque = true;                                \
+        static consteval auto calculate() noexcept {                           \
+            return ::boost::typelayout::FixedString{"O("} +                    \
+                   ::boost::typelayout::FixedString{name} +                    \
+                   ::boost::typelayout::FixedString{"|"} +                     \
+                   ::boost::typelayout::to_fixed_string<                       \
+                       sizeof(Template<K_, V_>)>() +                           \
+                   ::boost::typelayout::FixedString{"|"} +                     \
+                   ::boost::typelayout::to_fixed_string<                       \
+                       alignof(Template<K_, V_>)>() +                          \
+                   ::boost::typelayout::FixedString{")<"} +                    \
+                   TypeSignature<K_>::calculate() +                            \
+                   ::boost::typelayout::FixedString{","} +                     \
+                   TypeSignature<V_>::calculate() +                            \
+                   ::boost::typelayout::FixedString{">"};                      \
+        }                                                                      \
+        static constexpr bool pointer_free =                                   \
+            !calculate().contains_token(                                       \
+                ::boost::typelayout::FixedString{"ptr["});                     \
+    };
+
 #endif // BOOST_TYPELAYOUT_OPAQUE_HPP

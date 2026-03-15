@@ -63,6 +63,25 @@ public:
         });
     }
 
+    /// Register a relocatable type for export (no trivially_copyable check).
+    ///
+    /// Use for types containing relocatable opaque members (e.g. offset_ptr
+    /// containers) that are byte-copy safe but not trivially_copyable.
+    /// The caller is responsible for ensuring byte-copy safety.
+    template <typename T>
+    void add_relocatable(const std::string& name) {
+        static_assert(!layout_traits<T>::has_pointer,
+            "SigExporter::add_relocatable<T>: type must be pointer-free "
+            "(all opaque members must have pointer_free = true).");
+
+        constexpr auto layout = get_layout_signature<T>();
+
+        entries_.push_back({
+            name,
+            std::string(layout.value, layout.size)
+        });
+    }
+
     const std::string& platform_name() const { return platform_name_; }
     const std::string& display_name() const { return display_name_; }
     const std::vector<ExportEntry>& entries() const { return entries_; }
