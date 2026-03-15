@@ -49,6 +49,30 @@ inline constexpr bool all_layouts_match(const PlatformInfo& a,
     return true;
 }
 
+/// Check C1 (layout match) AND C2 (safety == Safe) for all types.
+/// This is the compile-time ZST (Zero-Serialization Transfer) predicate:
+///   ZST(TypeSet, Ps, Pd) ⟺ C1 ∧ C2 ∧ A1
+/// where A1 (IEEE 754) is a documented background axiom.
+inline constexpr bool all_serialization_free(const PlatformInfo& a,
+                                              const PlatformInfo& b) {
+    if (a.type_count != b.type_count) return false;
+    for (int i = 0; i < a.type_count; ++i) {
+        const char* sa = a.types[i].layout_sig;
+        const char* sb = b.types[i].layout_sig;
+        // C1: layout signature match
+        int j = 0;
+        while (sa[j] != '\0' && sb[j] != '\0') {
+            if (sa[j] != sb[j]) return false;
+            ++j;
+        }
+        if (sa[j] != sb[j]) return false;
+        // C2: safety classification == Safe
+        if (classify_safety(std::string_view(sa)) != SafetyLevel::Safe)
+            return false;
+    }
+    return true;
+}
+
 } // namespace detail
 } // namespace compat
 } // namespace typelayout
@@ -66,6 +90,23 @@ inline constexpr bool all_layouts_match(const PlatformInfo& a,
 
 #define TYPELAYOUT_ASSERT_COMPAT(first, ...)                                    \
     TYPELAYOUT_DETAIL_FOR_EACH_CTX(TYPELAYOUT_DETAIL_ASSERT_PAIR,               \
+                                   first, __VA_ARGS__)
+
+// static_assert that all types are serialization-free (C1 + C2) across
+// listed platforms. Unlike TYPELAYOUT_ASSERT_COMPAT which only checks C1
+// (layout match), this also verifies C2 (safety == Safe), i.e., no
+// pointers, bit-fields, unions, wchar_t, long double, or vptr.
+
+#define TYPELAYOUT_DETAIL_ASSERT_ZST_PAIR(ref, other)                           \
+    static_assert(                                                               \
+        ::boost::typelayout::compat::detail::all_serialization_free(             \
+            ::boost::typelayout::platform::ref::get_platform_info(),             \
+            ::boost::typelayout::platform::other::get_platform_info()),          \
+        "TypeLayout: serialization-free check failed between " #ref             \
+        " and " #other " (layout mismatch or unsafe type detected)");
+
+#define TYPELAYOUT_ASSERT_SERIALIZATION_FREE(first, ...)                        \
+    TYPELAYOUT_DETAIL_FOR_EACH_CTX(TYPELAYOUT_DETAIL_ASSERT_ZST_PAIR,           \
                                    first, __VA_ARGS__)
 
 #endif // BOOST_TYPELAYOUT_TOOLS_COMPAT_AUTO_HPP

@@ -44,20 +44,36 @@ enum class SafetyLevel {
 };
 
 /// Scan a layout signature for pointers, bit-fields, etc.
-inline SafetyLevel classify_safety(std::string_view sig) noexcept {
+/// constexpr so it can be used in static_assert (e.g., all_serialization_free).
+inline constexpr SafetyLevel classify_safety(std::string_view sig) noexcept {
     if (sig.find("bits<") != std::string_view::npos)
         return SafetyLevel::Risk;
     if (sig.find("wchar[") != std::string_view::npos)
         return SafetyLevel::Risk;
     if (sig.find("f80[") != std::string_view::npos)
         return SafetyLevel::Risk;
-    if (sig.find("ptr[") != std::string_view::npos ||
-        sig.find("fnptr[") != std::string_view::npos ||
-        sig.find("memptr[") != std::string_view::npos ||
-        sig.find("ref[") != std::string_view::npos ||
-        sig.find("rref[") != std::string_view::npos)
-        return SafetyLevel::Warning;
+    // Check for pointer markers, but exclude false positives from "nullptr["
+    {
+        auto pos = sig.find("ptr[");
+        bool has_ptr = false;
+        while (pos != std::string_view::npos) {
+            // "ptr[" is a real pointer only if NOT preceded by "null" (i.e. "nullptr[")
+            if (pos < 4 || sig.substr(pos - 4, 4) != "null") {
+                has_ptr = true;
+                break;
+            }
+            pos = sig.find("ptr[", pos + 1);
+        }
+        if (has_ptr ||
+            sig.find("fnptr[") != std::string_view::npos ||
+            sig.find("memptr[") != std::string_view::npos ||
+            sig.find("ref[") != std::string_view::npos ||
+            sig.find("rref[") != std::string_view::npos)
+            return SafetyLevel::Warning;
+    }
     if (sig.find(",vptr") != std::string_view::npos)
+        return SafetyLevel::Warning;
+    if (sig.find("union[") != std::string_view::npos)
         return SafetyLevel::Warning;
 
     return SafetyLevel::Safe;
@@ -289,6 +305,25 @@ public:
         os << "  - Identical struct packing / alignment rules\n";
         os << "  - Fixed-width integers have the same representation\n";
         os << "  - Enums with explicit underlying types are stable\n\n";
+    }
+
+    /// Are ALL registered types serialization-free (C1∧C2) across all platforms?
+    bool all_serialization_free() const {
+        auto results = compare();
+        for (const auto& r : results)
+            if (!r.layout_match || r.safety != SafetyLevel::Safe)
+                return false;
+        return true;
+    }
+
+    /// Is a specific type serialization-free (C1∧C2) across all platforms?
+    bool is_type_serialization_free(const std::string& type_name) const {
+        auto results = compare();
+        for (const auto& r : results) {
+            if (r.name == type_name)
+                return r.layout_match && r.safety == SafetyLevel::Safe;
+        }
+        return false;  // type not found
     }
 
 private:

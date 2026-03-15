@@ -154,9 +154,18 @@ namespace typelayout {
                    FixedString{">"};
         } else if constexpr (std::is_class_v<FieldType> && !std::is_union_v<FieldType>
                              && !has_opaque_signature<FieldType, SignatureMode::Layout>) {
-            // Non-opaque class: recursively flatten into parent layout.
-            constexpr std::size_t field_offset = offset_of(member).bytes + OffsetAdj;
-            return layout_all_prefixed<FieldType, field_offset>();
+            if constexpr (std::is_polymorphic_v<FieldType>) {
+                // Polymorphic class: do NOT flatten — emit as leaf so the
+                // record[...,vptr]{...} marker propagates to the parent sig.
+                return FixedString{",@"} +
+                       to_fixed_string(offset_of(member).bytes + OffsetAdj) +
+                       FixedString{":"} +
+                       TypeSignature<FieldType, SignatureMode::Layout>::calculate();
+            } else {
+                // Non-polymorphic, non-opaque class: recursively flatten into parent layout.
+                constexpr std::size_t field_offset = offset_of(member).bytes + OffsetAdj;
+                return layout_all_prefixed<FieldType, field_offset>();
+            }
         } else {
             // Primitive, union, enum, opaque class, or any type with a
             // custom TypeSignature specialization: emit as a leaf node.
@@ -180,6 +189,13 @@ namespace typelayout {
         using BaseType = [:type_of(base_info):];
         if constexpr (has_opaque_signature<BaseType, SignatureMode::Layout>) {
             // Opaque base: emit as leaf node at base offset, not flattened.
+            return FixedString{",@"} +
+                   to_fixed_string(offset_of(base_info).bytes + OffsetAdj) +
+                   FixedString{":"} +
+                   TypeSignature<BaseType, SignatureMode::Layout>::calculate();
+        } else if constexpr (std::is_polymorphic_v<BaseType>) {
+            // Polymorphic base: do NOT flatten — emit as leaf so the
+            // record[...,vptr]{...} marker propagates to the parent sig.
             return FixedString{",@"} +
                    to_fixed_string(offset_of(base_info).bytes + OffsetAdj) +
                    FixedString{":"} +

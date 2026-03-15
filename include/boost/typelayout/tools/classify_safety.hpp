@@ -72,8 +72,14 @@ template<typename T>
     if constexpr (sig.contains(FixedString{"f80["}))   return SafetyLevel::Risk;
 
     // --- Warning markers ---
-    if constexpr (sig.contains(FixedString{"ptr["}) ||
-                  sig.contains(FixedString{"fnptr["}) ||
+    // Note: "ptr[" matches inside "nullptr[" (false positive), "fnptr[", "memptr[".
+    // Real pointer tokens appear as:
+    //   - ":ptr["  -- field inside a record (e.g. "@8:ptr[s:8,a:8]")
+    //   - "]ptr["  -- bare pointer after arch prefix (e.g. "[64-le]ptr[s:8,a:8]")
+    // Neither pattern matches "nullptr[" or ":nullptr[" or "]nullptr[".
+    if constexpr (sig.contains(FixedString{":ptr["}) ||
+                  sig.contains(FixedString{"]ptr["}))  return SafetyLevel::Warning;
+    if constexpr (sig.contains(FixedString{"fnptr["}) ||
                   sig.contains(FixedString{"memptr["}) ||
                   sig.contains(FixedString{"ref["}) ||
                   sig.contains(FixedString{"rref["}))  return SafetyLevel::Warning;
