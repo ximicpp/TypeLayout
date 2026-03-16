@@ -82,6 +82,12 @@ target_link_libraries(test_serialization_free PRIVATE typelayout)
 add_test(NAME test_serialization_free COMMAND test_serialization_free)
 set_tests_properties(test_serialization_free PROPERTIES TIMEOUT 120 LABELS "tools")
 
+# Test -- byte-copy safety admission (requires P2996)
+add_executable(test_byte_copy_safe test/test_byte_copy_safe.cpp)
+target_link_libraries(test_byte_copy_safe PRIVATE typelayout)
+add_test(NAME test_byte_copy_safe COMMAND test_byte_copy_safe)
+set_tests_properties(test_byte_copy_safe PROPERTIES TIMEOUT 120 LABELS "core")
+
 # Test — padding precision regression tests (requires P2996)
 add_executable(test_padding_precision test/test_padding_precision.cpp)
 target_link_libraries(test_padding_precision PRIVATE typelayout)

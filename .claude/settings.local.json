@@ -23,7 +23,8 @@
       "Bash(wsl -d Ubuntu bash -c \"sleep 10 && cat /mnt/c/Users/GZSUFA~1/AppData/Local/Temp/claude/g--workspace-TypeLayout/tasks/bk1h5cf8r.output 2>/dev/null || echo ''file missing''\")",
       "Bash(wsl -d Ubuntu bash -c \"cd /mnt/g/workspace/TypeLayout && git config --global credential.helper ''/mnt/c/Program\\\\ Files/Git/mingw64/bin/git-credential-manager.exe'' 2>&1; git push origin main 2>&1; echo DONE:$?\")",
       "Bash(wsl -d Ubuntu bash -c \"sleep 15 && cd /mnt/g/workspace/TypeLayout && git log --oneline origin/main..HEAD 2>&1; git remote get-url origin 2>&1\")",
-      "Bash(ls \"g:/workspace/TypeLayout/\"*.md)"
+      "Bash(ls \"g:/workspace/TypeLayout/\"*.md)",
+      "WebSearch"
     ]
   }
 }

@@ -49,13 +49,14 @@
 | How padding is detected | `layout_traits.hpp` -> `compute_has_padding<T>()` (bitmap) |
 | How safety is classified | `tools/classify.hpp` -> `classify<T>`, `tools/safety_level.hpp` -> `classify_signature()` |
 | How opaque types work | `opaque.hpp` -> macros + `has_opaque_signature` concept |
+| How admission works | `admission.hpp` -> `is_byte_copy_safe<T>`, `opaque_elements_safe<T>` |
 | Cross-platform pipeline | `tools/sig_export.hpp` (Phase 1) -> `tools/compat_check.hpp` (Phase 2) |
 | Serialization-free query | `tools/compat_check.hpp` -> `CompatReporter::are_serialization_free(types, platforms)` |
 | Data model / ABI detect | `tools/platform_detect.hpp` -> `get_data_model()` |
 
 ## Tests
 
-10 tests total (5 core + 5 tools). All use `static_assert` for compile-time + runtime verification.
+11 tests total (6 core + 5 tools). All use `static_assert` for compile-time + runtime verification.
 
 | Test | Layer | What it validates |
 |------|-------|-------------------|
@@ -64,6 +65,7 @@
 | `test_layout_traits.cpp` | Core | Signature consistency, has_pointer/opaque/padding, field_count |
 | `test_empty_member_probe.cpp` | Core | Empty member/NUA/EBO signature correctness |
 | `test_padding_precision.cpp` | Core | Byte-coverage bitmap vs sig parser, classify consistency |
+| `test_byte_copy_safe.cpp` | Core | Recursive byte-copy admission, opaque elements, polymorphic rejection |
 | `test_classify.cpp` | Tools | Five-tier classify<T> for all type categories |
 | `test_serialization_free.cpp` | Tools | is_local_serialization_free, SignatureRegistry |
 | `test_sig_export.cpp` | Tools | SigExporter output structure |

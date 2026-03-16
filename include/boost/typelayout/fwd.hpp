@@ -24,6 +24,13 @@ namespace typelayout {
     template <typename T>
     struct TypeSignature;
 
+    // Default trait for opaque element type safety.
+    // Returns false unless explicitly specialized by opaque registration macros.
+    // Used by is_byte_copy_safe to check whether an opaque container's
+    // element types are themselves byte-copy safe.
+    template <typename T>
+    struct opaque_elements_safe : std::false_type {};
+
 } // namespace typelayout
 } // namespace boost
 

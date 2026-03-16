@@ -29,7 +29,9 @@
                    ::boost::typelayout::to_fixed_string<alignof(Type)>() +     \
                    ::boost::typelayout::FixedString{")"};                      \
         }                                                                      \
-    };
+    };                                                                         \
+    template <>                                                                 \
+    struct opaque_elements_safe<Type> : std::true_type {};
 
 // ===========================================================================
 // Relocatable variants — no trivially_copyable assertion.
@@ -57,7 +59,9 @@
                    ::boost::typelayout::to_fixed_string<alignof(Type)>() +     \
                    ::boost::typelayout::FixedString{")"};                      \
         }                                                                      \
-    };
+    };                                                                         \
+    template <>                                                                 \
+    struct opaque_elements_safe<Type> : std::true_type {};
 
 // TYPELAYOUT_OPAQUE_CONTAINER_RELOCATABLE(Template, name)
 //   Single-parameter container template.  Embeds element type signature.
@@ -91,7 +95,11 @@
                 ::boost::typelayout::FixedString{"ref["}) &&                   \
             !calculate().contains_token(                                       \
                 ::boost::typelayout::FixedString{"rref["});                    \
-    };
+    };                                                                         \
+    template <typename T_>                                                      \
+    struct opaque_elements_safe<Template<T_>>                                   \
+        : std::bool_constant<                                                  \
+              ::boost::typelayout::is_byte_copy_safe_v<T_>> {};
 
 // TYPELAYOUT_OPAQUE_MAP_RELOCATABLE(Template, name)
 //   Two-parameter container template.  Embeds key + value type signatures.
@@ -127,6 +135,11 @@
                 ::boost::typelayout::FixedString{"ref["}) &&                   \
             !calculate().contains_token(                                       \
                 ::boost::typelayout::FixedString{"rref["});                    \
-    };
+    };                                                                         \
+    template <typename K_, typename V_>                                         \
+    struct opaque_elements_safe<Template<K_, V_>>                               \
+        : std::bool_constant<                                                  \
+              ::boost::typelayout::is_byte_copy_safe_v<K_> &&                  \
+              ::boost::typelayout::is_byte_copy_safe_v<V_>> {};
 
 #endif // BOOST_TYPELAYOUT_OPAQUE_HPP

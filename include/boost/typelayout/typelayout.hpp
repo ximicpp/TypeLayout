@@ -12,5 +12,6 @@
 #include <boost/typelayout/signature.hpp>
 #include <boost/typelayout/layout_traits.hpp>
 #include <boost/typelayout/opaque.hpp>
+#include <boost/typelayout/admission.hpp>
 
 #endif // BOOST_TYPELAYOUT_HPP
