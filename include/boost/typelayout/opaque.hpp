@@ -1,5 +1,20 @@
 // Opaque type registration macro.
 //
+// Opaque Tag Matching Assumption:
+//   When two endpoints compare opaque type signatures for cross-platform
+//   transfer safety (via is_transfer_safe), matching is based on:
+//     - tag name (e.g. "vector", "string")
+//     - sizeof
+//     - alignof
+//     - element type signature (for container/map templates)
+//
+//   This assumes that types registered with the same tag, sizeof, and alignof
+//   have identical internal binary layout. This is the user's responsibility
+//   to guarantee -- typically ensured by using the same library version
+//   (e.g. Boost.Interprocess) and the same compiler ABI on both endpoints.
+//
+//   TypeLayout does NOT verify internal field layout of opaque types.
+//
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 

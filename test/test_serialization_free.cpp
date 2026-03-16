@@ -106,6 +106,19 @@ struct Packet {
     float z;
 };
 
+// -- Relocatable opaque type (non-trivially-copyable, but byte-copy safe)
+struct FakeOffsetStr {
+    char data_[32];
+    FakeOffsetStr() {}
+    ~FakeOffsetStr() {}
+};
+
+// -- Struct containing relocatable opaque member
+struct MessageWithOffsetStr {
+    int32_t       id;
+    FakeOffsetStr name;
+};
+
 } // namespace sf_test
 
 // =========================================================================
@@ -125,6 +138,9 @@ TYPELAYOUT_REGISTER_OPAQUE(sf_test::ActuatorRaw, "ActuatorRaw", false)
 
 // LibHandle: FFI handle, HAS pointers
 TYPELAYOUT_REGISTER_OPAQUE(sf_test::LibHandle, "LibHandle", true)
+
+// FakeOffsetStr: relocatable opaque (non-trivially-copyable, byte-copy safe)
+TYPELAYOUT_OPAQUE_TYPE_RELOCATABLE(sf_test::FakeOffsetStr, "fofs")
 
 }} // namespace boost::typelayout
 
@@ -466,6 +482,56 @@ int main() {
         constexpr auto local_sig = get_layout_signature<sf_test::LibHandle>();
         bool result = is_transfer_safe<sf_test::LibHandle>(std::string_view(local_sig));
         TEST(!result, "P8.6: LibHandle (has_pointer=true) -> not is_transfer_safe", passed, failed);
+    }
+
+    // 8.7: Relocatable opaque type, matching signature -> true (NEW)
+    {
+        constexpr auto local_sig = get_layout_signature<sf_test::FakeOffsetStr>();
+        bool result = is_transfer_safe<sf_test::FakeOffsetStr>(std::string_view(local_sig));
+        TEST(result, "P8.7: FakeOffsetStr (relocatable opaque) matching sig -> is_transfer_safe", passed, failed);
+    }
+
+    // 8.8: Relocatable opaque type, mismatched signature -> false
+    {
+        bool result = is_transfer_safe<sf_test::FakeOffsetStr>("[64-le]O(fofs|64|8)");
+        TEST(!result, "P8.8: FakeOffsetStr wrong sig -> not is_transfer_safe", passed, failed);
+    }
+
+    // 8.9: Composite struct with opaque members, matching signature -> true (NEW)
+    {
+        constexpr auto local_sig = get_layout_signature<sf_test::MessageWithOffsetStr>();
+        bool result = is_transfer_safe<sf_test::MessageWithOffsetStr>(std::string_view(local_sig));
+        TEST(result, "P8.9: MessageWithOffsetStr (composite+opaque) matching sig -> is_transfer_safe", passed, failed);
+    }
+
+    // --- Part 8b: SignatureRegistry with relocatable opaque types ---
+
+    std::cout << "\n--- Part 8b: SignatureRegistry with relocatable opaque ---\n";
+
+    // 8b.1: Register relocatable opaque type
+    {
+        SignatureRegistry reg;
+        reg.register_local<sf_test::FakeOffsetStr>();
+
+        auto key = std::string(typeid(sf_test::FakeOffsetStr).name());
+        auto local_sig = std::string_view(layout_traits<sf_test::FakeOffsetStr>::signature);
+        reg.register_remote(key, local_sig);
+
+        bool result = reg.is_serialization_free<sf_test::FakeOffsetStr>();
+        TEST(result, "P8b.1: relocatable opaque in registry -> serialization_free", passed, failed);
+    }
+
+    // 8b.2: Register struct with opaque members
+    {
+        SignatureRegistry reg;
+        reg.register_local<sf_test::MessageWithOffsetStr>();
+
+        auto key = std::string(typeid(sf_test::MessageWithOffsetStr).name());
+        auto local_sig = std::string_view(layout_traits<sf_test::MessageWithOffsetStr>::signature);
+        reg.register_remote(key, local_sig);
+
+        bool result = reg.is_serialization_free<sf_test::MessageWithOffsetStr>();
+        TEST(result, "P8b.2: struct with opaque member in registry -> serialization_free", passed, failed);
     }
 
     std::cout << "\n--- Part 9: Signature info ---\n";
