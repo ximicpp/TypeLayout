@@ -372,11 +372,8 @@ private:
         }
         os << std::string(72, '=') << "\n\n";
 
-        os << "  Assumptions:\n";
-        os << "  - IEEE 754 floating point on all compared platforms\n";
-        os << "  - Identical struct packing / alignment rules\n";
-        os << "  - Fixed-width integers have the same representation\n";
-        os << "  - Enums with explicit underlying types are stable\n\n";
+        os << "  All preconditions are enforced by signature matching and "
+              "compile-time assertions.\n\n";
     }
 
     static std::string format_verdict(const TypeResult& r,

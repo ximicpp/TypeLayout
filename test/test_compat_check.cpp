@@ -232,8 +232,7 @@ void test_safety_in_report() {
     // Report should contain safety info
     assert(report.find("Safety") != std::string::npos);
     assert(report.find("**-") != std::string::npos);  // PacketHeader = PaddingRisk
-    assert(report.find("Assumptions") != std::string::npos);
-    assert(report.find("IEEE 754") != std::string::npos);
+    assert(report.find("preconditions") != std::string::npos);
 
     std::cout << "  [PASS] Safety in report output\n";
 }

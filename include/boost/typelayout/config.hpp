@@ -28,4 +28,17 @@
     #error "Cannot detect endianness. Define TYPELAYOUT_LITTLE_ENDIAN manually."
 #endif
 
+// =========================================================================
+// IEEE 754 floating-point enforcement
+// =========================================================================
+// TypeLayout signatures encode float as f32 and double as f64, assuming
+// IEEE 754 binary representation.  This static_assert makes the assumption
+// a compile-time guarantee -- compilation fails on non-conforming platforms.
+
+#include <limits>
+static_assert(std::numeric_limits<float>::is_iec559,
+              "TypeLayout requires IEEE 754 (IEC 559) float");
+static_assert(std::numeric_limits<double>::is_iec559,
+              "TypeLayout requires IEEE 754 (IEC 559) double");
+
 #endif // BOOST_TYPELAYOUT_CONFIG_HPP
