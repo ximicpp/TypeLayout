@@ -163,10 +163,8 @@ public:
     [[nodiscard]] bool are_transfer_safe(
             const std::vector<std::string>& type_names,
             const std::vector<std::string>& platform_names) const {
-        std::vector<std::string_view> tv(type_names.begin(), type_names.end());
-        std::vector<std::string_view> pv(platform_names.begin(), platform_names.end());
-        return check_transfer_safe(tv.begin(), tv.end(),
-                                   pv.begin(), pv.end());
+        return check_transfer_safe(type_names.begin(), type_names.end(),
+                                   platform_names.begin(), platform_names.end());
     }
 
     std::vector<TypeResult> compare() const {

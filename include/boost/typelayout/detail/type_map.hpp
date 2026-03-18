@@ -197,6 +197,7 @@ inline namespace v1 {
         }
     };
 
+    // Byte-element types (size=1, align=1): arrays collapsed to "bytes[s:N,a:1]".
     template <typename T>
     [[nodiscard]] consteval bool is_byte_element() noexcept {
         return std::is_same_v<T, char> || std::is_same_v<T, signed char> ||

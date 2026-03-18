@@ -32,6 +32,8 @@ constexpr bool sig_contains_token(std::string_view haystack,
     return false;
 }
 
+/// Result of padding analysis.  `truncated` is true when the field count
+/// exceeds MAX_FIELDS and the result is a conservative approximation.
 struct SigPaddingResult {
     bool has_padding;
     bool truncated;
@@ -40,6 +42,7 @@ struct SigPaddingResult {
 /// Check one "record[s:N,...]{...}" block for coverage gaps.
 constexpr SigPaddingResult check_one_record(std::string_view sig,
                                             std::size_t rec_pos) noexcept {
+    // Phase 1: Parse record total size from "record[s:N..."
     std::size_t total_size = 0;
     std::size_t i = rec_pos + 9;  // length of "record[s:"
     while (i < sig.size() && sig[i] >= '0' && sig[i] <= '9') {
@@ -48,7 +51,7 @@ constexpr SigPaddingResult check_one_record(std::string_view sig,
     }
     if (total_size == 0) return {false, false};
 
-    // Find the '{' and its matching '}'
+    // Phase 2: Find brace-delimited field body
     auto brace_start = sig.find('{', rec_pos);
     if (brace_start == std::string_view::npos) return {false, false};
 
@@ -64,8 +67,9 @@ constexpr SigPaddingResult check_one_record(std::string_view sig,
     auto content = sig.substr(brace_start + 1, brace_end - brace_start - 1);
     if (content.empty()) return {false, false};  // empty body (empty class)
 
+    // Phase 3: Split on depth-0 commas, extract offset + size per field
     struct Interval { std::size_t start; std::size_t end; };
-    constexpr std::size_t MAX_FIELDS = 2048;
+    constexpr std::size_t MAX_FIELDS = 2048;  // conservative limit for constexpr stack
     Interval intervals[MAX_FIELDS]{};
     std::size_t count = 0;
 
@@ -126,6 +130,7 @@ constexpr SigPaddingResult check_one_record(std::string_view sig,
 
     if (count == 0) return {false, false};
 
+    // Phase 4: Insertion sort intervals by start offset (constexpr-safe)
     for (std::size_t a = 1; a < count; ++a) {
         auto tmp = intervals[a];
         std::size_t b = a;
@@ -136,6 +141,7 @@ constexpr SigPaddingResult check_one_record(std::string_view sig,
         intervals[b] = tmp;
     }
 
+    // Phase 5: Scan sorted intervals for coverage gaps
     std::size_t covered_end = 0;
     for (std::size_t f = 0; f < count; ++f) {
         if (intervals[f].start > covered_end)

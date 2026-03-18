@@ -78,7 +78,7 @@ Core question it answers: "Can struct T be safely `memcpy`'d between A and B?"
 
 Two `consteval` functions form the public API:
 - `get_layout_signature<T>()` → `FixedString` with full byte-level layout
-- `layout_signatures_match<T, U>()` → `true` if identical byte layouts
+- Compare signatures directly: `get_layout_signature<T>() == get_layout_signature<U>()` → `true` if identical byte layouts
 
 Signatures are deterministic, human-readable strings encoding field types, sizes, alignments, offsets, and padding. Example: `[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:f64[s:8,a:8]}`
 
@@ -90,7 +90,7 @@ Header-only library. Two layers:
 ```
 include/boost/typelayout/
 ├── typelayout.hpp              # Umbrella header
-├── signature.hpp               # get_layout_signature, layout_signatures_match, get_arch_prefix
+├── signature.hpp               # get_layout_signature, get_arch_prefix
 ├── layout_traits.hpp           # layout_traits<T>: signature + has_pointer/padding/opaque/etc.
 ├── admission.hpp               # is_byte_copy_safe<T>, opaque_elements_safe<T>
 ├── fixed_string.hpp            # FixedString<N>: compile-time string, to_fixed_string()
@@ -108,11 +108,10 @@ include/boost/typelayout/
 ```
 include/boost/typelayout/tools/
 ├── safety_level.hpp            # SafetyLevel enum + classify_signature() + sig_has_padding()
-├── classify.hpp                # classify<T> (compile-time, wraps layout_traits) — requires P2996
-├── serialization_free.hpp      # is_local_serialization_free<T>, SignatureRegistry — requires P2996
+├── transfer.hpp                # is_transfer_safe<T>(sig) — cross-endpoint transfer verification — requires P2996
 ├── sig_export.hpp              # SigExporter, TYPELAYOUT_EXPORT_TYPES — requires P2996
 ├── sig_types.hpp               # TypeEntry, PlatformInfo structs (shared data types)
-├── compat_check.hpp            # CompatReporter: are_serialization_free(types, platforms), ABI fingerprinting
+├── compat_check.hpp            # CompatReporter: are_transfer_safe(types, platforms), ABI fingerprinting
 ├── platform_detect.hpp         # Arch/OS/compiler detection macros + get_data_model()
 └── detail/foreach.hpp          # Variadic macro helper
 ```
@@ -157,10 +156,10 @@ Tools layer must not `#include` core headers unless the tool file is explicitly 
 | `test_padding_precision` | core | C++26 | Byte-coverage bitmap vs sig parser, classify consistency |
 | `test_byte_copy_safe` | core | C++26 | Recursive byte-copy admission, opaque elements, polymorphic rejection |
 | `test_classify` | tools | C++26 | Five-tier classify<T> for all type categories |
-| `test_serialization_free` | tools | C++26 | is_local_serialization_free, SignatureRegistry |
+| `test_transfer` | tools | C++26 | is_transfer_safe, cross-endpoint transfer verification |
 | `test_sig_export` | tools | C++26 | SigExporter output structure |
 | `test_rt_padding` | tools | C++17 | Runtime sig_has_padding (no P2996) |
-| `test_compat_check` | tools | C++17 | CompatReporter, classify_signature, are_serialization_free, ABI equivalence |
+| `test_compat_check` | tools | C++17 | CompatReporter, classify_signature, are_transfer_safe, ABI equivalence |
 | `test_advanced_types` | core | C++26 | Multi-dimensional arrays, nested unions, cross-platform round-trip, is_transfer_safe |
 
 CMake test labels: P2996 core tests use `LABELS "core"` with 120s timeout; C++17-only tests use `LABELS "tools"` with 30s timeout. C++17 tests set `-std=c++17 -stdlib=libc++` manually and do NOT link the `typelayout` interface library.
@@ -181,11 +180,11 @@ CMake test labels: P2996 core tests use `LABELS "core"` with 120s timeout; C++17
 | How types are classified | `detail/reflect.hpp` → `classify_type()`, `detail/type_map.hpp` |
 | How layout_traits works | `layout_traits.hpp` → `layout_traits<T>` struct |
 | How padding is detected | `layout_traits.hpp` → `compute_has_padding<T>()` (bitmap) |
-| How safety is classified | `tools/classify.hpp` → `classify<T>`, `tools/safety_level.hpp` → `classify_signature()` |
+| How safety is classified | `tools/safety_level.hpp` → `classify_signature()` |
 | How opaque types work | `opaque.hpp` → macros + `has_opaque_signature` concept |
 | How admission works | `admission.hpp` → `is_byte_copy_safe<T>`, `opaque_elements_safe<T>` |
 | Cross-platform pipeline | `tools/sig_export.hpp` (Phase 1) → `tools/compat_check.hpp` (Phase 2) |
-| Serialization-free query | `tools/compat_check.hpp` → `CompatReporter::are_serialization_free()` |
+| Transfer-safe query | `tools/compat_check.hpp` → `CompatReporter::are_transfer_safe()` |
 | Data model / ABI detect | `tools/platform_detect.hpp` → `get_data_model()` |
 
 ## Available Skills (.claude/commands/)

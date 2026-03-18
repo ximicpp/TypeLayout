@@ -110,6 +110,7 @@ inline namespace v1 {
         constexpr auto member = nonstatic_data_members_of(^^T, access_context::unchecked())[Index];
         using FieldType = [:type_of(member):];
 
+        // Bit-field: emit byte.bit offset + width + storage type signature
         if constexpr (is_bit_field(member)) {
             constexpr auto bit_off = offset_of(member);
             constexpr std::size_t byte_pos = bit_off.bytes + OffsetAdj;
@@ -124,11 +125,13 @@ inline namespace v1 {
                    FixedString{","} +
                    TypeSignature<FieldType>::calculate() +
                    FixedString{">"};
+        // Non-empty class (non-opaque): flatten recursively into parent offset space
         } else if constexpr (std::is_class_v<FieldType> && !std::is_union_v<FieldType>
                              && !has_opaque_signature<FieldType>
                              && !std::is_empty_v<FieldType>) {
             constexpr std::size_t field_offset = offset_of(member).bytes + OffsetAdj;
             return layout_all_prefixed<FieldType, field_offset>();
+        // Empty class (EBO / [[no_unique_address]]): emit s:0 signature
         } else if constexpr (std::is_empty_v<FieldType>
                              && std::is_class_v<FieldType>
                              && !has_opaque_signature<FieldType>) {
@@ -137,6 +140,7 @@ inline namespace v1 {
                    to_fixed_string<emb_off>() +
                    FixedString{":"} +
                    embedded_empty_signature<FieldType>();
+        // Leaf (scalar, array, opaque, union): emit type signature directly
         } else {
             constexpr std::size_t leaf_off = offset_of(member).bytes + OffsetAdj;
             return FixedString{",@"} +
