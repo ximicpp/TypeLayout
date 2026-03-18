@@ -20,6 +20,7 @@
 
 namespace boost {
 namespace typelayout {
+inline namespace v1 {
 namespace compat {
 
 /// Compare two signature strings. Usable in static_assert.
@@ -59,7 +60,7 @@ inline const char* safety_reason(SafetyLevel level) noexcept {
         case SafetyLevel::TrivialSafe:     return "fixed-width scalars only";
         case SafetyLevel::PaddingRisk:     return "has alignment padding";
         case SafetyLevel::PointerRisk:     return "contains pointers or references";
-        case SafetyLevel::PlatformVariant: return "bit-fields or platform-dependent types (wchar_t, long double)";
+        case SafetyLevel::PlatformVariant: return "bit-fields or platform-dependent types (wchar_t, fld/long double)";
         case SafetyLevel::Opaque:          return "contains opaque (unanalyzable) fields";
     }
     return "";
@@ -235,6 +236,7 @@ private:
     void print_report_impl(std::ostream& os, bool with_diff) const {
         auto results = compare();
         int serialization_free = 0;
+        int transfer_safe = 0;
         int layout_compatible = 0;
         int total = static_cast<int>(results.size());
 
@@ -277,7 +279,8 @@ private:
         }
         os << "\n";
 
-        os << "Safety: *** = zero-copy ok, **- = padding risk, *!- = pointer risk, *-- = platform-variant.\n\n";
+        os << "Safety: *** = serialization-free, **- = transfer-safe (padding risk),\n"
+           << "        *!- = pointer risk, *-- = platform-variant, --- = opaque.\n\n";
 
         os << std::string(72, '-') << "\n";
         os << "  " << std::left << std::setw(24) << "Type"
@@ -289,6 +292,7 @@ private:
         for (const auto& r : results) {
             std::string layout_str = r.layout_match ? "MATCH" : "DIFFER";
             std::string verdict = format_verdict(r, serialization_free,
+                                                 transfer_safe,
                                                  layout_compatible);
 
             os << "  " << std::left << std::setw(24) << r.name
@@ -355,17 +359,29 @@ private:
 
         // Summary
         os << std::string(72, '=') << "\n";
-        if (serialization_free == total) {
-            os << "  ALL " << total
-               << " type(s) are serialization-free across all platforms!\n";
+        if (transfer_safe == total) {
+            if (serialization_free == total) {
+                os << "  ALL " << total
+                   << " type(s) are serialization-free across all platforms!\n";
+            } else {
+                os << "  ALL " << total
+                   << " type(s) are transfer-safe across all platforms!\n";
+                os << "  Serialization-free (strict): " << serialization_free
+                   << "/" << total << " (TrivialSafe only)\n";
+            }
         } else {
-            int zst_pct = total > 0 ? (serialization_free * 100 / total) : 0;
-            os << "  Serialization-free (C1+C2): " << serialization_free
-               << "/" << total << " (" << zst_pct << "%)\n";
-            if (layout_compatible > serialization_free) {
-                os << "  Layout-compatible (C1):     " << layout_compatible
+            int ts_pct = total > 0 ? (transfer_safe * 100 / total) : 0;
+            os << "  Transfer-safe:              " << transfer_safe
+               << "/" << total << " (" << ts_pct << "%)"
+               << " (byte-copy safe + layout match)\n";
+            if (serialization_free > 0 && serialization_free < transfer_safe) {
+                os << "  Serialization-free (strict): " << serialization_free
+                   << "/" << total << " (TrivialSafe only)\n";
+            }
+            if (layout_compatible > transfer_safe) {
+                os << "  Layout-compatible:          " << layout_compatible
                    << "/" << total
-                   << " (layout matches but has pointers/bit-fields)\n";
+                   << " (layout matches but has pointers)\n";
             }
             os << "  Needs serialization:        " << (total - layout_compatible)
                << "/" << total << "\n";
@@ -378,20 +394,26 @@ private:
 
     static std::string format_verdict(const TypeResult& r,
                                       int& serialization_free,
+                                      int& transfer_safe,
                                       int& layout_compatible) {
         if (r.layout_match) {
             ++layout_compatible;
             if (r.safety == SafetyLevel::TrivialSafe) {
                 ++serialization_free;
+                ++transfer_safe;
                 return "Serialization-free";
-            } else if (r.safety == SafetyLevel::PaddingRisk)
-                return "Layout OK (padding may leak uninitialized bytes)";
-            else if (r.safety == SafetyLevel::PointerRisk)
-                return "Layout OK (pointer values not portable)";
-            else if (r.safety == SafetyLevel::Opaque)
-                return "Layout OK (contains opaque fields, verify manually)";
-            else
-                return "Layout OK (verify bit-fields manually)";
+            } else if (r.safety == SafetyLevel::PaddingRisk) {
+                ++transfer_safe;
+                return "Transfer-safe (padding may leak uninitialized bytes)";
+            } else if (r.safety == SafetyLevel::PointerRisk)
+                return "Layout match (pointer values not portable)";
+            else if (r.safety == SafetyLevel::Opaque) {
+                ++transfer_safe;
+                return "Transfer-safe (contains opaque fields, verify manually)";
+            } else {
+                ++transfer_safe;
+                return "Transfer-safe (verify bit-fields manually)";
+            }
         }
         return "Needs serialization";
     }
@@ -501,6 +523,7 @@ private:
 };
 
 } // namespace compat
+} // inline namespace v1
 } // namespace typelayout
 } // namespace boost
 

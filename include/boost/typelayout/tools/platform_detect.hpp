@@ -10,6 +10,7 @@
 
 namespace boost {
 namespace typelayout {
+inline namespace v1 {
 namespace platform {
 
 // --- Architecture ---
@@ -112,6 +113,7 @@ inline std::string get_platform_display_name() {
 }
 
 } // namespace platform
+} // inline namespace v1
 } // namespace typelayout
 } // namespace boost
 

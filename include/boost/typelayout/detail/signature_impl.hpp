@@ -20,7 +20,7 @@
 //   leaf-signature ::= type-kind '[' params ']'
 //   type-kind      ::= 'i8' | 'i16' | 'i32' | 'i64'
 //                     | 'u8' | 'u16' | 'u32' | 'u64'
-//                     | 'f32' | 'f64' | 'f80'
+//                     | 'f32' | 'f64' | 'fld'
 //                     | 'char' | 'wchar' | 'char8' | 'char16' | 'char32'
 //                     | 'bool' | 'byte' | 'nullptr'
 //                     | 'ptr' | 'fnptr' | 'memptr' | 'ref' | 'rref'
@@ -64,6 +64,7 @@
 
 namespace boost {
 namespace typelayout {
+inline namespace v1 {
 
     // Detect opaque TypeSignature specializations (e.g. TYPELAYOUT_REGISTER_OPAQUE).
     template <typename T>
@@ -73,16 +74,28 @@ namespace typelayout {
 
     // Patch an empty type's signature from s:1 to s:0 for EBO /
     // [[no_unique_address]] contexts where it occupies 0 bytes.
+    //
+    // Implementation note: this uses string surgery on the "[s:N" portion
+    // of the signature.  The format-specific static_asserts below verify
+    // that the expected structure ("TYPE[s:N,a:M]...") holds.  If the
+    // signature format is ever changed (e.g., new parameter inserted
+    // before "s:"), these asserts will fire at compile time.
     template <typename T>
     consteval auto embedded_empty_signature() noexcept {
         static constexpr auto full = TypeSignature<T>::calculate();
         constexpr auto str = std::string_view(full);
         constexpr auto s_pos = str.find("[s:");
         static_assert(s_pos != std::string_view::npos,
-            "embedded_empty_signature: expected [s: in signature");
+            "embedded_empty_signature: signature must contain '[s:' "
+            "(format: TYPE[s:SIZE,a:ALIGN]{...})");
         constexpr auto comma_pos = str.find(',', s_pos + 3);
         static_assert(comma_pos != std::string_view::npos,
-            "embedded_empty_signature: expected comma after size");
+            "embedded_empty_signature: expected ',a:' after size "
+            "(format: TYPE[s:SIZE,a:ALIGN]{...})");
+        // Verify the size being replaced is "1" (empty types have sizeof == 1).
+        static_assert(str[s_pos + 3] == '1' && str[s_pos + 4] == ',',
+            "embedded_empty_signature: expected s:1 for empty type; "
+            "got unexpected size value -- check if sizeof(T) != 1");
         return FixedString<s_pos>(str.substr(0, s_pos)) +
                FixedString{"[s:0"} +
                FixedString<str.size() - comma_pos>(str.substr(comma_pos));
@@ -239,6 +252,7 @@ namespace typelayout {
             return concatenate_layout_union_fields<T>(std::make_index_sequence<count>{});
     }
 
+} // inline namespace v1
 } // namespace typelayout
 } // namespace boost
 

@@ -5,6 +5,28 @@
 #define BOOST_TYPELAYOUT_CONFIG_HPP
 
 // =========================================================================
+// Library Version
+// =========================================================================
+
+#define BOOST_TYPELAYOUT_VERSION 100      // 1.0.0 (major * 10000 + minor * 100 + patch)
+#define BOOST_TYPELAYOUT_VERSION_MAJOR 1
+#define BOOST_TYPELAYOUT_VERSION_MINOR 0
+#define BOOST_TYPELAYOUT_VERSION_PATCH 0
+
+// =========================================================================
+// P2996 Reflection Availability
+// =========================================================================
+// Define BOOST_TYPELAYOUT_HAS_REFLECTION when the compiler supports P2996.
+// Core headers (signature generation, layout_traits, classify, admission)
+// require P2996.  Tools-layer headers marked "C++17, no P2996" do not.
+
+#if defined(__cpp_reflection) || defined(__clang__) && __has_feature(cxx_reflection)
+    #define BOOST_TYPELAYOUT_HAS_REFLECTION 1
+#else
+    #define BOOST_TYPELAYOUT_HAS_REFLECTION 0
+#endif
+
+// =========================================================================
 // Platform Configuration
 // =========================================================================
 

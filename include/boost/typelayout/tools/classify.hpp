@@ -13,6 +13,7 @@
 
 namespace boost {
 namespace typelayout {
+inline namespace v1 {
 
 namespace detail {
 
@@ -49,11 +50,20 @@ template <typename T>
 inline constexpr bool is_trivial_safe_v =
     (classify_v<T> == SafetyLevel::TrivialSafe);
 
+// is_layout_compatible_v<T>: true when T is TrivialSafe or PaddingRisk.
+// This means T's byte layout is fixed and can be memcpy'd, but note:
+// PaddingRisk types may leak uninitialized padding bytes (info-leak caveat).
+// Use is_trivial_safe_v for the strict guarantee (no padding, no caveats).
 template <typename T>
-inline constexpr bool is_memcpy_safe_v =
+inline constexpr bool is_layout_compatible_v =
     (classify_v<T> == SafetyLevel::TrivialSafe ||
      classify_v<T> == SafetyLevel::PaddingRisk);
 
+// Deprecated alias: use is_layout_compatible_v instead.
+template <typename T>
+inline constexpr bool is_memcpy_safe_v = is_layout_compatible_v<T>;
+
+} // inline namespace v1
 } // namespace typelayout
 } // namespace boost
 

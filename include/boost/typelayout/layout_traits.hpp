@@ -15,6 +15,7 @@
 
 namespace boost {
 namespace typelayout {
+inline namespace v1 {
 
 // =========================================================================
 // layout_traits<T>
@@ -43,7 +44,7 @@ consteval bool sig_has_platform_variant(const Sig& sig) noexcept {
     // Platform-dependent primitive types only (not pointers -- those are
     // caught by sig_has_pointer with higher-priority PointerRisk).
     return sig.contains(FixedString{"wchar["}) ||
-           sig.contains(FixedString{"f80["});
+           sig.contains(FixedString{"fld["});
 }
 
 // Recursively check whether T (or any nested member/base) is opaque.
@@ -304,6 +305,7 @@ struct signature_compare {
 template <typename T, typename U>
 inline constexpr bool signature_compare_v = signature_compare<T, U>::value;
 
+} // inline namespace v1
 } // namespace typelayout
 } // namespace boost
 

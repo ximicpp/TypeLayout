@@ -10,6 +10,7 @@
 
 namespace boost {
 namespace typelayout {
+inline namespace v1 {
 
 [[nodiscard]] consteval auto get_arch_prefix() noexcept {
     if constexpr (sizeof(void*) == 8)
@@ -32,6 +33,7 @@ template <typename T1, typename T2>
     return get_layout_signature<T1>() == get_layout_signature<T2>();
 }
 
+} // inline namespace v1
 } // namespace typelayout
 } // namespace boost
 

@@ -1,4 +1,6 @@
-# TypeLayout - Project Instructions
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Build & Test
 
@@ -48,17 +50,25 @@ docker run --rm -v $(pwd):/workspace -w /workspace \
   bash -c 'cmake -B build -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CXX_FLAGS="-std=c++26 -freflection -freflection-latest -stdlib=libc++" && cmake --build build -j$(nproc) && ctest --test-dir build --output-on-failure'
 ```
 
+### Run a Single Test
+
+After building, run one test by name:
+```bash
+ctest --test-dir build -R test_layout_traits --output-on-failure
+```
+
 ### Important Notes
 
 - `LD_LIBRARY_PATH` is required at runtime for the P2996 libc++
-- All 10 tests must pass (5 core + 5 tools)
+- All 12 tests must pass (7 core + 5 tools)
 - If build fails with stale cache, delete `build/` directory and reconfigure
 - Git push must be done from Windows git (WSL lacks credentials): `git push origin main`
 
 ## Git Conventions
 
-- Commit message format: `type: description` (e.g., `fix:`, `test:`, `docs:`, `chore:`, `perf:`)
+- Commit message format: `type: description` (e.g., `fix:`, `feat:`, `test:`, `docs:`, `chore:`, `perf:`)
 - Push from Windows, not WSL (HTTPS credentials are in Windows credential manager)
+- No emoji in code, documentation, or commit messages. Use text markers like `[FIXED]`, `[TODO]`, `(!)` instead.
 
 ## Project Overview
 
@@ -82,6 +92,7 @@ include/boost/typelayout/
 ├── typelayout.hpp              # Umbrella header
 ├── signature.hpp               # get_layout_signature, layout_signatures_match, get_arch_prefix
 ├── layout_traits.hpp           # layout_traits<T>: signature + has_pointer/padding/opaque/etc.
+├── admission.hpp               # is_byte_copy_safe<T>, opaque_elements_safe<T>
 ├── fixed_string.hpp            # FixedString<N>: compile-time string, to_fixed_string()
 ├── opaque.hpp                  # TYPELAYOUT_REGISTER_OPAQUE macro
 ├── fwd.hpp                     # Forward declarations
@@ -106,21 +117,82 @@ include/boost/typelayout/tools/
 └── detail/foreach.hpp          # Variadic macro helper
 ```
 
+Tools layer must not `#include` core headers unless the tool file is explicitly marked as P2996-required.
+
 ## Key Design Concepts
 
-- **FixedString<N>**: N = exact content length (no wasted capacity). All signatures are FixedString.
+- **FixedString<N>**: N = exact content length (no wasted capacity, no over-allocation). All signatures are FixedString.
+- **consteval, not constexpr** for all signature-generating functions. `constexpr` is only for helper utilities.
 - **Flattening**: Structs are recursively flattened — field names and inheritance erased, only byte identity preserved.
-- **Safety levels** (ordered worst→best): `Opaque > PlatformVariant > PointerRisk > PaddingRisk > TrivialSafe`
-- **Dual-path padding detection**: `compute_has_padding` (compile-time bitmap via P2996) cross-validated against `sig_has_padding` (runtime string parser), enforced by `static_assert`.
-- **Opaque types**: Unanalyzable types registered via `TYPELAYOUT_REGISTER_OPAQUE`. Signature format: `O(Tag|N|A)`. User takes responsibility for layout correctness; opaque types with matching signatures are considered serialization-free.
+- **Safety levels** (ordered worst→best): `Opaque > PointerRisk > PlatformVariant > PaddingRisk > TrivialSafe`
+- **Terminology**: "serialization-free" = TrivialSafe (strict); "transfer-safe" = byte-copy safe + layout match (broad, includes PaddingRisk/Opaque/PlatformVariant)
+- **Dual-path padding detection**: `compute_has_padding` (compile-time bitmap via P2996) cross-validated against `sig_has_padding` (runtime string parser), enforced by `static_assert`. Both must agree.
+- **Opaque types**: Unanalyzable types registered via `TYPELAYOUT_REGISTER_OPAQUE`. Signature format: `O(Tag|N|A)`. Opaque container: `O(Tag|N|A)<elem_sig>`. Opaque map: `O(Tag|N|A)<key_sig,val_sig>`. Opaque types must be registered BEFORE any signature generation that encounters them.
+- **Admission predicates** (`admission.hpp`): `is_byte_copy_safe_v<T>` recursively checks each member/base, accepting registered relocatable opaque types. Orthogonal to SafetyLevel — a type can be `SafetyLevel::Opaque` AND `is_byte_copy_safe == true`.
 - **Serialization-free blocking**: Only `PointerRisk` blocks serialization-free. `PaddingRisk`, `PlatformVariant`, and `Opaque` do not block when signatures match across the specified platforms.
 - **Array element recursion**: `type_has_opaque` and `compute_has_padding` recurse into array element types via `std::remove_all_extents_t`.
+- **Virtual inheritance rejection**: `signature_impl.hpp` rejects types with virtual bases at compile time.
+
+## Code Conventions
+
+- Namespace: `boost::typelayout::v1` (inline), detail code in `boost::typelayout::v1::detail`
+  - All public symbols are in `inline namespace v1` for ABI versioning
+  - User code writes `boost::typelayout::` (the `v1` is transparent)
+- Header guards: `#ifndef BOOST_TYPELAYOUT_<FILENAME>_HPP` / `#define` / `#endif`
+- Include order: project headers, then standard library, then test utilities
+- No .cpp source files in the library itself — header-only. Tests are .cpp files.
+- `static_assert` preferred: every compile-time property should be validated with `static_assert` first, optionally printed at runtime for debugging.
+- Inline test types: test structs/classes are defined inside the test .cpp file, not in shared headers.
+
+## Test Matrix
+
+12 tests (7 core + 5 tools):
+
+| Test | Label | C++ | What it validates |
+|------|-------|-----|-------------------|
+| `test_fixed_string` | core | C++26 | FixedString ops, to_fixed_string |
+| `test_opaque` | core | C++26 | Opaque registration, CV-qualified, base class, EBO |
+| `test_layout_traits` | core | C++26 | Signature consistency, has_pointer/opaque/padding, field_count |
+| `test_empty_member_probe` | core | C++26 | Empty member/NUA/EBO signature correctness |
+| `test_padding_precision` | core | C++26 | Byte-coverage bitmap vs sig parser, classify consistency |
+| `test_byte_copy_safe` | core | C++26 | Recursive byte-copy admission, opaque elements, polymorphic rejection |
+| `test_classify` | tools | C++26 | Five-tier classify<T> for all type categories |
+| `test_serialization_free` | tools | C++26 | is_local_serialization_free, SignatureRegistry |
+| `test_sig_export` | tools | C++26 | SigExporter output structure |
+| `test_rt_padding` | tools | C++17 | Runtime sig_has_padding (no P2996) |
+| `test_compat_check` | tools | C++17 | CompatReporter, classify_signature, are_serialization_free, ABI equivalence |
+| `test_advanced_types` | core | C++26 | Multi-dimensional arrays, nested unions, cross-platform round-trip, is_transfer_safe |
+
+CMake test labels: P2996 core tests use `LABELS "core"` with 120s timeout; C++17-only tests use `LABELS "tools"` with 30s timeout. C++17 tests set `-std=c++17 -stdlib=libc++` manually and do NOT link the `typelayout` interface library.
+
+## Signature Format
+
+- **Arch prefix**: `[BITS-ENDIAN]` e.g. `[64-le]`, `[32-be]`
+- **Record**: `record[s:SIZE,a:ALIGN]{@OFFSET:TYPE[s:SIZE,a:ALIGN],...}`
+- **Padding**: `pad:N` for N padding bytes at a given offset
+- **Opaque**: `O(Tag|N|A)`, container: `O(Tag|N|A)<elem_sig>`, map: `O(Tag|N|A)<key_sig,val_sig>`
+- **Array**: `TYPE[N]` for fixed-size arrays, element type is recursed into
+
+## Code Map — Key Entry Points
+
+| Task | Start here |
+|------|-----------|
+| How signatures are generated | `detail/signature_impl.hpp` → `TypeSignature<T>::calculate()` |
+| How types are classified | `detail/reflect.hpp` → `classify_type()`, `detail/type_map.hpp` |
+| How layout_traits works | `layout_traits.hpp` → `layout_traits<T>` struct |
+| How padding is detected | `layout_traits.hpp` → `compute_has_padding<T>()` (bitmap) |
+| How safety is classified | `tools/classify.hpp` → `classify<T>`, `tools/safety_level.hpp` → `classify_signature()` |
+| How opaque types work | `opaque.hpp` → macros + `has_opaque_signature` concept |
+| How admission works | `admission.hpp` → `is_byte_copy_safe<T>`, `opaque_elements_safe<T>` |
+| Cross-platform pipeline | `tools/sig_export.hpp` (Phase 1) → `tools/compat_check.hpp` (Phase 2) |
+| Serialization-free query | `tools/compat_check.hpp` → `CompatReporter::are_serialization_free()` |
+| Data model / ABI detect | `tools/platform_detect.hpp` → `get_data_model()` |
 
 ## Available Skills (.claude/commands/)
 
 | Skill | Purpose |
 |-------|---------|
-| `/build-test` | Build and run all 10 tests |
+| `/build-test` | Build and run all 12 tests |
 | `/commit`, `/push` | Git workflow |
 | `/sig-check <Type>` | Generate signature for a type interactively |
 | `/add-type-category` | Add a new type to signature generation |

@@ -10,6 +10,7 @@
 
 namespace boost {
 namespace typelayout {
+inline namespace v1 {
 
 struct TypeEntry {
     const char* name;
@@ -29,6 +30,7 @@ struct PlatformInfo {
     const char*      data_model;        // "LP64", "LLP64", "ILP32", etc.
 };
 
+} // inline namespace v1
 } // namespace typelayout
 } // namespace boost
 

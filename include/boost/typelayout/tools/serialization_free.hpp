@@ -27,6 +27,7 @@
 
 namespace boost {
 namespace typelayout {
+inline namespace v1 {
 
 // is_local_serialization_free<T> -- conditions (1) + (2) at compile time.
 template <typename T>
@@ -87,7 +88,13 @@ public:
             std::string(std::string_view(layout_traits<T>::signature));
     }
 
-    // Register using typeid(T).name() (not binary-stable across compilers).
+    // Register using typeid(T).name() as key.
+    //
+    // WARNING: typeid(T).name() is NOT binary-stable across compilers
+    // (Clang, GCC, and MSVC use different mangling schemes).  Do NOT use
+    // this overload for cross-compiler or cross-platform scenarios.
+    // Prefer register_local<T>(key) with an explicit, stable key string.
+    //
     // Accepts trivially_copyable types and registered relocatable opaque types.
     template <typename T>
     void register_local() {
@@ -170,6 +177,7 @@ private:
     }
 };
 
+} // inline namespace v1
 } // namespace typelayout
 } // namespace boost
 

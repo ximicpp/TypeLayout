@@ -298,7 +298,11 @@ template <typename T>
 inline constexpr bool is_trivial_safe_v;   // true if classify_v<T> == TrivialSafe
 
 template <typename T>
-inline constexpr bool is_memcpy_safe_v;    // true if classify_v<T> <= PaddingRisk
+inline constexpr bool is_layout_compatible_v;  // true if classify_v<T> <= PaddingRisk
+// Note: PaddingRisk types may leak uninitialized padding bytes (info-leak caveat).
+
+template <typename T>
+inline constexpr bool is_memcpy_safe_v;    // deprecated alias for is_layout_compatible_v
 ```
 
 **Example**:
@@ -313,8 +317,8 @@ static_assert(classify_v<Padded> == SafetyLevel::PaddingRisk);
 static_assert(classify_v<HasPtr> == SafetyLevel::PointerRisk);
 
 static_assert(is_trivial_safe_v<Safe>);
-static_assert(is_memcpy_safe_v<Padded>);
-static_assert(!is_memcpy_safe_v<HasPtr>);
+static_assert(is_layout_compatible_v<Padded>);
+static_assert(!is_layout_compatible_v<HasPtr>);
 ```
 
 ---
@@ -549,7 +553,7 @@ type-signature ::= leaf | record | union-sig | enum-sig | array | opaque
 
 leaf      ::= kind '[s:' SIZE ',a:' ALIGN ']'
 kind      ::= 'u8'|'i8'|'u16'|'i16'|'u32'|'i32'|'u64'|'i64'
-            | 'f32'|'f64'|'f80'|'bool'|'char'|'uchar'
+            | 'f32'|'f64'|'fld'|'bool'|'char'|'uchar'
             | 'char8'|'char16'|'char32'|'wchar'
             | 'ptr'|'fnptr'|'memptr'|'ref'|'rref'
             | 'nullptr'|'void_ptr'
@@ -581,7 +585,7 @@ and detected by comparing byte coverage against `sizeof(T)`.
 | `<boost/typelayout/fwd.hpp>` | Forward declarations |
 | `<boost/typelayout/config.hpp>` | Configuration macros |
 | `<boost/typelayout/tools/safety_level.hpp>` | `SafetyLevel`, `classify_signature`, `sig_has_padding` |
-| `<boost/typelayout/tools/classify.hpp>` | `classify<T>`, `classify_v<T>`, `is_trivial_safe_v`, `is_memcpy_safe_v` |
+| `<boost/typelayout/tools/classify.hpp>` | `classify<T>`, `classify_v<T>`, `is_trivial_safe_v`, `is_layout_compatible_v` |
 | `<boost/typelayout/tools/serialization_free.hpp>` | `is_local_serialization_free`, `is_transfer_safe`, `SignatureRegistry` |
 | `<boost/typelayout/tools/sig_export.hpp>` | `SigExporter`, `TYPELAYOUT_EXPORT_TYPES`, `TYPELAYOUT_REGISTER_TYPES` |
 | `<boost/typelayout/tools/compat_check.hpp>` | `CompatReporter` |

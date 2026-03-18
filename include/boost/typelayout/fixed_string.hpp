@@ -5,10 +5,12 @@
 #define BOOST_TYPELAYOUT_FIXED_STRING_HPP
 
 #include <boost/typelayout/fwd.hpp>
+#include <compare>
 #include <ostream>
 
 namespace boost {
 namespace typelayout {
+inline namespace v1 {
 
     // FixedString<N> -- compile-time fixed-size string (N = char count, excl. null).
     // TODO(P2484): Replace with std::basic_fixed_string when standardized.
@@ -60,6 +62,20 @@ namespace typelayout {
                 if (value[i] == '\0') return true;
             }
             return true;
+        }
+
+        template <size_t M>
+        constexpr std::strong_ordering operator<=>(const FixedString<M>& other) const noexcept {
+            size_t i = 0;
+            while (i < N && i < M && value[i] != '\0' && other.value[i] != '\0') {
+                if (value[i] < other.value[i]) return std::strong_ordering::less;
+                if (value[i] > other.value[i]) return std::strong_ordering::greater;
+                ++i;
+            }
+            // Compare lengths: shorter string is "less" if prefix matches.
+            size_t len_a = length();
+            size_t len_b = other.length();
+            return len_a <=> len_b;
         }
 
         constexpr size_t length() const noexcept {
@@ -208,6 +224,7 @@ namespace typelayout {
         return FixedString<20>(result);
     }
 
+} // inline namespace v1
 } // namespace typelayout
 } // namespace boost
 

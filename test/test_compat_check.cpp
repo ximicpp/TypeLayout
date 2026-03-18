@@ -117,7 +117,8 @@ void test_compat_reporter() {
     assert(report.find("DIFFER") != std::string::npos);
     assert(report.find("padding may leak") != std::string::npos);  // PacketHeader
     assert(report.find("Needs serialization") != std::string::npos);
-    assert(report.find("0%") != std::string::npos);  // 0/2 serialization-free
+    assert(report.find("Transfer-safe") != std::string::npos);  // PacketHeader is transfer-safe
+    assert(report.find("50%") != std::string::npos);  // 1/2 transfer-safe
 
     std::cout << "  [PASS] CompatReporter compare + report\n";
 }
@@ -184,12 +185,12 @@ void test_safety_classification() {
     assert(classify_signature("[64-le]record[s:4,a:4]{@0.0:bits<3,u32[s:4,a:4]>}")
            == SafetyLevel::PlatformVariant);
 
-    // PlatformVariant: contains long double (f80) -- platform-dependent size
-    assert(classify_signature("[64-le]record[s:16,a:16]{@0:f80[s:16,a:16]}")
+    // PlatformVariant: contains long double (fld) -- platform-dependent size
+    assert(classify_signature("[64-le]record[s:16,a:16]{@0:fld[s:16,a:16]}")
            == SafetyLevel::PlatformVariant);
 
     // PlatformVariant: struct containing long double alongside safe fields
-    assert(classify_signature("[64-le]record[s:32,a:16]{@0:i32[s:4,a:4],@16:f80[s:16,a:16]}")
+    assert(classify_signature("[64-le]record[s:32,a:16]{@0:i32[s:4,a:4],@16:fld[s:16,a:16]}")
            == SafetyLevel::PlatformVariant);
 
     // PointerRisk takes priority over PlatformVariant

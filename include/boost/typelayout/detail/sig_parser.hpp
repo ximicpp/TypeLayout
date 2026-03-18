@@ -11,6 +11,7 @@
 
 namespace boost {
 namespace typelayout {
+inline namespace v1 {
 namespace detail {
 
 /// Token-boundary-aware find: matches only when the preceding char is not alnum.
@@ -64,7 +65,7 @@ constexpr SigPaddingResult check_one_record(std::string_view sig,
     if (content.empty()) return {false, false};  // empty body (empty class)
 
     struct Interval { std::size_t start; std::size_t end; };
-    constexpr std::size_t MAX_FIELDS = 512;
+    constexpr std::size_t MAX_FIELDS = 2048;
     Interval intervals[MAX_FIELDS]{};
     std::size_t count = 0;
 
@@ -200,6 +201,10 @@ constexpr bool sig_has_padding(std::string_view sig) noexcept {
     return sig_has_padding_impl(sig).has_padding;
 }
 
+// Returns true if the cross-validation passes.
+// When truncated (> MAX_FIELDS), we conservatively skip the check
+// because the parser cannot accurately determine padding for very
+// large flattened types.  Increase MAX_FIELDS if this is hit.
 constexpr bool check_padding_consistency(bool ct_has_padding,
                                          std::string_view sig) noexcept {
     auto r = sig_has_padding_impl(sig);
@@ -207,6 +212,7 @@ constexpr bool check_padding_consistency(bool ct_has_padding,
 }
 
 } // namespace detail
+} // inline namespace v1
 } // namespace typelayout
 } // namespace boost
 

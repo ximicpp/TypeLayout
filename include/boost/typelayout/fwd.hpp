@@ -13,6 +13,7 @@
 
 namespace boost {
 namespace typelayout {
+inline namespace v1 {
 
     // TODO(P2593): Replace with std::always_false when available in C++26.
     template <typename...>
@@ -31,6 +32,7 @@ namespace typelayout {
     template <typename T>
     struct opaque_elements_safe : std::false_type {};
 
+} // inline namespace v1
 } // namespace typelayout
 } // namespace boost
 

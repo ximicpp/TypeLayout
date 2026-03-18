@@ -116,7 +116,7 @@ is defined as:
     -- Floating point
     σ(float)     = "f32[s:4,a:4]"
     σ(double)    = "f64[s:8,a:8]"
-    σ(long double) = "f80[s:" ++ str(sizeof_P(long double)) ++ ",a:" ++ str(alignof_P(long double)) ++ "]"
+    σ(long double) = "fld[s:" ++ str(sizeof_P(long double)) ++ ",a:" ++ str(alignof_P(long double)) ++ "]"
     -- Platform-dependent integers
     σ(long)      = "i" ++ str(8·sizeof_P(long)) ++ "[s:" ++ str(sizeof_P(long)) ++ ",a:" ++ str(alignof_P(long)) ++ "]"
     σ(unsigned long) = "u" ++ str(8·sizeof_P(unsigned long)) ++ "[...]"  -- analogous
@@ -804,7 +804,7 @@ Correctness by Definition 1.4 (sigma definition) and C++ standard type size guar
 | `int64_t` / `uint64_t` | `i64`/`u64[s:8,a:8]` | Fixed-width, guaranteed by standard |
 | `float` | `f32[s:4,a:4]` | IEEE 754 guarantees 4-byte size |
 | `double` | `f64[s:8,a:8]` | IEEE 754 guarantees 8-byte size |
-| `long double` | `f80[s:N,a:N]` | Uses actual sizeof/alignof |
+| `long double` | `fld[s:N,a:N]` | Uses actual sizeof/alignof |
 | `long` / `unsigned long` | `i32`/`u32` or `i64`/`u64` | Uses actual `sizeof(long)` |
 | `char` | `char[s:1,a:1]` | sizeof(char)==1 guaranteed by standard |
 | `wchar_t` | `wchar[s:N,a:N]` | Uses actual sizeof/alignof |

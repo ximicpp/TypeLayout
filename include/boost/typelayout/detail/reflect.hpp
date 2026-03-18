@@ -12,6 +12,7 @@
 
 namespace boost {
 namespace typelayout {
+inline namespace v1 {
 
     // Qualified name via parent_of chain (Bloomberg toolchain lacks qualified_name_of).
     // TODO(P2996): Replace with std::meta::qualified_name_of when available.
@@ -85,6 +86,7 @@ namespace typelayout {
         else return any_base_is_virtual<T, 0, get_base_count<T>()>();
     }
 
+} // inline namespace v1
 } // namespace typelayout
 } // namespace boost
 

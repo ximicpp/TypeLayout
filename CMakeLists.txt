@@ -109,3 +109,9 @@ target_compile_options(test_compat_check PRIVATE -std=c++17 -stdlib=libc++)
 target_link_options(test_compat_check PRIVATE -stdlib=libc++)
 add_test(NAME test_compat_check COMMAND test_compat_check)
 set_tests_properties(test_compat_check PROPERTIES TIMEOUT 30 LABELS "tools")
+
+# Test — advanced types: multi-dimensional arrays, nested unions, cross-platform round-trip
+add_executable(test_advanced_types test/test_advanced_types.cpp)
+target_link_libraries(test_advanced_types PRIVATE typelayout)
+add_test(NAME test_advanced_types COMMAND test_advanced_types)
+set_tests_properties(test_advanced_types PROPERTIES TIMEOUT 120 LABELS "core")

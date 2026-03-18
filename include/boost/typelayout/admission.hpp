@@ -29,6 +29,7 @@
 
 namespace boost {
 namespace typelayout {
+inline namespace v1 {
 
 namespace detail {
 
@@ -108,6 +109,17 @@ consteval bool is_byte_copy_safe_impl() noexcept {
 } // namespace detail
 
 // is_byte_copy_safe<T> -- compile-time predicate struct.
+//
+// IMPORTANT: "byte-copy safe" means safe for byte-level TRANSPORT (memcpy
+// to a buffer, send over network, write to shared memory), NOT safe for
+// C++ object lifetime.  A type marked is_byte_copy_safe may have non-trivial
+// constructors/destructors (e.g. relocatable opaque types using offset_ptr).
+// The receiving end must reconstruct the C++ object appropriately -- do NOT
+// memcpy into a live C++ object of non-trivially-copyable type and then
+// call member functions on it.
+//
+// For types where memcpy produces a valid C++ object (trivially_copyable),
+// use is_local_serialization_free_v<T> instead (tools/serialization_free.hpp).
 template <typename T>
 struct is_byte_copy_safe
     : std::bool_constant<detail::is_byte_copy_safe_impl<T>()> {};
@@ -121,6 +133,7 @@ struct is_byte_copy_safe<T[N]>
 template <typename T>
 inline constexpr bool is_byte_copy_safe_v = is_byte_copy_safe<T>::value;
 
+} // inline namespace v1
 } // namespace typelayout
 } // namespace boost
 

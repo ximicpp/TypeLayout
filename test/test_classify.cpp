@@ -161,7 +161,7 @@ static_assert(classify_v<WithWchar> == SafetyLevel::PlatformVariant,
     "WithWchar should be PlatformVariant (wchar_t varies across platforms)");
 
 static_assert(classify_v<long double> == SafetyLevel::PlatformVariant,
-    "long double should be PlatformVariant (f80 varies across platforms)");
+    "long double should be PlatformVariant (fld varies across platforms)");
 
 // Raw pointer type itself: ptr[ in signature -> has_pointer -> PointerRisk
 static_assert(classify_v<int32_t*> == SafetyLevel::PointerRisk,
@@ -178,10 +178,10 @@ static_assert(is_trivial_safe_v<TrivialPair>,
 static_assert(!is_trivial_safe_v<WithWchar>,
     "WithWchar should fail is_trivial_safe_v");
 
-static_assert(is_memcpy_safe_v<int32_t>,
-    "int32_t should pass is_memcpy_safe_v");
-static_assert(!is_memcpy_safe_v<WithWchar>,
-    "WithWchar should fail is_memcpy_safe_v (platform variant)");
+static_assert(is_layout_compatible_v<int32_t>,
+    "int32_t should pass is_layout_compatible_v");
+static_assert(!is_layout_compatible_v<WithWchar>,
+    "WithWchar should fail is_layout_compatible_v (platform variant)");
 
 // =========================================================================
 // 3. safety_level_name

@@ -24,6 +24,7 @@
 
 namespace boost {
 namespace typelayout {
+inline namespace v1 {
 
 /// One registered type's name + signature.
 struct ExportEntry {
@@ -239,6 +240,7 @@ private:
     }
 };
 
+} // inline namespace v1
 } // namespace typelayout
 } // namespace boost
 

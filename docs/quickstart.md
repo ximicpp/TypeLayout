@@ -131,7 +131,7 @@ static_assert(classify_v<Padded> == SafetyLevel::PaddingRisk);
 
 // Convenience predicates:
 static_assert(is_trivial_safe_v<Safe>);    // only TrivialSafe
-static_assert(is_memcpy_safe_v<Padded>);   // TrivialSafe or PaddingRisk
+static_assert(is_layout_compatible_v<Padded>);   // TrivialSafe or PaddingRisk
 ```
 
 SafetyLevel enum (ordered best to worst):

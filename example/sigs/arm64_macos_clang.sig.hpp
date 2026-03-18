@@ -60,14 +60,14 @@ inline constexpr const char IpcCommand_layout[] =
 //   @8:  void*       ptr = ptr[s:8,a:8]        (same: pointer=8B)
 //   @16: wchar_t     wc  = wchar[s:4,a:4]      (same: wchar_t=4B on both)
 //   @20: 4 bytes padding (align to 8 for long double)
-//   @24: long double ld  = f80[s:8,a:8]        (DIFFERENT: 8B on ARM64 vs 16B on x86_64)
+//   @24: long double ld  = fld[s:8,a:8]        (DIFFERENT: 8B on ARM64 vs 16B on x86_64)
 //   Total: 32 bytes, align 8
 //
 // x86_64 Linux layout:
 //   @0:  long=8, @8: ptr=8, @16: wchar=4, pad to 16-align, @32: long double=16
 //   Total: 48 bytes, align 16
 inline constexpr const char UnsafeStruct_layout[] =
-    "[64-le]record[s:32,a:8]{@0:i64[s:8,a:8],@8:ptr[s:8,a:8],@16:wchar[s:4,a:4],@24:f80[s:8,a:8]}";
+    "[64-le]record[s:32,a:8]{@0:i64[s:8,a:8],@8:ptr[s:8,a:8],@16:wchar[s:4,a:4],@24:fld[s:8,a:8]}";
 
 // --- UnsafeWithPointer --- (SAME: uint32_t, ptr, uint64_t — pointer is 8B on both)
 inline constexpr const char UnsafeWithPointer_layout[] =
@@ -91,7 +91,7 @@ inline constexpr ::boost::typelayout::TypeEntry types[] = {
     {"MixedSafety", MixedSafety_layout},
 };
 
-inline constexpr int type_count = 8;
+inline constexpr std::size_t type_count = 8;
 
 // ---- Platform Info Accessor ----
 

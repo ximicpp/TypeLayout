@@ -12,6 +12,7 @@
 
 namespace boost {
 namespace typelayout {
+inline namespace v1 {
 
     // =========================================================================
     // Helper: format "name[s:SIZE,a:ALIGN]"
@@ -92,7 +93,7 @@ namespace typelayout {
     template <> struct TypeSignature<float>    { static consteval auto calculate() noexcept { return FixedString{"f32[s:4,a:4]"}; } };
     template <> struct TypeSignature<double>   { static consteval auto calculate() noexcept { return FixedString{"f64[s:8,a:8]"}; } };
     template <> struct TypeSignature<long double> {
-        static consteval auto calculate() noexcept { return format_size_align<sizeof(long double), alignof(long double)>("f80"); }
+        static consteval auto calculate() noexcept { return format_size_align<sizeof(long double), alignof(long double)>("fld"); }
     };
 
     // =========================================================================
@@ -265,6 +266,7 @@ namespace typelayout {
         }
     };
 
+} // inline namespace v1
 } // namespace typelayout
 } // namespace boost
 

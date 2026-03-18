@@ -11,6 +11,7 @@
 
 namespace boost {
 namespace typelayout {
+inline namespace v1 {
 
 // =========================================================================
 // SafetyLevel -- five-tier safety classification
@@ -23,7 +24,7 @@ namespace typelayout {
 enum class SafetyLevel {
     TrivialSafe,     // 0 -- safe for memcpy + cross-platform transfer
     PaddingRisk,     // 1 -- has padding (info-leak risk)
-    PlatformVariant, // 2 -- wchar_t / f80 / bit-fields differ across platforms
+    PlatformVariant, // 2 -- wchar_t / fld (long double) / bit-fields differ across platforms
     PointerRisk,     // 3 -- contains pointers; memcpy produces dangling refs
     Opaque,          // 4 -- unanalyzable; user must verify manually
 };
@@ -41,8 +42,14 @@ constexpr const char* safety_level_name(SafetyLevel level) noexcept {
 
 /// Runtime classify: scans signature string for safety level.
 /// Same priority as compile-time classify<T>.
-/// Note: cannot detect !trivially_copyable (not encoded in signature);
-/// all export entry points enforce trivially_copyable via static_assert.
+///
+/// LIMITATION: cannot detect !trivially_copyable -- this property is not
+/// encoded in the signature string.  The compile-time classify<T> maps
+/// non-trivially-copyable types to PointerRisk, but this runtime path
+/// cannot replicate that check.  Invariant holds in practice because all
+/// export entry points (SigExporter::add, TYPELAYOUT_EXPORT_TYPES) enforce
+/// trivially_copyable via static_assert before producing signature strings
+/// consumed by this function.
 inline SafetyLevel classify_signature(std::string_view sig) noexcept {
     using detail::sig_contains_token;
 
@@ -62,7 +69,7 @@ inline SafetyLevel classify_signature(std::string_view sig) noexcept {
     bool has_platform_variant =
         sig.find("bits<") != std::string_view::npos ||
         sig.find("wchar[") != std::string_view::npos ||
-        sig.find("f80[") != std::string_view::npos;
+        sig.find("fld[") != std::string_view::npos;
 
     if (has_platform_variant)
         return SafetyLevel::PlatformVariant;
@@ -73,6 +80,7 @@ inline SafetyLevel classify_signature(std::string_view sig) noexcept {
     return SafetyLevel::TrivialSafe;
 }
 
+} // inline namespace v1
 } // namespace typelayout
 } // namespace boost
 
