@@ -1,5 +1,4 @@
 // Runtime-only test for sig_has_padding() and classify_signature().
-// Does NOT require P2996 -- C++17 is sufficient.
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.

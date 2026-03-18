@@ -1,6 +1,6 @@
 // Generates .sig.hpp headers containing constexpr signature strings.
 // Compile with P2996, run on each target platform, then compare the
-// resulting headers with compat_check.hpp (which only needs C++17).
+// resulting headers with compat_check.hpp.
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
@@ -157,8 +157,7 @@ private:
         os << "// Platform: " << platform_name_ << " (" << display_name_ << ")\n";
         os << "// Generated: " << timestamp() << "\n";
         os << "//\n";
-        os << "// This file contains constexpr signature data and can be compiled\n";
-        os << "// by any C++17 or later compiler. P2996 is NOT required.\n";
+        os << "// This file contains constexpr signature data.\n";
         os << "\n";
         os << "#ifndef " << guard << "\n";
         os << "#define " << guard << "\n";

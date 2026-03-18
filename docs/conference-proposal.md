@@ -96,11 +96,11 @@ We will demonstrate real-world applications with live cross-platform comparisons
 
 **Part 6: Cross-Platform Toolchain (5 min)**
 
-*"P2996 on one machine. Verification everywhere."*
+*"Export once, compare across platforms."*
 
 - Two-phase architecture:
-  - Phase 1: export signatures (needs P2996)
-  - Phase 2: compare signatures (any C++17 compiler)
+  - Phase 1: export signatures on each target platform
+  - Phase 2: compare signatures across platforms
 - `.sig.hpp` files: portable signature snapshots
 - `TYPELAYOUT_CHECK_COMPAT(linux, macos, windows)` — one-line multi-platform check
 - CI/CD integration: compile-time ABI guard

@@ -220,7 +220,7 @@ TYPELAYOUT_REGISTER_OPAQUE(MyLib::XMap<int, double>, "xmap_int_double", true)
 
 ## Tools: SafetyLevel
 
-**Header**: `<boost/typelayout/tools/safety_level.hpp>` (C++17, no P2996)
+**Header**: `<boost/typelayout/tools/safety_level.hpp>`
 
 ### `enum class SafetyLevel`
 
@@ -446,7 +446,7 @@ public:
 ```
 
 Phase 1 tool: collects type signatures and writes a `.sig.hpp` header file that
-can be compiled by any C++17 compiler (no P2996 needed in Phase 2).
+can be included by Phase 2 programs for comparison.
 
 `add<T>` requires `std::is_trivially_copyable_v<T>` (enforced by `static_assert`).
 
@@ -490,7 +490,7 @@ Use when you need custom logic around the exporter.
 
 ## Tools: CompatReporter
 
-**Header**: `<boost/typelayout/tools/compat_check.hpp>` (C++17, no P2996)
+**Header**: `<boost/typelayout/tools/compat_check.hpp>`
 
 ### `CompatReporter`
 
@@ -590,5 +590,5 @@ and detected by comparing byte coverage against `sizeof(T)`.
 | `<boost/typelayout/tools/sig_export.hpp>` | `SigExporter`, `TYPELAYOUT_EXPORT_TYPES`, `TYPELAYOUT_REGISTER_TYPES` |
 | `<boost/typelayout/tools/compat_check.hpp>` | `CompatReporter` |
 | `<boost/typelayout/tools/compat_auto.hpp>` | `TYPELAYOUT_CHECK_COMPAT`, `TYPELAYOUT_ASSERT_COMPAT` |
-| `<boost/typelayout/tools/sig_types.hpp>` | `TypeEntry`, `PlatformInfo` (shared data types, C++17) |
+| `<boost/typelayout/tools/sig_types.hpp>` | `TypeEntry`, `PlatformInfo` (shared data types) |
 | `<boost/typelayout/tools/platform_detect.hpp>` | Arch/OS/compiler detection macros |

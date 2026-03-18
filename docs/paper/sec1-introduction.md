@@ -138,9 +138,8 @@ This paper makes the following contributions:
      possible; false positives impossible)
 
 3. **A cross-platform verification toolchain** using a two-phase architecture:
-   Phase 1 exports signatures on platforms with P2996 support; Phase 2
-   compares signatures on any C++17 compiler. This decouples the reflection
-   requirement from the verification requirement. (§5)
+   Phase 1 exports signatures on each target platform; Phase 2 compares
+   signatures across platforms. Both phases require P2996. (§5)
 
 4. **An empirical evaluation** demonstrating coverage of all C++ type
    categories (primitives, records, unions, inheritance, bit-fields,

@@ -1,5 +1,4 @@
 // safety_level.hpp -- SafetyLevel enum + runtime classify_signature().
-// Pure C++17, no P2996 required.
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.

@@ -31,7 +31,7 @@ adoption. However:
 1. P2996 is on track for C++26 standardization, and multiple compiler
    vendors (GCC, MSVC, EDG) are expected to implement it.
 2. The two-phase toolchain (§5) mitigates this limitation: signatures can
-   be exported once and verified on any C++17 compiler.
+   be exported once and compared across platforms.
 3. The `constexpr` step limit (§6.3.2) may be relaxed as compiler
    implementations mature.
 
@@ -83,8 +83,8 @@ for C++ based on C++26 static reflection (P2996). The key contributions are:
    level of correctness assurance rare in C++ libraries.
 
 3. **A cross-platform verification toolchain** that decouples signature
-   generation (requiring P2996) from signature comparison (any C++17
-   compiler), enabling practical cross-platform ABI monitoring.
+   generation from signature comparison, enabling practical cross-platform
+   ABI monitoring.
 
 4. **A comprehensive evaluation** demonstrating complete type coverage
    (17 categories), compilation overhead characterization, and quantitative

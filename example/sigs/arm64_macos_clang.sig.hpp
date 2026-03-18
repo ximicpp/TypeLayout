@@ -2,8 +2,7 @@
 // Platform: arm64_macos_clang (AArch64 macOS (Clang))
 // Generated: 2026-02-08T03:25:00Z
 //
-// This file contains constexpr signature data and can be compiled
-// by any C++17 or later compiler. P2996 is NOT required.
+// This file contains constexpr signature data.
 //
 // ABI characteristics (ARM64 macOS, Apple Clang with P2996):
 //   - Data model: LP64 (long = 8 bytes)

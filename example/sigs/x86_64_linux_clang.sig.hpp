@@ -2,8 +2,7 @@
 // Platform: x86_64_linux_clang (x86-64 Linux (Clang))
 // Generated: 2026-02-08T03:20:57Z
 //
-// This file contains constexpr signature data and can be compiled
-// by any C++17 or later compiler. P2996 is NOT required.
+// This file contains constexpr signature data.
 
 #ifndef BOOST_TYPELAYOUT_SIG_X86_64_LINUX_CLANG_HPP
 #define BOOST_TYPELAYOUT_SIG_X86_64_LINUX_CLANG_HPP

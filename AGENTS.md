@@ -14,8 +14,7 @@
 
 ## Architecture Invariants
 
-- **Two layers**: Core (requires P2996) and Tools (mostly C++17). Tools layer must not `#include` core headers unless the tool file is explicitly marked as P2996-required.
-- **Dual-path padding detection**: `compute_has_padding` (compile-time bitmap in `layout_traits.hpp`) must be cross-validated against `sig_has_padding` (runtime string parser in `detail/sig_parser.hpp`). Both must agree or `static_assert` fires.
+- **Dual-path padding detection**: `compute_has_padding` (compile-time bitmap in `layout_traits.hpp`) must be cross-validated against `sig_has_padding` (string parser in `detail/sig_parser.hpp`). Both must agree or `static_assert` fires.
 - **Virtual inheritance rejection**: `signature_impl.hpp` rejects types with virtual bases at compile time.
 - **Opaque ordering**: Opaque types must be registered BEFORE any signature generation that encounters them.
 - **Flattening**: Struct field names and inheritance hierarchy are erased. Only byte-level identity is preserved in signatures.
@@ -24,10 +23,9 @@
 
 - **static_assert preferred**: Every compile-time property should be validated with `static_assert` first, then optionally printed at runtime for debugging.
 - **Inline test types**: Test structs/classes are defined inside the test .cpp file, not in shared headers.
-- **Timeout values**: P2996 tests get 120s timeout; C++17-only tests get 30s timeout.
-- **P2996 core tests**: Use `LABELS "core"`, link to `typelayout` interface library (provides compile flags automatically)
-- **P2996 tools tests**: Use `LABELS "tools"`, link to `typelayout` interface library
-- **C++17-only tests**: Use `LABELS "tools"`, set `-std=c++17 -stdlib=libc++` manually, do NOT link `typelayout`
+- **Timeout**: All tests get 120s timeout.
+- **Core tests**: Use `LABELS "core"`, link to `typelayout` interface library
+- **Tools tests**: Use `LABELS "tools"`, link to `typelayout` interface library
 
 ## Signature Format Rules
 
@@ -69,5 +67,5 @@
 | `test_classify.cpp` | Tools | Five-tier classify<T> for all type categories |
 | `test_serialization_free.cpp` | Tools | is_local_serialization_free, SignatureRegistry |
 | `test_sig_export.cpp` | Tools | SigExporter output structure |
-| `test_rt_padding.cpp` | Tools | Runtime sig_has_padding (C++17 only, no P2996) |
-| `test_compat_check.cpp` | Tools | CompatReporter, classify_signature, are_serialization_free, ABI equivalence (C++17 only) |
+| `test_rt_padding.cpp` | Tools | Runtime sig_has_padding |
+| `test_compat_check.cpp` | Tools | CompatReporter, classify_signature, are_serialization_free, ABI equivalence |

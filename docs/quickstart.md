@@ -3,7 +3,7 @@
 ## 1. Prerequisites
 
 - **Compiler**: Bloomberg Clang P2996 fork with `-freflection` (C++26 static reflection)
-- **Standard**: C++26 for core functions; C++17 suffices for the tools layer
+- **Standard**: C++26
 - **Dependencies**: None (header-only library)
 
 ## 2. Minimal Example
@@ -144,7 +144,7 @@ SafetyLevel enum (ordered best to worst):
 | `PointerRisk` | 3 | Contains pointers; dangling after memcpy |
 | `Opaque` | 4 | Unanalyzable; safety unknown |
 
-Runtime classification from a string (C++17, no P2996 needed):
+Runtime classification from a string:
 
 ```cpp
 #include <boost/typelayout/tools/safety_level.hpp>
@@ -187,7 +187,7 @@ docker run --rm -v $(pwd):/workspace -w /workspace \
         -I./include -o sig_export export_types.cpp && ./sig_export sigs/'
 ```
 
-### Phase 2: Check (any platform, C++17 only)
+### Phase 2: Check
 
 Write one file that includes the generated headers and selects the comparison macro:
 
@@ -205,11 +205,11 @@ TYPELAYOUT_CHECK_COMPAT(x86_64_linux_clang, arm64_macos_clang, x86_64_windows_ms
 // TYPELAYOUT_ASSERT_COMPAT(x86_64_linux_clang, arm64_macos_clang, x86_64_windows_msvc)
 ```
 
-Compile and run the checker with any C++17 compiler:
+Compile and run the checker:
 
 ```bash
-clang++ -std=c++17 -stdlib=libc++ -I./include -I./example \
-    -o compat_check check_compat.cpp
+clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ \
+    -I./include -I./example -o compat_check check_compat.cpp
 ./compat_check
 ```
 
@@ -352,9 +352,9 @@ signatures are identical. TypeLayout operates on byte identity, not field names.
 (`void(int)`) cannot produce signatures and will cause a compile error. Use
 `void*`, `T[N]`, or function pointers (`void(*)(int)`) instead.
 
-**Phase 1 requires P2996; Phase 2 does not.** The `.sig.hpp` files produced by
-Phase 1 are plain C++17 headers. If your CI runs Phase 2 on a standard compiler,
-no special flags are needed.
+**Both Phase 1 and Phase 2 require P2996.** The `.sig.hpp` files produced by
+Phase 1 are plain constexpr data, but the tools layer headers require the P2996
+compiler.
 
 ## Next Steps
 

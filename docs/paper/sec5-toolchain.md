@@ -21,14 +21,13 @@ Phase 1: Signature Export (requires P2996)
         └───────────────────────┼───────────────────────┘
                                 │
                          Phase 2: Comparison
-                    ┌───────────────────────┐
-                    │ Any C++17 Compiler     │
-                    │ (no P2996 needed)      │
-                    │                        │
-                    │ TYPELAYOUT_CHECK_COMPAT│
-                    │   → match / differ     │
-                    │   + safety level       │
-                    └───────────────────────┘
+                     ┌───────────────────────┐
+                     │ P2996 Compiler         │
+                     │                        │
+                     │ TYPELAYOUT_CHECK_COMPAT│
+                     │   → match / differ     │
+                     │   + safety level       │
+                     └───────────────────────┘
 ```
 
 **Phase 1** runs on each target platform using a P2996-capable compiler.
@@ -36,10 +35,10 @@ It generates `.sig.hpp` files—self-contained C++ headers that embed
 signature strings as `constexpr` variables. This phase is performed once
 per platform per type, typically in CI.
 
-**Phase 2** runs on *any* platform using *any* C++17 compiler. It includes
-the `.sig.hpp` files from multiple platforms and performs string comparison
-at compile time. No reflection is needed—the signatures are already
-materialized as string literals.
+**Phase 2** includes the `.sig.hpp` files from multiple platforms and performs
+string comparison at compile time. The signatures are already materialized as
+string literals; the tools-layer headers that process them are part of the
+TypeLayout library and require the P2996 compiler.
 
 ## 5.2 The .sig.hpp Format
 
@@ -69,7 +68,7 @@ constexpr auto PacketHeader_definition =
 ```
 
 Key properties of the format:
-- **Self-contained**: No dependencies beyond standard C++17
+- **Self-contained**: No external dependencies
 - **Human-readable**: Signatures are visible in the file for manual inspection
 - **Constexpr**: All values are compile-time constants
 - **Namespaced**: Platform identifier prevents collisions
@@ -138,17 +137,12 @@ no manual effort beyond the initial setup.
 
 The two-phase split serves two purposes:
 
-1. **Practical**: P2996 is currently available only in Bloomberg's Clang
-   fork. By materializing signatures as string literals, Phase 2 can run
-   on any compiler—including MSVC, GCC, and standard Clang.
-
-2. **Conceptual**: Signature *generation* is a reflection operation (it
+1. **Conceptual**: Signature *generation* is a reflection operation (it
    needs to inspect type structure). Signature *comparison* is a string
    operation (it only needs to compare two strings). Separating these
    concerns is natural and reduces the dependency surface.
 
-When P2996 becomes widely available (post-C++26 standardization), both
-phases can be combined into a single compilation for *same-platform*
-verification. Cross-platform comparison inherently requires separate
-compilations (one per platform), so the two-phase architecture remains
-essential for that use case.
+Cross-platform comparison inherently requires separate compilations (one
+per platform), so the two-phase architecture remains essential for that
+use case. Same-platform verification can be done in a single compilation
+using `layout_signatures_match<T1, T2>()` directly.

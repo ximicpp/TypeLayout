@@ -135,8 +135,6 @@ endfunction()
 #   SIGS_DIR     - Directory containing .sig.hpp files (added to include path)
 #   INCLUDE_DIRS - Additional include directories (optional)
 #
-# Note: Phase 2 does NOT require the P2996 compiler. C++17 is sufficient.
-#
 function(typelayout_add_compat_check)
     cmake_parse_arguments(ARG "" "TARGET;SOURCE;SIGS_DIR" "INCLUDE_DIRS" ${ARGN})
 
@@ -164,8 +162,8 @@ function(typelayout_add_compat_check)
         target_include_directories(${ARG_TARGET} PRIVATE ${ARG_INCLUDE_DIRS})
     endif()
 
-    # Phase 2 only needs C++17 — no P2996 required
-    target_compile_features(${ARG_TARGET} PRIVATE cxx_std_17)
+    # Link typelayout interface library (provides include dirs + compile flags)
+    target_link_libraries(${ARG_TARGET} PRIVATE typelayout)
 endfunction()
 
 # ---------------------------------------------------------------------------
@@ -187,7 +185,7 @@ endfunction()
 #
 # This creates:
 #   - ${NAME}_export   : Phase 1 executable (requires P2996 Clang)
-#   - ${NAME}_check    : Phase 2 executable (C++17)
+#   - ${NAME}_check    : Phase 2 executable
 #   - ${NAME}_check depends on ${NAME}_export (build order)
 #   - If ADD_TEST is specified: ctest -R ${NAME}_check
 #

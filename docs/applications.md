@@ -138,7 +138,7 @@ For cross-platform deployments (client on Windows, server on Linux):
 #include "protocol.hpp"
 TYPELAYOUT_EXPORT_TYPES(PacketHeader, ResponseHeader)
 
-// Phase 2: compare (any C++17 compiler)
+// Phase 2: compare
 // check_compat.cpp:
 #include "sigs/x86_64_linux_clang.sig.hpp"
 #include "sigs/x86_64_windows_msvc.sig.hpp"
@@ -302,10 +302,11 @@ For a human-readable report instead:
 TYPELAYOUT_CHECK_COMPAT(x86_64_linux_clang, arm64_macos_clang, x86_64_windows_msvc)
 ```
 
-Compile Phase 2 with any C++17 compiler; no P2996 is needed:
+Compile Phase 2:
 
 ```bash
-clang++ -std=c++17 -stdlib=libc++ -I./include -o check check_file_compat.cpp
+clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ \
+    -I./include -o check check_file_compat.cpp
 ./check
 ```
 

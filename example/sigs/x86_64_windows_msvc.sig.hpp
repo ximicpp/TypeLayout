@@ -2,8 +2,7 @@
 // Platform: x86_64_windows_msvc (x86-64 Windows (MSVC))
 // Generated: 2026-02-08T03:21:00Z
 //
-// This file contains constexpr signature data and can be compiled
-// by any C++17 or later compiler. P2996 is NOT required.
+// This file contains constexpr signature data.
 //
 // NOTE: This is a simulated signature file representing the expected
 // output on x86_64 Windows (MSVC) based on known LLP64 data model

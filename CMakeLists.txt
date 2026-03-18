@@ -63,14 +63,10 @@ include(cmake/TypeLayoutCompat.cmake)
 add_executable(sig_export example/cross_platform_check.cpp)
 target_link_libraries(sig_export PRIVATE typelayout)
 
-# Examples — Phase 2: Compatibility check (C++17 only, no P2996 needed)
+# Examples — Phase 2: Compatibility check
 add_executable(compat_check example/compat_check.cpp)
-target_include_directories(compat_check PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/example
-)
-target_compile_options(compat_check PRIVATE -std=c++17 -stdlib=libc++)
-target_link_options(compat_check PRIVATE -stdlib=libc++)
+target_link_libraries(compat_check PRIVATE typelayout)
+target_include_directories(compat_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/example)
 
 add_executable(test_empty_member_probe test/test_empty_member_probe.cpp)
 target_link_libraries(test_empty_member_probe PRIVATE typelayout)
@@ -94,21 +90,17 @@ target_link_libraries(test_padding_precision PRIVATE typelayout)
 add_test(NAME test_padding_precision COMMAND test_padding_precision)
 set_tests_properties(test_padding_precision PROPERTIES TIMEOUT 120 LABELS "core")
 
-# Test — runtime padding detection (C++17 only, no P2996 needed)
+# Test — runtime padding detection
 add_executable(test_rt_padding test/test_rt_padding.cpp)
-target_include_directories(test_rt_padding PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_compile_options(test_rt_padding PRIVATE -std=c++17 -stdlib=libc++)
-target_link_options(test_rt_padding PRIVATE -stdlib=libc++)
+target_link_libraries(test_rt_padding PRIVATE typelayout)
 add_test(NAME test_rt_padding COMMAND test_rt_padding)
-set_tests_properties(test_rt_padding PROPERTIES TIMEOUT 30 LABELS "tools")
+set_tests_properties(test_rt_padding PROPERTIES TIMEOUT 120 LABELS "tools")
 
-# Test — compatibility check utilities (C++17 only)
+# Test — compatibility check utilities
 add_executable(test_compat_check test/test_compat_check.cpp)
-target_include_directories(test_compat_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_compile_options(test_compat_check PRIVATE -std=c++17 -stdlib=libc++)
-target_link_options(test_compat_check PRIVATE -stdlib=libc++)
+target_link_libraries(test_compat_check PRIVATE typelayout)
 add_test(NAME test_compat_check COMMAND test_compat_check)
-set_tests_properties(test_compat_check PROPERTIES TIMEOUT 30 LABELS "tools")
+set_tests_properties(test_compat_check PROPERTIES TIMEOUT 120 LABELS "tools")
 
 # Test — advanced types: multi-dimensional arrays, nested unions, cross-platform round-trip
 add_executable(test_advanced_types test/test_advanced_types.cpp)

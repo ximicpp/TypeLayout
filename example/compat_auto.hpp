@@ -1,5 +1,5 @@
 // Convenience macros: TYPELAYOUT_CHECK_COMPAT (runtime report) and
-// TYPELAYOUT_ASSERT_COMPAT (compile-time static_assert). C++17 only.
+// TYPELAYOUT_ASSERT_COMPAT (compile-time static_assert).
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.

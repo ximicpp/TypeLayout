@@ -1,5 +1,4 @@
 // Cross-platform compatibility check example.
-// Compile with any C++17 compiler. P2996 is NOT required.
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.

@@ -18,9 +18,9 @@ clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ \
     -I../include -o sig_export cross_platform_check.cpp
 ./sig_export sigs/
 
-# Phase 2: build and run the checker (C++17 is sufficient)
-clang++ -std=c++17 -stdlib=libc++ -I../include \
-    -o compat_check compat_check.cpp
+# Phase 2: build and run the checker
+clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ \
+    -I../include -o compat_check compat_check.cpp
 ./compat_check
 ```
 

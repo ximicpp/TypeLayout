@@ -79,10 +79,9 @@ The tools layer classifies types into five tiers (ordered best to worst):
 ## Cross-Platform Pipeline
 
 For comparing types across platforms, TypeLayout uses a two-phase pipeline:
-Phase 1 compiles and runs a small exporter on each target platform (requires P2996),
-producing `.sig.hpp` header files; Phase 2 includes those headers in a C++17 program
-and compares signatures using `CompatReporter` or the `TYPELAYOUT_CHECK_COMPAT` macro,
-with no P2996 required.
+Phase 1 compiles and runs a small exporter on each target platform, producing
+`.sig.hpp` header files; Phase 2 includes those headers and compares signatures
+using `CompatReporter` or the `TYPELAYOUT_CHECK_COMPAT` macro.
 
 ## Build and Test
 
@@ -98,7 +97,7 @@ See [CLAUDE.md](CLAUDE.md) for WSL and Docker build instructions.
 ## Requirements
 
 - **Compiler**: Bloomberg Clang P2996 fork (`-freflection`)
-- **Standard**: C++26 for core; C++17 for the tools layer
+- **Standard**: C++26
 - **Dependencies**: None (header-only)
 
 ## Documentation
