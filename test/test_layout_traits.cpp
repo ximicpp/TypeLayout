@@ -225,34 +225,8 @@ static_assert(
     "P5.2: alignment matches alignof"
 );
 
-// field_count
-static_assert(
-    layout_traits<test_types::Compact>::field_count == 2,
-    "P5.3: Compact has 2 fields"
-);
-
-static_assert(
-    layout_traits<test_types::WithPointer>::field_count == 2,
-    "P5.4: WithPointer has 2 fields"
-);
-
-static_assert(
-    layout_traits<test_types::Empty>::field_count == 0,
-    "P5.5: Empty has 0 fields"
-);
-
-static_assert(
-    layout_traits<int32_t>::field_count == 0,
-    "P5.6: fundamental type has 0 fields"
-);
-
-static_assert(
-    layout_traits<test_types::Outer>::field_count == 2,
-    "P5.7: Outer has 2 direct fields (inner + c)"
-);
-
 // =========================================================================
-// Part 6: layout_signatures_match
+// Part 5: layout_signatures_match
 // =========================================================================
 
 // Same layout, different names -> must match
@@ -425,7 +399,7 @@ static_assert(
 // =========================================================================
 
 int main() {
-    constexpr int total_tests = 30;
+    constexpr int total_tests = 25;
 
     std::cout << "=== layout_traits & layout_signatures_match Tests ===\n\n";
 
@@ -453,7 +427,6 @@ int main() {
     std::cout << "has_pointer:        " << layout_traits<test_types::Compact>::has_pointer << "\n";
     std::cout << "has_opaque:         " << layout_traits<test_types::Compact>::has_opaque << "\n";
     std::cout << "has_padding:        " << layout_traits<test_types::Compact>::has_padding << "\n";
-    std::cout << "field_count:        " << layout_traits<test_types::Compact>::field_count << "\n";
     std::cout << "total_size:         " << layout_traits<test_types::Compact>::total_size << "\n";
     std::cout << "alignment:          " << layout_traits<test_types::Compact>::alignment << "\n";
 

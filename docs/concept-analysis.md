@@ -1,286 +1,170 @@
-# TypeLayout Concept Analysis (Revised)
+# TypeLayout Concept Analysis
 
-Analysis of every public concept in the library after the code cleanup.
-Identifies which concepts are essential, which remain redundant, and
-evaluates the changes made since the initial review.
+Analysis of the library's concept structure after all simplification rounds.
 
 ---
 
-## 1. Changes Adopted Since Initial Review
+## 1. Concept Structure
 
-The following changes were made in response to the first analysis:
+The library has two roots: **signature generation** and **P2996 reflection**.
+They converge in `layout_traits<T>`, which feeds the transport safety layer.
 
-| Recommendation | Status | Details |
-|----------------|--------|---------|
-| Remove `serialization_free.hpp` | [DONE] | File deleted. `is_local_serialization_free`, `serialization_free_assert` removed. |
-| Remove `signature_compare<T,U>` | [DONE] | Removed from `layout_traits.hpp`. Only `layout_signatures_match` remains. |
-| Remove `is_trivial_safe_v` | [DONE] | Removed from `classify.hpp`. |
-| Remove `is_layout_compatible_v` (naming collision) | [DONE] | Removed from `classify.hpp`. |
-| Remove `is_memcpy_safe_v` (deprecated) | [DONE] | Removed from `classify.hpp`. |
-| Extract `is_transfer_safe` + `SignatureRegistry` to `transfer.hpp` | [DONE] | New file `tools/transfer.hpp` replaces transport portions of deleted `serialization_free.hpp`. |
-| Rename `SignatureRegistry::is_serialization_free` | [DONE] | Renamed to `is_transfer_safe` in `transfer.hpp:88`. |
-| Remove SafetyLevel / classify system | Not done | `safety_level.hpp` and `classify.hpp` retained unchanged. |
-| Remove `has_bit_field` / `is_platform_variant` | Not done | Both retained in `layout_traits.hpp`. |
+```
+P2996 Reflection Engine
+  |
+  +--- Signature Generation -----> get_layout_signature<T>()
+  |                                    |
+  |                              layout_traits<T>  [detail::]
+  |                              /        |        \
+  |                       has_pointer  has_padding  has_opaque [detail only]
+  |                            |          |
+  |                            v          v
+  |                    is_byte_copy_safe_v<T>  (mixed: signature + P2996)
+  |                            |
+  |                            v
+  |                    is_transfer_safe<T>(sig)  (byte_copy_safe + sig ==)
+  |
+  +--- Opaque Registration (4 macros)
+  |
+  +--- Tools: SigExporter, CompatReporter, classify_signature
+```
+
+### Data source classification
+
+| Concept | Source |
+|---------|--------|
+| `get_layout_signature<T>()` | P2996 reflection -> string encoding |
+| `has_pointer` | Signature token scan (non-opaque) / user declaration (opaque) |
+| `has_padding` | **Independent** P2996 byte-coverage bitmap (not from signature) |
+| `has_opaque` | **Independent** P2996 recursive traversal (not from signature) |
+| `is_byte_copy_safe_v<T>` | Mixed: reads `has_pointer` (signature) + P2996 member recursion |
+| `is_transfer_safe<T>(sig)` | `is_byte_copy_safe` + signature string comparison |
+| `classify_signature()` | Signature token scan |
+| `sig_has_padding()` | Signature offset/size parsing |
 
 ---
 
-## 2. Current Concept Inventory
+## 2. Current Public Concept Inventory
 
-After cleanup, the public API consists of the following concepts,
-grouped by architectural layer:
-
-```
-Layer 0 -- Infrastructure
-  FixedString<N>                               fixed_string.hpp
-  get_arch_prefix()                            signature.hpp:15
-
-Layer 1 -- Signature Generation
-  get_layout_signature<T>()                    signature.hpp:27
-  layout_signatures_match<T1, T2>()            signature.hpp:32
-
-Layer 2 -- Property Extraction (layout_traits<T>)
-  layout_traits<T>::signature                  layout_traits.hpp:248
-  layout_traits<T>::has_padding                layout_traits.hpp:268
-  layout_traits<T>::has_pointer                layout_traits.hpp:250
-  layout_traits<T>::has_opaque                 layout_traits.hpp:262
-  layout_traits<T>::has_bit_field              layout_traits.hpp:259
-  layout_traits<T>::is_platform_variant        layout_traits.hpp:265
-  layout_traits<T>::field_count                layout_traits.hpp:286
-  layout_traits<T>::total_size                 layout_traits.hpp:294
-  layout_traits<T>::alignment                  layout_traits.hpp:295
-
-Layer 3 -- Composite Classification
-  SafetyLevel enum                             safety_level.hpp:23
-  classify<T> / classify_v<T>                  classify.hpp:42
-  classify_signature(string_view)              safety_level.hpp:52
-
-Layer 4 -- Transport Safety
-  is_byte_copy_safe<T>                         admission.hpp:124
-  is_transfer_safe<T>(remote_sig)              transfer.hpp:32
-  SignatureRegistry                            transfer.hpp:46
-
-Layer 5 -- Opaque Registration
-  TYPELAYOUT_REGISTER_OPAQUE                   opaque.hpp:31
-  TYPELAYOUT_OPAQUE_TYPE_RELOCATABLE           opaque.hpp:63
-  TYPELAYOUT_OPAQUE_CONTAINER_RELOCATABLE      opaque.hpp:85
-  TYPELAYOUT_OPAQUE_MAP_RELOCATABLE            opaque.hpp:123
-  TYPELAYOUT_REGISTER_OPAQUE_TRIVIAL           opaque.hpp:167  (alias)
-  TYPELAYOUT_REGISTER_OPAQUE_RELOCATABLE       opaque.hpp:170  (alias)
-  TYPELAYOUT_REGISTER_OPAQUE_CONTAINER_RELOCATABLE  opaque.hpp:173  (alias)
-  TYPELAYOUT_REGISTER_OPAQUE_MAP_RELOCATABLE        opaque.hpp:176  (alias)
-  opaque_elements_safe<T>                      fwd.hpp (default), opaque.hpp (specializations)
-
-Layer 6 -- Runtime Tools
-  SigExporter / TYPELAYOUT_EXPORT_TYPES        sig_export.hpp
-  CompatReporter                               compat_check.hpp:105
-  sig_has_padding(string_view)                 sig_parser.hpp
-  sig_contains_token(string_view, string_view) sig_parser.hpp
-  safety_level_name(SafetyLevel)               safety_level.hpp:31
-```
-
-Total: ~21 distinct public concepts (down from ~25).
-
----
-
-## 3. Dependency Graph (Current)
+After three rounds of simplification (25 -> 21 -> 19 concepts):
 
 ```
-  get_layout_signature<T>()                  [root]
-            |
-      layout_traits<T>                       [aggregator]
-      /    |     |      \       \
-has_pointer |  has_padding |   has_opaque
-has_bit_field    is_platform_variant
-      |         |          |
-      v         v          v
-  SafetyLevel / classify<T>                  [composite -- still present]
-                    |
-  is_byte_copy_safe<T>                       [transport]
-  is_transfer_safe<T>(remote_sig)
-  SignatureRegistry
-                    |
-  SigExporter                                [runtime tools]
-  CompatReporter
-  classify_signature(string_view)
-  sig_has_padding(string_view)
+Core Layer (7 concepts)
+  get_layout_signature<T>()               signature.hpp
+  layout_signatures_match<T1, T2>()       signature.hpp
+  layout_traits<T>::has_pointer           layout_traits.hpp  [detail::]
+  layout_traits<T>::has_padding           layout_traits.hpp  [detail::]
+  is_byte_copy_safe_v<T>                  admission.hpp
+  is_transfer_safe<T>(remote_sig)         transfer.hpp
+
+Opaque Registration (4 macros)
+  TYPELAYOUT_REGISTER_OPAQUE              opaque.hpp
+  TYPELAYOUT_OPAQUE_TYPE_RELOCATABLE      opaque.hpp
+  TYPELAYOUT_OPAQUE_CONTAINER_RELOCATABLE opaque.hpp
+  TYPELAYOUT_OPAQUE_MAP_RELOCATABLE       opaque.hpp
+
+Tools Layer (display + cross-platform pipeline)
+  detail::SafetyLevel                     safety_level.hpp
+  detail::classify_signature()            safety_level.hpp
+  SigExporter                             sig_export.hpp
+  CompatReporter                          compat_check.hpp
+
+Infrastructure
+  FixedString<N>                          fixed_string.hpp
+  get_arch_prefix()                       signature.hpp  [detail::]
+
+Internal (not public API)
+  layout_traits<T>::has_opaque            layout_traits.hpp  [detail::]
+  layout_traits<T>::total_size            layout_traits.hpp  [detail::]
+  layout_traits<T>::alignment             layout_traits.hpp  [detail::]
+  sig_has_padding(string_view)            sig_parser.hpp  [detail::]
+  opaque_elements_safe<T>                 fwd.hpp  [detail::]
 ```
 
 ---
 
-## 4. Per-Concept Verdict (Revised)
+## 3. Simplification History
 
-### 4.1 Essential -- no change from initial review
+### Round 1: Remove redundant alias traits
 
-All concepts identified as essential in the initial review remain essential.
-The cleanup correctly preserved them:
+| Removed | Reason |
+|---------|--------|
+| `serialization_free.hpp` (entire file) | `is_local_serialization_free` was `trivially_copyable && !has_pointer` -- trivial `&&` |
+| `signature_compare<T,U>` | Duplicate of `layout_signatures_match` |
+| `is_trivial_safe_v` | Alias for `classify_v == TrivialSafe` |
+| `is_layout_compatible_v` | Naming collision with `std::is_layout_compatible` (C++20) |
+| `is_memcpy_safe_v` | Deprecated alias |
+| `serialization_free_assert<T>` | Two `static_assert` lines, no logic |
 
-| Concept | Location | Status |
-|---------|----------|--------|
-| `get_layout_signature<T>()` | `signature.hpp:27` | Retained |
-| `FixedString<N>` | `fixed_string.hpp` | Retained |
-| `get_arch_prefix()` | `signature.hpp:15` | Retained |
-| `has_padding` | `layout_traits.hpp:268` | Retained |
-| `has_pointer` | `layout_traits.hpp:250` | Retained |
-| `has_opaque` | `layout_traits.hpp:262` | Retained |
-| `is_byte_copy_safe<T>` | `admission.hpp:124` | Retained |
-| `is_transfer_safe<T>(remote_sig)` | `transfer.hpp:32` | Retained (moved from deleted file) |
-| `layout_signatures_match<T1,T2>` | `signature.hpp:32` | Retained |
-| `sig_has_padding(string_view)` | `sig_parser.hpp` | Retained |
-| `SigExporter` | `sig_export.hpp` | Retained |
-| `TYPELAYOUT_REGISTER_OPAQUE` | `opaque.hpp:31` | Retained |
-| `TYPELAYOUT_OPAQUE_CONTAINER_RELOCATABLE` | `opaque.hpp:85` | Retained |
-| `TYPELAYOUT_OPAQUE_MAP_RELOCATABLE` | `opaque.hpp:123` | Retained |
-| `opaque_elements_safe<T>` | `fwd.hpp` / `opaque.hpp` | Retained |
-| `layout_traits<T>` | `layout_traits.hpp:247` | Retained |
-| `field_count` / `total_size` / `alignment` | `layout_traits.hpp:286-295` | Retained |
+### Round 2: Remove classify system + platform traits
 
-### 4.2 Previously redundant -- now removed
+| Removed | Reason |
+|---------|--------|
+| `classify.hpp` (entire file) | `classify<T>` compressed orthogonal booleans into lossy scalar |
+| `has_bit_field` | Only consumed by deleted `classify<T>` |
+| `is_platform_variant` | Lint-level warning, not decision-enabling |
+| 4 alias macros in `opaque.hpp` | Zero external usage |
+| `SafetyLevel` moved to `detail::` | Display-only, consumed by `CompatReporter` internally |
+| `classify_signature` moved to `detail::` | Same |
 
-These were correctly cleaned up:
+### Round 3: Remove field_count, clarify has_opaque scope
 
-| Concept | What happened |
+| Change | Reason |
+|--------|--------|
+| `field_count` removed from `layout_traits` | No core consumer; `sizeof`/`alignof` level metadata with no decision value |
+| `has_opaque` recognized as detail-only | Already in `detail::layout_traits`; only consumed by internal cross-validation `static_assert` |
+
+---
+
+## 4. Why Each Remaining Concept is Necessary
+
+### Core concepts (cannot remove any)
+
+| Concept | Why it cannot be removed |
+|---------|--------------------------|
+| `get_layout_signature<T>()` | Foundation of the library. All downstream features consume the signature. |
+| `layout_signatures_match<T1,T2>()` | One-line `==` wrapper, but provides the core semantic verb. Removing forces users to write `get_layout_signature<T1>() == get_layout_signature<T2>()`. |
+| `has_pointer` | Core transport-safety predicate. `is_byte_copy_safe` Branch 1 and Branch 2 both read it. Users need it for "does my type contain address-space-dependent data?" |
+| `has_padding` | Independent byte-coverage bitmap algorithm (not derivable from signature at the same precision). Dual-path cross-validation with `sig_has_padding`. Users need it for info-leak detection. |
+| `is_byte_copy_safe_v<T>` | 4-branch recursive decision tree. Branch 3 (non-trivially-copyable class member recursion) cannot be derived from the signature. |
+| `is_transfer_safe<T>(sig)` | Direct answer to the library's core question: "can T be safely byte-transported to this remote endpoint?" |
+
+### Opaque macros (cannot reduce below 4)
+
+| Macro | Why it is distinct |
+|-------|-------------------|
+| `REGISTER_OPAQUE` | Trivially copyable concrete type. Has `static_assert`. |
+| `OPAQUE_TYPE_RELOCATABLE` | Non-trivially-copyable concrete type (e.g. offset_ptr wrappers). No `static_assert`. Different safety semantics. |
+| `OPAQUE_CONTAINER_RELOCATABLE` | Single-parameter template. Embeds element type signature. Generates `opaque_elements_safe` specialization that recurses into element. |
+| `OPAQUE_MAP_RELOCATABLE` | Two-parameter template. Cannot be expressed by single-parameter variant. |
+
+### Tools (display + pipeline)
+
+| Concept | Why it is kept |
 |---------|---------------|
-| `is_local_serialization_free<T>` | Removed with `serialization_free.hpp`. Was `trivially_copyable && !has_pointer`. |
-| `serialization_free_assert<T>` | Removed with `serialization_free.hpp`. Was two `static_assert` lines. |
-| `signature_compare<T,U>` | Removed from `layout_traits.hpp`. Duplicate of `layout_signatures_match`. |
-| `is_trivial_safe_v<T>` | Removed from `classify.hpp`. Was alias for `classify_v == TrivialSafe`. |
-| `is_layout_compatible_v<T>` | Removed from `classify.hpp`. Had naming collision with `std::is_layout_compatible`. |
-| `is_memcpy_safe_v<T>` | Removed from `classify.hpp`. Was deprecated alias. |
+| `SafetyLevel` / `classify_signature` | Consumed by `CompatReporter::compare()` for report output. Kept in `detail::` namespace to signal "not for programmatic decisions". |
+| `SigExporter` | Phase 1 of cross-platform pipeline. No alternative. |
+| `CompatReporter` | Phase 2 of cross-platform pipeline. No alternative. |
 
-### 4.3 Still redundant -- retained but should be reconsidered
+### Internal (not public, but technically necessary)
 
-| Concept | Location | Why it remains redundant |
-|---------|----------|--------------------------|
-| `SafetyLevel` enum | `safety_level.hpp:23` | Still compresses orthogonal boolean dimensions into a single scalar. Information loss problem remains (see Section 5). |
-| `classify<T>` / `classify_v<T>` | `classify.hpp:42` | Compile-time entry point for `SafetyLevel`. Redundant if enum is redundant. |
-| `classify_signature(string_view)` | `safety_level.hpp:52` | Runtime entry point for `SafetyLevel`. Same information-loss problem, plus the documented limitation that it cannot detect `!trivially_copyable` (`safety_level.hpp:46-51`). |
-| `has_bit_field` | `layout_traits.hpp:259` | Only consumed by `classify<T>` to route into `PlatformVariant`. No independent user-facing use case. Could be folded into `is_platform_variant` or kept as internal detail. |
-| `is_platform_variant` | `layout_traits.hpp:265` | Detects `wchar_t` and `long double`. At compile time `sizeof` is known and fixed. This is a lint-level observation, not a decision-enabling property. The only user response is "switch to fixed-width types", which is a coding guideline, not a runtime branch. |
-
-### 4.4 Optional but reasonable -- utility-layer conveniences
-
-| Concept | Location | Notes |
-|---------|----------|-------|
-| `SignatureRegistry` | `transfer.hpp:46` | Runtime handshake facility. Depends on `std::map` + `typeid().name()`, the latter unstable across compilers. Useful for single-compiler IPC scenarios. The `is_serialization_free` method was correctly renamed to `is_transfer_safe`. |
-| `CompatReporter` | `compat_check.hpp:105` | Phase 2: cross-platform comparison. `compare()` returning `vector<TypeResult>` is the core logic. `print_report()` / `print_diff_report()` are presentation. The `are_transfer_safe()` query is a valuable addition. |
-| `TYPELAYOUT_OPAQUE_TYPE_RELOCATABLE` | `opaque.hpp:63` | Differs from `REGISTER_OPAQUE` only in dropping `trivially_copyable` assertion. Could be merged into one macro with a bool parameter. |
-| Alias macros | `opaque.hpp:167-177` | `REGISTER_OPAQUE_TRIVIAL`, `REGISTER_OPAQUE_RELOCATABLE`, etc. Forwarding aliases. Neither help nor hurt. |
-| `safety_level_name(SafetyLevel)` | `safety_level.hpp:31` | Display helper. Reasonable if `SafetyLevel` is kept. |
-| `safety_label` / `safety_stars` / `safety_reason` | `compat_check.hpp:36-67` | Display helpers for `CompatReporter` output. Reasonable as formatting utilities. |
+| Concept | Role |
+|---------|------|
+| `has_opaque` | Cross-validation `static_assert` skip condition in `layout_traits`. Not exposed as user API. |
+| `total_size` / `alignment` | `sizeof`/`alignof` wrappers in `detail::layout_traits`. Zero concept cost. |
+| `sig_has_padding` | Second path of dual-path padding validation. |
+| `opaque_elements_safe<T>` | Recursion termination point for `is_byte_copy_safe` on opaque types. |
 
 ---
 
-## 5. Remaining Issue: SafetyLevel Information Loss
+## 5. Conclusion
 
-The `SafetyLevel` enum and its associated `classify<T>` / `classify_signature()`
-remain in the codebase. The information-loss problem identified in the
-initial review still applies.
+The concept structure is minimal. Every public concept satisfies at least
+one of:
 
-The priority order is:
+1. Has an irreplaceable consumer in the core logic
+2. Cannot be derived from any other concept
+3. Provides independent user decision value
 
-```
-Opaque(4) > PointerRisk(3) > PlatformVariant(2) > PaddingRisk(1) > TrivialSafe(0)
-```
-
-### Example: multiple simultaneous problems
-
-```cpp
-struct ProblematicMsg {
-    int32_t  id;
-    // 4 bytes padding
-    double   value;
-    wchar_t  label[8];   // platform-variant
-    char*    debug_ptr;   // pointer
-};
-```
-
-`classify<ProblematicMsg>` returns `PointerRisk`. The user sees one problem.
-In reality there are three: pointer, padding, and platform-variant.
-
-With raw traits, all three are visible simultaneously:
-
-```cpp
-layout_traits<ProblematicMsg>::has_pointer        == true
-layout_traits<ProblematicMsg>::has_padding         == true
-layout_traits<ProblematicMsg>::is_platform_variant == true
-```
-
-### Why it is still kept
-
-`SafetyLevel` serves two roles that are harder to replace:
-
-1. **CompatReporter output formatting** -- `compat_check.hpp` uses `safety_label()`,
-   `safety_stars()`, `safety_reason()` extensively for human-readable reports.
-   Without the enum, the report formatting code would need to compose
-   multiple boolean traits into display strings inline.
-
-2. **classify_signature(string_view)** -- runtime classification of signature
-   strings from remote platforms where compile-time traits are unavailable.
-   The raw `has_padding` / `has_pointer` traits require P2996 or the type
-   definition; `classify_signature` works on opaque strings only.
-
-### Recommendation
-
-If `SafetyLevel` is retained, it should be clearly documented as a
-**summary for display purposes**, not as a decision-making predicate.
-Users should be directed to `layout_traits<T>::has_*` for programmatic
-decisions. The enum is a lossy projection useful for reporting, not for
-logic.
-
----
-
-## 6. Current API Surface vs Proposed Minimal
-
-| Layer | Current (21 concepts) | Proposed minimal (17 concepts) |
-|-------|----------------------|-------------------------------|
-| Infrastructure | `FixedString<N>`, `get_arch_prefix()` | Same |
-| Signature | `get_layout_signature<T>()`, `layout_signatures_match<T1,T2>()` | Same |
-| Properties | `has_padding`, `has_pointer`, `has_opaque`, `has_bit_field`, `is_platform_variant`, `field_count`, `total_size`, `alignment` | Remove `has_bit_field`, `is_platform_variant` (fold internally) |
-| Classification | `SafetyLevel`, `classify<T>`, `classify_signature()` | Remove all three; or keep as display-only utility |
-| Transport | `is_byte_copy_safe<T>`, `is_transfer_safe<T>()`, `SignatureRegistry` | Same |
-| Opaque | 4 macros + 4 aliases + `opaque_elements_safe` | Remove 4 aliases; merge `OPAQUE_TYPE_RELOCATABLE` into `REGISTER_OPAQUE` |
-| Tools | `SigExporter`, `CompatReporter`, `sig_has_padding()` | Same |
-
-The gap from 21 to 17 consists of:
-- `has_bit_field` (fold into internal detail)
-- `is_platform_variant` (fold or remove)
-- `SafetyLevel` + `classify<T>` + `classify_signature()` (remove or demote to display-only)
-
-Minus the 4 alias macros which are zero-cost either way.
-
----
-
-## 7. Assessment of Cleanup Quality
-
-The cleanup was well-executed:
-
-| Aspect | Assessment |
-|--------|------------|
-| `serialization_free.hpp` removal | Clean. No orphaned references. `is_transfer_safe` and `SignatureRegistry` correctly migrated to `transfer.hpp`. |
-| `signature_compare` removal | Clean. `layout_traits.hpp` now ends at line 304 without the duplicate. |
-| `classify.hpp` trimming | Clean. Removed 3 alias traits (`is_trivial_safe_v`, `is_layout_compatible_v`, `is_memcpy_safe_v`). Only `classify<T>` and `classify_v<T>` remain. File went from 70 lines to 53. |
-| `SignatureRegistry` renaming | `is_serialization_free()` correctly renamed to `is_transfer_safe()` in `transfer.hpp:88`. Consistent with the function template in `transfer.hpp:32`. |
-| No broken dependencies | `compat_check.hpp` still includes `safety_level.hpp` and uses `SafetyLevel` / `classify_signature()` for reporting. `sig_export.hpp` still uses `is_byte_copy_safe_v` from `admission.hpp`. All include chains intact. |
-
-### Minor issue found
-
-`sig_export.hpp`'s `SigExporter::add<T>` has a `static_assert` with message
-text referencing "trivially copyable types", but the actual check is
-`is_byte_copy_safe_v<T>` which is broader (also accepts relocatable opaque
-types). The error message is slightly misleading. Not a correctness bug,
-but the message should say "byte-copy safe" instead.
-
----
-
-## 8. Updated Migration Guide
-
-For the remaining redundant concepts, if further cleanup is performed:
-
-| Concept to remove | Replacement |
-|-------------------|-------------|
-| `classify_v<T>` (for programmatic decisions) | Use `layout_traits<T>::has_pointer`, `has_padding`, `has_opaque` directly |
-| `classify_signature(sig)` (for reports) | Keep as internal detail of `CompatReporter` if needed, remove from public API |
-| `SafetyLevel` enum | Keep as `compat::SafetyLevel` scoped to report formatting if needed |
-| `has_bit_field` | Fold into `is_platform_variant` check or `classify` internals |
-| `is_platform_variant` | Remove from `layout_traits`, or keep as internal detail consumed only by `classify` |
-| 4 alias macros | Remove; users use the primary macro names directly |
+No two concepts are equivalent, mutually derivable, or trivially composable
+from other concepts.

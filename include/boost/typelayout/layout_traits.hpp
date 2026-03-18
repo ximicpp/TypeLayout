@@ -266,14 +266,6 @@ struct layout_traits {
         "disagrees with runtime sig_has_padding. This indicates a bug in "
         "the coverage bitmap or the signature parser.");
 
-    static constexpr std::size_t field_count = []() consteval {
-        if constexpr (std::is_class_v<T> || std::is_union_v<T>) {
-            return get_member_count<T>();
-        } else {
-            return std::size_t{0};
-        }
-    }();
-
     static constexpr std::size_t total_size = sizeof(T);
     static constexpr std::size_t alignment = alignof(T);
 
