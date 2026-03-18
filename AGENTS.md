@@ -37,6 +37,15 @@
 - **Opaque map**: `O(Tag|N|A)<key_sig,val_sig>` via `TYPELAYOUT_OPAQUE_MAP_RELOCATABLE`
 - **Array encoding**: `TYPE[N]` for fixed-size arrays, element type is recursed into
 
+## API Tiers
+
+| Tier | Purpose | Symbols |
+|------|---------|---------|
+| **Core** | 4 essential concepts | `get_layout_signature<T>()`, `is_byte_copy_safe_v<T>`, `is_transfer_safe<T>(sig)`, `TYPELAYOUT_REGISTER_OPAQUE` macros |
+| **Convenience** | Shorthand helpers | `layout_signatures_match<T,U>()` |
+| **Diagnostic** | Layout inspection | `layout_traits<T>` |
+| **Tools** | Cross-platform workflow (separate include) | `SignatureRegistry`, `SigExporter`, `CompatReporter`, `compat::SafetyLevel`, `platform_detect` |
+
 ## Code Map -- Key Entry Points
 
 | Task | Start here |

@@ -43,6 +43,20 @@ Expected output on x86-64 little-endian:
 [64-le]record[s:24,a:8]{@0:u32[s:4,a:4],@8:u64[s:8,a:8],@16:f64[s:8,a:8]}
 ```
 
+> **API Tiers**: TypeLayout organizes its API into 4 tiers: **Core** (4 essential
+> concepts), **Convenience** (shorthand helpers), **Diagnostic** (detailed inspection),
+> and **Tools** (cross-platform workflow). The example above uses Core
+> (`get_layout_signature`) and Convenience (`layout_signatures_match`).
+> See [API Reference](api-reference.md) for the full tier breakdown.
+
+To verify that a type is safe for byte-level transport (no pointers, no unsafe
+opaque members), use the Core admission predicate:
+
+```cpp
+static_assert(is_byte_copy_safe_v<SenderMsg>,
+    "SenderMsg must be safe for byte-copy transport");
+```
+
 ## 3. Reading a Signature
 
 ```
@@ -94,7 +108,6 @@ using T = layout_traits<Packet>;
 static_assert(T::has_padding);           // true: gap between id and value
 static_assert(!T::has_pointer);          // no pointers
 static_assert(!T::has_opaque);           // no opaque-registered sub-types
-static_assert(!T::is_platform_variant);  // no wchar_t or long double
 static_assert(T::field_count == 2);      // direct non-static data members only
 static_assert(T::total_size == sizeof(Packet));
 static_assert(T::alignment == alignof(Packet));
@@ -106,9 +119,7 @@ All members:
 |--------|------|-------------|
 | `signature` | `FixedString` | Full layout signature string |
 | `has_pointer` | `bool` | Contains `ptr`, `fnptr`, `memptr`, `ref`, or `rref` |
-| `has_bit_field` | `bool` | Contains bit-fields |
 | `has_opaque` | `bool` | Contains opaque-registered sub-types (recursive) |
-| `is_platform_variant` | `bool` | Contains `wchar_t` or `long double` |
 | `has_padding` | `bool` | Uncovered bytes in layout (bitmap analysis, recursive) |
 | `field_count` | `size_t` | Direct non-static data members (not inherited) |
 | `total_size` | `size_t` | `sizeof(T)` |
@@ -116,25 +127,12 @@ All members:
 
 ## 6. Safety Classification
 
-The tools layer classifies any type or signature string into one of five tiers.
+The tools layer classifies signature strings into one of five safety tiers.
+This is used by `CompatReporter` for display purposes. For programmatic
+decisions, use `layout_traits<T>::has_pointer` / `has_padding` / `has_opaque`
+directly, or `is_byte_copy_safe_v<T>`.
 
-```cpp
-#include <boost/typelayout/tools/classify.hpp>
-#include <boost/typelayout/tools/safety_level.hpp>
-using namespace boost::typelayout;
-
-struct Safe   { uint32_t x; uint32_t y; };
-struct Padded { uint32_t x; double   y; };
-
-static_assert(classify_v<Safe>   == SafetyLevel::TrivialSafe);
-static_assert(classify_v<Padded> == SafetyLevel::PaddingRisk);
-
-// Direct checks on classify_v:
-static_assert(classify_v<Safe>   == SafetyLevel::TrivialSafe);
-static_assert(classify_v<Padded> <= SafetyLevel::PaddingRisk);  // TrivialSafe or PaddingRisk
-```
-
-SafetyLevel enum (ordered best to worst):
+SafetyLevel enum (in `boost::typelayout::compat`, ordered best to worst):
 
 | Enumerator | Value | Meaning |
 |------------|-------|---------|
@@ -231,9 +229,9 @@ Platforms compared: 3
 ------------------------------------------------------------------------
   Type                      Layout  Safety  Verdict
 ------------------------------------------------------------------------
-  PacketHeader               MATCH    ***  Serialization-free
-  SensorRecord               MATCH    ***  Serialization-free
-  UnsafeStruct              DIFFER    *--  Needs serialization
+  PacketHeader               MATCH    ***  Transfer-safe
+  SensorRecord               MATCH    ***  Transfer-safe
+  UnsafeStruct              DIFFER    *--  Layout mismatch
 ------------------------------------------------------------------------
 ```
 

@@ -12,6 +12,8 @@ namespace boost {
 namespace typelayout {
 inline namespace v1 {
 
+namespace detail {
+
 [[nodiscard]] consteval auto get_arch_prefix() noexcept {
     if constexpr (sizeof(void*) == 8)
         return FixedString{TYPELAYOUT_LITTLE_ENDIAN ? "[64-le]" : "[64-be]"};
@@ -21,11 +23,13 @@ inline namespace v1 {
         static_assert(sizeof(void*) == 4 || sizeof(void*) == 8, "Unsupported pointer size");
 }
 
+} // namespace detail
+
 // Layout signature -- pure byte identity (flattened, no names)
 
 template <typename T>
 [[nodiscard]] consteval auto get_layout_signature() noexcept {
-    return get_arch_prefix() + TypeSignature<T>::calculate();
+    return detail::get_arch_prefix() + TypeSignature<T>::calculate();
 }
 
 template <typename T1, typename T2>

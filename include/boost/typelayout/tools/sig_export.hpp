@@ -170,7 +170,7 @@ private:
     }
 
     void write_platform_metadata(std::ostream& os) const {
-        constexpr auto arch = get_arch_prefix();
+        constexpr auto arch = detail::get_arch_prefix();
 
         os << "// ---- Platform Metadata ----\n";
         os << "\n";

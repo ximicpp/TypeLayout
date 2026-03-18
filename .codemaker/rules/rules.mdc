@@ -119,6 +119,15 @@ Valid types: `fix:`, `test:`, `docs:`, `chore:`, `perf:`, `feat:`, `refactor:`
 
 ## 3. Rapid Reference & Context Map
 
+### 3.0 API Tiers
+
+| Tier | Purpose | Symbols |
+|------|---------|---------|
+| **Core** | 4 essential concepts | `get_layout_signature<T>()`, `is_byte_copy_safe_v<T>`, `is_transfer_safe<T>(sig)`, `TYPELAYOUT_REGISTER_OPAQUE` macros |
+| **Convenience** | Shorthand helpers | `layout_signatures_match<T,U>()` |
+| **Diagnostic** | Layout inspection | `layout_traits<T>` |
+| **Tools** | Cross-platform workflow (separate include) | `SignatureRegistry`, `SigExporter`, `CompatReporter`, `compat::SafetyLevel`, `platform_detect` |
+
 ### 3.1 Core API Signatures (Top 10)
 
 ```cpp
