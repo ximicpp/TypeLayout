@@ -1,7 +1,7 @@
 // safety_level.hpp -- SafetyLevel enum + runtime classify_signature().
 //
 // Display-only classification for CompatReporter output.
-// All definitions live in namespace compat to indicate they are
+// All definitions live in namespace detail to indicate they are
 // reporting utilities, not core decision-making predicates.
 // For programmatic decisions, use layout_traits<T>::has_padding,
 // has_pointer, has_opaque directly.
@@ -17,7 +17,7 @@
 namespace boost {
 namespace typelayout {
 inline namespace v1 {
-namespace compat {
+namespace detail {
 
 // =========================================================================
 // SafetyLevel -- five-tier safety classification for display purposes.
@@ -82,7 +82,7 @@ inline SafetyLevel classify_signature(std::string_view sig) noexcept {
     return SafetyLevel::TrivialSafe;
 }
 
-} // namespace compat
+} // namespace detail
 } // inline namespace v1
 } // namespace typelayout
 } // namespace boost

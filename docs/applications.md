@@ -34,16 +34,15 @@ at compile time:
 
 ```cpp
 #include <boost/typelayout/typelayout.hpp>
-#include <boost/typelayout/tools/classify.hpp>
 using namespace boost::typelayout;
 
 // Verify byte layout compatibility at compile time
-static_assert(layout_signatures_match<WriterSharedData, ReaderSharedData>(),
+static_assert(
+    get_layout_signature<WriterSharedData>() == get_layout_signature<ReaderSharedData>(),
     "Shared memory layout mismatch -- unsafe IPC");
 
-// Verify that the struct contains no pointers (pointer values are
-// address-space-specific and cannot be shared between processes)
-static_assert(classify_v<WriterSharedData> <= SafetyLevel::PaddingRisk,
+// Verify that the struct is safe for byte-copy transport (no pointers)
+static_assert(is_byte_copy_safe_v<WriterSharedData>,
     "SharedData contains pointers or opaque fields -- unsafe for IPC");
 ```
 
@@ -63,8 +62,8 @@ if (!is_transfer_safe<SharedData>(received_sig)) {
 
 ### What Is Guaranteed
 
-- `layout_signatures_match<A, B>() == true` implies identical field offsets,
-  sizes, and alignments in both types on the current platform.
+- Matching layout signatures (`get_layout_signature<A>() == get_layout_signature<B>()`)
+  implies identical field offsets, sizes, and alignments in both types on the current platform.
 - The arch prefix (`[64-le]`, `[32-le]`, etc.) distinguishes pointer widths and
   endianness, so cross-architecture mismatches are detected automatically.
 
@@ -114,18 +113,18 @@ replaces all manual `offsetof`/`sizeof` assertions:
 
 ```cpp
 #include <boost/typelayout/typelayout.hpp>
-#include <boost/typelayout/tools/classify.hpp>
 using namespace boost::typelayout;
 
 // Replaces: static_assert(sizeof(PacketHeader) == 16);
 //           static_assert(offsetof(PacketHeader, magic) == 0);
 //           static_assert(offsetof(PacketHeader, checksum) == 12);
 //           ... (one line per field, manually maintained)
-static_assert(layout_signatures_match<ClientPacketHeader, ServerPacketHeader>(),
+static_assert(
+    get_layout_signature<ClientPacketHeader>() == get_layout_signature<ServerPacketHeader>(),
     "Wire format mismatch between client and server");
 
-// Confirm no pointers and no platform-variant types in the wire struct
-static_assert(classify_v<PacketHeader> <= SafetyLevel::PaddingRisk,
+// Confirm the struct is safe for byte-copy transport
+static_assert(is_byte_copy_safe_v<PacketHeader>,
     "PacketHeader is not safe for wire transfer");
 ```
 
@@ -202,7 +201,8 @@ When plugin and host are built from the same source tree (compile-time check):
 #include <boost/typelayout/typelayout.hpp>
 using namespace boost::typelayout;
 
-static_assert(layout_signatures_match<HostPluginConfig, PluginPluginConfig>(),
+static_assert(
+    get_layout_signature<HostPluginConfig>() == get_layout_signature<PluginPluginConfig>(),
     "Plugin ABI mismatch: PluginConfig layout differs between host and plugin");
 ```
 

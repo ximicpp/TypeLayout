@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 //
-// Public API: get_layout_signature<T>() and cross-type comparison helpers.
+// Public API: get_layout_signature<T>().
 
 #ifndef BOOST_TYPELAYOUT_SIGNATURE_HPP
 #define BOOST_TYPELAYOUT_SIGNATURE_HPP
@@ -30,11 +30,6 @@ namespace detail {
 template <typename T>
 [[nodiscard]] consteval auto get_layout_signature() noexcept {
     return detail::get_arch_prefix() + TypeSignature<T>::calculate();
-}
-
-template <typename T1, typename T2>
-[[nodiscard]] consteval bool layout_signatures_match() noexcept {
-    return get_layout_signature<T1>() == get_layout_signature<T2>();
 }
 
 } // inline namespace v1

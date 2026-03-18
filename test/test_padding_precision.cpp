@@ -28,6 +28,7 @@
 #include <string_view>
 
 using namespace boost::typelayout;
+using boost::typelayout::detail::layout_traits;
 
 // =========================================================================
 // Test types
@@ -444,12 +445,12 @@ void test_sig_has_padding_edge_cases() {
 }
 
 void test_sig_has_padding_consistency() {
-    // Verify that compat::classify_signature agrees with sig_has_padding
+    // Verify that detail::classify_signature agrees with sig_has_padding
     // for signatures without pointers, platform-variant types, or opaque markers.
 
     using boost::typelayout::detail::sig_has_padding;
-    using boost::typelayout::compat::classify_signature;
-    using boost::typelayout::compat::SafetyLevel;
+    using boost::typelayout::detail::classify_signature;
+    using boost::typelayout::detail::SafetyLevel;
 
     // Padded signature => classify_signature should return PaddingRisk.
     auto padded_sig = "[64-le]record[s:8,a:4]{@0:i8[s:1,a:1],@4:i32[s:4,a:4]}";

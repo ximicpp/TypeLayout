@@ -71,7 +71,7 @@ public:
     /// The caller is responsible for ensuring byte-copy safety.
     template <typename T>
     void add_relocatable(const std::string& name) {
-        static_assert(!layout_traits<T>::has_pointer,
+        static_assert(!detail::layout_traits<T>::has_pointer,
             "SigExporter::add_relocatable<T>: type must be pointer-free "
             "(all opaque members must have pointer_free = true).");
 

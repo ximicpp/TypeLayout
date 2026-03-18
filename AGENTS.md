@@ -37,14 +37,20 @@
 - **Opaque map**: `O(Tag|N|A)<key_sig,val_sig>` via `TYPELAYOUT_OPAQUE_MAP_RELOCATABLE`
 - **Array encoding**: `TYPE[N]` for fixed-size arrays, element type is recursed into
 
-## API Tiers
+## Public API ("Big 6")
 
-| Tier | Purpose | Symbols |
-|------|---------|---------|
-| **Core** | 4 essential concepts | `get_layout_signature<T>()`, `is_byte_copy_safe_v<T>`, `is_transfer_safe<T>(sig)`, `TYPELAYOUT_REGISTER_OPAQUE` macros |
-| **Convenience** | Shorthand helpers | `layout_signatures_match<T,U>()` |
-| **Diagnostic** | Layout inspection | `layout_traits<T>` |
-| **Tools** | Cross-platform workflow (separate include) | `SignatureRegistry`, `SigExporter`, `CompatReporter`, `compat::SafetyLevel`, `platform_detect` |
+| # | Concept | Header | Purpose |
+|---|---------|--------|---------|
+| 1 | `get_layout_signature<T>()` | `signature.hpp` | Compile-time layout signature |
+| 2 | `is_byte_copy_safe_v<T>` | `admission.hpp` | Byte-copy safety predicate |
+| 3 | `is_transfer_safe<T>(sig)` | `tools/transfer.hpp` | Cross-endpoint transfer check |
+| 4 | `TYPELAYOUT_REGISTER_OPAQUE` macros | `opaque.hpp` | Opaque type registration |
+| 5 | `SigExporter` | `tools/sig_export.hpp` | Phase 1: export signatures |
+| 6 | `CompatReporter` | `tools/compat_check.hpp` | Phase 2: compatibility report |
+
+Internal (in `detail::` namespace, not public API):
+- `detail::layout_traits<T>` -- layout inspection struct
+- `detail::SafetyLevel` / `detail::classify_signature()` -- safety classification
 
 ## Code Map -- Key Entry Points
 
@@ -52,9 +58,9 @@
 |------|-----------|
 | How signatures are generated | `detail/signature_impl.hpp` -> `TypeSignature<T>::calculate()` |
 | How types are classified | `detail/reflect.hpp` -> `classify_type()`, `detail/type_map.hpp` |
-| How layout_traits works | `layout_traits.hpp` -> `layout_traits<T>` struct |
+| How layout_traits works | `layout_traits.hpp` -> `detail::layout_traits<T>` struct |
 | How padding is detected | `layout_traits.hpp` -> `compute_has_padding<T>()` (bitmap) |
-| How safety is classified | `tools/classify.hpp` -> `classify<T>`, `tools/safety_level.hpp` -> `classify_signature()` |
+| How safety is classified | `tools/safety_level.hpp` -> `detail::classify_signature()` |
 | How opaque types work | `opaque.hpp` -> macros + `has_opaque_signature` concept |
 | How admission works | `admission.hpp` -> `is_byte_copy_safe<T>`, `opaque_elements_safe<T>` |
 | Cross-platform pipeline | `tools/sig_export.hpp` (Phase 1) -> `tools/compat_check.hpp` (Phase 2) |
@@ -74,7 +80,7 @@
 | `test_padding_precision.cpp` | Core | Byte-coverage bitmap vs sig parser, classify consistency |
 | `test_byte_copy_safe.cpp` | Core | Recursive byte-copy admission, opaque elements, polymorphic rejection |
 | `test_classify.cpp` | Tools | Five-tier classify<T> for all type categories |
-| `test_transfer.cpp` | Tools | is_byte_copy_safe, SignatureRegistry, is_transfer_safe |
+| `test_transfer.cpp` | Tools | is_byte_copy_safe, is_transfer_safe |
 | `test_sig_export.cpp` | Tools | SigExporter output structure |
 | `test_rt_padding.cpp` | Tools | Runtime sig_has_padding |
 | `test_compat_check.cpp` | Tools | CompatReporter, classify_signature, are_transfer_safe, ABI equivalence |

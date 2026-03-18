@@ -20,8 +20,13 @@ using namespace boost::typelayout;
 struct SenderMsg   { uint32_t id; uint64_t timestamp; double value; };
 struct ReceiverMsg { uint32_t id; uint64_t timestamp; double value; };
 
-static_assert(layout_signatures_match<SenderMsg, ReceiverMsg>(),
+// Compare layout signatures directly with operator==
+static_assert(get_layout_signature<SenderMsg>() == get_layout_signature<ReceiverMsg>(),
     "Binary layout mismatch -- unsafe to memcpy");
+
+// Verify byte-copy safety (no pointers, no unsafe opaque members)
+static_assert(is_byte_copy_safe_v<SenderMsg>,
+    "SenderMsg must be safe for byte-copy transport");
 
 int main() {
     constexpr auto sig = get_layout_signature<SenderMsg>();
@@ -43,19 +48,10 @@ Expected output on x86-64 little-endian:
 [64-le]record[s:24,a:8]{@0:u32[s:4,a:4],@8:u64[s:8,a:8],@16:f64[s:8,a:8]}
 ```
 
-> **API Tiers**: TypeLayout organizes its API into 4 tiers: **Core** (4 essential
-> concepts), **Convenience** (shorthand helpers), **Diagnostic** (detailed inspection),
-> and **Tools** (cross-platform workflow). The example above uses Core
-> (`get_layout_signature`) and Convenience (`layout_signatures_match`).
-> See [API Reference](api-reference.md) for the full tier breakdown.
-
-To verify that a type is safe for byte-level transport (no pointers, no unsafe
-opaque members), use the Core admission predicate:
-
-```cpp
-static_assert(is_byte_copy_safe_v<SenderMsg>,
-    "SenderMsg must be safe for byte-copy transport");
-```
+> **Public API**: TypeLayout exposes exactly 6 concepts: `get_layout_signature<T>()`,
+> `is_byte_copy_safe_v<T>`, `is_transfer_safe<T>(sig)`, `TYPELAYOUT_REGISTER_OPAQUE`
+> macros, `SigExporter`, and `CompatReporter`.
+> See [API Reference](api-reference.md) for the full reference.
 
 ## 3. Reading a Signature
 
@@ -84,73 +80,13 @@ If fields are reordered, the static assertion fails at compile time:
 struct SenderMsg   { uint32_t id; uint64_t timestamp; double value; };
 struct ReceiverMsg { uint32_t id; double value; uint64_t timestamp; }; // reordered
 
-static_assert(layout_signatures_match<SenderMsg, ReceiverMsg>());
+static_assert(get_layout_signature<SenderMsg>() == get_layout_signature<ReceiverMsg>());
 // error: static assertion failed -- offsets differ
 ```
 
 The compiler reports the failure immediately; no runtime test is needed.
 
-## 5. layout_traits\<T\>
-
-`layout_traits<T>` aggregates the signature and derived properties in one place:
-
-```cpp
-#include <boost/typelayout/layout_traits.hpp>
-using namespace boost::typelayout;
-
-struct Packet {
-    uint32_t id;
-    double   value;  // 4 bytes of padding before this on most platforms
-};
-
-using T = layout_traits<Packet>;
-
-static_assert(T::has_padding);           // true: gap between id and value
-static_assert(!T::has_pointer);          // no pointers
-static_assert(!T::has_opaque);           // no opaque-registered sub-types
-static_assert(T::field_count == 2);      // direct non-static data members only
-static_assert(T::total_size == sizeof(Packet));
-static_assert(T::alignment == alignof(Packet));
-```
-
-All members:
-
-| Member | Type | Description |
-|--------|------|-------------|
-| `signature` | `FixedString` | Full layout signature string |
-| `has_pointer` | `bool` | Contains `ptr`, `fnptr`, `memptr`, `ref`, or `rref` |
-| `has_opaque` | `bool` | Contains opaque-registered sub-types (recursive) |
-| `has_padding` | `bool` | Uncovered bytes in layout (bitmap analysis, recursive) |
-| `field_count` | `size_t` | Direct non-static data members (not inherited) |
-| `total_size` | `size_t` | `sizeof(T)` |
-| `alignment` | `size_t` | `alignof(T)` |
-
-## 6. Safety Classification
-
-The tools layer classifies signature strings into one of five safety tiers.
-This is used by `CompatReporter` for display purposes. For programmatic
-decisions, use `layout_traits<T>::has_pointer` / `has_padding` / `has_opaque`
-directly, or `is_byte_copy_safe_v<T>`.
-
-SafetyLevel enum (in `boost::typelayout::compat`, ordered best to worst):
-
-| Enumerator | Value | Meaning |
-|------------|-------|---------|
-| `TrivialSafe` | 0 | Safe for zero-copy and cross-platform transfer |
-| `PaddingRisk` | 1 | Padding bytes may leak uninitialized data |
-| `PlatformVariant` | 2 | Layout differs across platforms |
-| `PointerRisk` | 3 | Contains pointers; dangling after memcpy |
-| `Opaque` | 4 | Unanalyzable; safety unknown |
-
-Runtime classification from a string:
-
-```cpp
-#include <boost/typelayout/tools/safety_level.hpp>
-SafetyLevel level = classify_signature("[64-le]record[s:8,a:4]{@0:u32[s:4,a:4],@4:u32[s:4,a:4]}");
-// SafetyLevel::TrivialSafe
-```
-
-## 7. Cross-Platform Verification
+## 5. Cross-Platform Verification
 
 For comparing types across platforms, TypeLayout uses a two-phase pipeline.
 
@@ -261,7 +197,7 @@ typelayout_add_compat_pipeline(
 )
 ```
 
-## 8. Opaque Types
+## 6. Opaque Types
 
 Types that cannot be reflected (third-party containers, non-trivial types) can be
 registered as opaque so that structs containing them still produce signatures.
@@ -288,7 +224,7 @@ For template types, register each instantiation separately:
 TYPELAYOUT_REGISTER_OPAQUE(MyLib::XVector<int>, "xvector_int", true)
 ```
 
-## 9. Runtime Handshake with is_transfer_safe
+## 7. Runtime Handshake with is_transfer_safe
 
 For scenarios where the remote type's signature is received at runtime (e.g., a
 plugin that exports its signature string over IPC or RPC):
@@ -310,22 +246,7 @@ if (!is_transfer_safe<PacketHeader>(remote_sig)) {
 }
 ```
 
-For managing multiple types across a session, use `SignatureRegistry`:
-
-```cpp
-SignatureRegistry reg;
-reg.register_local<PacketHeader>();
-reg.register_local<SensorRecord>();
-
-reg.register_remote("PacketHeader", received_packet_sig);
-reg.register_remote("SensorRecord", received_sensor_sig);
-
-if (!reg.is_transfer_safe<PacketHeader>()) {
-    std::cerr << reg.diagnose<PacketHeader>() << "\n";
-}
-```
-
-## 10. CMake Integration
+## 8. CMake Integration
 
 The library is header-only. The minimum CMake setup is:
 
@@ -335,9 +256,9 @@ target_compile_options(my_target PRIVATE
     -std=c++26 -freflection -freflection-latest -stdlib=libc++)
 ```
 
-## 11. Common Pitfalls
+## 9. Common Pitfalls
 
-**Padding bytes are uninitialized.** `layout_signatures_match` guarantees identical
+**Padding bytes are uninitialized.** Matching layout signatures guarantee identical
 field offsets and sizes, not identical byte values. `memcmp` on layout-compatible
 structs may return non-zero if padding bytes differ. Zero-fill with `= {}` or
 `memset` before comparing or transmitting.
@@ -354,7 +275,7 @@ signatures are identical. TypeLayout operates on byte identity, not field names.
 Phase 1 are plain constexpr data, but the tools layer headers require the P2996
 compiler.
 
-## Next Steps
+## 10. Next Steps
 
 - [API Reference](api-reference.md) — all public symbols with declarations and examples
 - [Applications](applications.md) — IPC, network protocol, plugin ABI, cross-platform file use cases

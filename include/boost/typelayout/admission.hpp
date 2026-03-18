@@ -80,12 +80,12 @@ consteval bool is_byte_copy_safe_impl() noexcept {
 
     // Branch 1: Opaque types
     if constexpr (has_opaque_signature<Bare>) {
-        return !layout_traits<Bare>::has_pointer &&
+        return !detail::layout_traits<Bare>::has_pointer &&
                opaque_elements_safe<Bare>::value;
     }
     // Branch 2: Locally serialization-free (trivially_copyable + no pointer)
     else if constexpr (std::is_trivially_copyable_v<Bare> &&
-                       !layout_traits<Bare>::has_pointer) {
+                       !detail::layout_traits<Bare>::has_pointer) {
         return true;
     }
     // Branch 3: Non-union, non-polymorphic class -- recurse

@@ -21,6 +21,7 @@
 #include <sstream>
 
 using namespace boost::typelayout;
+using boost::typelayout::detail::layout_traits;
 
 // =========================================================================
 // Part 1: Multi-dimensional arrays
@@ -329,8 +330,8 @@ void test_sig_parser_nested_unions() {
 }
 
 void test_classify_nested_union_sigs() {
-    using compat::classify_signature;
-    using compat::SafetyLevel;
+    using detail::classify_signature;
+    using detail::SafetyLevel;
 
     // Union in record, no padding, no pointers -> TrivialSafe
     assert(classify_signature(

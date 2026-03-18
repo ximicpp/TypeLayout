@@ -6,14 +6,24 @@ Complete reference for all public symbols in Boost.TypeLayout.
 
 **Namespace**: `boost::typelayout` unless otherwise noted.
 
-## API Tiers
+## Public API ("Big 6")
 
-| Tier | Purpose | Symbols |
-|------|---------|---------|
-| **Core** | The 4 essential concepts every user needs | `get_layout_signature<T>()`, `is_byte_copy_safe_v<T>`, `is_transfer_safe<T>(sig)`, `TYPELAYOUT_REGISTER_OPAQUE` macros |
-| **Convenience** | Useful shorthand, replicable from Core | `layout_signatures_match<T,U>()` |
-| **Diagnostic** | Detailed layout inspection for advanced users | `layout_traits<T>` |
-| **Tools** | Cross-platform workflow (separate include) | `SignatureRegistry`, `SigExporter`, `CompatReporter`, `compat::SafetyLevel`, `platform_detect` |
+TypeLayout exposes exactly 6 public concepts. Everything else is internal (`detail::`)
+or accessed through the tools layer.
+
+| # | Concept | Header | Purpose |
+|---|---------|--------|---------|
+| 1 | `get_layout_signature<T>()` | `signature.hpp` | Compile-time layout signature generation |
+| 2 | `is_byte_copy_safe_v<T>` | `admission.hpp` | Compile-time byte-copy safety predicate |
+| 3 | `is_transfer_safe<T>(sig)` | `tools/transfer.hpp` | Runtime cross-endpoint transfer verification |
+| 4 | `TYPELAYOUT_REGISTER_OPAQUE` macros | `opaque.hpp` | Opaque type registration for third-party types |
+| 5 | `SigExporter` | `tools/sig_export.hpp` | Phase 1: export signatures per platform |
+| 6 | `CompatReporter` | `tools/compat_check.hpp` | Phase 2: cross-platform compatibility report |
+
+Internal utilities (in `detail::` namespace, not part of the public API):
+- `detail::layout_traits<T>` -- layout inspection struct (used by tools internally)
+- `detail::SafetyLevel` / `detail::classify_signature()` -- safety classification (used by `CompatReporter`)
+- `FixedString<N>` -- compile-time string type (return type of `get_layout_signature`)
 
 ---
 
@@ -46,31 +56,8 @@ constexpr auto sig = get_layout_signature<Msg>();
 // "[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:f64[s:8,a:8]}"
 ```
 
----
-
-## Convenience
-
-### `layout_signatures_match<T1, T2>()`
-
-```cpp
-// Header: <boost/typelayout/signature.hpp>
-template <typename T1, typename T2>
-[[nodiscard]] consteval bool layout_signatures_match() noexcept;
-```
-
-Returns `true` if `T1` and `T2` have identical layout signatures.
-
-A `true` result guarantees that `T1` and `T2` are memcpy-compatible: identical
-field offsets, sizes, and alignments. Field names are not compared.
-
-**Example**:
-
-```cpp
-struct A { uint32_t x; uint32_t y; };
-struct B { uint32_t a; uint32_t b; };  // different field names, same layout
-
-static_assert(layout_signatures_match<A, B>());  // passes
-```
+**Signature comparison**: Use `get_layout_signature<A>() == get_layout_signature<B>()`
+directly. `FixedString` supports `operator==`.
 
 ---
 
@@ -100,51 +87,6 @@ static_assert(is_byte_copy_safe_v<Vec3>);    // true: all floats
 
 struct Node { int val; Node* next; };
 static_assert(!is_byte_copy_safe_v<Node>);   // false: has pointer
-```
-
----
-
-## Diagnostic
-
-### `layout_traits<T>`
-
-```cpp
-// Header: <boost/typelayout/layout_traits.hpp>
-template <typename T>
-struct layout_traits {
-    static constexpr auto        signature;     // FixedString: full layout signature
-    static constexpr bool        has_pointer;   // ptr / fnptr / memptr / ref / rref
-    static constexpr bool        has_opaque;    // opaque-registered sub-type (recursive)
-    static constexpr bool        has_padding;   // uncovered bytes (bitmap, recursive)
-    static constexpr std::size_t field_count;   // direct non-static data members only
-    static constexpr std::size_t total_size;    // sizeof(T)
-    static constexpr std::size_t alignment;     // alignof(T)
-};
-```
-
-Aggregates the layout signature and derived properties for `T`. Requires P2996
-for struct/class/union types.
-
-**`has_opaque`**: Recursively checks all members and array element types for
-opaque-registered sub-types. `struct Foo { OpaqueType arr[3]; }` yields `true`.
-
-**`has_padding`**: Uses a compile-time byte coverage bitmap. Array element types
-are expanded: if the element type has internal padding, the containing struct is
-also flagged.
-
-**`field_count`**: Counts only direct non-static data members. Members inherited
-from base classes are not included.
-
-**Example**:
-
-```cpp
-struct A { uint32_t x; double y; };  // 4 bytes of padding before y
-struct B { A items[4]; };
-
-static_assert(layout_traits<A>::has_padding);
-static_assert(layout_traits<B>::has_padding);      // recursive: element A has padding
-static_assert(layout_traits<B>::field_count == 1); // only `items` is a direct member
-static_assert(layout_traits<B>::total_size == sizeof(B));
 ```
 
 ---
@@ -244,117 +186,6 @@ TYPELAYOUT_REGISTER_OPAQUE(MyLib::XMap<int, double>, "xmap_int_double", true)
 ---
 
 ## Tools
-
-### SafetyLevel
-
-**Header**: `<boost/typelayout/tools/safety_level.hpp>` -- namespace `boost::typelayout::compat`
-
-### `enum class SafetyLevel`
-
-```cpp
-enum class SafetyLevel {
-    TrivialSafe,     // = 0
-    PaddingRisk,     // = 1
-    PlatformVariant, // = 2
-    PointerRisk,     // = 3
-    Opaque,          // = 4
-};
-```
-
-Five-tier safety classification. Higher integer = higher risk.
-
-| Enumerator | Meaning |
-|------------|---------|
-| `TrivialSafe` | No pointers, no padding, platform-independent layout |
-| `PaddingRisk` | Padding bytes may leak uninitialized data |
-| `PlatformVariant` | Layout differs across platforms (`wchar_t`, `long double`, bit-fields) |
-| `PointerRisk` | Contains pointers; byte-copy produces dangling references |
-| `Opaque` | Unanalyzable; safety cannot be determined |
-
-### `safety_level_name(SafetyLevel)`
-
-```cpp
-constexpr const char* safety_level_name(SafetyLevel level) noexcept;
-```
-
-Returns a human-readable string: `"TrivialSafe"`, `"PaddingRisk"`,
-`"PlatformVariant"`, `"PointerRisk"`, or `"Opaque"`.
-
-### `classify_signature(std::string_view)`
-
-```cpp
-inline SafetyLevel classify_signature(std::string_view sig) noexcept;
-```
-
-Classifies a layout signature string at runtime. Scans for opaque markers,
-pointer tokens, platform-variant tokens, and padding gaps. Does not require P2996.
-
-### `sig_has_padding(std::string_view)`
-
-```cpp
-constexpr bool sig_has_padding(std::string_view sig) noexcept;
-```
-
-Returns `true` if the signature contains record blocks with uncovered bytes.
-Checks all nested record blocks recursively, skipping records inside union blocks.
-
----
-
-### SignatureRegistry
-
-```cpp
-class SignatureRegistry {
-public:
-    // Register a local type with an explicit binary-stable key (preferred).
-    // The key must match whatever the remote uses in register_remote().
-    template <typename T> void register_local(std::string_view key);
-
-    // Register a local type using typeid(T).name() as key (legacy convenience).
-    // Not binary-stable across compilers -- avoid in cross-compiler scenarios.
-    template <typename T> void register_local();
-
-    // Record the remote endpoint's signature for a named type.
-    void register_remote(std::string_view type_name, std::string_view remote_sig);
-
-    // Check by template (uses typeid(T).name() as key -- legacy overload).
-    template <typename T> [[nodiscard]] bool is_transfer_safe() const;
-
-    // Check by explicit key.
-    [[nodiscard]] bool is_transfer_safe(std::string_view key) const;
-
-    // Human-readable diagnostic for a type (template overload uses typeid key).
-    template <typename T> [[nodiscard]] std::string diagnose() const;
-    [[nodiscard]] std::string diagnose(std::string_view key) const;
-};
-```
-
-Runtime registry for managing multiple types across a session.
-
-**Example** (explicit key — cross-compiler safe):
-
-```cpp
-SignatureRegistry reg;
-reg.register_local<PacketHeader>("PacketHeader");
-reg.register_local<SensorRecord>("SensorRecord");
-
-reg.register_remote("PacketHeader", received_sig_a);
-reg.register_remote("SensorRecord", received_sig_b);
-
-if (!reg.is_transfer_safe("PacketHeader")) {
-    std::cerr << reg.diagnose("PacketHeader") << "\n";
-}
-```
-
-**Example** (no-arg overload — single-compiler convenience):
-
-```cpp
-SignatureRegistry reg;
-reg.register_local<PacketHeader>();  // key = typeid(PacketHeader).name()
-reg.register_remote(typeid(PacketHeader).name(), received_sig);
-if (!reg.is_transfer_safe<PacketHeader>()) { ... }
-```
-
----
 
 ### SigExporter
 
@@ -506,19 +337,17 @@ and detected by comparing byte coverage against `sizeof(T)`.
 
 ## Header Map
 
-| Header | Tier | Contents |
-|--------|------|----------|
-| `<boost/typelayout/typelayout.hpp>` | -- | Umbrella: includes all Core + Convenience + Diagnostic headers |
+| Header | Layer | Contents |
+|--------|-------|----------|
+| `<boost/typelayout/typelayout.hpp>` | Umbrella | Includes all Core headers |
 | `<boost/typelayout/signature.hpp>` | Core | `get_layout_signature<T>()` |
 | `<boost/typelayout/admission.hpp>` | Core | `is_byte_copy_safe_v<T>` |
 | `<boost/typelayout/opaque.hpp>` | Core | `TYPELAYOUT_REGISTER_OPAQUE` macros |
 | `<boost/typelayout/tools/transfer.hpp>` | Core | `is_transfer_safe<T>(sig)` |
-| `<boost/typelayout/signature.hpp>` | Convenience | `layout_signatures_match<T,U>()` |
-| `<boost/typelayout/layout_traits.hpp>` | Diagnostic | `layout_traits<T>` |
-| `<boost/typelayout/fixed_string.hpp>` | Diagnostic | `FixedString<N>`, `to_fixed_string` |
-| `<boost/typelayout/tools/transfer.hpp>` | Tools | `SignatureRegistry` |
-| `<boost/typelayout/tools/safety_level.hpp>` | Tools | `compat::SafetyLevel`, `classify_signature`, `sig_has_padding` |
+| `<boost/typelayout/fixed_string.hpp>` | Internal | `FixedString<N>`, `to_fixed_string` |
+| `<boost/typelayout/layout_traits.hpp>` | Internal | `detail::layout_traits<T>` |
+| `<boost/typelayout/tools/safety_level.hpp>` | Internal | `detail::SafetyLevel`, `detail::classify_signature` |
 | `<boost/typelayout/tools/sig_export.hpp>` | Tools | `SigExporter`, `TYPELAYOUT_EXPORT_TYPES` |
 | `<boost/typelayout/tools/compat_check.hpp>` | Tools | `compat::CompatReporter` |
 | `<boost/typelayout/tools/compat_auto.hpp>` | Tools | `TYPELAYOUT_CHECK_COMPAT`, `TYPELAYOUT_ASSERT_COMPAT` |
-| `<boost/typelayout/tools/platform_detect.hpp>` | Tools | Arch/OS/compiler detection macros |
+| `<boost/typelayout/tools/platform_detect.hpp>` | Internal | Arch/OS/compiler detection macros |

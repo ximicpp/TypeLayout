@@ -8,7 +8,7 @@
 #include <iostream>
 
 using namespace boost::typelayout;
-using namespace boost::typelayout::compat;
+using namespace boost::typelayout::detail;
 
 void test_basic() {
     using detail::sig_has_padding;

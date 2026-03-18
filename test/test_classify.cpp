@@ -16,7 +16,7 @@
 #include <string_view>
 
 using namespace boost::typelayout;
-using namespace boost::typelayout::compat;
+using namespace boost::typelayout::detail;
 
 // =========================================================================
 // Test types

@@ -23,6 +23,10 @@ namespace typelayout {
 inline namespace v1 {
 namespace compat {
 
+using detail::SafetyLevel;
+using detail::classify_signature;
+using detail::safety_level_name;
+
 /// Compare two signature strings. Usable in static_assert.
 constexpr bool sig_match(const char* a, const char* b) noexcept {
     return std::string_view(a) == std::string_view(b);

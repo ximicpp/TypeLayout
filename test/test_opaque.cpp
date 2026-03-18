@@ -9,6 +9,7 @@
 #include <cstdint>
 
 using namespace boost::typelayout;
+using boost::typelayout::detail::layout_traits;
 using boost::typelayout::test::contains;
 
 // =========================================================================

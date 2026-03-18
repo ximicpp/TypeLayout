@@ -3,12 +3,12 @@
 // Verifies:
 //   1. is_byte_copy_safe           -- compile-time admission (core)
 //   2. TYPELAYOUT_REGISTER_OPAQUE  -- opaque type registration with Tag
-//   3. SignatureRegistry           -- runtime signature-based comparison
+//   3. is_transfer_safe<T>(sig)    -- runtime cross-endpoint verification
 //   4. Exact signature matching    -- no hash collision risk
-//   5. Diagnostic output           -- self-documenting signatures
-//   6. Composite types with opaque fields
+//   5. Composite types with opaque fields
 
 #include <boost/typelayout/typelayout.hpp>
+#include <boost/typelayout/layout_traits.hpp>
 #include <boost/typelayout/tools/transfer.hpp>
 #include "test_util.hpp"
 #include <iostream>
@@ -28,6 +28,7 @@
     } while (0)
 
 using namespace boost::typelayout;
+using boost::typelayout::detail::layout_traits;
 
 // =========================================================================
 // Test types
@@ -293,7 +294,7 @@ static_assert(
 );
 
 // =========================================================================
-// Main -- runtime tests (SignatureRegistry)
+// Main -- runtime tests (is_transfer_safe)
 // =========================================================================
 
 int main() {
@@ -305,229 +306,73 @@ int main() {
     std::cout << compile_time_tests
               << " compile-time static_assert tests passed.\n\n";
 
-    // --- Part 6: SignatureRegistry basic operations ---
+    // --- Part 6: is_transfer_safe ---
 
-    std::cout << "--- Part 6: SignatureRegistry ---\n";
+    std::cout << "\n--- Part 6: is_transfer_safe ---\n";
 
-    // 6.1: Same-endpoint matching (simulated: local == remote)
-    {
-        SignatureRegistry reg;
-        reg.register_local<sf_test::Vec3>();
-
-        // Simulate remote sending the same signature
-        auto key = std::string(typeid(sf_test::Vec3).name());
-        auto local_sig = std::string_view(layout_traits<sf_test::Vec3>::signature);
-        reg.register_remote(key, local_sig);
-
-        bool result = reg.is_transfer_safe<sf_test::Vec3>();
-        TEST(result, "P6.1: same signature -> transfer_safe", passed, failed);
-    }
-
-    // 6.2: Different signature -> not transfer_safe
-    {
-        SignatureRegistry reg;
-        reg.register_local<sf_test::Vec3>();
-
-        auto key = std::string(typeid(sf_test::Vec3).name());
-        reg.register_remote(key, "[32-le]{f32@0,f32@4,f32@8|12|4}");
-
-        bool result = reg.is_transfer_safe<sf_test::Vec3>();
-        TEST(!result, "P6.2: different signature -> not transfer_safe", passed, failed);
-    }
-
-    // 6.3: Remote not registered -> not transfer_safe
-    {
-        SignatureRegistry reg;
-        reg.register_local<sf_test::Vec3>();
-        // No register_remote call
-
-        bool result = reg.is_transfer_safe<sf_test::Vec3>();
-        TEST(!result, "P6.3: remote not registered -> not transfer_safe", passed, failed);
-    }
-
-    // 6.4: Opaque type with matching signature -> transfer_safe
-    {
-        SignatureRegistry reg;
-        reg.register_local<sf_test::AesKey256>();
-
-        auto key = std::string(typeid(sf_test::AesKey256).name());
-        auto local_sig = std::string_view(layout_traits<sf_test::AesKey256>::signature);
-        reg.register_remote(key, local_sig);
-
-        bool result = reg.is_transfer_safe<sf_test::AesKey256>();
-        TEST(result, "P6.4: opaque with matching sig -> transfer_safe", passed, failed);
-    }
-
-    // 6.5: Opaque type with wrong tag in remote sig -> not transfer_safe
-    {
-        SignatureRegistry reg;
-        reg.register_local<sf_test::SensorRaw>();
-
-        auto key = std::string(typeid(sf_test::SensorRaw).name());
-        // Remote sends ActuatorRaw's signature instead
-        auto wrong_sig = std::string_view(layout_traits<sf_test::ActuatorRaw>::signature);
-        reg.register_remote(key, wrong_sig);
-
-        bool result = reg.is_transfer_safe<sf_test::SensorRaw>();
-        TEST(!result, "P6.5: opaque tag mismatch -> not transfer_safe", passed, failed);
-    }
-
-    // 6.6: Multiple types in one registry
-    {
-        SignatureRegistry reg;
-        reg.register_local<sf_test::Vec3>();
-        reg.register_local<sf_test::Packet>();
-        reg.register_local<sf_test::AesKey256>();
-
-        // Simulate: Vec3 matches, Packet does not (different platform), AesKey matches
-        auto vec3_key = std::string(typeid(sf_test::Vec3).name());
-        auto pkt_key = std::string(typeid(sf_test::Packet).name());
-        auto aes_key = std::string(typeid(sf_test::AesKey256).name());
-
-        reg.register_remote(vec3_key, std::string_view(layout_traits<sf_test::Vec3>::signature));
-        reg.register_remote(pkt_key, "[32-le]{u32@0,f32@4,f32@8,f32@12|16|4}");
-        reg.register_remote(aes_key, std::string_view(layout_traits<sf_test::AesKey256>::signature));
-
-        TEST(reg.is_transfer_safe<sf_test::Vec3>(),
-             "P6.6a: Vec3 matches in multi-type registry", passed, failed);
-        TEST(!reg.is_transfer_safe<sf_test::Packet>(),
-             "P6.6b: Packet does not match (different platform)", passed, failed);
-        TEST(reg.is_transfer_safe<sf_test::AesKey256>(),
-             "P6.6c: AesKey256 matches in multi-type registry", passed, failed);
-    }
-
-    // --- Part 7: Diagnostic output ---
-
-    std::cout << "\n--- Part 7: Diagnostics ---\n";
-
-    // 7.1: Diagnose a mismatch
-    {
-        SignatureRegistry reg;
-        reg.register_local<sf_test::Sensor>();
-
-        auto key = std::string(typeid(sf_test::Sensor).name());
-        reg.register_remote(key, "[32-le]{c8@0,i32@4,f64@8|16|4}");
-
-        std::string diag = reg.diagnose<sf_test::Sensor>();
-        TEST(diag.find("local:") != std::string::npos &&
-             diag.find("remote:") != std::string::npos,
-             "P7.1: diagnose() produces local and remote info", passed, failed);
-        std::cout << "    Diagnostic output:\n";
-        // Indent each line
-        for (char c : diag) {
-            if (c == '\n') std::cout << "\n    ";
-            else std::cout << c;
-        }
-        std::cout << "\n";
-    }
-
-    // 7.2: Diagnose unregistered remote
-    {
-        SignatureRegistry reg;
-        reg.register_local<sf_test::Vec3>();
-
-        std::string diag = reg.diagnose<sf_test::Vec3>();
-        TEST(diag.find("(not registered)") != std::string::npos,
-             "P7.2: diagnose() shows (not registered) for missing remote", passed, failed);
-    }
-
-    // --- Part 8: is_transfer_safe ---
-
-    std::cout << "\n--- Part 8: is_transfer_safe ---\n";
-
-    // 8.1: Same endpoint, matching signature → true
+    // 6.1: Same endpoint, matching signature -> true
     {
         constexpr auto local_sig = get_layout_signature<sf_test::Vec3>();
         bool result = is_transfer_safe<sf_test::Vec3>(std::string_view(local_sig));
-        TEST(result, "P8.1: Vec3 same signature -> is_transfer_safe", passed, failed);
+        TEST(result, "P6.1: Vec3 same signature -> is_transfer_safe", passed, failed);
     }
 
-    // 8.2: Same endpoint, different signature → false (condition 3 fails)
+    // 6.2: Same endpoint, different signature -> false (condition 3 fails)
     {
         bool result = is_transfer_safe<sf_test::Vec3>("[32-le]record[s:12,a:4]{@0:f32[s:4,a:4]}");
-        TEST(!result, "P8.2: Vec3 wrong signature -> not is_transfer_safe", passed, failed);
+        TEST(!result, "P6.2: Vec3 wrong signature -> not is_transfer_safe", passed, failed);
     }
 
-    // 8.3: WithPtr: condition 2 (!has_pointer) fails → always false
+    // 6.3: WithPtr: condition 2 (!has_pointer) fails -> always false
     {
         constexpr auto local_sig = get_layout_signature<sf_test::Vec3>();
         // Even if we pass a matching-looking sig, WithPtr has a pointer → false
         bool result = is_transfer_safe<sf_test::WithPtr>(std::string_view(local_sig));
-        TEST(!result, "P8.3: WithPtr (has_pointer) -> not is_transfer_safe", passed, failed);
+        TEST(!result, "P6.3: WithPtr (has_pointer) -> not is_transfer_safe", passed, failed);
     }
 
-    // 8.4: Opaque type, matching signature → true
+    // 6.4: Opaque type, matching signature -> true
     {
         constexpr auto local_sig = get_layout_signature<sf_test::AesKey256>();
         bool result = is_transfer_safe<sf_test::AesKey256>(std::string_view(local_sig));
-        TEST(result, "P8.4: AesKey256 matching signature -> is_transfer_safe", passed, failed);
+        TEST(result, "P6.4: AesKey256 matching signature -> is_transfer_safe", passed, failed);
     }
 
-    // 8.5: Opaque type, wrong tag in remote signature → false
+    // 6.5: Opaque type, wrong tag in remote signature -> false
     {
         constexpr auto wrong_sig = get_layout_signature<sf_test::ActuatorRaw>();
         bool result = is_transfer_safe<sf_test::SensorRaw>(std::string_view(wrong_sig));
-        TEST(!result, "P8.5: SensorRaw vs ActuatorRaw signature -> not is_transfer_safe", passed, failed);
+        TEST(!result, "P6.5: SensorRaw vs ActuatorRaw signature -> not is_transfer_safe", passed, failed);
     }
 
-    // 8.6: LibHandle has_pointer=true → always false even with exact signature
+    // 6.6: LibHandle has_pointer=true -> always false even with exact signature
     {
         constexpr auto local_sig = get_layout_signature<sf_test::LibHandle>();
         bool result = is_transfer_safe<sf_test::LibHandle>(std::string_view(local_sig));
-        TEST(!result, "P8.6: LibHandle (has_pointer=true) -> not is_transfer_safe", passed, failed);
+        TEST(!result, "P6.6: LibHandle (has_pointer=true) -> not is_transfer_safe", passed, failed);
     }
 
-    // 8.7: Relocatable opaque type, matching signature -> true (NEW)
+    // 6.7: Relocatable opaque type, matching signature -> true
     {
         constexpr auto local_sig = get_layout_signature<sf_test::FakeOffsetStr>();
         bool result = is_transfer_safe<sf_test::FakeOffsetStr>(std::string_view(local_sig));
-        TEST(result, "P8.7: FakeOffsetStr (relocatable opaque) matching sig -> is_transfer_safe", passed, failed);
+        TEST(result, "P6.7: FakeOffsetStr (relocatable opaque) matching sig -> is_transfer_safe", passed, failed);
     }
 
-    // 8.8: Relocatable opaque type, mismatched signature -> false
+    // 6.8: Relocatable opaque type, mismatched signature -> false
     {
         bool result = is_transfer_safe<sf_test::FakeOffsetStr>("[64-le]O(fofs|64|8)");
-        TEST(!result, "P8.8: FakeOffsetStr wrong sig -> not is_transfer_safe", passed, failed);
+        TEST(!result, "P6.8: FakeOffsetStr wrong sig -> not is_transfer_safe", passed, failed);
     }
 
-    // 8.9: Composite struct with opaque members, matching signature -> true (NEW)
+    // 6.9: Composite struct with opaque members, matching signature -> true
     {
         constexpr auto local_sig = get_layout_signature<sf_test::MessageWithOffsetStr>();
         bool result = is_transfer_safe<sf_test::MessageWithOffsetStr>(std::string_view(local_sig));
-        TEST(result, "P8.9: MessageWithOffsetStr (composite+opaque) matching sig -> is_transfer_safe", passed, failed);
+        TEST(result, "P6.9: MessageWithOffsetStr (composite+opaque) matching sig -> is_transfer_safe", passed, failed);
     }
 
-    // --- Part 8b: SignatureRegistry with relocatable opaque types ---
-
-    std::cout << "\n--- Part 8b: SignatureRegistry with relocatable opaque ---\n";
-
-    // 8b.1: Register relocatable opaque type
-    {
-        SignatureRegistry reg;
-        reg.register_local<sf_test::FakeOffsetStr>();
-
-        auto key = std::string(typeid(sf_test::FakeOffsetStr).name());
-        auto local_sig = std::string_view(layout_traits<sf_test::FakeOffsetStr>::signature);
-        reg.register_remote(key, local_sig);
-
-        bool result = reg.is_transfer_safe<sf_test::FakeOffsetStr>();
-        TEST(result, "P8b.1: relocatable opaque in registry -> transfer_safe", passed, failed);
-    }
-
-    // 8b.2: Register struct with opaque members
-    {
-        SignatureRegistry reg;
-        reg.register_local<sf_test::MessageWithOffsetStr>();
-
-        auto key = std::string(typeid(sf_test::MessageWithOffsetStr).name());
-        auto local_sig = std::string_view(layout_traits<sf_test::MessageWithOffsetStr>::signature);
-        reg.register_remote(key, local_sig);
-
-        bool result = reg.is_transfer_safe<sf_test::MessageWithOffsetStr>();
-        TEST(result, "P8b.2: struct with opaque member in registry -> transfer_safe", passed, failed);
-    }
-
-    std::cout << "\n--- Part 9: Signature info ---\n";
+    std::cout << "\n--- Part 7: Signature info ---\n";
     std::cout << "Vec3 signature:       "
               << layout_traits<sf_test::Vec3>::signature.value << "\n";
     std::cout << "Vec3 has_opaque:      "

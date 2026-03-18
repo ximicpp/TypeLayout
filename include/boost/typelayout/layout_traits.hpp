@@ -230,6 +230,8 @@ consteval bool compute_has_padding() noexcept {
 
 } // namespace detail
 
+namespace detail {
+
 template <typename T>
 struct layout_traits {
     static constexpr auto signature = get_layout_signature<T>();
@@ -276,6 +278,8 @@ struct layout_traits {
     static constexpr std::size_t alignment = alignof(T);
 
 };
+
+} // namespace detail
 
 } // inline namespace v1
 } // namespace typelayout

@@ -13,11 +13,13 @@
 // Distributed under the Boost Software License, Version 1.0.
 
 #include <boost/typelayout/typelayout.hpp>
+#include <boost/typelayout/layout_traits.hpp>
 #include "test_util.hpp"
 #include <iostream>
 #include <cstdint>
 
 using namespace boost::typelayout;
+using boost::typelayout::detail::layout_traits;
 
 // =========================================================================
 // Test types
@@ -255,19 +257,19 @@ static_assert(
 
 // Same layout, different names -> must match
 static_assert(
-    layout_signatures_match<test_types::PairA, test_types::PairB>(),
+    get_layout_signature<test_types::PairA>() == get_layout_signature<test_types::PairB>(),
     "P6.1: PairA and PairB have identical layout, signatures must match"
 );
 
 // Different layout -> must not match
 static_assert(
-    !layout_signatures_match<test_types::PairA, test_types::PairC>(),
+    !(get_layout_signature<test_types::PairA>() == get_layout_signature<test_types::PairC>()),
     "P6.2: PairA and PairC have different layouts, signatures must differ"
 );
 
 // Self-comparison -> must match
 static_assert(
-    layout_signatures_match<test_types::Compact, test_types::Compact>(),
+    get_layout_signature<test_types::Compact>() == get_layout_signature<test_types::Compact>(),
     "P6.3: same type compared with itself must match"
 );
 
