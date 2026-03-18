@@ -291,20 +291,6 @@ inline constexpr SafetyLevel classify_v = classify<T>::value;
 
 Compile-time safety classification using `layout_traits<T>`.
 
-### Convenience Predicates
-
-```cpp
-template <typename T>
-inline constexpr bool is_trivial_safe_v;   // true if classify_v<T> == TrivialSafe
-
-template <typename T>
-inline constexpr bool is_layout_compatible_v;  // true if classify_v<T> <= PaddingRisk
-// Note: PaddingRisk types may leak uninitialized padding bytes (info-leak caveat).
-
-template <typename T>
-inline constexpr bool is_memcpy_safe_v;    // deprecated alias for is_layout_compatible_v
-```
-
 **Example**:
 
 ```cpp
@@ -315,44 +301,13 @@ struct HasPtr { int* p; };
 static_assert(classify_v<Safe>   == SafetyLevel::TrivialSafe);
 static_assert(classify_v<Padded> == SafetyLevel::PaddingRisk);
 static_assert(classify_v<HasPtr> == SafetyLevel::PointerRisk);
-
-static_assert(is_trivial_safe_v<Safe>);
-static_assert(is_layout_compatible_v<Padded>);
-static_assert(!is_layout_compatible_v<HasPtr>);
 ```
 
 ---
 
-## Tools: serialization_free
+## Tools: transfer
 
-**Header**: `<boost/typelayout/tools/serialization_free.hpp>` (requires P2996)
-
-### `is_local_serialization_free<T>`
-
-```cpp
-template <typename T>
-struct is_local_serialization_free;
-
-template <typename T>
-inline constexpr bool is_local_serialization_free_v;
-```
-
-Compile-time check of conditions 1 and 2 (local endpoint only):
-1. The type has no pointers, no opaque fields, and no platform-variant types.
-2. The type has `TrivialSafe` or `PaddingRisk` safety level.
-
-### `serialization_free_assert<T>`
-
-```cpp
-template <typename T>
-struct serialization_free_assert {
-    static constexpr bool value;
-    // static_assert fires with a descriptive message if conditions 1+2 fail
-};
-```
-
-Drop-in compile-time assertion helper. Include in a translation unit to enforce
-the local conditions at build time.
+**Header**: `<boost/typelayout/tools/transfer.hpp>` (requires P2996)
 
 ### `is_transfer_safe<T>(std::string_view)`
 
@@ -363,8 +318,8 @@ template <typename T>
 
 Runtime check: compares the local layout signature of `T` against a remote
 signature string received at runtime. Returns `true` only when:
-1. `is_local_serialization_free_v<T>` holds (local conditions), and
-2. The remote signature string matches the local signature exactly (condition 3).
+1. `is_byte_copy_safe_v<T>` holds (no pointers, no unsafe opaque fields), and
+2. The remote signature string matches the local signature exactly.
 
 Use this in plugin-load or handshake scenarios where the remote signature is
 not known at compile time.
@@ -386,10 +341,10 @@ public:
     void register_remote(std::string_view type_name, std::string_view remote_sig);
 
     // Check by template (uses typeid(T).name() as key -- legacy overload).
-    template <typename T> [[nodiscard]] bool is_serialization_free() const;
+    template <typename T> [[nodiscard]] bool is_transfer_safe() const;
 
     // Check by explicit key.
-    [[nodiscard]] bool is_serialization_free(std::string_view key) const;
+    [[nodiscard]] bool is_transfer_safe(std::string_view key) const;
 
     // Human-readable diagnostic for a type (template overload uses typeid key).
     template <typename T> [[nodiscard]] std::string diagnose() const;
@@ -409,7 +364,7 @@ reg.register_local<SensorRecord>("SensorRecord");
 reg.register_remote("PacketHeader", received_sig_a);
 reg.register_remote("SensorRecord", received_sig_b);
 
-if (!reg.is_serialization_free("PacketHeader")) {
+if (!reg.is_transfer_safe("PacketHeader")) {
     std::cerr << reg.diagnose("PacketHeader") << "\n";
 }
 ```
@@ -420,7 +375,7 @@ if (!reg.is_serialization_free("PacketHeader")) {
 SignatureRegistry reg;
 reg.register_local<PacketHeader>();  // key = typeid(PacketHeader).name()
 reg.register_remote(typeid(PacketHeader).name(), received_sig);
-if (!reg.is_serialization_free<PacketHeader>()) { ... }
+if (!reg.is_transfer_safe<PacketHeader>()) { ... }
 ```
 
 ---
@@ -585,8 +540,8 @@ and detected by comparing byte coverage against `sizeof(T)`.
 | `<boost/typelayout/fwd.hpp>` | Forward declarations |
 | `<boost/typelayout/config.hpp>` | Configuration macros |
 | `<boost/typelayout/tools/safety_level.hpp>` | `SafetyLevel`, `classify_signature`, `sig_has_padding` |
-| `<boost/typelayout/tools/classify.hpp>` | `classify<T>`, `classify_v<T>`, `is_trivial_safe_v`, `is_layout_compatible_v` |
-| `<boost/typelayout/tools/serialization_free.hpp>` | `is_local_serialization_free`, `is_transfer_safe`, `SignatureRegistry` |
+| `<boost/typelayout/tools/classify.hpp>` | `classify<T>`, `classify_v<T>` |
+| `<boost/typelayout/tools/transfer.hpp>` | `is_transfer_safe`, `SignatureRegistry` |
 | `<boost/typelayout/tools/sig_export.hpp>` | `SigExporter`, `TYPELAYOUT_EXPORT_TYPES`, `TYPELAYOUT_REGISTER_TYPES` |
 | `<boost/typelayout/tools/compat_check.hpp>` | `CompatReporter` |
 | `<boost/typelayout/tools/compat_auto.hpp>` | `TYPELAYOUT_CHECK_COMPAT`, `TYPELAYOUT_ASSERT_COMPAT` |

@@ -41,7 +41,7 @@ include/boost/typelayout/
 include/boost/typelayout/tools/
   safety_level.hpp            # SafetyLevel enum + classify_signature()
   classify.hpp                # classify<T> (compile-time, wraps layout_traits)
-  serialization_free.hpp      # is_local_serialization_free<T>, SignatureRegistry
+  transfer.hpp                # SignatureRegistry, is_transfer_safe
   sig_export.hpp              # SigExporter, TYPELAYOUT_EXPORT_TYPES
   sig_types.hpp               # TypeEntry, PlatformInfo structs (shared)
   compat_check.hpp            # CompatReporter (cross-platform diff)
@@ -156,8 +156,7 @@ constexpr SafetyLevel classify_signature(std::string_view sig) noexcept;
 constexpr bool sig_has_padding(std::string_view sig) noexcept;
 constexpr bool sig_contains_token(std::string_view haystack, std::string_view needle) noexcept;
 
-// -- Serialization-free check --
-template <typename T> inline constexpr bool is_local_serialization_free_v;
+// -- Transfer-safe check --
 template <typename T> bool is_transfer_safe(std::string_view remote_sig);
 
 // -- Opaque registration macro --
@@ -255,7 +254,7 @@ When modifying a file, ALWAYS check its dependents:
 
 ## 6. Testing Rules
 
-### 6.1 Test Catalog (11 tests: 6 core + 5 tools)
+### 6.1 Test Catalog (12 tests: 7 core + 5 tools)
 
 | Test                          | Layer  | Timeout | What it validates                                   |
 |-------------------------------|--------|---------|-----------------------------------------------------|
@@ -266,10 +265,11 @@ When modifying a file, ALWAYS check its dependents:
 | `test_padding_precision.cpp`  | Core   | 120s    | Byte-coverage bitmap vs sig parser, classify         |
 | `test_byte_copy_safe.cpp`     | Core   | 120s    | Recursive byte-copy admission, opaque elements      |
 | `test_classify.cpp`           | Tools  | 120s    | Five-tier classify<T> for all type categories       |
-| `test_serialization_free.cpp` | Tools  | 120s    | is_local_serialization_free, SignatureRegistry       |
+| `test_transfer.cpp`           | Tools  | 120s    | is_byte_copy_safe, SignatureRegistry, is_transfer_safe |
 | `test_sig_export.cpp`         | Tools  | 120s    | SigExporter output structure                        |
 | `test_rt_padding.cpp`         | Tools  | 120s    | Runtime sig_has_padding                             |
 | `test_compat_check.cpp`       | Tools  | 120s    | CompatReporter, classify_signature                  |
+| `test_advanced_types.cpp`     | Core   | 120s    | Advanced type scenarios, cross-platform compat       |
 
 ### 6.2 Testing Invariants
 
@@ -350,7 +350,7 @@ cmake --build build --target test_layout_traits
 ### 7.6 Important Notes
 
 - `LD_LIBRARY_PATH` is required at runtime for P2996 libc++.
-- All 11 tests must pass (6 core + 5 tools).
+- All 12 tests must pass (7 core + 5 tools).
 - If build fails with stale cache, delete `build/` and reconfigure.
 - Git push from Windows uses Windows git (WSL lacks HTTPS credentials).
 
@@ -450,6 +450,6 @@ Before committing any change, verify:
 - [ ] **No .cpp in library**: Only test/ contains `.cpp` files.
 - [ ] **No emoji**: Plain text only in all files.
 - [ ] **AGENTS.md updated**: Test table reflects any new/changed tests.
-- [ ] **All 11 tests pass**: Run full `ctest` before pushing.
+- [ ] **All 12 tests pass**: Run full `ctest` before pushing.
 
 </rule>

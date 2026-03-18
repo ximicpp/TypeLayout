@@ -157,23 +157,4 @@
               ::boost::typelayout::is_byte_copy_safe_v<K_> &&                  \
               ::boost::typelayout::is_byte_copy_safe_v<V_>> {};
 
-// ===========================================================================
-// Aliases with explicit naming (recommended for new code).
-//
-// TYPELAYOUT_REGISTER_OPAQUE_TRIVIAL     -- requires trivially_copyable
-// TYPELAYOUT_REGISTER_OPAQUE_RELOCATABLE -- no trivially_copyable check
-// ===========================================================================
-
-#define TYPELAYOUT_REGISTER_OPAQUE_TRIVIAL(Type, Tag, HasPointer) \
-    TYPELAYOUT_REGISTER_OPAQUE(Type, Tag, HasPointer)
-
-#define TYPELAYOUT_REGISTER_OPAQUE_RELOCATABLE(Type, name) \
-    TYPELAYOUT_OPAQUE_TYPE_RELOCATABLE(Type, name)
-
-#define TYPELAYOUT_REGISTER_OPAQUE_CONTAINER_RELOCATABLE(Template, name) \
-    TYPELAYOUT_OPAQUE_CONTAINER_RELOCATABLE(Template, name)
-
-#define TYPELAYOUT_REGISTER_OPAQUE_MAP_RELOCATABLE(Template, name) \
-    TYPELAYOUT_OPAQUE_MAP_RELOCATABLE(Template, name)
-
 #endif // BOOST_TYPELAYOUT_OPAQUE_HPP

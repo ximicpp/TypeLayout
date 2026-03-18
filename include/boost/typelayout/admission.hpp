@@ -1,22 +1,19 @@
 // admission.hpp -- Byte-copy safety admission predicate.
 //
 // is_byte_copy_safe_v<T> determines whether type T is safe for byte-level
-// copying (memcpy) given all registered opaque type guarantees.
+// transport (memcpy to a buffer, send over network, write to shared memory).
 //
-// This is a broader predicate than is_local_serialization_free_v<T>:
-//   - is_local_serialization_free requires trivially_copyable + no pointer
-//   - is_byte_copy_safe recursively checks each member/base, accepting
-//     registered relocatable opaque types that are not trivially_copyable
+// The predicate recursively checks each member and base class:
+//   - Trivially copyable types without pointers: safe
+//   - Registered relocatable opaque types with safe elements: safe
+//   - Types with pointers, references, or unregistered opaque members: unsafe
 //
-// Relationship to SafetyLevel (tools/safety_level.hpp):
+// Relationship to compat::SafetyLevel (tools/safety_level.hpp):
 //   SafetyLevel and is_byte_copy_safe are orthogonal dimensions:
-//   - SafetyLevel measures "how much external trust is required" -- a type
-//     with SafetyLevel::Opaque means TypeLayout cannot verify it autonomously.
-//   - is_byte_copy_safe measures "given that trust, is the type safe" -- it
-//     accepts opaque types whose user-declared guarantees indicate safety.
-//   A type can be SafetyLevel::Opaque AND is_byte_copy_safe == true.
-//   This is not contradictory: the safety level describes analyzability,
-//   while is_byte_copy_safe describes the conclusion given user declarations.
+//   - SafetyLevel measures "how much external trust is required" (display-only).
+//   - is_byte_copy_safe measures "given that trust, is the type safe".
+//   A type can be Opaque AND is_byte_copy_safe == true: the safety level
+//   describes analyzability, is_byte_copy_safe describes the conclusion.
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
@@ -119,7 +116,7 @@ consteval bool is_byte_copy_safe_impl() noexcept {
 // call member functions on it.
 //
 // For types where memcpy produces a valid C++ object (trivially_copyable),
-// use is_local_serialization_free_v<T> instead (tools/serialization_free.hpp).
+// check std::is_trivially_copyable_v<T> && is_byte_copy_safe_v<T>.
 template <typename T>
 struct is_byte_copy_safe
     : std::bool_constant<detail::is_byte_copy_safe_impl<T>()> {};

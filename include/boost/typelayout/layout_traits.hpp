@@ -34,19 +34,6 @@ consteval bool sig_has_pointer(const Sig& sig) noexcept {
            sig.contains_token(FixedString{"rref["});
 }
 
-template <typename Sig>
-consteval bool sig_has_bit_field(const Sig& sig) noexcept {
-    return sig.contains(FixedString{"bits<"});
-}
-
-template <typename Sig>
-consteval bool sig_has_platform_variant(const Sig& sig) noexcept {
-    // Platform-dependent primitive types only (not pointers -- those are
-    // caught by sig_has_pointer with higher-priority PointerRisk).
-    return sig.contains(FixedString{"wchar["}) ||
-           sig.contains(FixedString{"fld["});
-}
-
 // Recursively check whether T (or any nested member/base) is opaque.
 template <typename T>
 consteval bool type_has_opaque() noexcept;
@@ -256,14 +243,8 @@ struct layout_traits {
         }
     }();
 
-    static constexpr bool has_bit_field =
-        detail::sig_has_bit_field(signature);
-
     static constexpr bool has_opaque =
         detail::type_has_opaque<T>();
-
-    static constexpr bool is_platform_variant =
-        detail::sig_has_platform_variant(signature);
 
     static constexpr bool has_padding =
         detail::compute_has_padding<T>();
@@ -295,15 +276,6 @@ struct layout_traits {
     static constexpr std::size_t alignment = alignof(T);
 
 };
-
-template <typename T, typename U>
-struct signature_compare {
-    static constexpr bool value =
-        layout_traits<T>::signature == layout_traits<U>::signature;
-};
-
-template <typename T, typename U>
-inline constexpr bool signature_compare_v = signature_compare<T, U>::value;
 
 } // inline namespace v1
 } // namespace typelayout

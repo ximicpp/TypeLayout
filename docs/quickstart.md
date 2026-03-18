@@ -129,9 +129,9 @@ struct Padded { uint32_t x; double   y; };
 static_assert(classify_v<Safe>   == SafetyLevel::TrivialSafe);
 static_assert(classify_v<Padded> == SafetyLevel::PaddingRisk);
 
-// Convenience predicates:
-static_assert(is_trivial_safe_v<Safe>);    // only TrivialSafe
-static_assert(is_layout_compatible_v<Padded>);   // TrivialSafe or PaddingRisk
+// Direct checks on classify_v:
+static_assert(classify_v<Safe>   == SafetyLevel::TrivialSafe);
+static_assert(classify_v<Padded> <= SafetyLevel::PaddingRisk);  // TrivialSafe or PaddingRisk
 ```
 
 SafetyLevel enum (ordered best to worst):
@@ -296,7 +296,7 @@ For scenarios where the remote type's signature is received at runtime (e.g., a
 plugin that exports its signature string over IPC or RPC):
 
 ```cpp
-#include <boost/typelayout/tools/serialization_free.hpp>
+#include <boost/typelayout/tools/transfer.hpp>
 using namespace boost::typelayout;
 
 // Plugin exports at load time:
@@ -322,7 +322,7 @@ reg.register_local<SensorRecord>();
 reg.register_remote("PacketHeader", received_packet_sig);
 reg.register_remote("SensorRecord", received_sensor_sig);
 
-if (!reg.is_serialization_free<PacketHeader>()) {
+if (!reg.is_transfer_safe<PacketHeader>()) {
     std::cerr << reg.diagnose<PacketHeader>() << "\n";
 }
 ```

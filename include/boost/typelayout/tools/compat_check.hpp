@@ -121,19 +121,17 @@ public:
         platforms_.push_back({name, types, count});
     }
 
-    // Serialization-free criteria for a type across a set of platforms:
-    //   (1) trivially_copyable — guaranteed by SigExporter::add<T>'s static_assert
+    // Transfer-safe criteria for a type across a set of platforms:
+    //   (1) byte-copy safe — guaranteed by SigExporter::add<T>'s static_assert
     //   (2) no pointer/reference members — detected as PointerRisk
     //   (3) layout signature matches across the specified platforms
     // Opaque types are allowed: the user registered them via
     // TYPELAYOUT_REGISTER_OPAQUE and takes responsibility for their layout.
-    // If opaque signatures (O(Tag|N|A)) match across platforms, the type
-    // is considered serialization-free.
     // PaddingRisk and PlatformVariant do NOT disqualify: padding is an
     // info-leak concern, and platform-variant types that match on the
     // given platforms are fine for those platforms.
 
-    /// Check if the specified types are serialization-free across the
+    /// Check if the specified types are transfer-safe across the
     /// specified platforms.  This is the core query for the use case:
     /// "given type set T and platform set P, can I memcpy safely?"
     ///
@@ -142,30 +140,29 @@ public:
     /// and none of those signatures contain pointers.
     ///
     /// Usage (brace-init):
-    ///   reporter.are_serialization_free(
+    ///   reporter.are_transfer_safe(
     ///       {"PacketHeader", "SensorRecord"},
     ///       {"x86_64_linux_clang", "arm64_macos_clang"});
     ///
     /// Usage (programmatic):
     ///   std::vector<std::string> types = read_config("types.txt");
     ///   std::vector<std::string> plats = read_config("platforms.txt");
-    ///   reporter.are_serialization_free(types, plats);
-    [[nodiscard]] bool are_serialization_free(
+    ///   reporter.are_transfer_safe(types, plats);
+    [[nodiscard]] bool are_transfer_safe(
             std::initializer_list<std::string_view> type_names,
             std::initializer_list<std::string_view> platform_names) const {
-        return check_serialization_free(type_names.begin(), type_names.end(),
-                                        platform_names.begin(), platform_names.end());
+        return check_transfer_safe(type_names.begin(), type_names.end(),
+                                   platform_names.begin(), platform_names.end());
     }
 
     /// Overload accepting vectors (for programmatic use).
-    [[nodiscard]] bool are_serialization_free(
+    [[nodiscard]] bool are_transfer_safe(
             const std::vector<std::string>& type_names,
             const std::vector<std::string>& platform_names) const {
-        // Build string_view spans over the owned strings.
         std::vector<std::string_view> tv(type_names.begin(), type_names.end());
         std::vector<std::string_view> pv(platform_names.begin(), platform_names.end());
-        return check_serialization_free(tv.begin(), tv.end(),
-                                        pv.begin(), pv.end());
+        return check_transfer_safe(tv.begin(), tv.end(),
+                                   pv.begin(), pv.end());
     }
 
     std::vector<TypeResult> compare() const {
@@ -235,7 +232,6 @@ private:
 
     void print_report_impl(std::ostream& os, bool with_diff) const {
         auto results = compare();
-        int serialization_free = 0;
         int transfer_safe = 0;
         int layout_compatible = 0;
         int total = static_cast<int>(results.size());
@@ -279,7 +275,7 @@ private:
         }
         os << "\n";
 
-        os << "Safety: *** = serialization-free, **- = transfer-safe (padding risk),\n"
+        os << "Safety: *** = transfer-safe, **- = transfer-safe (padding risk),\n"
            << "        *!- = pointer risk, *-- = platform-variant, --- = opaque.\n\n";
 
         os << std::string(72, '-') << "\n";
@@ -291,8 +287,7 @@ private:
 
         for (const auto& r : results) {
             std::string layout_str = r.layout_match ? "MATCH" : "DIFFER";
-            std::string verdict = format_verdict(r, serialization_free,
-                                                 transfer_safe,
+            std::string verdict = format_verdict(r, transfer_safe,
                                                  layout_compatible);
 
             os << "  " << std::left << std::setw(24) << r.name
@@ -360,30 +355,19 @@ private:
         // Summary
         os << std::string(72, '=') << "\n";
         if (transfer_safe == total) {
-            if (serialization_free == total) {
-                os << "  ALL " << total
-                   << " type(s) are serialization-free across all platforms!\n";
-            } else {
-                os << "  ALL " << total
-                   << " type(s) are transfer-safe across all platforms!\n";
-                os << "  Serialization-free (strict): " << serialization_free
-                   << "/" << total << " (TrivialSafe only)\n";
-            }
+            os << "  ALL " << total
+               << " type(s) are transfer-safe across all platforms!\n";
         } else {
             int ts_pct = total > 0 ? (transfer_safe * 100 / total) : 0;
             os << "  Transfer-safe:              " << transfer_safe
                << "/" << total << " (" << ts_pct << "%)"
                << " (byte-copy safe + layout match)\n";
-            if (serialization_free > 0 && serialization_free < transfer_safe) {
-                os << "  Serialization-free (strict): " << serialization_free
-                   << "/" << total << " (TrivialSafe only)\n";
-            }
             if (layout_compatible > transfer_safe) {
                 os << "  Layout-compatible:          " << layout_compatible
                    << "/" << total
                    << " (layout matches but has pointers)\n";
             }
-            os << "  Needs serialization:        " << (total - layout_compatible)
+            os << "  Layout mismatch:            " << (total - layout_compatible)
                << "/" << total << "\n";
         }
         os << std::string(72, '=') << "\n\n";
@@ -393,15 +377,13 @@ private:
     }
 
     static std::string format_verdict(const TypeResult& r,
-                                      int& serialization_free,
                                       int& transfer_safe,
                                       int& layout_compatible) {
         if (r.layout_match) {
             ++layout_compatible;
             if (r.safety == SafetyLevel::TrivialSafe) {
-                ++serialization_free;
                 ++transfer_safe;
-                return "Serialization-free";
+                return "Transfer-safe";
             } else if (r.safety == SafetyLevel::PaddingRisk) {
                 ++transfer_safe;
                 return "Transfer-safe (padding may leak uninitialized bytes)";
@@ -415,7 +397,7 @@ private:
                 return "Transfer-safe (verify bit-fields manually)";
             }
         }
-        return "Needs serialization";
+        return "Layout mismatch";
     }
 
     static std::string format_diff(const std::string& a, const std::string& b,
@@ -442,7 +424,7 @@ private:
     }
 
     template <typename TIter, typename PIter>
-    bool check_serialization_free(TIter t_begin, TIter t_end,
+    bool check_transfer_safe(TIter t_begin, TIter t_end,
                                   PIter p_begin, PIter p_end) const {
         if (t_begin == t_end || p_begin == p_end)
             return false;

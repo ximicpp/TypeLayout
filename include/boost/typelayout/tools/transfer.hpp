@@ -1,8 +1,4 @@
-// serialization_free.hpp -- Zero-copy transmission traits.
-//
-// is_local_serialization_free (strict C++ POD safety):
-//   (1) trivially_copyable(T)           -- memcpy preserves object model
-//   (2) !has_pointer(T)                 -- no address-space dependencies
+// transfer.hpp -- Transfer safety traits.
 //
 // is_transfer_safe (cross-endpoint verification):
 //   (a) is_byte_copy_safe_v<T>          -- safe for byte-level copy
@@ -13,8 +9,8 @@
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
-#ifndef BOOST_TYPELAYOUT_TOOLS_SERIALIZATION_FREE_HPP
-#define BOOST_TYPELAYOUT_TOOLS_SERIALIZATION_FREE_HPP
+#ifndef BOOST_TYPELAYOUT_TOOLS_TRANSFER_HPP
+#define BOOST_TYPELAYOUT_TOOLS_TRANSFER_HPP
 
 #include <boost/typelayout/layout_traits.hpp>
 #include <boost/typelayout/admission.hpp>
@@ -28,32 +24,6 @@
 namespace boost {
 namespace typelayout {
 inline namespace v1 {
-
-// is_local_serialization_free<T> -- conditions (1) + (2) at compile time.
-template <typename T>
-struct is_local_serialization_free
-    : std::bool_constant<
-          std::is_trivially_copyable_v<T> &&
-          !layout_traits<T>::has_pointer> {};
-
-template <typename T>
-inline constexpr bool is_local_serialization_free_v =
-    is_local_serialization_free<T>::value;
-
-// serialization_free_assert<T> -- static_assert for conditions (1) + (2).
-template <typename T>
-struct serialization_free_assert {
-    static_assert(std::is_trivially_copyable_v<T>,
-        "Serialization-free requires trivially_copyable. "
-        "Type has non-trivial copy/move/destructor.");
-
-    static_assert(!layout_traits<T>::has_pointer,
-        "Serialization-free requires no pointers. "
-        "Type contains pointer or reference members "
-        "that are address-space dependent.");
-
-    static constexpr bool value = true;
-};
 
 // is_transfer_safe<T>(remote_sig) -- byte-copy safe + signature match.
 // Condition (a) compile-time, condition (b) runtime.
@@ -71,7 +41,7 @@ template <typename T>
 }
 
 // SignatureRegistry -- runtime registry for handshake-based checks.
-// register_local<T>(), exchange, register_remote(), is_serialization_free().
+// register_local<T>(), exchange, register_remote(), is_transfer_safe().
 
 class SignatureRegistry {
 public:
@@ -81,7 +51,7 @@ public:
     void register_local(std::string_view key) {
         static_assert(is_byte_copy_safe_v<T>,
             "Only byte-copy safe types can be registered. "
-            "Type must be either locally serialization-free (trivially_copyable + no pointer) "
+            "Type must be trivially_copyable without pointers, "
             "or a registered relocatable opaque type with safe elements.");
 
         local_signatures_[std::string(key)] =
@@ -100,7 +70,7 @@ public:
     void register_local() {
         static_assert(is_byte_copy_safe_v<T>,
             "Only byte-copy safe types can be registered. "
-            "Type must be either locally serialization-free (trivially_copyable + no pointer) "
+            "Type must be trivially_copyable without pointers, "
             "or a registered relocatable opaque type with safe elements.");
 
         auto key = default_type_key<T>();
@@ -113,10 +83,9 @@ public:
         remote_signatures_[std::string(type_name)] = std::string(remote_sig);
     }
 
-    // is_serialization_free -- historical name. Checks whether a type is
-    // safe for cross-endpoint zero-copy transfer (byte-copy safe + sig match).
-    // Despite the name, this now also accepts registered relocatable opaque types.
-    [[nodiscard]] bool is_serialization_free(std::string_view key) const {
+    // is_transfer_safe -- checks whether a type is safe for cross-endpoint
+    // zero-copy transfer (byte-copy safe + signature match).
+    [[nodiscard]] bool is_transfer_safe(std::string_view key) const {
         auto local_it = local_signatures_.find(std::string(key));
         auto remote_it = remote_signatures_.find(std::string(key));
 
@@ -127,8 +96,8 @@ public:
     }
 
     template <typename T>
-    [[nodiscard]] bool is_serialization_free() const {
-        return is_serialization_free(default_type_key<T>());
+    [[nodiscard]] bool is_transfer_safe() const {
+        return is_transfer_safe(default_type_key<T>());
     }
 
     [[nodiscard]] std::string diagnose(std::string_view key) const {
@@ -181,4 +150,4 @@ private:
 } // namespace typelayout
 } // namespace boost
 
-#endif // BOOST_TYPELAYOUT_TOOLS_SERIALIZATION_FREE_HPP
+#endif // BOOST_TYPELAYOUT_TOOLS_TRANSFER_HPP

@@ -1,22 +1,15 @@
-// Serialization-free trait tests (signature-based, no hashing).
+// Transfer safety tests (signature-based, no hashing).
 //
 // Verifies:
-//   1. is_local_serialization_free -- compile-time single-endpoint judgement
-//   2. serialization_free_assert   -- compile-time assertion helper
-//   3. TYPELAYOUT_REGISTER_OPAQUE  -- opaque type registration with Tag
-//   4. SignatureRegistry           -- runtime signature-based comparison
-//   5. Exact signature matching    -- no hash collision risk
-//   6. Diagnostic output           -- self-documenting signatures
-//   7. Composite types with opaque fields
-//
-// All compile-time assertions use static_assert.  Runtime assertions
-// use the TEST macro defined below.
-//
-// Copyright (c) 2024-2026 TypeLayout Development Team
-// Distributed under the Boost Software License, Version 1.0.
+//   1. is_byte_copy_safe           -- compile-time admission (core)
+//   2. TYPELAYOUT_REGISTER_OPAQUE  -- opaque type registration with Tag
+//   3. SignatureRegistry           -- runtime signature-based comparison
+//   4. Exact signature matching    -- no hash collision risk
+//   5. Diagnostic output           -- self-documenting signatures
+//   6. Composite types with opaque fields
 
 #include <boost/typelayout/typelayout.hpp>
-#include <boost/typelayout/tools/serialization_free.hpp>
+#include <boost/typelayout/tools/transfer.hpp>
 #include "test_util.hpp"
 #include <iostream>
 #include <cstdint>
@@ -42,7 +35,7 @@ using namespace boost::typelayout;
 
 namespace sf_test {
 
-// -- Plain POD type: should be serialization-free
+// -- Plain POD type: should be byte-copy safe
 struct Vec3 {
     float x, y, z;
 };
@@ -57,13 +50,13 @@ struct Vec4 {
     float x, y, z, w;
 };
 
-// -- Type with pointer: NOT serialization-free
+// -- Type with pointer: NOT byte-copy safe
 struct WithPtr {
     int32_t id;
     void* data;
 };
 
-// -- Non-trivially-copyable: NOT serialization-free
+// -- Non-trivially-copyable: NOT byte-copy safe
 struct NonTrivial {
     int32_t x;
     NonTrivial(const NonTrivial&) {}  // user-defined copy ctor
@@ -145,54 +138,55 @@ TYPELAYOUT_OPAQUE_TYPE_RELOCATABLE(sf_test::FakeOffsetStr, "fofs")
 }} // namespace boost::typelayout
 
 // =========================================================================
-// Part 1: is_local_serialization_free -- compile-time checks
+// Part 1: is_byte_copy_safe -- compile-time admission checks
 // =========================================================================
 
-// Plain POD: trivially copyable + no pointers = serialization-free
+// Plain POD: trivially copyable + no pointers = byte-copy safe
 static_assert(
-    is_local_serialization_free_v<sf_test::Vec3>,
-    "P1.1: Vec3 is locally serialization-free"
+    is_byte_copy_safe_v<sf_test::Vec3>,
+    "P1.1: Vec3 is byte-copy safe"
 );
 
-// Fundamental types: serialization-free
+// Fundamental types: byte-copy safe
 static_assert(
-    is_local_serialization_free_v<int32_t>,
-    "P1.2: int32_t is locally serialization-free"
+    is_byte_copy_safe_v<int32_t>,
+    "P1.2: int32_t is byte-copy safe"
 );
 
 static_assert(
-    is_local_serialization_free_v<double>,
-    "P1.3: double is locally serialization-free"
+    is_byte_copy_safe_v<double>,
+    "P1.3: double is byte-copy safe"
 );
 
-// Type with pointer: NOT serialization-free
+// Type with pointer: NOT byte-copy safe
 static_assert(
-    !is_local_serialization_free_v<sf_test::WithPtr>,
-    "P1.4: WithPtr contains a pointer, not serialization-free"
+    !is_byte_copy_safe_v<sf_test::WithPtr>,
+    "P1.4: WithPtr contains a pointer, not byte-copy safe"
 );
 
-// Non-trivially-copyable: NOT serialization-free
+// Non-trivially-copyable but all members safe: IS byte-copy safe
+// (is_byte_copy_safe recurses into members; int32_t is safe)
 static_assert(
-    !is_local_serialization_free_v<sf_test::NonTrivial>,
-    "P1.5: NonTrivial is not trivially copyable, not serialization-free"
+    is_byte_copy_safe_v<sf_test::NonTrivial>,
+    "P1.5: NonTrivial has safe members, byte-copy safe via recursion"
 );
 
-// Opaque type (pointer-free): serialization-free
+// Opaque type (pointer-free): byte-copy safe
 static_assert(
-    is_local_serialization_free_v<sf_test::AesKey256>,
-    "P1.6: AesKey256 is opaque but pointer-free, serialization-free"
+    is_byte_copy_safe_v<sf_test::AesKey256>,
+    "P1.6: AesKey256 is opaque and pointer-free, byte-copy safe"
 );
 
-// Opaque type (NOT pointer-free): NOT serialization-free
+// Opaque type (NOT pointer-free): NOT byte-copy safe
 static_assert(
-    !is_local_serialization_free_v<sf_test::LibHandle>,
-    "P1.7: LibHandle is opaque with pointers, not serialization-free"
+    !is_byte_copy_safe_v<sf_test::LibHandle>,
+    "P1.7: LibHandle is opaque with pointers, not byte-copy safe"
 );
 
-// Sensor (plain POD): serialization-free
+// Sensor (plain POD): byte-copy safe
 static_assert(
-    is_local_serialization_free_v<sf_test::Sensor>,
-    "P1.8: Sensor is locally serialization-free"
+    is_byte_copy_safe_v<sf_test::Sensor>,
+    "P1.8: Sensor is byte-copy safe"
 );
 
 // =========================================================================
@@ -226,15 +220,15 @@ static_assert(
     "P2.5: LibHandle has_pointer == true (user asserted has pointers)"
 );
 
-// is_local_serialization_free (Tool-level predicate)
+// is_byte_copy_safe (core predicate)
 static_assert(
-    is_local_serialization_free_v<sf_test::Vec3>,
-    "P2.6: Vec3 is_local_serialization_free == true"
+    is_byte_copy_safe_v<sf_test::Vec3>,
+    "P2.6: Vec3 is_byte_copy_safe == true"
 );
 
 static_assert(
-    !is_local_serialization_free_v<sf_test::WithPtr>,
-    "P2.7: WithPtr is_local_serialization_free == false"
+    !is_byte_copy_safe_v<sf_test::WithPtr>,
+    "P2.7: WithPtr is_byte_copy_safe == false"
 );
 
 // =========================================================================
@@ -280,23 +274,22 @@ static_assert(
 );
 
 // =========================================================================
-// Part 5: serialization_free_assert
+// Part 5: is_byte_copy_safe for opaque + POD types (compile-time)
 // =========================================================================
 
-// Must compile for safe types
 static_assert(
-    serialization_free_assert<sf_test::Vec3>::value,
-    "P5.1: Vec3 passes serialization_free_assert"
+    is_byte_copy_safe_v<sf_test::Vec3>,
+    "P5.1: Vec3 is byte-copy safe"
 );
 
 static_assert(
-    serialization_free_assert<int32_t>::value,
-    "P5.2: int32_t passes serialization_free_assert"
+    is_byte_copy_safe_v<int32_t>,
+    "P5.2: int32_t is byte-copy safe"
 );
 
 static_assert(
-    serialization_free_assert<sf_test::AesKey256>::value,
-    "P5.3: AesKey256 passes serialization_free_assert"
+    is_byte_copy_safe_v<sf_test::AesKey256>,
+    "P5.3: AesKey256 is byte-copy safe"
 );
 
 // =========================================================================
@@ -308,7 +301,7 @@ int main() {
     int failed = 0;
     constexpr int compile_time_tests = 20;  // static_asserts above
 
-    std::cout << "=== Serialization Free Tests (Signature-Based) ===\n\n";
+    std::cout << "=== Transfer Safety Tests (Signature-Based) ===\n\n";
     std::cout << compile_time_tests
               << " compile-time static_assert tests passed.\n\n";
 
@@ -326,11 +319,11 @@ int main() {
         auto local_sig = std::string_view(layout_traits<sf_test::Vec3>::signature);
         reg.register_remote(key, local_sig);
 
-        bool result = reg.is_serialization_free<sf_test::Vec3>();
-        TEST(result, "P6.1: same signature -> serialization_free", passed, failed);
+        bool result = reg.is_transfer_safe<sf_test::Vec3>();
+        TEST(result, "P6.1: same signature -> transfer_safe", passed, failed);
     }
 
-    // 6.2: Different signature -> not serialization_free
+    // 6.2: Different signature -> not transfer_safe
     {
         SignatureRegistry reg;
         reg.register_local<sf_test::Vec3>();
@@ -338,21 +331,21 @@ int main() {
         auto key = std::string(typeid(sf_test::Vec3).name());
         reg.register_remote(key, "[32-le]{f32@0,f32@4,f32@8|12|4}");
 
-        bool result = reg.is_serialization_free<sf_test::Vec3>();
-        TEST(!result, "P6.2: different signature -> not serialization_free", passed, failed);
+        bool result = reg.is_transfer_safe<sf_test::Vec3>();
+        TEST(!result, "P6.2: different signature -> not transfer_safe", passed, failed);
     }
 
-    // 6.3: Remote not registered -> not serialization_free
+    // 6.3: Remote not registered -> not transfer_safe
     {
         SignatureRegistry reg;
         reg.register_local<sf_test::Vec3>();
         // No register_remote call
 
-        bool result = reg.is_serialization_free<sf_test::Vec3>();
-        TEST(!result, "P6.3: remote not registered -> not serialization_free", passed, failed);
+        bool result = reg.is_transfer_safe<sf_test::Vec3>();
+        TEST(!result, "P6.3: remote not registered -> not transfer_safe", passed, failed);
     }
 
-    // 6.4: Opaque type with matching signature -> serialization_free
+    // 6.4: Opaque type with matching signature -> transfer_safe
     {
         SignatureRegistry reg;
         reg.register_local<sf_test::AesKey256>();
@@ -361,11 +354,11 @@ int main() {
         auto local_sig = std::string_view(layout_traits<sf_test::AesKey256>::signature);
         reg.register_remote(key, local_sig);
 
-        bool result = reg.is_serialization_free<sf_test::AesKey256>();
-        TEST(result, "P6.4: opaque with matching sig -> serialization_free", passed, failed);
+        bool result = reg.is_transfer_safe<sf_test::AesKey256>();
+        TEST(result, "P6.4: opaque with matching sig -> transfer_safe", passed, failed);
     }
 
-    // 6.5: Opaque type with wrong tag in remote sig -> not serialization_free
+    // 6.5: Opaque type with wrong tag in remote sig -> not transfer_safe
     {
         SignatureRegistry reg;
         reg.register_local<sf_test::SensorRaw>();
@@ -375,8 +368,8 @@ int main() {
         auto wrong_sig = std::string_view(layout_traits<sf_test::ActuatorRaw>::signature);
         reg.register_remote(key, wrong_sig);
 
-        bool result = reg.is_serialization_free<sf_test::SensorRaw>();
-        TEST(!result, "P6.5: opaque tag mismatch -> not serialization_free", passed, failed);
+        bool result = reg.is_transfer_safe<sf_test::SensorRaw>();
+        TEST(!result, "P6.5: opaque tag mismatch -> not transfer_safe", passed, failed);
     }
 
     // 6.6: Multiple types in one registry
@@ -395,11 +388,11 @@ int main() {
         reg.register_remote(pkt_key, "[32-le]{u32@0,f32@4,f32@8,f32@12|16|4}");
         reg.register_remote(aes_key, std::string_view(layout_traits<sf_test::AesKey256>::signature));
 
-        TEST(reg.is_serialization_free<sf_test::Vec3>(),
+        TEST(reg.is_transfer_safe<sf_test::Vec3>(),
              "P6.6a: Vec3 matches in multi-type registry", passed, failed);
-        TEST(!reg.is_serialization_free<sf_test::Packet>(),
+        TEST(!reg.is_transfer_safe<sf_test::Packet>(),
              "P6.6b: Packet does not match (different platform)", passed, failed);
-        TEST(reg.is_serialization_free<sf_test::AesKey256>(),
+        TEST(reg.is_transfer_safe<sf_test::AesKey256>(),
              "P6.6c: AesKey256 matches in multi-type registry", passed, failed);
     }
 
@@ -517,8 +510,8 @@ int main() {
         auto local_sig = std::string_view(layout_traits<sf_test::FakeOffsetStr>::signature);
         reg.register_remote(key, local_sig);
 
-        bool result = reg.is_serialization_free<sf_test::FakeOffsetStr>();
-        TEST(result, "P8b.1: relocatable opaque in registry -> serialization_free", passed, failed);
+        bool result = reg.is_transfer_safe<sf_test::FakeOffsetStr>();
+        TEST(result, "P8b.1: relocatable opaque in registry -> transfer_safe", passed, failed);
     }
 
     // 8b.2: Register struct with opaque members
@@ -530,8 +523,8 @@ int main() {
         auto local_sig = std::string_view(layout_traits<sf_test::MessageWithOffsetStr>::signature);
         reg.register_remote(key, local_sig);
 
-        bool result = reg.is_serialization_free<sf_test::MessageWithOffsetStr>();
-        TEST(result, "P8b.2: struct with opaque member in registry -> serialization_free", passed, failed);
+        bool result = reg.is_transfer_safe<sf_test::MessageWithOffsetStr>();
+        TEST(result, "P8b.2: struct with opaque member in registry -> transfer_safe", passed, failed);
     }
 
     std::cout << "\n--- Part 9: Signature info ---\n";

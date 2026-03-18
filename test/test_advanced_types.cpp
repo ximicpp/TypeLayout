@@ -11,9 +11,8 @@
 // Distributed under the Boost Software License, Version 1.0.
 
 #include <boost/typelayout/typelayout.hpp>
-#include <boost/typelayout/tools/classify.hpp>
 #include <boost/typelayout/tools/safety_level.hpp>
-#include <boost/typelayout/tools/serialization_free.hpp>
+#include <boost/typelayout/tools/transfer.hpp>
 #include <boost/typelayout/tools/compat_check.hpp>
 #include "test_util.hpp"
 #include <cassert>
@@ -116,19 +115,19 @@ static_assert(
     !layout_traits<md_array_tests::With3DArray>::has_padding,
     "M1.9: 3D int32_t array has no padding");
 
-// -- Part 1d: Classification of multi-dimensional array types --
+// -- Part 1d: Property checks for multi-dimensional array types --
 
 static_assert(
-    classify_v<md_array_tests::With2DArray> == SafetyLevel::TrivialSafe,
-    "M1.10: 2D int32_t array is TrivialSafe");
+    !layout_traits<md_array_tests::With2DArray>::has_padding,
+    "M1.10: 2D int32_t array has no padding");
 
 static_assert(
-    classify_v<md_array_tests::With2DPaddedArray> == SafetyLevel::PaddingRisk,
-    "M1.11: 2D array of padded elements is PaddingRisk");
+    layout_traits<md_array_tests::With2DPaddedArray>::has_padding,
+    "M1.11: 2D array of padded elements has padding");
 
 static_assert(
-    classify_v<md_array_tests::MixedWith2D> == SafetyLevel::TrivialSafe,
-    "M1.12: Mixed struct with 2D float array is TrivialSafe");
+    !layout_traits<md_array_tests::MixedWith2D>::has_padding,
+    "M1.12: Mixed struct with 2D float array has no padding");
 
 // -- Part 1e: Layout-compatible 2D vs flat struct --
 
@@ -330,6 +329,9 @@ void test_sig_parser_nested_unions() {
 }
 
 void test_classify_nested_union_sigs() {
+    using compat::classify_signature;
+    using compat::SafetyLevel;
+
     // Union in record, no padding, no pointers -> TrivialSafe
     assert(classify_signature(
         "[64-le]record[s:8,a:4]{@0:u32[s:4,a:4],@4:union[s:4,a:4]{@0:i32[s:4,a:4],@0:f32[s:4,a:4]}}")
@@ -436,38 +438,38 @@ void test_cross_platform_roundtrip() {
     assert(results[3].layout_match == true);
     assert(results[3].safety == SafetyLevel::PointerRisk);
 
-    // -- are_serialization_free subset queries --
+    // -- are_transfer_safe subset queries --
 
     // TypeA on all platforms: TrivialSafe + match -> true
-    assert(reporter.are_serialization_free(
+    assert(reporter.are_transfer_safe(
         {"TypeA"}, {"x86_64_linux", "arm64_macos", "x86_64_windows"}));
 
     // TypeB on macOS + Windows only: match (both fld 8B) + PlatformVariant -> true
-    assert(reporter.are_serialization_free(
+    assert(reporter.are_transfer_safe(
         {"TypeB"}, {"arm64_macos", "x86_64_windows"}));
 
     // TypeB on all three: layout mismatch -> false
-    assert(!reporter.are_serialization_free(
+    assert(!reporter.are_transfer_safe(
         {"TypeB"}, {"x86_64_linux", "arm64_macos", "x86_64_windows"}));
 
     // TypeC on linux + macos: match -> true
-    assert(reporter.are_serialization_free(
+    assert(reporter.are_transfer_safe(
         {"TypeC"}, {"x86_64_linux", "arm64_macos"}));
 
     // TypeC on all three: differs on windows -> false
-    assert(!reporter.are_serialization_free(
+    assert(!reporter.are_transfer_safe(
         {"TypeC"}, {"x86_64_linux", "arm64_macos", "x86_64_windows"}));
 
     // TypeD: PointerRisk blocks even though layouts match
-    assert(!reporter.are_serialization_free(
+    assert(!reporter.are_transfer_safe(
         {"TypeD"}, {"x86_64_linux", "arm64_macos"}));
 
     // Multi-type query: TypeA + TypeC on linux + macos -> true
-    assert(reporter.are_serialization_free(
+    assert(reporter.are_transfer_safe(
         {"TypeA", "TypeC"}, {"x86_64_linux", "arm64_macos"}));
 
     // Multi-type query: TypeA + TypeD -> false (TypeD has pointer)
-    assert(!reporter.are_serialization_free(
+    assert(!reporter.are_transfer_safe(
         {"TypeA", "TypeD"}, {"x86_64_linux", "arm64_macos"}));
 
     // -- Verify report output --
@@ -484,8 +486,8 @@ void test_cross_platform_roundtrip() {
     assert(report.find("TypeA") != std::string::npos);
     assert(report.find("DIFFER") != std::string::npos);  // TypeB and TypeC differ
 
-    // Report should show serialization-free for TypeA
-    assert(report.find("Serialization-free") != std::string::npos);
+    // Report should show transfer-safe for TypeA
+    assert(report.find("Transfer-safe") != std::string::npos);
 
     std::cout << "  [PASS] Cross-platform round-trip (3 platforms, 4 types)\n";
 }

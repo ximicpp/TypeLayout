@@ -2,12 +2,11 @@
 //
 // Tests is_byte_copy_safe_v<T> across all decision tree branches:
 //   Branch 1: Opaque types (has_opaque_signature)
-//   Branch 2: Locally serialization-free types (trivially_copyable + no ptr)
+//   Branch 2: Trivially copyable types with no pointer
 //   Branch 3: Recursive class types (!union, !polymorphic)
 //   Branch 4: Otherwise false
 
 #include <boost/typelayout/typelayout.hpp>
-#include <boost/typelayout/tools/serialization_free.hpp>
 #include <iostream>
 #include <cstdint>
 
@@ -237,16 +236,16 @@ static_assert(!is_byte_copy_safe_v<FakeXVector<FakeXVector<UnsafeElement>>>,
 static_assert(opaque_elements_safe<OpaqueWithPtr>::value,
     "REGISTER_OPAQUE should generate opaque_elements_safe = true");
 
-// 5.12: Subsumption -- is_local_serialization_free implies is_byte_copy_safe
-static_assert(is_local_serialization_free_v<TrivialSafe>,
-    "TrivialSafe is serialization-free");
+// 5.12: Trivially copyable safe vs opaque-based safe
+static_assert(std::is_trivially_copyable_v<TrivialSafe>,
+    "TrivialSafe is trivially copyable");
 static_assert(is_byte_copy_safe_v<TrivialSafe>,
-    "Subsumption: serialization-free implies byte-copy safe");
+    "TrivialSafe is byte-copy safe");
 
-static_assert(!is_local_serialization_free_v<MessageWithOpaque>,
-    "MessageWithOpaque is NOT serialization-free (non-trivially-copyable)");
+static_assert(!std::is_trivially_copyable_v<MessageWithOpaque>,
+    "MessageWithOpaque is NOT trivially copyable");
 static_assert(is_byte_copy_safe_v<MessageWithOpaque>,
-    "Subsumption: byte-copy safe is broader than serialization-free");
+    "MessageWithOpaque is byte-copy safe (via opaque recursion)");
 
 // =========================================================================
 // Runtime output for CI visibility
@@ -291,10 +290,10 @@ int main() {
               << is_byte_copy_safe_v<FakeXVector<FakeXVector<int32_t>>> << "\n";
 
     std::cout << "\n";
-    std::cout << "Subsumption check:" << "\n";
-    std::cout << "  TrivialSafe:       ser_free=" << is_local_serialization_free_v<TrivialSafe>
+    std::cout << "Admission check:" << "\n";
+    std::cout << "  TrivialSafe:       trivially_copyable=" << std::is_trivially_copyable_v<TrivialSafe>
               << " byte_safe=" << is_byte_copy_safe_v<TrivialSafe> << "\n";
-    std::cout << "  MessageWithOpaque: ser_free=" << is_local_serialization_free_v<MessageWithOpaque>
+    std::cout << "  MessageWithOpaque: trivially_copyable=" << std::is_trivially_copyable_v<MessageWithOpaque>
               << " byte_safe=" << is_byte_copy_safe_v<MessageWithOpaque> << "\n";
 
     std::cout << "\nAll checks passed." << "\n";

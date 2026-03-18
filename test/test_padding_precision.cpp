@@ -20,7 +20,6 @@
 // Distributed under the Boost Software License, Version 1.0.
 
 #include <boost/typelayout/typelayout.hpp>
-#include <boost/typelayout/tools/classify.hpp>
 #include <boost/typelayout/tools/safety_level.hpp>
 #include "test_util.hpp"
 #include <cassert>
@@ -358,29 +357,29 @@ static_assert(!layout_traits<double>::has_padding,
     "P10.2: Scalar double -- no padding");
 
 // =========================================================================
-// Part 2: classify<T> consistency -- PaddingRisk where expected
+// Part 2: has_padding consistency -- direct property checks
 // =========================================================================
 
-static_assert(classify_v<NoPad_TwoInt> == SafetyLevel::TrivialSafe,
-    "C1: NoPad_TwoInt -- no padding, no pointers => TrivialSafe");
+static_assert(!layout_traits<NoPad_TwoInt>::has_padding,
+    "C1: NoPad_TwoInt -- no padding");
 
-static_assert(classify_v<Pad_CharInt> == SafetyLevel::PaddingRisk,
-    "C2: Pad_CharInt -- alignment padding => PaddingRisk");
+static_assert(layout_traits<Pad_CharInt>::has_padding,
+    "C2: Pad_CharInt -- alignment padding");
 
-static_assert(classify_v<OuterWithNestedPad> == SafetyLevel::PaddingRisk,
-    "C3: OuterWithNestedPad -- nested padding => PaddingRisk");
+static_assert(layout_traits<OuterWithNestedPad>::has_padding,
+    "C3: OuterWithNestedPad -- nested padding");
 
-static_assert(classify_v<DerivedFromEmpty> == SafetyLevel::TrivialSafe,
-    "C4: DerivedFromEmpty -- EBO, no padding => TrivialSafe");
+static_assert(!layout_traits<DerivedFromEmpty>::has_padding,
+    "C4: DerivedFromEmpty -- EBO, no padding");
 
-static_assert(classify_v<WithNUA> == SafetyLevel::TrivialSafe,
-    "C5: WithNUA -- NUA, no padding => TrivialSafe");
+static_assert(!layout_traits<WithNUA>::has_padding,
+    "C5: WithNUA -- NUA, no padding");
 
-static_assert(classify_v<Level3> == SafetyLevel::PaddingRisk,
-    "C6: Level3 -- deeply nested padding => PaddingRisk");
+static_assert(layout_traits<Level3>::has_padding,
+    "C6: Level3 -- deeply nested padding");
 
-static_assert(classify_v<FullyPackedNested> == SafetyLevel::TrivialSafe,
-    "C7: FullyPackedNested -- no padding at any level => TrivialSafe");
+static_assert(!layout_traits<FullyPackedNested>::has_padding,
+    "C7: FullyPackedNested -- no padding at any level");
 
 // =========================================================================
 // Part 3: Runtime sig_has_padding() tests
@@ -445,10 +444,12 @@ void test_sig_has_padding_edge_cases() {
 }
 
 void test_sig_has_padding_consistency() {
-    // Verify that classify_signature agrees with sig_has_padding
+    // Verify that compat::classify_signature agrees with sig_has_padding
     // for signatures without pointers, platform-variant types, or opaque markers.
 
     using boost::typelayout::detail::sig_has_padding;
+    using boost::typelayout::compat::classify_signature;
+    using boost::typelayout::compat::SafetyLevel;
 
     // Padded signature => classify_signature should return PaddingRisk.
     auto padded_sig = "[64-le]record[s:8,a:4]{@0:i8[s:1,a:1],@4:i32[s:4,a:4]}";
@@ -483,7 +484,7 @@ int main() {
     // Part 1 and Part 2 are all static_assert -- verified at compile time.
     std::cout << "  [PASS] Compile-time has_padding (Part 1: "
               << "22 static_assert checks)\n";
-    std::cout << "  [PASS] Compile-time classify consistency (Part 2: "
+    std::cout << "  [PASS] Compile-time has_padding consistency (Part 2: "
               << "7 static_assert checks)\n";
 
     // Part 3: Runtime sig_has_padding tests.

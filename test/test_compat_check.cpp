@@ -114,7 +114,7 @@ void test_compat_reporter() {
     assert(report.find("MATCH") != std::string::npos);
     assert(report.find("DIFFER") != std::string::npos);
     assert(report.find("padding may leak") != std::string::npos);  // PacketHeader
-    assert(report.find("Needs serialization") != std::string::npos);
+    assert(report.find("Layout mismatch") != std::string::npos);
     assert(report.find("Transfer-safe") != std::string::npos);  // PacketHeader is transfer-safe
     assert(report.find("50%") != std::string::npos);  // 1/2 transfer-safe
 
@@ -326,7 +326,7 @@ void test_no_abi_equivalence_when_all_different() {
 }
 
 // =========================================================================
-// 3. are_serialization_free() — subset query API tests
+// 3. are_transfer_safe() -- subset query API tests
 // =========================================================================
 
 // Three platforms with a mix of types.
@@ -407,98 +407,98 @@ namespace plat_windows {
     inline constexpr std::size_t type_count = 5;
 }
 
-void test_are_serialization_free_basic() {
+void test_are_transfer_safe_basic() {
     CompatReporter reporter;
     reporter.add_platform("linux",   plat_linux::types,   plat_linux::type_count);
     reporter.add_platform("macos",   plat_macos::types,   plat_macos::type_count);
     reporter.add_platform("windows", plat_windows::types,  plat_windows::type_count);
 
     // SafeType is TrivialSafe and identical on all 3 platforms.
-    assert(reporter.are_serialization_free(
+    assert(reporter.are_transfer_safe(
         {"SafeType"}, {"linux", "macos", "windows"}));
 
     // PadType matches on linux+macos but DIFFERS on windows.
-    assert(reporter.are_serialization_free(
+    assert(reporter.are_transfer_safe(
         {"PadType"}, {"linux", "macos"}));
-    assert(!reporter.are_serialization_free(
+    assert(!reporter.are_transfer_safe(
         {"PadType"}, {"linux", "windows"}));
 
     // Multiple types, subset of platforms.
-    assert(reporter.are_serialization_free(
+    assert(reporter.are_transfer_safe(
         {"SafeType", "PadType"}, {"linux", "macos"}));
-    assert(!reporter.are_serialization_free(
+    assert(!reporter.are_transfer_safe(
         {"SafeType", "PadType"}, {"linux", "macos", "windows"}));
 
-    std::cout << "  [PASS] are_serialization_free() basic queries\n";
+    std::cout << "  [PASS] are_transfer_safe() basic queries\n";
 }
 
-void test_are_serialization_free_safety() {
+void test_are_transfer_safe_safety() {
     CompatReporter reporter;
     reporter.add_platform("linux", plat_linux::types, plat_linux::type_count);
     reporter.add_platform("macos", plat_macos::types, plat_macos::type_count);
 
-    // PtrType: layout matches but PointerRisk → NOT serialization-free.
-    assert(!reporter.are_serialization_free(
+    // PtrType: layout matches but PointerRisk -- NOT transfer-safe.
+    assert(!reporter.are_transfer_safe(
         {"PtrType"}, {"linux", "macos"}));
 
-    // OpaqueType: layout matches and user guarantees opaque → IS serialization-free.
-    assert(reporter.are_serialization_free(
+    // OpaqueType: layout matches and user guarantees opaque -- IS transfer-safe.
+    assert(reporter.are_transfer_safe(
         {"OpaqueType"}, {"linux", "macos"}));
 
-    // PadType: PaddingRisk but layout matches → IS serialization-free.
-    assert(reporter.are_serialization_free(
+    // PadType: PaddingRisk but layout matches -- IS transfer-safe.
+    assert(reporter.are_transfer_safe(
         {"PadType"}, {"linux", "macos"}));
 
-    // WcharType: PlatformVariant but layout matches on linux+macos → IS serialization-free.
-    assert(reporter.are_serialization_free(
+    // WcharType: PlatformVariant but layout matches on linux+macos -- IS transfer-safe.
+    assert(reporter.are_transfer_safe(
         {"WcharType"}, {"linux", "macos"}));
 
     // WcharType: differs on windows.
     CompatReporter reporter2;
     reporter2.add_platform("linux",   plat_linux::types,   plat_linux::type_count);
     reporter2.add_platform("windows", plat_windows::types,  plat_windows::type_count);
-    assert(!reporter2.are_serialization_free(
+    assert(!reporter2.are_transfer_safe(
         {"WcharType"}, {"linux", "windows"}));
 
-    std::cout << "  [PASS] are_serialization_free() safety levels\n";
+    std::cout << "  [PASS] are_transfer_safe() safety levels\n";
 }
 
-void test_are_serialization_free_edge_cases() {
+void test_are_transfer_safe_edge_cases() {
     CompatReporter reporter;
     reporter.add_platform("linux", plat_linux::types, plat_linux::type_count);
     reporter.add_platform("macos", plat_macos::types, plat_macos::type_count);
 
     // Empty type set → false.
-    assert(!reporter.are_serialization_free({}, {"linux"}));
+    assert(!reporter.are_transfer_safe({}, {"linux"}));
 
-    // Empty platform set → false.
-    assert(!reporter.are_serialization_free({"SafeType"}, {}));
+    // Empty platform set -> false.
+    assert(!reporter.are_transfer_safe({"SafeType"}, {}));
 
-    // Non-existent platform → false.
-    assert(!reporter.are_serialization_free(
+    // Non-existent platform -> false.
+    assert(!reporter.are_transfer_safe(
         {"SafeType"}, {"linux", "solaris"}));
 
-    // Non-existent type → false.
-    assert(!reporter.are_serialization_free(
+    // Non-existent type -> false.
+    assert(!reporter.are_transfer_safe(
         {"NoSuchType"}, {"linux", "macos"}));
 
-    // Mix of valid and invalid type → false.
-    assert(!reporter.are_serialization_free(
+    // Mix of valid and invalid type -> false.
+    assert(!reporter.are_transfer_safe(
         {"SafeType", "NoSuchType"}, {"linux"}));
 
-    // Single platform — self-match always works for safe types.
-    assert(reporter.are_serialization_free(
+    // Single platform -- self-match always works for safe types.
+    assert(reporter.are_transfer_safe(
         {"SafeType", "PadType", "WcharType"}, {"linux"}));
 
     // Vector overload (programmatic use).
     std::vector<std::string> vtypes = {"SafeType", "PadType"};
     std::vector<std::string> vplats = {"linux", "macos"};
-    assert(reporter.are_serialization_free(vtypes, vplats));
+    assert(reporter.are_transfer_safe(vtypes, vplats));
 
     vtypes.push_back("PtrType");
-    assert(!reporter.are_serialization_free(vtypes, vplats));
+    assert(!reporter.are_transfer_safe(vtypes, vplats));
 
-    std::cout << "  [PASS] are_serialization_free() edge cases\n";
+    std::cout << "  [PASS] are_transfer_safe() edge cases\n";
 }
 
 int main() {
@@ -512,9 +512,9 @@ int main() {
     test_platform_metadata();
     test_abi_equivalence();
     test_no_abi_equivalence_when_all_different();
-    test_are_serialization_free_basic();
-    test_are_serialization_free_safety();
-    test_are_serialization_free_edge_cases();
+    test_are_transfer_safe_basic();
+    test_are_transfer_safe_safety();
+    test_are_transfer_safe_edge_cases();
 
     std::cout << "All compat_check tests passed.\n";
     return 0;

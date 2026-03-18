@@ -13,5 +13,6 @@
 #include <boost/typelayout/layout_traits.hpp>
 #include <boost/typelayout/opaque.hpp>
 #include <boost/typelayout/admission.hpp>
+#include <boost/typelayout/tools/transfer.hpp>
 
 #endif // BOOST_TYPELAYOUT_HPP

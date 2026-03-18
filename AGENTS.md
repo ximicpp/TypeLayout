@@ -49,12 +49,12 @@
 | How opaque types work | `opaque.hpp` -> macros + `has_opaque_signature` concept |
 | How admission works | `admission.hpp` -> `is_byte_copy_safe<T>`, `opaque_elements_safe<T>` |
 | Cross-platform pipeline | `tools/sig_export.hpp` (Phase 1) -> `tools/compat_check.hpp` (Phase 2) |
-| Serialization-free query | `tools/compat_check.hpp` -> `CompatReporter::are_serialization_free(types, platforms)` |
+| Transfer-safe query | `tools/compat_check.hpp` -> `CompatReporter::are_transfer_safe(types, platforms)` |
 | Data model / ABI detect | `tools/platform_detect.hpp` -> `get_data_model()` |
 
 ## Tests
 
-11 tests total (6 core + 5 tools). All use `static_assert` for compile-time + runtime verification.
+12 tests total (7 core + 5 tools). All use `static_assert` for compile-time + runtime verification.
 
 | Test | Layer | What it validates |
 |------|-------|-------------------|
@@ -65,7 +65,8 @@
 | `test_padding_precision.cpp` | Core | Byte-coverage bitmap vs sig parser, classify consistency |
 | `test_byte_copy_safe.cpp` | Core | Recursive byte-copy admission, opaque elements, polymorphic rejection |
 | `test_classify.cpp` | Tools | Five-tier classify<T> for all type categories |
-| `test_serialization_free.cpp` | Tools | is_local_serialization_free, SignatureRegistry |
+| `test_transfer.cpp` | Tools | is_byte_copy_safe, SignatureRegistry, is_transfer_safe |
 | `test_sig_export.cpp` | Tools | SigExporter output structure |
 | `test_rt_padding.cpp` | Tools | Runtime sig_has_padding |
-| `test_compat_check.cpp` | Tools | CompatReporter, classify_signature, are_serialization_free, ABI equivalence |
+| `test_compat_check.cpp` | Tools | CompatReporter, classify_signature, are_transfer_safe, ABI equivalence |
+| `test_advanced_types.cpp` | Core | Advanced type scenarios, cross-platform compat integration |

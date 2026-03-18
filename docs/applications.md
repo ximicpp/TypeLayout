@@ -50,7 +50,7 @@ static_assert(classify_v<WriterSharedData> <= SafetyLevel::PaddingRisk,
 For runtime handshake (processes negotiate at startup):
 
 ```cpp
-#include <boost/typelayout/tools/serialization_free.hpp>
+#include <boost/typelayout/tools/transfer.hpp>
 
 // In the writer process, expose the signature via a named pipe or socket:
 constexpr auto local_sig = get_layout_signature<SharedData>();
@@ -209,7 +209,7 @@ static_assert(layout_signatures_match<HostPluginConfig, PluginPluginConfig>(),
 When plugins are separately distributed and compiled (runtime check at load time):
 
 ```cpp
-#include <boost/typelayout/tools/serialization_free.hpp>
+#include <boost/typelayout/tools/transfer.hpp>
 using namespace boost::typelayout;
 
 // Plugin exports its signature as a C function

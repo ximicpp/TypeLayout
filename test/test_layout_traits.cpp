@@ -1,10 +1,10 @@
-// layout_traits<T> and signature_compare tests.
+// layout_traits<T> and layout_signatures_match tests.
 //
 // Verifies that:
 //   1. layout_traits exposes the correct signature (same as get_layout_signature)
-//   2. Natural by-product flags (has_pointer, has_bit_field, etc.) are correct
+//   2. Natural by-product flags (has_pointer, has_opaque, etc.) are correct
 //   3. Structural metadata (field_count, total_size, alignment) is correct
-//   4. signature_compare and signature_compare_v work as expected
+//   4. layout_signatures_match works as expected
 //
 // All assertions are compile-time (static_assert).  The main() function
 // prints a summary for CI log readability.
@@ -74,7 +74,7 @@ struct WithRawPtr {
     int32_t* p;
 };
 
-// -- ABI-compatible pair for signature_compare testing
+// -- ABI-compatible pair for layout_signatures_match testing
 struct PairA {
     int32_t a;
     float b;
@@ -208,37 +208,7 @@ static_assert(
 );
 
 // =========================================================================
-// Part 4: is_platform_variant detection
-// =========================================================================
-
-static_assert(
-    layout_traits<test_types::WithWchar>::is_platform_variant,
-    "P4.1: WithWchar is platform-variant (wchar_t size varies)"
-);
-
-static_assert(
-    layout_traits<test_types::WithLongDouble>::is_platform_variant,
-    "P4.2: WithLongDouble is platform-variant (long double size varies)"
-);
-
-// Pointers are no longer classified as platform-variant; they trigger
-// has_pointer instead (PointerRisk is more severe and actionable).
-static_assert(
-    layout_traits<test_types::WithRawPtr>::has_pointer,
-    "P4.3: WithRawPtr has_pointer (pointer detected via has_pointer, not is_platform_variant)"
-);
-static_assert(
-    !layout_traits<test_types::WithRawPtr>::is_platform_variant,
-    "P4.3b: WithRawPtr is NOT is_platform_variant (pointers are tracked via has_pointer)"
-);
-
-static_assert(
-    !layout_traits<test_types::Compact>::is_platform_variant,
-    "P4.4: Compact with fixed-width ints is not platform-variant"
-);
-
-// =========================================================================
-// Part 5: Structural metadata
+// Part 4: Structural metadata
 // =========================================================================
 
 // total_size
@@ -280,36 +250,36 @@ static_assert(
 );
 
 // =========================================================================
-// Part 6: signature_compare
+// Part 6: layout_signatures_match
 // =========================================================================
 
 // Same layout, different names -> must match
 static_assert(
-    signature_compare_v<test_types::PairA, test_types::PairB>,
+    layout_signatures_match<test_types::PairA, test_types::PairB>(),
     "P6.1: PairA and PairB have identical layout, signatures must match"
 );
 
 // Different layout -> must not match
 static_assert(
-    !signature_compare_v<test_types::PairA, test_types::PairC>,
+    !layout_signatures_match<test_types::PairA, test_types::PairC>(),
     "P6.2: PairA and PairC have different layouts, signatures must differ"
 );
 
 // Self-comparison -> must match
 static_assert(
-    signature_compare_v<test_types::Compact, test_types::Compact>,
+    layout_signatures_match<test_types::Compact, test_types::Compact>(),
     "P6.3: same type compared with itself must match"
 );
 
-// signature_compare struct value
+// Also works via get_layout_signature comparison
 static_assert(
-    signature_compare<test_types::PairA, test_types::PairB>::value,
-    "P6.4: signature_compare::value for compatible types"
+    get_layout_signature<test_types::PairA>() == get_layout_signature<test_types::PairB>(),
+    "P6.4: get_layout_signature comparison for compatible types"
 );
 
 static_assert(
-    !signature_compare<test_types::PairA, test_types::PairC>::value,
-    "P6.5: signature_compare::value for incompatible types"
+    !(get_layout_signature<test_types::PairA>() == get_layout_signature<test_types::PairC>()),
+    "P6.5: get_layout_signature comparison for incompatible types"
 );
 
 // =========================================================================
@@ -365,21 +335,7 @@ static_assert(
 );
 
 // =========================================================================
-// Part 8: has_bit_field (no bit-field types defined, verify false for normal)
-// =========================================================================
-
-static_assert(
-    !layout_traits<test_types::Compact>::has_bit_field,
-    "P8.1: Compact has no bit-fields"
-);
-
-static_assert(
-    !layout_traits<int32_t>::has_bit_field,
-    "P8.2: fundamental type has no bit-fields"
-);
-
-// =========================================================================
-// Part 9: Member pointer and function pointer signature correctness
+// Part 8: Member pointer and function pointer signature correctness
 //   Validates that sizeof/alignof are used (not hardcoded) by checking
 //   that the signature string contains the correct size value.
 // =========================================================================
@@ -467,9 +423,9 @@ static_assert(
 // =========================================================================
 
 int main() {
-    constexpr int total_tests = 39;
+    constexpr int total_tests = 30;
 
-    std::cout << "=== layout_traits & signature_compare Tests ===\n\n";
+    std::cout << "=== layout_traits & layout_signatures_match Tests ===\n\n";
 
     std::cout << "--- Sample signatures ---\n";
     std::cout << "Compact:      " << layout_traits<test_types::Compact>::signature.value << "\n";
@@ -493,9 +449,7 @@ int main() {
 
     std::cout << "\n--- By-product flags (Compact) ---\n";
     std::cout << "has_pointer:        " << layout_traits<test_types::Compact>::has_pointer << "\n";
-    std::cout << "has_bit_field:      " << layout_traits<test_types::Compact>::has_bit_field << "\n";
     std::cout << "has_opaque:         " << layout_traits<test_types::Compact>::has_opaque << "\n";
-    std::cout << "is_platform_variant:" << layout_traits<test_types::Compact>::is_platform_variant << "\n";
     std::cout << "has_padding:        " << layout_traits<test_types::Compact>::has_padding << "\n";
     std::cout << "field_count:        " << layout_traits<test_types::Compact>::field_count << "\n";
     std::cout << "total_size:         " << layout_traits<test_types::Compact>::total_size << "\n";
@@ -503,7 +457,6 @@ int main() {
 
     std::cout << "\n--- By-product flags (WithPointer) ---\n";
     std::cout << "has_pointer:        " << layout_traits<test_types::WithPointer>::has_pointer << "\n";
-    std::cout << "is_platform_variant:" << layout_traits<test_types::WithPointer>::is_platform_variant << "\n";
 
     std::cout << "\nAll " << total_tests << " static_assert tests passed at compile time.\n";
     return 0;

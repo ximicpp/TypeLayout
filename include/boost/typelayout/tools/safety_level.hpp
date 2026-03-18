@@ -1,5 +1,11 @@
 // safety_level.hpp -- SafetyLevel enum + runtime classify_signature().
 //
+// Display-only classification for CompatReporter output.
+// All definitions live in namespace compat to indicate they are
+// reporting utilities, not core decision-making predicates.
+// For programmatic decisions, use layout_traits<T>::has_padding,
+// has_pointer, has_opaque directly.
+//
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
@@ -11,13 +17,13 @@
 namespace boost {
 namespace typelayout {
 inline namespace v1 {
+namespace compat {
 
 // =========================================================================
-// SafetyLevel -- five-tier safety classification
+// SafetyLevel -- five-tier safety classification for display purposes.
 //
-// Ordered best (0) to worst (4).  classify<T> returns the worst applicable.
-// PointerRisk > PlatformVariant because dangling pointers are a hard
-// semantic error, not just a portability concern.
+// Ordered best (0) to worst (4).  classify_signature() returns the worst
+// applicable level found in a signature string.
 // =========================================================================
 
 enum class SafetyLevel {
@@ -40,15 +46,12 @@ constexpr const char* safety_level_name(SafetyLevel level) noexcept {
 }
 
 /// Runtime classify: scans signature string for safety level.
-/// Same priority as compile-time classify<T>.
 ///
 /// LIMITATION: cannot detect !trivially_copyable -- this property is not
-/// encoded in the signature string.  The compile-time classify<T> maps
-/// non-trivially-copyable types to PointerRisk, but this runtime path
-/// cannot replicate that check.  Invariant holds in practice because all
-/// export entry points (SigExporter::add, TYPELAYOUT_EXPORT_TYPES) enforce
-/// trivially_copyable via static_assert before producing signature strings
-/// consumed by this function.
+/// encoded in the signature string.  Invariant holds in practice because
+/// all export entry points (SigExporter::add, TYPELAYOUT_EXPORT_TYPES)
+/// enforce trivially_copyable via static_assert before producing
+/// signature strings consumed by this function.
 inline SafetyLevel classify_signature(std::string_view sig) noexcept {
     using detail::sig_contains_token;
 
@@ -79,6 +82,7 @@ inline SafetyLevel classify_signature(std::string_view sig) noexcept {
     return SafetyLevel::TrivialSafe;
 }
 
+} // namespace compat
 } // inline namespace v1
 } // namespace typelayout
 } // namespace boost
