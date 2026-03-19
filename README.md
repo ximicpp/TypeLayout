@@ -16,7 +16,7 @@ struct Message { uint32_t id; uint64_t timestamp; };
 constexpr auto sig = get_layout_signature<Message>();
 // "[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:u64[s:8,a:8]}"
 
-static_assert(layout_signatures_match<SenderMsg, ReceiverMsg>(),
+static_assert(get_layout_signature<SenderMsg>() == get_layout_signature<ReceiverMsg>(),
     "Binary layout mismatch -- unsafe to memcpy");
 ```
 
@@ -40,15 +40,14 @@ compilers, or two platforms.
 
 ## Public API
 
-Two `consteval` functions form the core surface:
+One `consteval` function forms the core surface:
 
 | Function | Returns | Description |
 |----------|---------|-------------|
 | `get_layout_signature<T>()` | `FixedString` | Full byte-level layout signature of `T` |
-| `layout_signatures_match<T, U>()` | `bool` | `true` if `T` and `U` have identical byte layouts |
 
-A `true` result from `layout_signatures_match` guarantees memcpy-compatibility:
-identical field offsets, sizes, and alignments.
+Compare signatures directly with `get_layout_signature<A>() == get_layout_signature<B>()`.
+A matching result guarantees memcpy-compatibility: identical field offsets, sizes, and alignments.
 
 ## Supported Types
 

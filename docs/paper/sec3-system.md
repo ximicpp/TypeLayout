@@ -180,12 +180,12 @@ namespace boost::typelayout {
     template<class T>
     consteval auto get_layout_signature();        // → FixedString<N>
 
-    template<class T, class U>
-    consteval bool layout_signatures_match();     // → bool
+    // Signature comparison via FixedString::operator==
+    // get_layout_signature<A>() == get_layout_signature<B>()  → bool
 }
 ```
 
-Both functions return compile-time values: `get_layout_signature` returns a
-`FixedString<N>`, and `layout_signatures_match` returns a `bool`. They can
+`get_layout_signature` returns a compile-time `FixedString<N>` value.
+Signature comparison uses `FixedString::operator==` directly. Both can
 be used in `static_assert`, `constexpr if`, template constraints (`requires`),
 and any other compile-time context.

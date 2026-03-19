@@ -55,10 +55,10 @@ We will demonstrate real-world applications with live cross-platform comparisons
   [64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:u64[s:8,a:8]}
   ```
 - Live coding: from `struct Message` to its signature in 3 lines of code
-- The entire public API — 2 core functions:
+- The entire public API — signature generation and comparison:
   ```cpp
   get_layout_signature<T>();
-  layout_signatures_match<T, U>();
+  get_layout_signature<A>() == get_layout_signature<B>();  // direct comparison
   ```
 
 **Part 3: Safety Classification (10 min)**
@@ -67,7 +67,7 @@ We will demonstrate real-world applications with live cross-platform comparisons
 
 - Five-tier safety model: `TrivialSafe → PaddingRisk → PlatformVariant → PointerRisk → Opaque`
 - Why tier ordering matters: PointerRisk (dangling pointers on any platform) > PlatformVariant (size differs cross-platform)
-- Compile-time: `classify<T>::value` — powered by `layout_traits<T>`
+- Compile-time: `layout_traits<T>::has_pointer` / `has_padding` — powered by P2996 reflection
 - Runtime: `classify_signature(string_view)` — parses signature string, same priority order
 - Dual-path cross-validation: compile-time bitmap vs runtime parser, enforced by `static_assert`
 - Use case: `is_transfer_safe<T>(remote_sig)` — three-condition runtime check
@@ -78,7 +78,7 @@ We will demonstrate real-world applications with live cross-platform comparisons
 
 - **IPC / Shared memory**: embed hash, verify on connect
   ```cpp
-  static_assert(layout_signatures_match<Writer::Data, Reader::Data>());
+  static_assert(get_layout_signature<Writer::Data>() == get_layout_signature<Reader::Data>());
   ```
 - **Plugin systems**: export signature via `dlsym`, verify at load time
 - **Cross-platform file formats**: Layout match + Safety classification = zero-copy decision

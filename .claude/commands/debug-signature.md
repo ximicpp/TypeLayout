@@ -1,6 +1,6 @@
 Debug a type's signature generation or dual-path validation failure.
 
-Use this when: a signature is wrong, `static_assert` fires on padding cross-validation, or `layout_signatures_match` gives unexpected results.
+Use this when: a signature is wrong, `static_assert` fires on padding cross-validation, or signature comparison gives unexpected results.
 
 ## Steps
 
@@ -33,7 +33,7 @@ Use this when: a signature is wrong, `static_assert` fires on padding cross-vali
 
 5. **For flattening issues**:
    - Signatures erase field names and inheritance -- only byte layout matters
-   - Check that `layout_signatures_match<A, B>()` compares the full byte sequence
+   - Check that `get_layout_signature<A>() == get_layout_signature<B>()` compares the full byte sequence
    - Empty base classes should be optimized away (EBO) -- see `test_empty_member_probe.cpp`
 
 6. **Verify the fix**: Run `/build-test` to ensure all 10 tests pass.

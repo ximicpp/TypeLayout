@@ -1,10 +1,10 @@
-// layout_traits<T> and layout_signatures_match tests.
+// layout_traits<T> and signature comparison tests.
 //
 // Verifies that:
 //   1. layout_traits exposes the correct signature (same as get_layout_signature)
 //   2. Natural by-product flags (has_pointer, has_opaque, etc.) are correct
-//   3. Structural metadata (field_count, total_size, alignment) is correct
-//   4. layout_signatures_match works as expected
+//   3. Structural metadata (total_size, alignment) is correct
+//   4. Signature comparison via operator== works as expected
 //
 // All assertions are compile-time (static_assert).  The main() function
 // prints a summary for CI log readability.
@@ -76,7 +76,7 @@ struct WithRawPtr {
     int32_t* p;
 };
 
-// -- ABI-compatible pair for layout_signatures_match testing
+// -- ABI-compatible pair for signature comparison testing
 struct PairA {
     int32_t a;
     float b;
@@ -226,7 +226,7 @@ static_assert(
 );
 
 // =========================================================================
-// Part 5: layout_signatures_match
+// Part 5: Signature comparison
 // =========================================================================
 
 // Same layout, different names -> must match
@@ -401,7 +401,7 @@ static_assert(
 int main() {
     constexpr int total_tests = 25;
 
-    std::cout << "=== layout_traits & layout_signatures_match Tests ===\n\n";
+    std::cout << "=== layout_traits & signature comparison Tests ===\n\n";
 
     std::cout << "--- Sample signatures ---\n";
     std::cout << "Compact:      " << layout_traits<test_types::Compact>::signature.value << "\n";

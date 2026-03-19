@@ -145,4 +145,4 @@ The two-phase split serves two purposes:
 Cross-platform comparison inherently requires separate compilations (one
 per platform), so the two-phase architecture remains essential for that
 use case. Same-platform verification can be done in a single compilation
-using `layout_signatures_match<T1, T2>()` directly.
+using `get_layout_signature<T1>() == get_layout_signature<T2>()` directly.

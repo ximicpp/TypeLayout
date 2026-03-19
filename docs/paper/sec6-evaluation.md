@@ -43,8 +43,8 @@ hand-computed reference signature. The `static_assert` verifies that
 `get_layout_signature<T>()` matches the expected string exactly.
 
 **Method 2: Cross-type matching.** For types designed to be layout-compatible
-(e.g., `Derived` vs `Flat`), we verify `layout_signatures_match` returns
-`true`. For types designed to differ, we verify it returns `false`.
+(e.g., `Derived` vs `Flat`), we verify that their layout signatures match
+via `operator==`. For types designed to differ, we verify they do not match.
 
 **Result:** All 100+ verification assertions pass. Zero false positives
 observed.
@@ -129,7 +129,7 @@ For a struct with *n* fields, the verification effort is:
 
 **Example:** For `PacketHeader` with 5 fields:
 - Manual: 7 lines (`sizeof` + `alignof` + 5 `offsetof`)
-- TypeLayout: 1 line (`static_assert(layout_signatures_match<A, B>())`)
+- TypeLayout: 1 line (`static_assert(get_layout_signature<A>() == get_layout_signature<B>())`)
 - Reduction: **86% fewer lines**, with **strictly stronger** guarantees
 
 ### 6.4.3 ABI Compliance Checker Comparison

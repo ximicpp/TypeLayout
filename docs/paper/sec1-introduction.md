@@ -68,7 +68,7 @@ type layout signatures at compile time—with zero runtime overhead.
 With TypeLayout, the 7-line manual verification above reduces to:
 
 ```cpp
-static_assert(layout_signatures_match<SenderPacket, ReceiverPacket>());
+static_assert(get_layout_signature<SenderPacket>() == get_layout_signature<ReceiverPacket>());
 ```
 
 This single line provides a compiler-verified proof that the two types have
@@ -109,8 +109,8 @@ With TypeLayout, byte-level compatibility is verified at compile time:
 
 ```cpp
 // Byte-level: can we memcpy safely?
-static_assert(layout_signatures_match<
-    sender::Message, receiver::Message>());
+static_assert(get_layout_signature<sender::Message>()
+           == get_layout_signature<receiver::Message>());
 ```
 
 If Team B renames `payload` to `value` but keeps the same type, the Layout
