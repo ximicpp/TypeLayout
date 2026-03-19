@@ -8,22 +8,27 @@ Complete reference for all public symbols in Boost.TypeLayout.
 
 ## Public API ("Big 6")
 
-TypeLayout exposes exactly 6 public concepts. Everything else is internal (`detail::`)
-or accessed through the tools layer.
+TypeLayout exposes 6 public concepts, but most users only need to start with 3 core
+questions:
 
-| # | Concept | Header | Purpose |
-|---|---------|--------|---------|
-| 1 | `get_layout_signature<T>()` | `signature.hpp` | Compile-time layout signature generation |
-| 2 | `is_byte_copy_safe_v<T>` | `admission.hpp` | Compile-time byte-copy safety predicate |
-| 3 | `is_transfer_safe<T>(sig)` | `tools/transfer.hpp` | Runtime cross-endpoint transfer verification |
-| 4 | `TYPELAYOUT_REGISTER_OPAQUE` macros | `opaque.hpp` | Opaque type registration for third-party types |
-| 5 | `SigExporter` | `tools/sig_export.hpp` | Phase 1: export signatures per platform |
-| 6 | `CompatReporter` | `tools/compat_check.hpp` | Phase 2: cross-platform compatibility report |
+| Question | Primary API | Purpose |
+|----------|-------------|---------|
+| What is the byte layout of `T`? | `get_layout_signature<T>()` | Compile-time deterministic layout signature |
+| Is `T` safe for byte-copy transport? | `is_byte_copy_safe_v<T>` | Compile-time admission gate for transport safety |
+| Can local `T` be transferred to a remote endpoint? | `is_transfer_safe<T>(sig)` | Runtime cross-endpoint verification |
 
-Internal utilities (in `detail::` namespace, not part of the public API):
-- `detail::layout_traits<T>` -- layout inspection struct (used by tools internally)
-- `detail::SafetyLevel` / `detail::classify_signature()` -- safety classification (used by `CompatReporter`)
-- `FixedString<N>` -- compile-time string type (return type of `get_layout_signature`)
+The remaining public concepts are extension mechanisms built around those 3 questions:
+
+| Extension | Header | Purpose |
+|-----------|--------|---------|
+| Opaque registration macros | `opaque.hpp` | Declare third-party / unanalyzable types |
+| `SigExporter` | `tools/sig_export.hpp` | Phase 1: export signatures per platform |
+| `CompatReporter` | `tools/compat_check.hpp` | Phase 2: cross-platform compatibility report |
+
+Internal utilities (in `detail::`, not intended as stable user-facing concepts):
+- `detail::layout_traits<T>` -- internal layout inspection aggregate used by core/tooling
+- `detail::SafetyLevel` / `detail::classify_signature()` -- report-oriented safety classification
+- `FixedString<N>` -- compile-time string return type of `get_layout_signature`
 
 ---
 
@@ -149,6 +154,11 @@ which is sufficient for the maximum value of `uint64_t` (20 decimal digits).
 
 All macros must be invoked inside `namespace boost { namespace typelayout { } }`.
 
+Opaque registration is an extension mechanism. Use it only when reflection alone is
+not enough to describe the type you want to transport.
+
+### 1. Ordinary opaque types
+
 ### `TYPELAYOUT_REGISTER_OPAQUE(Type, Tag, HasPointer)` (recommended)
 
 ```cpp
@@ -182,6 +192,19 @@ TYPELAYOUT_REGISTER_OPAQUE(MyLib::XVector<int>, "xvector_int", true)
 TYPELAYOUT_REGISTER_OPAQUE(MyLib::XMap<int, double>, "xmap_int_double", true)
 }}
 ```
+
+### 2. Relocatable opaque types
+
+Use the relocatable opaque macros when the type is not trivially copyable but you are
+explicitly asserting that byte relocation is still valid for the intended transport
+workflow.
+
+This group covers:
+- non-trivially-copyable concrete wrappers
+- single-parameter container-like opaque templates
+- key/value map-like opaque templates
+
+These macros belong to the extension layer, not the core 3-question mental model.
 
 ---
 

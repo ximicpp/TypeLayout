@@ -67,13 +67,13 @@ Similar systems could be built for Rust (using procedural macros), Zig
 
 # §9 Conclusion
 
-We have presented TypeLayout, a compile-time type layout signature system
+We have presented TypeLayout, a compile-time layout signature system
 for C++ based on C++26 static reflection (P2996). The key contributions are:
 
 1. **A layout signature system** that encodes complete byte-level type
    identity — every field offset, alignment, padding, and inheritance level —
    in a single deterministic string, enabling compile-time layout verification
-   with zero false positives.
+   and byte-copy transport verification with zero false positives.
    *(A planned two-layer extension adding a Definition signature layer for
    structural name-preserving identity is not yet implemented.)*
 

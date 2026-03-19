@@ -30,7 +30,7 @@ double v = shm->value;  // safe only if byte layout matches exactly
 ### Solution
 
 For same-binary or same-build-system scenarios where both definitions are visible
-at compile time:
+at compile time, use layout signature comparison plus the byte-copy transport check:
 
 ```cpp
 #include <boost/typelayout/typelayout.hpp>
@@ -63,7 +63,7 @@ if (!is_transfer_safe<SharedData>(received_sig)) {
 ### What Is Guaranteed
 
 - Matching layout signatures (`get_layout_signature<A>() == get_layout_signature<B>()`)
-  implies identical field offsets, sizes, and alignments in both types on the current platform.
+  imply identical field offsets, sizes, and alignments in both types on the current platform.
 - The arch prefix (`[64-le]`, `[32-le]`, etc.) distinguishes pointer widths and
   endianness, so cross-architecture mismatches are detected automatically.
 
@@ -206,7 +206,8 @@ static_assert(
     "Plugin ABI mismatch: PluginConfig layout differs between host and plugin");
 ```
 
-When plugins are separately distributed and compiled (runtime check at load time):
+When plugins are separately distributed and compiled, use a runtime transfer-safe
+handshake at load time:
 
 ```cpp
 #include <boost/typelayout/tools/transfer.hpp>
@@ -231,8 +232,8 @@ if (get_sig == nullptr || !is_transfer_safe<PluginConfig>(get_sig())) {
 ### What Is Guaranteed
 
 - `is_transfer_safe<T>(remote_sig)` returns `true` only if both the local type
-  passes compile-time safety checks and the remote signature matches the local
-  signature exactly.
+  passes compile-time byte-copy transport checks and the remote layout signature
+  matches the local layout signature exactly.
 - Any change in field offset, size, or type causes the signatures to differ and
   the check to return `false`.
 
@@ -258,7 +259,7 @@ version of the application. If struct layout changes across platforms or version
 ### Solution
 
 Use the two-phase pipeline to verify that the file header struct has identical
-layout on all target platforms before shipping.
+layout signatures on all target platforms before shipping.
 
 **Phase 1: Export signatures on each platform.**
 
@@ -328,8 +329,8 @@ reporter.print_diff_report(std::cout);  // with ^--- diff annotations on mismatc
 
 ### What Is Guaranteed
 
-- If Phase 2 passes (all signatures match), every file header struct has identical
-  `sizeof`, `alignof`, and field offsets on all compared platforms.
+- If Phase 2 passes (all layout signatures match), every file header struct has
+  identical `sizeof`, `alignof`, and field offsets on all compared platforms.
 - `fwrite` on one platform and `fread` on another will interpret each byte
   correctly.
 - The arch prefix in the signature encodes endianness. If platforms differ in

@@ -26,7 +26,7 @@ Every C++ developer has written `static_assert(sizeof(MyStruct) == 64)` — and 
 
 This talk introduces **TypeLayout**, a header-only C++26 library that replaces those fragile, per-field asserts with a single `static_assert` that automatically verifies the *complete* memory layout of any type — every field offset, every byte of padding, every alignment constraint, every level of inheritance — at compile time, with zero runtime cost.
 
-TypeLayout uses P2996 static reflection to generate deterministic, human-readable **type layout signatures**: compact strings that encode everything the compiler knows about a type's layout — every field offset, every alignment constraint, every level of inheritance. A formal soundness guarantee ensures that a signature match implies identical byte layouts, giving developers a zero-false-positive verification primitive for IPC, plugin systems, file formats, and cross-platform binary protocol verification.
+TypeLayout uses P2996 static reflection to generate deterministic, human-readable **layout signatures**: compact strings that encode everything the compiler knows about a type's layout — every field offset, every alignment constraint, every level of inheritance. A formal soundness guarantee ensures that a layout signature match implies identical byte layouts, giving developers a zero-false-positive verification primitive for byte-copy transport verification in IPC, plugin systems, file formats, and cross-platform binary protocols.
 
 We will demonstrate real-world applications with live cross-platform comparisons (Linux x86_64, macOS ARM64, Windows x64), walk through the denotational semantics proofs that back the library's zero-false-positive guarantee, and show how the cross-platform toolchain lets you verify struct compatibility across platforms — without needing P2996 on every machine.
 
@@ -44,7 +44,7 @@ We will demonstrate real-world applications with live cross-platform comparisons
   - Can't compare two types
 - Real-world horror stories: IPC corruption, plugin crashes, file format incompatibility
 
-**Part 2: The Solution — Type Layout Signatures (15 min)**
+**Part 2: The Solution — Layout Signatures (15 min)**
 
 *"Let the compiler tell the truth."*
 
@@ -81,7 +81,7 @@ We will demonstrate real-world applications with live cross-platform comparisons
   static_assert(get_layout_signature<Writer::Data>() == get_layout_signature<Reader::Data>());
   ```
 - **Plugin systems**: export signature via `dlsym`, verify at load time
-- **Cross-platform file formats**: Layout match + Safety classification = zero-copy decision
+- **Cross-platform file formats**: Layout signature match + safety classification = byte-copy transport decision
 - **ABI mismatch detection**: catches data-layout differences between independently compiled modules at load time
 - Live demo: the cross-platform compatibility report across 3 platforms
 

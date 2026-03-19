@@ -6,8 +6,18 @@ Analysis of the library's concept structure after all simplification rounds.
 
 ## 1. Concept Structure
 
-The library has two roots: **signature generation** and **P2996 reflection**.
-They converge in `layout_traits<T>`, which feeds the transport safety layer.
+The public-facing mental model is smallest when organized into 3 layers:
+
+1. **Core questions** -- `get_layout_signature<T>()`, `is_byte_copy_safe_v<T>`,
+   `is_transfer_safe<T>(sig)`
+2. **Extension mechanisms** -- opaque registration plus the cross-platform export/report
+   pipeline
+3. **Internal support** -- `detail::layout_traits<T>`, padding cross-checks, signature
+   parsing, and report-only safety classification
+
+Under the hood, the library still has two technical roots: **signature generation**
+and **P2996 reflection**. They converge in `detail::layout_traits<T>`, which feeds the
+transport safety layer.
 
 ```
 P2996 Reflection Engine
@@ -46,39 +56,35 @@ P2996 Reflection Engine
 
 ## 2. Current Public Concept Inventory
 
-After four rounds of simplification (25 -> 21 -> 19 -> 18 concepts):
+After the simplification rounds, the library is easiest to explain as 3 public-facing
+questions plus extension mechanisms.
 
 ```
-Core Layer (6 concepts)
+Core questions
   get_layout_signature<T>()               signature.hpp
-  layout_traits<T>::has_pointer           layout_traits.hpp  [detail::]
-  layout_traits<T>::has_padding           layout_traits.hpp  [detail::]
   is_byte_copy_safe_v<T>                  admission.hpp
   is_transfer_safe<T>(remote_sig)         transfer.hpp
 
-Opaque Registration (4 macros)
+Extension mechanisms
   TYPELAYOUT_REGISTER_OPAQUE              opaque.hpp
   TYPELAYOUT_OPAQUE_TYPE_RELOCATABLE      opaque.hpp
   TYPELAYOUT_OPAQUE_CONTAINER_RELOCATABLE opaque.hpp
   TYPELAYOUT_OPAQUE_MAP_RELOCATABLE       opaque.hpp
-
-Tools Layer (display + cross-platform pipeline)
-  detail::SafetyLevel                     safety_level.hpp
-  detail::classify_signature()            safety_level.hpp
   SigExporter                             sig_export.hpp
   CompatReporter                          compat_check.hpp
 
-Infrastructure
+Internal support (not stable user-facing concepts)
+  detail::layout_traits<T>                layout_traits.hpp
+  detail::SafetyLevel                     tools/safety_level.hpp
+  detail::classify_signature()            tools/safety_level.hpp
   FixedString<N>                          fixed_string.hpp
   get_arch_prefix()                       signature.hpp  [detail::]
-
-Internal (not public API)
-  layout_traits<T>::has_opaque            layout_traits.hpp  [detail::]
-  layout_traits<T>::total_size            layout_traits.hpp  [detail::]
-  layout_traits<T>::alignment             layout_traits.hpp  [detail::]
   sig_has_padding(string_view)            sig_parser.hpp  [detail::]
   opaque_elements_safe<T>                 fwd.hpp  [detail::]
 ```
+
+This framing keeps the user-visible surface small without changing the underlying
+architecture.
 
 ---
 
@@ -123,17 +129,15 @@ Internal (not public API)
 
 ## 4. Why Each Remaining Concept is Necessary
 
-### Core concepts (cannot remove any)
+### Core questions (cannot remove any)
 
 | Concept | Why it cannot be removed |
 |---------|--------------------------|
-| `get_layout_signature<T>()` | Foundation of the library. All downstream features consume the signature. Signature comparison uses `FixedString::operator==` directly. |
-| `has_pointer` | Core transport-safety predicate. `is_byte_copy_safe` Branch 1 and Branch 2 both read it. Users need it for "does my type contain address-space-dependent data?" |
-| `has_padding` | Independent byte-coverage bitmap algorithm (not derivable from signature at the same precision). Dual-path cross-validation with `sig_has_padding`. Users need it for info-leak detection. |
-| `is_byte_copy_safe_v<T>` | 4-branch recursive decision tree. Branch 3 (non-trivially-copyable class member recursion) cannot be derived from the signature. |
-| `is_transfer_safe<T>(sig)` | Direct answer to the library's core question: "can T be safely byte-transported to this remote endpoint?" |
+| `get_layout_signature<T>()` | Foundation of the library. All downstream features consume the layout signature. Signature comparison uses `FixedString::operator==` directly. |
+| `is_byte_copy_safe_v<T>` | Core byte-copy transport predicate. Its recursive decision tree cannot be reduced to signature equality alone. |
+| `is_transfer_safe<T>(sig)` | Direct answer to the library's core runtime question: can local `T` be safely transferred to this remote endpoint? |
 
-### Opaque macros (cannot reduce below 4)
+### Extension mechanisms: opaque registration (cannot reduce below 4)
 
 | Macro | Why it is distinct |
 |-------|-------------------|
@@ -142,7 +146,7 @@ Internal (not public API)
 | `OPAQUE_CONTAINER_RELOCATABLE` | Single-parameter template. Embeds element type signature. Generates `opaque_elements_safe` specialization that recurses into element. |
 | `OPAQUE_MAP_RELOCATABLE` | Two-parameter template. Cannot be expressed by single-parameter variant. |
 
-### Tools (display + pipeline)
+### Extension mechanisms: tools (display + pipeline)
 
 | Concept | Why it is kept |
 |---------|---------------|
@@ -150,7 +154,7 @@ Internal (not public API)
 | `SigExporter` | Phase 1 of cross-platform pipeline. No alternative. |
 | `CompatReporter` | Phase 2 of cross-platform pipeline. No alternative. |
 
-### Internal (not public, but technically necessary)
+### Internal support (not public, but technically necessary)
 
 | Concept | Role |
 |---------|------|
@@ -186,9 +190,9 @@ Can any remaining concept be removed without breaking the system?
 
 ### Conclusion
 
-No concept is redundant. The only candidates for deletion (`SafetyLevel`,
-`is_transfer_safe`) have near-zero maintenance cost and provide clear user
-value. Further simplification would degrade usability without reducing
+No core question is redundant. The only candidates for deletion (`detail::SafetyLevel`,
+`is_transfer_safe`) have near-zero maintenance cost and provide clear explanatory or
+user-facing value. Further simplification would degrade usability without reducing
 complexity.
 
 ---

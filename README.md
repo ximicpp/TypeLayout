@@ -40,14 +40,23 @@ compilers, or two platforms.
 
 ## Public API
 
-One `consteval` function forms the core surface:
+The public surface is easiest to understand as 3 core questions:
 
-| Function | Returns | Description |
-|----------|---------|-------------|
-| `get_layout_signature<T>()` | `FixedString` | Full byte-level layout signature of `T` |
+| Question | Primary API | Purpose |
+|----------|-------------|---------|
+| What is the byte layout of `T`? | `get_layout_signature<T>()` | Generate the full deterministic layout signature |
+| Is `T` safe for byte-copy transport? | `is_byte_copy_safe_v<T>` | Reject pointers, unsafe opaque types, and unsafe recursive members |
+| Can local `T` be transferred to a remote endpoint? | `is_transfer_safe<T>(sig)` | Combine local byte-copy safety with remote signature matching |
+
+Most users can start with these 3 APIs and only learn the tools layer if they need
+cross-platform export/report workflows.
+
+Opaque registration and compatibility tools remain part of the public API, but they
+act as extensions around the 3 core questions rather than separate first-line concepts.
 
 Compare signatures directly with `get_layout_signature<A>() == get_layout_signature<B>()`.
-A matching result guarantees memcpy-compatibility: identical field offsets, sizes, and alignments.
+A matching result gives layout identity; for transport decisions, pair it with
+`is_byte_copy_safe_v<T>` or call `is_transfer_safe<T>(sig)`.
 
 ## Supported Types
 
@@ -63,9 +72,24 @@ A matching result guarantees memcpy-compatibility: identical field offsets, size
 | Inheritance | Single, multiple, multi-level, empty base optimization |
 | Unions | Member-level signatures |
 
+## Opaque Types
+
+Opaque registration is the extension mechanism for types whose internal structure
+should not, or cannot, be reflected directly.
+
+- **Ordinary opaque**: use `TYPELAYOUT_REGISTER_OPAQUE(Type, Tag, HasPointer)` for
+  trivially copyable third-party or ABI-stable blob types.
+- **Relocatable opaque**: use the relocatable opaque macros for non-trivially-copyable
+  wrappers, containers, and maps whose byte transport safety is asserted by the user.
+
+This keeps the core mental model small: first answer the 3 core questions, then add
+opaque registration only when reflection alone is insufficient.
+
 ## Safety Levels
 
-The tools layer classifies types into five tiers (ordered best to worst):
+The five safety levels are part of the reporting/tooling layer. They are useful for
+human-readable diagnostics, but the primary user-facing decisions are still the 3 core
+APIs above.
 
 | Level | Value | Meaning |
 |-------|-------|---------|

@@ -59,11 +59,11 @@ disagree on a callback struct's layout, causing memory stomps. In binary file
 formats, a file written on one platform becomes unreadable on another because
 of padding differences.
 
-## 1.2 Our Approach: Compile-Time Type Layout Signatures
+## 1.2 Our Approach: Compile-Time Layout Signatures
 
 We present **TypeLayout**, a header-only C++ library that uses C++26 static
 reflection (P2996) to generate *complete, deterministic, human-readable*
-type layout signatures at compile time—with zero runtime overhead.
+layout signatures at compile time—with zero runtime overhead.
 
 With TypeLayout, the 7-line manual verification above reduces to:
 
@@ -76,10 +76,10 @@ identical byte layouts: same field types, same sizes, same alignments, same
 offsets, same padding—automatically derived from the type definitions
 themselves via compile-time reflection.
 
-TypeLayout generates *Layout signatures* that capture *byte identity*: the
+TypeLayout generates *layout signatures* that capture *byte identity*: the
 flattened sequence of field offsets, sizes, and alignments, with inheritance
 hierarchies fully expanded and field names stripped. Two types with matching
-Layout signatures are `memcpy`-compatible.
+layout signatures are safe for byte-copy transport.
 
 ## 1.3 Motivating Example
 
@@ -113,17 +113,17 @@ static_assert(get_layout_signature<sender::Message>()
            == get_layout_signature<receiver::Message>());
 ```
 
-If Team B renames `payload` to `value` but keeps the same type, the Layout
+If Team B renames `payload` to `value` but keeps the same type, the layout
 check still passes—the byte layout is identical. If Team B changes the field
-type or reorders fields, the Layout check fails immediately at compile
+type or reorders fields, the layout check fails immediately at compile
 time—before any data is exchanged.
 
 ## 1.4 Contributions
 
 This paper makes the following contributions:
 
-1. **A compile-time type layout signature system** built on C++26 static
-   reflection (P2996) that generates a deterministic, human-readable Layout
+1. **A compile-time layout signature system** built on C++26 static
+   reflection (P2996) that generates a deterministic, human-readable layout
    signature encoding the complete byte-level memory identity of any C++ type.
    The system is fully automatic, requiring no annotations or code generation.
    (§3)

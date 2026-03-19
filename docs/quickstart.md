@@ -6,7 +6,18 @@
 - **Standard**: C++26
 - **Dependencies**: None (header-only library)
 
-## 2. Minimal Example
+## 2. The 3 Core Questions
+
+Most users only need to learn TypeLayout through 3 questions:
+
+1. What is the byte layout of `T`?
+2. Is `T` safe for byte-copy transport?
+3. Can local `T` be transferred to a remote endpoint?
+
+The sections below follow that order. Opaque registration and cross-platform tools
+come later as extension topics.
+
+## 3. Minimal Example
 
 Create `check.cpp`:
 
@@ -48,12 +59,13 @@ Expected output on x86-64 little-endian:
 [64-le]record[s:24,a:8]{@0:u32[s:4,a:4],@8:u64[s:8,a:8],@16:f64[s:8,a:8]}
 ```
 
-> **Public API**: TypeLayout exposes exactly 6 concepts: `get_layout_signature<T>()`,
-> `is_byte_copy_safe_v<T>`, `is_transfer_safe<T>(sig)`, `TYPELAYOUT_REGISTER_OPAQUE`
-> macros, `SigExporter`, and `CompatReporter`.
+> Start with the 3 core APIs above. Opaque registration and the export/report tools
+> are extension mechanisms that you only need for third-party opaque types or
+> cross-platform workflows.
+>
 > See [API Reference](api-reference.md) for the full reference.
 
-## 3. Reading a Signature
+## 4. Reading a Signature
 
 ```
 [64-le]record[s:24,a:8]{@0:u32[s:4,a:4],@8:u64[s:8,a:8],@16:f64[s:8,a:8]}
@@ -72,7 +84,7 @@ The gap between `@0:u32[s:4]` (covers bytes 0-3) and `@8:u64[s:8]` (starts at by
 indicates four padding bytes at offsets 4-7. Padding is not encoded explicitly; it is
 implied by the offset gaps.
 
-## 4. Catching Mismatches
+## 5. Catching Mismatches
 
 If fields are reordered, the static assertion fails at compile time:
 
@@ -86,7 +98,29 @@ static_assert(get_layout_signature<SenderMsg>() == get_layout_signature<Receiver
 
 The compiler reports the failure immediately; no runtime test is needed.
 
-## 5. Cross-Platform Verification
+## 6. Runtime Handshake with is_transfer_safe
+
+For scenarios where the remote type's signature is received at runtime (e.g., a
+plugin that exports its signature string over IPC or RPC):
+
+```cpp
+#include <boost/typelayout/tools/transfer.hpp>
+using namespace boost::typelayout;
+
+// Plugin exports at load time:
+extern "C" const char* get_packet_sig() {
+    static constexpr auto sig = get_layout_signature<PacketHeader>();
+    return sig.c_str();
+}
+
+// Host verifies after dlopen:
+const char* remote_sig = get_packet_sig_from_plugin();
+if (!is_transfer_safe<PacketHeader>(remote_sig)) {
+    // layout mismatch or safety concern -- refuse the connection
+}
+```
+
+## 7. Cross-Platform Verification
 
 For comparing types across platforms, TypeLayout uses a two-phase pipeline.
 
@@ -197,7 +231,7 @@ typelayout_add_compat_pipeline(
 )
 ```
 
-## 6. Opaque Types
+## 8. Opaque Types
 
 Types that cannot be reflected (third-party containers, non-trivial types) can be
 registered as opaque so that structs containing them still produce signatures.
@@ -224,29 +258,16 @@ For template types, register each instantiation separately:
 TYPELAYOUT_REGISTER_OPAQUE(MyLib::XVector<int>, "xvector_int", true)
 ```
 
-## 7. Runtime Handshake with is_transfer_safe
+Opaque registration is an extension mechanism, not part of the first-line mental
+model. Reach for it only when reflection alone cannot describe a type you need to
+transport.
 
-For scenarios where the remote type's signature is received at runtime (e.g., a
-plugin that exports its signature string over IPC or RPC):
+- **Ordinary opaque**: use `TYPELAYOUT_REGISTER_OPAQUE(Type, Tag, HasPointer)` for
+  trivially copyable third-party or ABI-stable blob types.
+- **Relocatable opaque**: use the relocatable opaque macros for non-trivially-copyable
+  wrappers and template containers whose transport safety is asserted by the user.
 
-```cpp
-#include <boost/typelayout/tools/transfer.hpp>
-using namespace boost::typelayout;
-
-// Plugin exports at load time:
-extern "C" const char* get_packet_sig() {
-    static constexpr auto sig = get_layout_signature<PacketHeader>();
-    return sig.c_str();
-}
-
-// Host verifies after dlopen:
-const char* remote_sig = get_packet_sig_from_plugin();
-if (!is_transfer_safe<PacketHeader>(remote_sig)) {
-    // layout mismatch or safety concern -- refuse the connection
-}
-```
-
-## 8. CMake Integration
+## 9. CMake Integration
 
 The library is header-only. The minimum CMake setup is:
 
@@ -256,7 +277,7 @@ target_compile_options(my_target PRIVATE
     -std=c++26 -freflection -freflection-latest -stdlib=libc++)
 ```
 
-## 9. Common Pitfalls
+## 10. Common Pitfalls
 
 **Padding bytes are uninitialized.** Matching layout signatures guarantee identical
 field offsets and sizes, not identical byte values. `memcmp` on layout-compatible
@@ -275,7 +296,7 @@ signatures are identical. TypeLayout operates on byte identity, not field names.
 Phase 1 are plain constexpr data, but the tools layer headers require the P2996
 compiler.
 
-## 10. Next Steps
+## 11. Next Steps
 
 - [API Reference](api-reference.md) — all public symbols with declarations and examples
 - [Applications](applications.md) — IPC, network protocol, plugin ABI, cross-platform file use cases
