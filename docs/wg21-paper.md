@@ -116,37 +116,15 @@ recursively flattened. Field names are stripped. Padding, when present,
 is implicit — visible as gaps between adjacent field offsets.
 
 Two types with matching layout signatures have identical byte-level
-representations. For types that are additionally trivially copyable
-(or registered as relocatable), this means they are safe for
-`memcpy`-based transport between modules. The library provides a
-separate predicate, `is_byte_copy_safe_v<T>`, that checks this
-additional precondition.
+representations. This is stricter than C++20's
+`std::is_layout_compatible` ([meta.rel]), which checks common initial
+sequence only — layout signatures verify byte-for-byte representation
+equivalence, including for non-standard-layout types.
 
-### 2.1 Relationship to `std::is_layout_compatible`
-
-C++20 provides `std::is_layout_compatible<T, U>` ([meta.rel]), which
-checks whether two types share a common initial sequence per the
-standard's definition ([basic.types.general]). TypeLayout answers a
-different question: do two types have *identical* byte-level
-representations (same field offsets, sizes, alignments, and padding)?
-These checks are orthogonal: `is_layout_compatible` may hold for
-types with different tail padding, and TypeLayout's byte-identical
-check applies to non-standard-layout types where
-`is_layout_compatible` is not defined.
-
-### 2.2 The Three Core Questions
-
-The library's public API is organized around three user questions:
-
-| Question | API | Context |
-|----------|-----|---------|
-| What is the byte layout of `T`? | `get_layout_signature<T>()` | Compile-time |
-| Is `T` safe to byte-copy? | `is_byte_copy_safe_v<T>` | Compile-time |
-| Can I transfer `T` to a remote endpoint? | `is_transfer_safe<T>(sig)` | Runtime |
-
-The third question handles the case where the remote endpoint's signature
-is received at runtime (e.g., a plugin exporting its signature via
-`extern "C"`), enabling runtime handshake verification.
+The signature is the single core concept. The library's other
+capabilities — byte-copy safety checking, runtime transfer
+verification, cross-platform comparison, safety classification — are
+all derived from it (§4).
 
 ## 3. P2996 Reflection API Usage
 
@@ -304,78 +282,49 @@ API deficiency. We expect to migrate to `template for` once compiler
 support is available, which will significantly reduce boilerplate
 throughout the codebase.
 
-## 4. Dual-Path Validation: A Pattern Enabled by Reflection
+## 4. Derived Capabilities
 
-One design pattern worth highlighting: TypeLayout detects padding through
-two independent mechanisms and cross-validates them:
+All downstream functionality builds on `get_layout_signature`. This
+section briefly describes each derived capability.
 
-**Path 1 (P2996 bitmap):** A `consteval` function marks which bytes are
-covered by data fields using a `std::array<bool, sizeof(T)>` bitmap.
-Any uncovered byte is padding.
+**Byte-copy admission (`is_byte_copy_safe_v<T>`).**
+Determines whether a type can be safely transported via `memcpy`.
+Recursively checks that `T` and all its members/bases are trivially
+copyable (or registered as relocatable opaque types). This predicate
+is orthogonal to signatures — it checks a precondition for transport,
+while signatures check layout equivalence. Used together: "signature
+match + byte-copy safe = safe to memcpy."
 
-```cpp
-template <typename T>
-consteval bool compute_has_padding() noexcept {
-    std::array<bool, sizeof(T)> covered{};
-    // Use offset_of + sizeof for each member to mark covered bytes
-    mark_type_coverage<sizeof(T), T, 0>(covered);
-    for (std::size_t i = 0; i < sizeof(T); ++i)
-        if (!covered[i]) return true;
-    return false;
-}
-```
+**Runtime transfer verification (`is_transfer_safe<T>(remote_sig)`).**
+Verifies layout compatibility when the remote endpoint's signature
+arrives at runtime (e.g., plugin handshake over IPC). Generates the
+local signature via `get_layout_signature<T>()`, compares it against
+the runtime string, and additionally checks byte-copy safety. This
+enables `extern "C"` signature exchange without shared headers.
 
-**Path 2 (signature parser):** A C++17 function parses the generated
-signature string and detects gaps between field offsets.
+**Cross-platform pipeline.**
+Compares type layouts across different platforms (e.g., x86-64 Linux
+vs ARM64 macOS). Phase 1 compiles a small P2996 exporter on each
+target platform, producing a `.sig.hpp` header with signatures as
+`constexpr` string literals. Phase 2 includes all generated headers
+and compares signatures — no P2996 compiler needed. The exported
+files are human-readable and version-controllable.
 
-The two paths are cross-validated with `static_assert`:
+**Dual-path padding validation.**
+An internal correctness mechanism. Two independent paths detect
+padding: a P2996 `consteval` byte-coverage bitmap (using `offset_of`
+to mark covered bytes) and a C++17 signature-string parser (detecting
+gaps between field offsets). A `static_assert` enforces agreement,
+implicitly validating the compiler's `offset_of` implementation.
 
-```cpp
-static_assert(
-    compute_has_padding<T>() == sig_has_padding(signature),
-    "Bitmap and parser disagree on padding detection");
-```
+**Safety classification (`classify<T>()`).**
+Categorizes a type's transport safety into five ordered tiers by
+parsing the signature string: `TrivialSafe` (no concerns),
+`PaddingRisk` (uninitialized padding bytes), `PlatformVariant`
+(platform-dependent types like `long`), `PointerRisk` (contains
+pointers), `Opaque` (contains unanalyzable registered types).
 
-This pattern — using reflection to compute a property directly, then
-independently deriving it from the generated output, and asserting
-consistency — provides high confidence in implementation correctness.
-It also implicitly tests the P2996 compiler's `offset_of`
-implementation: if `offset_of` reports incorrect values, the bitmap
-and parser will disagree.
-
-## 5. Cross-Platform Verification
-
-Same-platform verification is a single `static_assert`. Cross-platform
-verification requires a two-phase pipeline:
-
-**Phase 1 (per platform):** Compile a small exporter program with P2996.
-It generates a `.sig.hpp` header embedding type signatures as `constexpr`
-string literals.
-
-```cpp
-// export_types.cpp — compile on each target platform
-#include <boost/typelayout/tools/sig_export.hpp>
-#include "my_types.hpp"
-
-TYPELAYOUT_EXPORT_TYPES(PacketHeader, SensorRecord)
-// Produces: sigs/x86_64_linux_clang.sig.hpp
-```
-
-**Phase 2 (any platform):** Include the generated headers and compare:
-
-```cpp
-#include "sigs/x86_64_linux_clang.sig.hpp"
-#include "sigs/arm64_macos_clang.sig.hpp"
-
-TYPELAYOUT_CHECK_COMPAT(x86_64_linux_clang, arm64_macos_clang)
-// Prints: PacketHeader  MATCH  ***  Transfer-safe
-//         SensorRecord  MATCH  ***  Transfer-safe
-```
-
-The `.sig.hpp` files are self-contained (no library dependency to read
-them), human-readable, and suitable for version control.
-
-## 6. Evaluation Summary
+## 5. Evaluation Summary
 
 **Type coverage:** 17 categories tested including fixed-width integers,
 floats, characters, pointers, enums, arrays, structs (simple and nested),
@@ -409,7 +358,7 @@ time, not during C++ compilation.
 TypeLayout is the first system to achieve all six properties
 simultaneously.
 
-## 7. Future Directions
+## 6. Future Directions
 
 **Standardization potential.** The core operation — "generate a
 canonical layout description from a type's reflection" — may be
@@ -433,15 +382,12 @@ initial sequence guarantee per [basic.types.general], while
 equivalence. We are not proposing this in this paper, but present
 the use case for committee consideration.
 
-**Vtable signatures.** Extending layout signatures to encode virtual
-table structure would cover a larger portion of the ABI surface.
-
 **Efficient compile-time strings.** A standard `consteval` string
 builder with O(1) amortized append would benefit not only TypeLayout
 but any P2996 application that generates code or signatures as strings
 at compile time.
 
-## 8. Conclusion
+## 7. Conclusion
 
 TypeLayout demonstrates that P2996 reflection enables a category of
 library that was previously impossible in standard C++: fully automatic,
