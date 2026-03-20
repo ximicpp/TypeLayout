@@ -44,7 +44,7 @@ opaque   ::= 'O(' TAG '|' NUM '|' NUM ')'
 ```
 
 where `PREFIX` is a closed set of built-in type prefixes:
-`PREFIX ∈ {i8, u8, i16, u16, i32, u32, i64, u64, f32, f64, fld,
+`PREFIX ∈ {i8, u8, i16, u16, i32, u32, i64, u64, f32, f64, fld64, fld80, fld106, fld128,
 char, char8, char16, char32, wchar, bool, byte, nullptr, ptr, ref, rref,
 memptr, fnptr}`.
 

@@ -52,10 +52,10 @@ inline constexpr const char IpcCommand_layout[] =
     "[64-le]record[s:88,a:8]{@0:u32[s:4,a:4],@4:u32[s:4,a:4],@8:i64[s:8,a:8],@16:i64[s:8,a:8],@24:bytes[s:64,a:1]}";
 
 // --- UnsafeStruct --- (DIFFER: long=4B, wchar_t=2B, long double=8B on Windows)
-// Linux:   record[s:48,a:16]{@0:i64[s:8,a:8],@8:ptr[s:8,a:8],@16:wchar[s:4,a:4],@32:fld[s:16,a:16]}
-// Windows: record[s:32,a:8]{@0:i32[s:4,a:4],@8:ptr[s:8,a:8],@16:wchar[s:2,a:2],@24:fld[s:8,a:8]}
+// Linux:   record[s:48,a:16]{@0:i64[s:8,a:8],@8:ptr[s:8,a:8],@16:wchar[s:4,a:4],@32:fld80[s:16,a:16]}
+// Windows: record[s:32,a:8]{@0:i32[s:4,a:4],@8:ptr[s:8,a:8],@16:wchar[s:2,a:2],@24:fld64[s:8,a:8]}
 inline constexpr const char UnsafeStruct_layout[] =
-    "[64-le]record[s:32,a:8]{@0:i32[s:4,a:4],@8:ptr[s:8,a:8],@16:wchar[s:2,a:2],@24:fld[s:8,a:8]}";
+    "[64-le]record[s:32,a:8]{@0:i32[s:4,a:4],@8:ptr[s:8,a:8],@16:wchar[s:2,a:2],@24:fld64[s:8,a:8]}";
 
 // --- UnsafeWithPointer --- (SAME: uint32_t, ptr, uint64_t — pointer is 8B on both)
 inline constexpr const char UnsafeWithPointer_layout[] =

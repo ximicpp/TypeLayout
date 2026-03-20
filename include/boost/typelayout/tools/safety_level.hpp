@@ -71,7 +71,10 @@ inline SafetyLevel classify_signature(std::string_view sig) noexcept {
     bool has_platform_variant =
         sig.find("bits<") != std::string_view::npos ||
         sig.find("wchar[") != std::string_view::npos ||
-        sig.find("fld[") != std::string_view::npos;
+        sig_contains_token(sig, "fld64[") ||
+        sig_contains_token(sig, "fld80[") ||
+        sig_contains_token(sig, "fld106[") ||
+        sig_contains_token(sig, "fld128[");
 
     if (has_platform_variant)
         return SafetyLevel::PlatformVariant;

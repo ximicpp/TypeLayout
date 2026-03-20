@@ -183,12 +183,12 @@ void test_safety_classification() {
     assert(classify_signature("[64-le]record[s:4,a:4]{@0.0:bits<3,u32[s:4,a:4]>}")
            == SafetyLevel::PlatformVariant);
 
-    // PlatformVariant: contains long double (fld) -- platform-dependent size
-    assert(classify_signature("[64-le]record[s:16,a:16]{@0:fld[s:16,a:16]}")
+    // PlatformVariant: contains long double (fld80) -- platform-dependent representation
+    assert(classify_signature("[64-le]record[s:16,a:16]{@0:fld80[s:16,a:16]}")
            == SafetyLevel::PlatformVariant);
 
     // PlatformVariant: struct containing long double alongside safe fields
-    assert(classify_signature("[64-le]record[s:32,a:16]{@0:i32[s:4,a:4],@16:fld[s:16,a:16]}")
+    assert(classify_signature("[64-le]record[s:32,a:16]{@0:i32[s:4,a:4],@16:fld80[s:16,a:16]}")
            == SafetyLevel::PlatformVariant);
 
     // PointerRisk takes priority over PlatformVariant

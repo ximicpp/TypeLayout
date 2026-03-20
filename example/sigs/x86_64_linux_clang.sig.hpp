@@ -47,7 +47,7 @@ inline constexpr const char IpcCommand_layout[] =
 
 // --- UnsafeStruct ---
 inline constexpr const char UnsafeStruct_layout[] =
-    "[64-le]record[s:48,a:16]{@0:i64[s:8,a:8],@8:ptr[s:8,a:8],@16:wchar[s:4,a:4],@32:fld[s:16,a:16]}";
+    "[64-le]record[s:48,a:16]{@0:i64[s:8,a:8],@8:ptr[s:8,a:8],@16:wchar[s:4,a:4],@32:fld80[s:16,a:16]}";
 
 // --- UnsafeWithPointer ---
 inline constexpr const char UnsafeWithPointer_layout[] =

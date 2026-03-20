@@ -93,7 +93,7 @@ inline namespace v1 {
     template <> struct TypeSignature<float>    { static consteval auto calculate() noexcept { return FixedString{"f32[s:4,a:4]"}; } };
     template <> struct TypeSignature<double>   { static consteval auto calculate() noexcept { return FixedString{"f64[s:8,a:8]"}; } };
     template <> struct TypeSignature<long double> {
-        static consteval auto calculate() noexcept { return format_size_align<sizeof(long double), alignof(long double)>("fld"); }
+        static consteval auto calculate() noexcept { return format_size_align<sizeof(long double), alignof(long double)>(BOOST_TYPELAYOUT_LONG_DOUBLE_TAG); }
     };
 
     // =========================================================================

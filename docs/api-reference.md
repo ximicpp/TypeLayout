@@ -338,7 +338,7 @@ type-signature ::= leaf | record | union-sig | enum-sig | array | opaque
 
 leaf      ::= kind '[s:' SIZE ',a:' ALIGN ']'
 kind      ::= 'u8'|'i8'|'u16'|'i16'|'u32'|'i32'|'u64'|'i64'
-            | 'f32'|'f64'|'fld'|'bool'|'char'|'uchar'
+            | 'f32'|'f64'|'fld64'|'fld80'|'fld106'|'fld128'|'bool'|'char'|'uchar'
             | 'char8'|'char16'|'char32'|'wchar'
             | 'ptr'|'fnptr'|'memptr'|'ref'|'rref'
             | 'nullptr'|'void_ptr'

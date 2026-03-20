@@ -374,9 +374,9 @@ void test_cross_platform_roundtrip() {
     constexpr const char typeA_win[]    = "[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@4:u32[s:4,a:4],@8:u64[s:8,a:8]}";
 
     // Type B: Contains long double -> different on all three
-    constexpr const char typeB_linux[]  = "[64-le]record[s:32,a:16]{@0:u32[s:4,a:4],@16:fld[s:16,a:16]}";
-    constexpr const char typeB_macos[]  = "[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:fld[s:8,a:8]}";
-    constexpr const char typeB_win[]    = "[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:fld[s:8,a:8]}";
+    constexpr const char typeB_linux[]  = "[64-le]record[s:32,a:16]{@0:u32[s:4,a:4],@16:fld80[s:16,a:16]}";
+    constexpr const char typeB_macos[]  = "[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:fld64[s:8,a:8]}";
+    constexpr const char typeB_win[]    = "[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:fld64[s:8,a:8]}";
 
     // Type C: Contains wchar_t -> linux/macos match, windows differs
     constexpr const char typeC_linux[]  = "[64-le]record[s:8,a:4]{@0:wchar[s:4,a:4],@4:u32[s:4,a:4]}";
@@ -445,7 +445,7 @@ void test_cross_platform_roundtrip() {
     assert(reporter.are_transfer_safe(
         {"TypeA"}, {"x86_64_linux", "arm64_macos", "x86_64_windows"}));
 
-    // TypeB on macOS + Windows only: match (both fld 8B) + PlatformVariant -> true
+    // TypeB on macOS + Windows only: match (both fld64 8B) + PlatformVariant -> true
     assert(reporter.are_transfer_safe(
         {"TypeB"}, {"arm64_macos", "x86_64_windows"}));
 

@@ -63,4 +63,34 @@ static_assert(std::numeric_limits<float>::is_iec559,
 static_assert(std::numeric_limits<double>::is_iec559,
               "TypeLayout requires IEEE 754 (IEC 559) double");
 
+// =========================================================================
+// long double representation detection
+// =========================================================================
+// Maps long double to a representation-specific signature tag using
+// __LDBL_MANT_DIG__ (predefined by GCC/Clang): the number of binary
+// mantissa digits uniquely identifies the representation.
+//
+//   53  -> fld64  : same as double (ARM64 macOS/iOS, MSVC)
+//   64  -> fld80  : x87 80-bit extended precision (x86/x86_64 Linux/BSD)
+//   106 -> fld106 : IBM double-double (PowerPC Linux, AIX)
+//   113 -> fld128 : IEEE 754 binary128 (POWER9+/s390x/SPARC)
+
+#if defined(__LDBL_MANT_DIG__)
+    #if __LDBL_MANT_DIG__ == 53
+        #define BOOST_TYPELAYOUT_LONG_DOUBLE_TAG "fld64"
+    #elif __LDBL_MANT_DIG__ == 64
+        #define BOOST_TYPELAYOUT_LONG_DOUBLE_TAG "fld80"
+    #elif __LDBL_MANT_DIG__ == 106
+        #define BOOST_TYPELAYOUT_LONG_DOUBLE_TAG "fld106"
+    #elif __LDBL_MANT_DIG__ == 113
+        #define BOOST_TYPELAYOUT_LONG_DOUBLE_TAG "fld128"
+    #else
+        #error "Unsupported long double format (__LDBL_MANT_DIG__ is not 53, 64, 106, or 113)"
+    #endif
+#elif defined(_MSC_VER)
+    #define BOOST_TYPELAYOUT_LONG_DOUBLE_TAG "fld64"
+#else
+    #error "Cannot detect long double representation. Define BOOST_TYPELAYOUT_LONG_DOUBLE_TAG manually."
+#endif
+
 #endif // BOOST_TYPELAYOUT_CONFIG_HPP

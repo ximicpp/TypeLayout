@@ -20,7 +20,7 @@
 //   leaf-signature ::= type-kind '[' params ']'
 //   type-kind      ::= 'i8' | 'i16' | 'i32' | 'i64'
 //                     | 'u8' | 'u16' | 'u32' | 'u64'
-//                     | 'f32' | 'f64' | 'fld'
+//                     | 'f32' | 'f64' | 'fld64' | 'fld80' | 'fld106' | 'fld128'
 //                     | 'char' | 'wchar' | 'char8' | 'char16' | 'char32'
 //                     | 'bool' | 'byte' | 'nullptr'
 //                     | 'ptr' | 'fnptr' | 'memptr' | 'ref' | 'rref'
