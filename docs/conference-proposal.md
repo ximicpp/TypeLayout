@@ -30,10 +30,10 @@ running case study is TypeLayout, a layout-signature library that uses
 eight reflection primitives to generate a compile-time **layout
 signature** — a deterministic string encoding every field offset, size,
 alignment, and padding byte of any C++ type, including classes with
-private members, inheritance hierarchies, and bit-fields. Export each
-target's signatures, feed them into a compatibility matrix, and get a
-definitive answer for every type-platform pair: transfer-safe, layout
-mismatch, or pointer risk.
+private members, inheritance hierarchies, and bit-fields. Export
+signatures where you have a P2996 compiler, verify compatibility
+anywhere with plain C++17 — and get a definitive answer for every
+type-platform pair: transfer-safe, layout mismatch, or pointer risk.
 
 The talk opens with the compatibility matrix, then drills into *why*
 each result is what it is — teaching reusable reflection patterns,
@@ -80,18 +80,20 @@ from primitives and records through pointers and opaque containers).
   ```
 - Six build targets spanning two data models and three compilers:
   ```
-  x86_64_linux_gcc        LP64   long=8  wchar=4  ldbl=16
-  x86_64_linux_clang      LP64   long=8  wchar=4  ldbl=16
-  arm64_linux_gcc          LP64   long=8  wchar=4  ldbl=16(!)  # fld128, not fld80
-  arm64_macos_clang        LP64   long=8  wchar=4  ldbl=8
-  x86_64_windows_msvc      LLP64  long=4  wchar=2  ldbl=8
-  x86_64_windows_clangcl   LLP64  long=4  wchar=2  ldbl=8
+  x86_64_linux_gcc         LP64   long=8  wchar=4  ldbl=16
+  x86_64_linux_clang       LP64   long=8  wchar=4  ldbl=16
+  arm64_linux_gcc           LP64   long=8  wchar=4  ldbl=16(!)  # fld128, not fld80
+  arm64_macos_clang         LP64   long=8  wchar=4  ldbl=8
+  x86_64_windows_msvc       LLP64  long=4  wchar=2  ldbl=8
+  x86_64_windows_clangcl    LLP64  long=4  wchar=2  ldbl=8
   ```
 - Open with the compatibility matrix — the answer first, explanation
   later:
   ```
-  Build targets: 6     ABI equivalence: {linux_gcc, linux_clang}
+  Build targets: 6     ABI equivalence: {linux_gcc, linux_clang, arm_linux_gcc}
                                          {windows_msvc, windows_clangcl}
+  (Same fingerprint != same signatures: arm64 uses fld128 for long double
+   vs x86_64's fld80, so types containing long double still DIFFER.)
 
   Type              x86_linux  arm_linux  macOS   Windows   Safety
   ────────────────────────────────────────────────────────────────
@@ -105,8 +107,8 @@ from primitives and records through pointers and opaque containers).
           Opaque = contains opaque type (user-declared safety)
 
   [DIFFER] PlatformRiskyMsg:
-    linux_gcc:    ...@24:i64[s:8,a:8],@32:wchar[s:4,a:4]...
-    windows_msvc: ...@24:i32[s:4,a:4],@28:wchar[s:2,a:2]...
+    linux_gcc:    ...@24:i64[s:8,a:8],@32:array[s:32,a:4]<wchar[s:4,a:4],8>...
+    windows_msvc: ...@24:i32[s:4,a:4],@28:array[s:16,a:2]<wchar[s:2,a:2],8>...
                        ^^^                  ^^^
   ```
 - The audience sees patterns immediately:
@@ -167,15 +169,16 @@ bit-fields.
   `i64` vs `i32` (long) and `wchar[s:4]` vs `wchar[s:2]` tell you
   exactly which field broke.
 - The gotcha: two types can have the same `sizeof` but different field
-  offsets. Show a concrete example where inserting a field causes
-  padding to shift, leaving `sizeof` unchanged. The signature catches
-  it; `sizeof` doesn't.
+  offsets. Concrete example: `Timestamp` has `sizeof == 16` but only
+  12 bytes of data (seconds_ + nanos_) — 4 bytes of tail padding are
+  invisible to `sizeof`. This is why `TelemetryMsg::values_` starts
+  at offset 24, not 20. The signature catches it; `sizeof` doesn't.
 
 **Takeaway**: Signatures are human-readable diffs. When they fail, you
 can see exactly which field diverged and why — no debugger, no core
 dump, no printf.
 
-### Part 3 — How Reflection Builds Signatures (15 min)
+### Part 3 — How Reflection Builds Signatures (15 min, dense)
 
 *"Reflection patterns for layout analysis."*
 
@@ -376,9 +379,8 @@ reuse the technique without any library. It reports what works well
 (`offset_of`, `access_context`, `is_bit_field`), what's awkward
 (index-based recursion without expansion statements), and what's a
 real barrier (constexpr step limits). It also reports cross-compiler
-differences (bit-field allocation
-strategies, `long double` representation) that P2996 faithfully
-captures but cannot resolve. Compiler teams and SG7 benefit from this
+differences (bit-field allocation strategies, `long double`
+representation) that P2996 faithfully captures but cannot resolve. Compiler teams and SG7 benefit from this
 feedback.
 
 **Immediately reproducible.** The case-study library is header-only,
@@ -390,7 +392,7 @@ and the code will work unchanged when mainstream C++26 compilers ship.
 
 | Part | Topic | Time |
 |------|-------|------|
-| 1 | The matrix — 4 message types, 6 build targets, which can zero-copy? | 5 min |
+| 1 | The matrix — 6 types (4 messages + 2 building blocks), 6 build targets | 5 min |
 | 2 | Signature anatomy + the PlatformRiskyMsg diff | 8 min |
 | 3 | Reflection patterns: key primitives, access_context, friction | 10 min |
 | 4 | Transport safety + opaque + cross-platform pipeline (one slide) | 6 min |
