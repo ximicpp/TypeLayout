@@ -9,6 +9,7 @@
 
 using namespace boost::typelayout;
 using namespace boost::typelayout::detail;
+using namespace boost::typelayout::compat;
 
 void test_basic() {
     using detail::sig_has_padding;

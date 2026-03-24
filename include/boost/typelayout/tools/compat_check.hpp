@@ -23,17 +23,9 @@ namespace typelayout {
 inline namespace v1 {
 namespace compat {
 
-using detail::SafetyLevel;
-using detail::classify_signature;
-
-/// Compare two layout signature strings. Usable in static_assert.
-constexpr bool sig_match(const char* a, const char* b) noexcept {
-    return std::string_view(a) == std::string_view(b);
-}
-
-/// Compare layout signatures.
+/// Compare layout signatures. Usable in static_assert.
 constexpr bool layout_match(const char* a, const char* b) noexcept {
-    return sig_match(a, b);
+    return std::string_view(a) == std::string_view(b);
 }
 
 inline const char* safety_label(SafetyLevel level) noexcept {
@@ -73,7 +65,8 @@ inline const char* safety_reason(SafetyLevel level) noexcept {
 struct TypeResult {
     std::string name;
     bool        layout_match;
-    SafetyLevel safety;
+    bool        byte_copy_safe;
+    SafetyLevel safety;           // display-only classification
     std::vector<std::string> layout_sigs;
 };
 
@@ -124,23 +117,18 @@ public:
         platforms_.push_back({name, types, count});
     }
 
-    // Transfer-safe criteria for a type across a set of platforms:
-    //   (1) byte-copy safe — guaranteed by SigExporter::add<T>'s static_assert
-    //   (2) no pointer/reference members — detected as PointerRisk
-    //   (3) layout signature matches across the specified platforms
-    // Opaque types are allowed: the user registered them via
-    // TYPELAYOUT_REGISTER_OPAQUE and takes responsibility for their layout.
-    // PaddingRisk and PlatformVariant do NOT disqualify: padding is an
-    // info-leak concern, and platform-variant types that match on the
-    // given platforms are fine for those platforms.
+    // Transfer-safe criteria (aligned with is_transfer_safe<T>):
+    //   (1) byte_copy_safe == true on all platforms (computed at export time
+    //       via is_byte_copy_safe_v<T>: trivially_copyable + no pointers +
+    //       not polymorphic + recursive member/base check)
+    //   (2) layout signature matches across the specified platforms
 
     /// Check if the specified types are transfer-safe across the
     /// specified platforms.  This is the core query for the use case:
     /// "given type set T and platform set P, can I memcpy safely?"
     ///
-    /// Returns true when every type in @p type_names has an identical
-    /// layout signature across every platform in @p platform_names,
-    /// and none of those signatures contain pointers.
+    /// Returns true when every type in @p type_names is byte-copy safe
+    /// and has an identical layout signature across every platform.
     ///
     /// Usage (brace-init):
     ///   reporter.are_transfer_safe(
@@ -189,6 +177,7 @@ public:
             TypeResult tr;
             tr.name = name;
             tr.layout_match = true;
+            tr.byte_copy_safe = true;
 
             SafetyLevel worst_safety = SafetyLevel::TrivialSafe;
             std::string first_sig;
@@ -198,6 +187,7 @@ public:
                 if (!entry) {
                     tr.layout_sigs.emplace_back("<missing>");
                     tr.layout_match = false;
+                    tr.byte_copy_safe = false;
                     continue;
                 }
                 std::string sig(entry->layout_sig);
@@ -207,6 +197,9 @@ public:
                     tr.layout_match = false;
                 }
                 tr.layout_sigs.push_back(std::move(sig));
+
+                if (!entry->byte_copy_safe)
+                    tr.byte_copy_safe = false;
 
                 auto level = classify_signature(entry->layout_sig);
                 if (static_cast<int>(level) > static_cast<int>(worst_safety))
@@ -380,25 +373,29 @@ private:
     static std::string format_verdict(const TypeResult& r,
                                       int& transfer_safe,
                                       int& layout_compatible) {
-        if (r.layout_match) {
-            ++layout_compatible;
-            if (r.safety == SafetyLevel::TrivialSafe) {
-                ++transfer_safe;
+        if (!r.layout_match)
+            return "Layout mismatch";
+
+        ++layout_compatible;
+
+        if (!r.byte_copy_safe)
+            return "Layout match (not byte-copy safe)";
+
+        ++transfer_safe;
+
+        // Transfer-safe -- add qualifier based on display classification
+        switch (r.safety) {
+            case SafetyLevel::TrivialSafe:
                 return "Transfer-safe";
-            } else if (r.safety == SafetyLevel::PaddingRisk) {
-                ++transfer_safe;
+            case SafetyLevel::PaddingRisk:
                 return "Transfer-safe (padding may leak uninitialized bytes)";
-            } else if (r.safety == SafetyLevel::PointerRisk)
-                return "Layout match (pointer values not portable)";
-            else if (r.safety == SafetyLevel::Opaque) {
-                ++transfer_safe;
-                return "Transfer-safe (contains opaque fields, verify manually)";
-            } else {
-                ++transfer_safe;
-                return "Transfer-safe (verify bit-fields manually)";
-            }
+            case SafetyLevel::PlatformVariant:
+                return "Transfer-safe (platform-variant fields matched)";
+            case SafetyLevel::Opaque:
+                return "Transfer-safe (contains opaque fields)";
+            default:
+                return "Transfer-safe";
         }
-        return "Layout mismatch";
     }
 
     static std::string format_diff(const std::string& a, const std::string& b,
@@ -445,7 +442,7 @@ private:
             if (!found) return false;
         }
 
-        // For each type, verify signature match + safety across selected platforms.
+        // For each type, verify byte_copy_safe + signature match across selected platforms.
         for (auto it = t_begin; it != t_end; ++it) {
             std::string_view tname(*it);
             std::string_view first_sig;
@@ -454,8 +451,7 @@ private:
                                                    std::string(tname));
                 if (!entry) return false;
 
-                auto level = classify_signature(entry->layout_sig);
-                if (level == SafetyLevel::PointerRisk)
+                if (!entry->byte_copy_safe)
                     return false;
 
                 std::string_view sig(entry->layout_sig);

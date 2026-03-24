@@ -15,6 +15,7 @@ inline namespace v1 {
 struct TypeEntry {
     const char* name;
     const char* layout_sig;
+    bool        byte_copy_safe;   // is_byte_copy_safe_v<T>, computed at export time
 };
 
 struct PlatformInfo {

@@ -30,6 +30,7 @@ inline namespace v1 {
 struct ExportEntry {
     std::string name;
     std::string layout_sig;
+    bool        byte_copy_safe;
 };
 
 /// Collects type signatures and writes a .sig.hpp header.
@@ -60,7 +61,8 @@ public:
 
         entries_.push_back({
             name,
-            std::string(layout.value, layout.size)  // .size is exact capacity (no scan needed)
+            std::string(layout.value, layout.size),  // .size is exact capacity (no scan needed)
+            is_byte_copy_safe_v<T>
         });
     }
 
@@ -79,7 +81,8 @@ public:
 
         entries_.push_back({
             name,
-            std::string(layout.value, layout.size)
+            std::string(layout.value, layout.size),
+            is_byte_copy_safe_v<T>
         });
     }
 
@@ -201,6 +204,8 @@ private:
             os << "// --- " << e.name << " ---\n";
             os << "inline constexpr const char " << e.name << "_layout[] =\n";
             os << "    \"" << escape(e.layout_sig) << "\";\n";
+            os << "inline constexpr bool " << e.name
+               << "_byte_copy_safe = " << (e.byte_copy_safe ? "true" : "false") << ";\n";
             os << "\n";
         }
     }
@@ -211,7 +216,8 @@ private:
         os << "inline constexpr ::boost::typelayout::TypeEntry types[] = {\n";
         for (const auto& e : entries_) {
             os << "    {\"" << escape(e.name) << "\", "
-               << e.name << "_layout},\n";
+               << e.name << "_layout, "
+               << e.name << "_byte_copy_safe},\n";
         }
         os << "};\n";
         os << "\n";

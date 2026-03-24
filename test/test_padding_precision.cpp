@@ -449,8 +449,8 @@ void test_sig_has_padding_consistency() {
     // for signatures without pointers, platform-variant types, or opaque markers.
 
     using boost::typelayout::detail::sig_has_padding;
-    using boost::typelayout::detail::classify_signature;
-    using boost::typelayout::detail::SafetyLevel;
+    using boost::typelayout::compat::classify_signature;
+    using boost::typelayout::compat::SafetyLevel;
 
     // Padded signature => classify_signature should return PaddingRisk.
     auto padded_sig = "[64-le]record[s:8,a:4]{@0:i8[s:1,a:1],@4:i32[s:4,a:4]}";

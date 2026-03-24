@@ -17,7 +17,7 @@
 namespace boost {
 namespace typelayout {
 inline namespace v1 {
-namespace detail {
+namespace compat {
 
 // =========================================================================
 // SafetyLevel -- five-tier safety classification for display purposes.
@@ -85,7 +85,7 @@ inline SafetyLevel classify_signature(std::string_view sig) noexcept {
     return SafetyLevel::TrivialSafe;
 }
 
-} // namespace detail
+} // namespace compat
 } // inline namespace v1
 } // namespace typelayout
 } // namespace boost

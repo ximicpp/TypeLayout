@@ -1,6 +1,6 @@
 // Test: Cross-Platform Compatibility Check Utilities
 //
-// Tests sig_match, layout_match (constexpr + runtime),
+// Tests layout_match (constexpr + runtime),
 // and CompatReporter output.
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
@@ -20,31 +20,31 @@ using namespace boost::typelayout::compat;
 // =========================================================================
 
 // Identical signatures match
-static_assert(sig_match(
+static_assert(layout_match(
     "[64-le]record[s:8,a:4]{@0:i32[s:4,a:4],@4:i32[s:4,a:4]}",
     "[64-le]record[s:8,a:4]{@0:i32[s:4,a:4],@4:i32[s:4,a:4]}"),
     "identical signatures should match");
 
 // Different signatures don't match
-static_assert(!sig_match(
+static_assert(!layout_match(
     "[64-le]record[s:8,a:4]{@0:i32[s:4,a:4],@4:i32[s:4,a:4]}",
     "[64-le]record[s:16,a:8]{@0:i64[s:8,a:8],@8:i64[s:8,a:8]}"),
     "different signatures should not match");
 
-// layout_match is an alias for sig_match
+// layout_match works on any constexpr const char*
 static_assert(layout_match(
     "[64-le]record[s:16,a:4]{@0:u32[s:4,a:4]}",
     "[64-le]record[s:16,a:4]{@0:u32[s:4,a:4]}"),
-    "layout_match should work like sig_match");
+    "layout_match on single-field record");
 
 // Empty strings match
-static_assert(sig_match("", ""), "empty strings should match");
+static_assert(layout_match("", ""), "empty strings should match");
 
 // One empty, one not — should not match
-static_assert(!sig_match("", "something"), "empty vs non-empty should not match");
+static_assert(!layout_match("", "something"), "empty vs non-empty should not match");
 
 // Substring should not match full string
-static_assert(!sig_match("[64-le]", "[64-le]record"), "prefix should not match full");
+static_assert(!layout_match("[64-le]", "[64-le]record"), "prefix should not match full");
 
 // =========================================================================
 // 2. Runtime tests
@@ -59,8 +59,8 @@ namespace platform_a {
         "[64-le]record[s:16,a:8]{@0:i64[s:8,a:8],@8:wchar[s:4,a:4]}";
 
     inline constexpr TypeEntry types[] = {
-        {"PacketHeader", PacketHeader_layout},
-        {"UnsafeType", UnsafeType_layout},
+        {"PacketHeader", PacketHeader_layout, true},
+        {"UnsafeType", UnsafeType_layout, true},
     };
     inline constexpr std::size_t type_count = 2;
 }
@@ -75,8 +75,8 @@ namespace platform_b {
         "[64-le]record[s:12,a:8]{@0:i32[s:4,a:4],@8:wchar[s:2,a:2]}";
 
     inline constexpr TypeEntry types[] = {
-        {"PacketHeader", PacketHeader_layout},
-        {"UnsafeType", UnsafeType_layout},
+        {"PacketHeader", PacketHeader_layout, true},
+        {"UnsafeType", UnsafeType_layout, true},
     };
     inline constexpr std::size_t type_count = 2;
 }
@@ -344,11 +344,11 @@ namespace plat_linux {
         "[64-le]record[s:4,a:4]{@0:wchar[s:4,a:4]}";
 
     inline constexpr TypeEntry types[] = {
-        {"SafeType",   SafeType_layout},
-        {"PadType",    PadType_layout},
-        {"PtrType",    PtrType_layout},
-        {"OpaqueType", OpaqueType_layout},
-        {"WcharType",  WcharType_layout},
+        {"SafeType",   SafeType_layout,   true},
+        {"PadType",    PadType_layout,    true},
+        {"PtrType",    PtrType_layout,    false},
+        {"OpaqueType", OpaqueType_layout, true},
+        {"WcharType",  WcharType_layout,  true},
     };
     inline constexpr std::size_t type_count = 5;
 }
@@ -371,11 +371,11 @@ namespace plat_macos {
         "[64-le]record[s:4,a:4]{@0:wchar[s:4,a:4]}";
 
     inline constexpr TypeEntry types[] = {
-        {"SafeType",   SafeType_layout},
-        {"PadType",    PadType_layout},
-        {"PtrType",    PtrType_layout},
-        {"OpaqueType", OpaqueType_layout},
-        {"WcharType",  WcharType_layout},
+        {"SafeType",   SafeType_layout,   true},
+        {"PadType",    PadType_layout,    true},
+        {"PtrType",    PtrType_layout,    false},
+        {"OpaqueType", OpaqueType_layout, true},
+        {"WcharType",  WcharType_layout,  true},
     };
     inline constexpr std::size_t type_count = 5;
 }
@@ -398,11 +398,11 @@ namespace plat_windows {
         "[64-le]record[s:2,a:2]{@0:wchar[s:2,a:2]}";
 
     inline constexpr TypeEntry types[] = {
-        {"SafeType",   SafeType_layout},
-        {"PadType",    PadType_layout},
-        {"PtrType",    PtrType_layout},
-        {"OpaqueType", OpaqueType_layout},
-        {"WcharType",  WcharType_layout},
+        {"SafeType",   SafeType_layout,   true},
+        {"PadType",    PadType_layout,    true},
+        {"PtrType",    PtrType_layout,    false},
+        {"OpaqueType", OpaqueType_layout, true},
+        {"WcharType",  WcharType_layout,  true},
     };
     inline constexpr std::size_t type_count = 5;
 }

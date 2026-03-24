@@ -210,23 +210,7 @@ static_assert(
 );
 
 // =========================================================================
-// Part 4: Structural metadata
-// =========================================================================
-
-// total_size
-static_assert(
-    layout_traits<test_types::Compact>::total_size == sizeof(test_types::Compact),
-    "P5.1: total_size matches sizeof"
-);
-
-// alignment
-static_assert(
-    layout_traits<test_types::Compact>::alignment == alignof(test_types::Compact),
-    "P5.2: alignment matches alignof"
-);
-
-// =========================================================================
-// Part 5: Signature comparison
+// Part 4: Signature comparison
 // =========================================================================
 
 // Same layout, different names -> must match
@@ -340,8 +324,8 @@ struct WithMemFnPtr {
 
 // Member data pointer size must appear in signature
 static_assert(
-    sizeof(int test_types::Base::*) == layout_traits<test_types::WithMemPtr>::total_size,
-    "P9.1: WithMemPtr total_size must equal sizeof the member data pointer"
+    sizeof(int test_types::Base::*) == sizeof(test_types::WithMemPtr),
+    "P9.1: WithMemPtr size must equal sizeof the member data pointer"
 );
 
 // Member data pointer signature must contain memptr tag
@@ -352,8 +336,8 @@ static_assert(
 
 // Member function pointer: on Itanium x64, sizeof(void (MFPBase::*)()) == 16
 static_assert(
-    sizeof(void (test_types::MFPBase::*)()) == layout_traits<test_types::WithMemFnPtr>::total_size,
-    "P9.3: WithMemFnPtr total_size must equal sizeof the member function pointer"
+    sizeof(void (test_types::MFPBase::*)()) == sizeof(test_types::WithMemFnPtr),
+    "P9.3: WithMemFnPtr size must equal sizeof the member function pointer"
 );
 
 static_assert(
@@ -390,8 +374,8 @@ struct StandaloneFnPtr {
 } // namespace test_types
 
 static_assert(
-    layout_traits<test_types::StandaloneFnPtr>::total_size == sizeof(test_types::SimpleFnPtr),
-    "P9.8: StandaloneFnPtr total_size must equal sizeof(void(*)())"
+    sizeof(test_types::StandaloneFnPtr) == sizeof(test_types::SimpleFnPtr),
+    "P9.8: StandaloneFnPtr size must equal sizeof(void(*)())"
 );
 
 // =========================================================================
@@ -399,7 +383,7 @@ static_assert(
 // =========================================================================
 
 int main() {
-    constexpr int total_tests = 25;
+    constexpr int total_tests = 23;
 
     std::cout << "=== layout_traits & signature comparison Tests ===\n\n";
 
@@ -427,8 +411,8 @@ int main() {
     std::cout << "has_pointer:        " << layout_traits<test_types::Compact>::has_pointer << "\n";
     std::cout << "has_opaque:         " << layout_traits<test_types::Compact>::has_opaque << "\n";
     std::cout << "has_padding:        " << layout_traits<test_types::Compact>::has_padding << "\n";
-    std::cout << "total_size:         " << layout_traits<test_types::Compact>::total_size << "\n";
-    std::cout << "alignment:          " << layout_traits<test_types::Compact>::alignment << "\n";
+    std::cout << "sizeof:             " << sizeof(test_types::Compact) << "\n";
+    std::cout << "alignof:            " << alignof(test_types::Compact) << "\n";
 
     std::cout << "\n--- By-product flags (WithPointer) ---\n";
     std::cout << "has_pointer:        " << layout_traits<test_types::WithPointer>::has_pointer << "\n";

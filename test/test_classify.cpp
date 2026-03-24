@@ -17,6 +17,7 @@
 
 using namespace boost::typelayout;
 using namespace boost::typelayout::detail;
+using namespace boost::typelayout::compat;
 
 // =========================================================================
 // Test types

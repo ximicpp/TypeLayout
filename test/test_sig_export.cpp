@@ -44,6 +44,10 @@ void test_export_contains_signatures() {
     assert(output.find("Simple_layout") != std::string::npos);
     assert(output.find("Pair_layout") != std::string::npos);
 
+    // Verify byte_copy_safe flags are emitted
+    assert(output.find("Simple_byte_copy_safe") != std::string::npos);
+    assert(output.find("Pair_byte_copy_safe") != std::string::npos);
+
     std::cout << "  [PASS] Export contains signatures\n";
 }
 

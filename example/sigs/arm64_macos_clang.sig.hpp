@@ -35,22 +35,27 @@ inline constexpr const char data_model[]        = "LP64";
 // --- PacketHeader --- (SAME: all fixed-width types)
 inline constexpr const char PacketHeader_layout[] =
     "[64-le]record[s:16,a:4]{@0:u32[s:4,a:4],@4:u16[s:2,a:2],@6:u16[s:2,a:2],@8:u32[s:4,a:4],@12:u32[s:4,a:4]}";
+inline constexpr bool PacketHeader_byte_copy_safe = true;
 
 // --- SharedMemRegion --- (SAME: all fixed-width types)
 inline constexpr const char SharedMemRegion_layout[] =
     "[64-le]record[s:24,a:8]{@0:u64[s:8,a:8],@8:u64[s:8,a:8],@16:u32[s:4,a:4],@20:u32[s:4,a:4]}";
+inline constexpr bool SharedMemRegion_byte_copy_safe = true;
 
 // --- FileHeader --- (SAME: char[], uint32_t, uint64_t)
 inline constexpr const char FileHeader_layout[] =
     "[64-le]record[s:24,a:8]{@0:bytes[s:4,a:1],@4:u32[s:4,a:4],@8:u64[s:8,a:8],@16:u32[s:4,a:4],@20:u32[s:4,a:4]}";
+inline constexpr bool FileHeader_byte_copy_safe = true;
 
 // --- SensorRecord --- (SAME: uint64_t, float, uint32_t)
 inline constexpr const char SensorRecord_layout[] =
     "[64-le]record[s:24,a:8]{@0:u64[s:8,a:8],@8:f32[s:4,a:4],@12:f32[s:4,a:4],@16:f32[s:4,a:4],@20:u32[s:4,a:4]}";
+inline constexpr bool SensorRecord_byte_copy_safe = true;
 
 // --- IpcCommand --- (SAME: all fixed-width types + char[])
 inline constexpr const char IpcCommand_layout[] =
     "[64-le]record[s:88,a:8]{@0:u32[s:4,a:4],@4:u32[s:4,a:4],@8:i64[s:8,a:8],@16:i64[s:8,a:8],@24:bytes[s:64,a:1]}";
+inline constexpr bool IpcCommand_byte_copy_safe = true;
 
 // --- UnsafeStruct --- (DIFFER: long double = 8B on ARM64 macOS vs 16B on x86_64 Linux)
 //
@@ -67,27 +72,30 @@ inline constexpr const char IpcCommand_layout[] =
 //   Total: 48 bytes, align 16
 inline constexpr const char UnsafeStruct_layout[] =
     "[64-le]record[s:32,a:8]{@0:i64[s:8,a:8],@8:ptr[s:8,a:8],@16:wchar[s:4,a:4],@24:fld64[s:8,a:8]}";
+inline constexpr bool UnsafeStruct_byte_copy_safe = false;
 
 // --- UnsafeWithPointer --- (SAME: uint32_t, ptr, uint64_t — pointer is 8B on both)
 inline constexpr const char UnsafeWithPointer_layout[] =
     "[64-le]record[s:24,a:8]{@0:u32[s:4,a:4],@8:ptr[s:8,a:8],@16:u64[s:8,a:8]}";
+inline constexpr bool UnsafeWithPointer_byte_copy_safe = false;
 
 // --- MixedSafety --- (SAME: uint32_t, double, int — all identical on LP64)
 inline constexpr const char MixedSafety_layout[] =
     "[64-le]record[s:24,a:8]{@0:u32[s:4,a:4],@8:f64[s:8,a:8],@16:i32[s:4,a:4]}";
+inline constexpr bool MixedSafety_byte_copy_safe = true;
 
 // ---- Type Registry ----
 
 
 inline constexpr ::boost::typelayout::TypeEntry types[] = {
-    {"PacketHeader", PacketHeader_layout},
-    {"SharedMemRegion", SharedMemRegion_layout},
-    {"FileHeader", FileHeader_layout},
-    {"SensorRecord", SensorRecord_layout},
-    {"IpcCommand", IpcCommand_layout},
-    {"UnsafeStruct", UnsafeStruct_layout},
-    {"UnsafeWithPointer", UnsafeWithPointer_layout},
-    {"MixedSafety", MixedSafety_layout},
+    {"PacketHeader", PacketHeader_layout, PacketHeader_byte_copy_safe},
+    {"SharedMemRegion", SharedMemRegion_layout, SharedMemRegion_byte_copy_safe},
+    {"FileHeader", FileHeader_layout, FileHeader_byte_copy_safe},
+    {"SensorRecord", SensorRecord_layout, SensorRecord_byte_copy_safe},
+    {"IpcCommand", IpcCommand_layout, IpcCommand_byte_copy_safe},
+    {"UnsafeStruct", UnsafeStruct_layout, UnsafeStruct_byte_copy_safe},
+    {"UnsafeWithPointer", UnsafeWithPointer_layout, UnsafeWithPointer_byte_copy_safe},
+    {"MixedSafety", MixedSafety_layout, MixedSafety_byte_copy_safe},
 };
 
 inline constexpr std::size_t type_count = 8;
