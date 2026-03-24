@@ -95,16 +95,18 @@ from primitives and records through pointers and opaque containers).
 
   Type              x86_linux  arm_linux  macOS   Windows   Safety
   ────────────────────────────────────────────────────────────────
-  TelemetryMsg        MATCH      MATCH    MATCH    MATCH     **-
-  PlatformRiskyMsg    MATCH      MATCH    MATCH    DIFFER    *--
-  EventRef            MATCH      MATCH    MATCH    MATCH     *!-
-  BufferedReadings    MATCH      MATCH    MATCH    MATCH     ---
+  TelemetryMsg        MATCH      MATCH    MATCH    MATCH     Safe
+  PlatformRiskyMsg    MATCH      MATCH    MATCH    DIFFER    Safe
+  EventRef            MATCH      MATCH    MATCH    MATCH     Pointer!
+  BufferedReadings    MATCH      MATCH    MATCH    MATCH     Opaque
 
-  Safety: * = byte-copy safe  ! = pointer risk  - = opaque
+  Safety: Safe = byte-copy safe (memcpy-able when signatures match)
+          Pointer! = contains pointer (memcpy produces dangling ref)
+          Opaque = contains opaque type (user-declared safety)
 
   [DIFFER] PlatformRiskyMsg:
-    linux_gcc:    ...@20:i64[s:8,a:8],@28:wchar[s:4,a:4]...
-    windows_msvc: ...@20:i32[s:4,a:4],@24:wchar[s:2,a:2]...
+    linux_gcc:    ...@24:i64[s:8,a:8],@32:wchar[s:4,a:4]...
+    windows_msvc: ...@24:i32[s:4,a:4],@28:wchar[s:2,a:2]...
                        ^^^                  ^^^
   ```
 - The audience sees patterns immediately:
@@ -112,8 +114,8 @@ from primitives and records through pointers and opaque containers).
   - `TelemetryMsg` is safe everywhere — inheritance + bit-fields +
     private members, but all fixed-width at the leaf level.
   - `PlatformRiskyMsg` breaks on Windows — `long` and `wchar_t`.
-  - `EventRef` matches everywhere but is flagged `*!-` — pointer.
-  - `BufferedReadings` is `---` — opaque, requires user trust.
+  - `EventRef` matches everywhere but is flagged `Pointer!` — dangling.
+  - `BufferedReadings` is `Opaque` — requires user trust.
 - Contrast with the status quo: "How would you verify this today?"
   ```cpp
   // Non-standard-layout: conditionally-supported, not portable:
@@ -124,8 +126,8 @@ from primitives and records through pointers and opaque containers).
   With TypeLayout:
   ```cpp
   static_assert(
-      get_layout_signature<SenderMsg>() ==
-          get_layout_signature<ReceiverMsg>(),
+      get_layout_signature<TelemetryMsg>() ==
+          get_layout_signature<RemoteTelemetryMsg>(),
       "Layout mismatch — see signature diff for details");
   ```
 
@@ -203,6 +205,7 @@ dump, no printf.
 - Show that the core pattern works **without a library** — a minimal
   consteval layout check in ~10 lines of raw P2996:
   ```cpp
+  // Simplified: does not recurse into bases or nested structs.
   template <typename T, typename U>
   consteval bool layout_matches() {
       constexpr auto a = nonstatic_data_members_of(^^T, access_context::unchecked());
@@ -239,8 +242,8 @@ signal for tooling work, not an API deficiency.
 *"Matching layout is necessary but not sufficient."*
 
 - Return to the matrix — two rows that need explaining:
-  - `EventRef`: all MATCH, but `*!-`. Why?
-  - `BufferedReadings`: all MATCH, but `---`. Why?
+  - `EventRef`: all MATCH, but `Pointer!`. Why?
+  - `BufferedReadings`: all MATCH, but `Opaque`. Why?
 - **Byte-copy safety** (`is_byte_copy_safe_v<T>`):
   - Recursive compile-time check: T and every member/base must be
     trivially copyable and must not contain pointers.
@@ -362,8 +365,8 @@ programming**, not just metaprogramming convenience.
 **Addresses a real problem.** Every team that ships binary data across
 process boundaries has hit layout mismatch bugs — silent data
 corruption that surfaces only in production, on a different platform.
-The standard toolkit (`sizeof`/`offsetof`) fails on real C++ types
-(private members, inheritance) and provides no cross-platform story.
+The standard toolkit (`sizeof`/`offsetof`) fails on types with private
+members, inheritance, or bit-fields and provides no cross-platform story.
 The case study shows how P2996 replaces ad-hoc assertions with a
 systematic, compiler-verified answer.
 
@@ -372,8 +375,8 @@ includes a raw-P2996 version of the core pattern so attendees can
 reuse the technique without any library. It reports what works well
 (`offset_of`, `access_context`, `is_bit_field`), what's awkward
 (index-based recursion without expansion statements), and what's a
-real barrier (constexpr step limits).
-It also reports cross-compiler differences (bit-field allocation
+real barrier (constexpr step limits). It also reports cross-compiler
+differences (bit-field allocation
 strategies, `long double` representation) that P2996 faithfully
 captures but cannot resolve. Compiler teams and SG7 benefit from this
 feedback.
