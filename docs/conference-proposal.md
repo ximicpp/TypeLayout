@@ -15,20 +15,23 @@ Intermediate
 
 ## Abstract
 
-You have five message classes, six build targets (Linux GCC, Linux
-Clang, ARM64 Linux, macOS Clang, Windows MSVC, Windows Clang-cl),
-and one question: *which types can I memcpy between which endpoints
-without serialization?*
+This talk is a P2996 experience report: what happens when you build a
+non-trivial consteval library on C++26 static reflection. It targets
+systems programmers who ship binary data across process boundaries,
+plugin interfaces, or network sockets — anyone who has asked: *which of
+my types can I memcpy between which build targets without serialization?*
 
-Today there is no standard C++ facility that answers this. `sizeof`
-misses field offsets. `offsetof` is undefined behavior on
-non-standard-layout types — which rules out any class with private
-members, inheritance, or bit-fields. Manual assertions are
-platform-local, O(n) per field, and cannot compare across compilers.
+Standard C++ cannot answer this question. `sizeof` misses field offsets.
+`offsetof` is conditionally-supported on non-standard-layout types
+(private members, inheritance) and completely inapplicable to
+bit-fields. Manual assertions are platform-local, O(n) per field, and
+cannot compare across compilers. Serialization frameworks (protobuf,
+FlatBuffers) solve a different problem — they add schema translation;
+this talk is about verifying when you can skip it entirely.
 
-This talk shows how C++26 static reflection (P2996) answers the
-question completely. TypeLayout is a header-only library that generates
-a compile-time **layout signature** — a deterministic string encoding
+Using a layout-signature library (TypeLayout) as the running case study,
+the talk demonstrates eight P2996 reflection primitives generating a
+compile-time **layout signature** — a deterministic string encoding
 every field offset, size, alignment, and padding byte of any C++ type,
 including classes with private members, inheritance hierarchies, and
 bit-fields. Export signatures on each build target, feed them into a
@@ -36,70 +39,11 @@ compatibility matrix, and get a definitive per-type, per-platform-pair
 answer: transfer-safe, layout mismatch, or pointer risk.
 
 The talk opens with the compatibility matrix, then drills into *why*
-each result is what it is — teaching signatures, reflection primitives,
-and safety classification by answering questions the matrix raises.
-Attendees leave with a working library, concrete P2996 experience, and
-a reusable pattern for building reflection-based compile-time tools.
-
-## Demo Types
-
-Six types thread through every part of the talk. They are deliberately
-not flat POD structs — they represent real C++ code where `offsetof`
-is undefined behavior:
-
-```cpp
-// -- Nested class with private members (offsetof = UB) --
-class Timestamp {
-    int64_t  seconds_;
-    uint32_t nanos_;
-};
-
-// -- Base class: non-standard-layout (offsetof = UB) --
-class MessageHeader {
-    uint32_t magic_;
-    uint16_t version_;
-    uint16_t type_;
-};
-
-// -- Inheritance + nested class + bit-fields --
-// offsetof cannot touch any field here.
-class TelemetryMsg : public MessageHeader {
-    Timestamp  ts_;
-    float      values_[4];
-    uint8_t    quality_ : 4;
-    uint8_t    flags_   : 4;
-};
-
-// -- Platform-variant fields: long, wchar_t --
-class PlatformRiskyMsg : public MessageHeader {
-    Timestamp   ts_;
-    long        counter_;     // LP64: 8B, LLP64: 4B
-    wchar_t     label_[8];   // Linux/macOS: 4B, Windows: 2B
-};
-
-// -- Pointer member: layout matches but blocks transport --
-class EventRef : public MessageHeader {
-    Timestamp   ts_;
-    EventRef*   next_;
-};
-
-// -- Opaque relocatable container (non-trivially-copyable) --
-class BufferedReadings : public MessageHeader {
-    uint32_t          sensor_id_;
-    XVector<float>    samples_;   // offset_ptr-based, registered opaque
-};
-```
-
-## Build Targets
-
-```
-x86_64_linux_gcc          [64-le]  LP64   long=8  wchar=4  ldbl=16
-x86_64_linux_clang        [64-le]  LP64   long=8  wchar=4  ldbl=16
-arm64_linux_gcc           [64-le]  LP64   long=8  wchar=4  ldbl=8(!)
-arm64_macos_clang         [64-le]  LP64   long=8  wchar=4  ldbl=8
-x86_64_windows_msvc       [64-le]  LLP64  long=4  wchar=2  ldbl=8
-x86_64_windows_clangcl    [64-le]  LLP64  long=4  wchar=2  ldbl=8
-```
+each result is what it is — teaching reflection primitives, consteval
+patterns, and safety classification by answering questions the matrix
+raises. Attendees leave with concrete P2996 experience, reusable
+consteval patterns, and a working open-source library they can try
+immediately.
 
 ## Outline
 
@@ -107,6 +51,42 @@ x86_64_windows_clangcl    [64-le]  LLP64  long=4  wchar=2  ldbl=8
 
 *"Six types, six targets. Which can I memcpy without serialization?"*
 
+- Introduce six demo types — deliberately not flat POD structs, but
+  real C++ code where `offsetof` is conditionally-supported or
+  inapplicable:
+  ```cpp
+  class Timestamp {                          // private members
+      int64_t seconds_; uint32_t nanos_;
+  };
+  class MessageHeader {                      // base class
+      uint32_t magic_; uint16_t version_; uint16_t type_;
+  };
+  class TelemetryMsg : public MessageHeader { // inheritance + bit-fields
+      Timestamp ts_; float values_[4];
+      uint8_t quality_ : 4; uint8_t flags_ : 4;
+  };
+  class PlatformRiskyMsg : public MessageHeader { // platform-variant
+      Timestamp ts_;
+      long counter_;    // LP64: 8B, LLP64: 4B
+      wchar_t label_[8]; // Linux/macOS: 4B, Windows: 2B
+  };
+  class EventRef : public MessageHeader {    // pointer member
+      Timestamp ts_; EventRef* next_;
+  };
+  class BufferedReadings : public MessageHeader { // opaque container
+      uint32_t sensor_id_;
+      XVector<float> samples_; // offset_ptr-based, registered opaque
+  };
+  ```
+- Six build targets spanning two data models and three compilers:
+  ```
+  x86_64_linux_gcc        LP64   long=8  wchar=4  ldbl=16
+  x86_64_linux_clang      LP64   long=8  wchar=4  ldbl=16
+  arm64_linux_gcc          LP64   long=8  wchar=4  ldbl=8(!)
+  arm64_macos_clang        LP64   long=8  wchar=4  ldbl=8
+  x86_64_windows_msvc      LLP64  long=4  wchar=2  ldbl=8
+  x86_64_windows_clangcl   LLP64  long=4  wchar=2  ldbl=8
+  ```
 - Open with the compatibility matrix — the answer first, explanation
   later:
   ```
@@ -134,11 +114,10 @@ x86_64_windows_clangcl    [64-le]  LLP64  long=4  wchar=2  ldbl=8
   - `BufferedReadings` is `---` — opaque, requires user trust.
 - Contrast with the status quo: "How would you verify this today?"
   ```cpp
-  // For a class with private members, THIS IS UB:
-  static_assert(offsetof(TelemetryMsg, ts_) == 8);    // UB!
-  // Non-standard-layout: private members + inheritance.
-  // The compiler may accept it. The result is meaningless.
-  // And even if it worked: 6 targets x N fields = unmaintainable.
+  // Non-standard-layout: conditionally-supported, not portable:
+  static_assert(offsetof(TelemetryMsg, ts_) == 8);  // may compile, not reliable
+  // Bit-fields: completely impossible — no offsetof for bit-fields.
+  // And even if offsetof worked: 6 targets x N fields = unmaintainable.
   ```
   With TypeLayout:
   ```cpp
@@ -213,7 +192,8 @@ dump, no printf.
 - Why `offset_of` is the key enabler: it returns the *compiler's own*
   layout decision. If the compiler says offset is 8, it is 8 — no
   external tool can disagree. This is authoritative in a way that
-  `offsetof` (a macro with UB on non-standard-layout) is not.
+  `offsetof` (conditionally-supported on non-standard-layout,
+  inapplicable to bit-fields) is not.
 - Why `access_context::unchecked()` is essential: layout verification
   must see private members. Without it, the library cannot handle
   `TelemetryMsg` — and most real types have private members.
@@ -246,30 +226,21 @@ signal for tooling work, not an API deficiency.
 - Return to the matrix — two rows that need explaining:
   - `EventRef`: all MATCH, but `*!-`. Why?
   - `BufferedReadings`: all MATCH, but `---`. Why?
-- **Byte-copy admission** (`is_byte_copy_safe_v<T>`):
-  - Recursive compile-time check via P2996: T and every member/base
-    must be trivially copyable (or registered relocatable opaque),
-    and must not contain pointers.
-  - `EventRef` fails: `next_` is a pointer. Copying the bytes
-    produces a dangling pointer in the receiver's address space.
-  - `BufferedReadings` passes: `XVector<float>` uses `offset_ptr`,
-    not native pointers. Registered as relocatable opaque.
+- **Byte-copy safety** (`is_byte_copy_safe_v<T>`):
+  - Recursive compile-time check: T and every member/base must be
+    trivially copyable and must not contain pointers.
+  - `EventRef` fails: `next_` is a pointer — copying bytes produces
+    a dangling pointer in the receiver's address space.
   - Formula: **signature match + byte-copy safe = safe to memcpy.**
-- **Opaque type registration** — the `BufferedReadings` story:
-  - Problem: `XVector` uses `offset_ptr` internally. Recursive
-    analysis would see the offset as an integer and miss the
-    container semantics. Worse, `XVector` is non-trivially-copyable
-    in the C++ sense (has a destructor), but is byte-copy safe
-    under a relocation model.
-  - Solution: register as opaque with declared safety properties.
+- **Opaque types** — the `BufferedReadings` story:
+  - Some types (offset_ptr containers, platform handles) are not
+    fully analyzable by reflection. Register them as opaque with
+    declared safety properties:
     ```cpp
     TYPELAYOUT_OPAQUE_CONTAINER_RELOCATABLE(XVector, "xvec")
     ```
     Signature: `O(xvec|24|8)<f32[s:4,a:4]>` — opaque shell with
-    element type signature embedded.
-  - `opaque_copy_safe<XVector<float>>` recursively checks the element
-    type. If the element has pointers, the container is not
-    byte-copy safe even though the container itself is relocatable.
+    element type embedded. Safety recurses into the element type.
 - **Runtime transfer verification** — the plugin `dlopen` pattern:
   ```cpp
   // Plugin exports its signature
@@ -327,10 +298,12 @@ have the compiler, verify anywhere.
 1. The real question is *"which types can I zero-copy between which
    build targets?"* — and before P2996, standard C++ could not answer
    it for classes with private members, inheritance, or bit-fields.
-2. `offsetof` is undefined behavior on non-standard-layout types.
-   Layout signatures work on any type the compiler can lay out.
+2. `offsetof` is conditionally-supported on non-standard-layout types
+   and inapplicable to bit-fields. P2996's `offset_of` works on any
+   type the compiler can lay out.
 3. Eight P2996 reflection primitives are sufficient to build a
-   non-trivial layout analysis library. The API is well-designed.
+   non-trivial consteval analysis system. The API is well-designed;
+   the main friction is constexpr step limits.
 4. Layout match alone is not enough. Byte-copy safety (no pointers,
    no non-relocatable opaque) completes the transport decision.
 5. Export signatures where you have a P2996 compiler, compare them
@@ -357,20 +330,24 @@ have the compiler, verify anywhere.
 
 ## Why This Talk Matters
 
-**P2996 is real, not theoretical.** C++26 static reflection was
-adopted at the Sofia meeting (June 2025). Most examples so far are
-toy demos (enum-to-string, JSON serialization sketches). This talk
-presents a complete, tested library — 200+ `static_assert` validations
-across 17 type categories — built entirely on P2996. It shows what
-reflection enables for **systems programming**, not just metaprogramming
-convenience.
+**P2996 is standardized, not theoretical.** The reflection API
+(`offset_of`, `nonstatic_data_members_of`, `type_of`,
+`access_context`) was voted into the C++26 working draft at the Sofia
+meeting (June 2025). Bloomberg's Clang fork provides a
+production-quality implementation today. Yet most public examples
+remain toy demos (enum-to-string, JSON serialization sketches). This
+talk presents a non-trivial consteval system — 200+ `static_assert`
+validations across 17 type categories — that stress-tests the API
+surface and reports what works, what's awkward, and what needs tooling
+investment. It shows what reflection enables for **systems
+programming**, not just metaprogramming convenience.
 
-**Solves a real problem, not a hypothetical.** Every team that ships
-binary data across process boundaries, plugin interfaces, or network
-sockets has hit layout mismatch bugs. The standard toolkit
-(`sizeof`/`offsetof`) fails on real C++ types (private members,
-inheritance) and provides no cross-platform story. This talk replaces
-ad-hoc assertions with a systematic, compiler-verified answer.
+**Addresses a real problem.** Every team that ships binary data across
+process boundaries, plugin interfaces, or network sockets has hit
+layout mismatch bugs. The standard toolkit (`sizeof`/`offsetof`) fails
+on real C++ types (private members, inheritance) and provides no
+cross-platform story. The case study shows how P2996 replaces ad-hoc
+assertions with a systematic, compiler-verified answer.
 
 **Honest experience report.** This is not a sales pitch. The talk
 reports what works well (`offset_of`, `access_context`,
@@ -381,10 +358,10 @@ strategies, `long double` representation) that P2996 faithfully
 captures but cannot resolve. Compiler teams and SG7 benefit from this
 feedback.
 
-**Immediately actionable.** The library is header-only, open-source
-(Boost Software License), zero dependencies. Attendees can integrate
-it tonight using the Bloomberg Clang P2996 fork, and it will work
-unchanged when mainstream C++26 compilers ship.
+**Immediately reproducible.** The case-study library is header-only,
+open-source (Boost Software License), and zero dependencies. Attendees
+can reproduce every example using the Bloomberg Clang P2996 fork today,
+and the code will work unchanged when mainstream C++26 compilers ship.
 
 ## 30-Minute Condensed Version
 
