@@ -27,7 +27,7 @@ The remaining public concepts are extension mechanisms built around those 3 ques
 
 Internal utilities (in `detail::`, not intended as stable user-facing concepts):
 - `detail::layout_traits<T>` -- internal layout inspection aggregate used by core/tooling
-- `detail::SafetyLevel` / `detail::classify_signature()` -- report-oriented safety classification
+- `compat::SafetyLevel` / `compat::classify_signature()` -- report-oriented safety classification
 - `FixedString<N>` -- compile-time string return type of `get_layout_signature`
 
 ---
@@ -366,10 +366,10 @@ and detected by comparing byte coverage against `sizeof(T)`.
 | `<boost/typelayout/signature.hpp>` | Core | `get_layout_signature<T>()` |
 | `<boost/typelayout/admission.hpp>` | Core | `is_byte_copy_safe_v<T>` |
 | `<boost/typelayout/opaque.hpp>` | Core | `TYPELAYOUT_REGISTER_OPAQUE` macros |
-| `<boost/typelayout/tools/transfer.hpp>` | Core | `is_transfer_safe<T>(sig)` |
+| `<boost/typelayout/transfer.hpp>` | Core | `is_transfer_safe<T>(sig)` |
 | `<boost/typelayout/fixed_string.hpp>` | Internal | `FixedString<N>`, `to_fixed_string` |
 | `<boost/typelayout/layout_traits.hpp>` | Internal | `detail::layout_traits<T>` |
-| `<boost/typelayout/tools/safety_level.hpp>` | Internal | `detail::SafetyLevel`, `detail::classify_signature` |
+| `<boost/typelayout/tools/safety_level.hpp>` | Internal | `compat::SafetyLevel`, `compat::classify_signature` |
 | `<boost/typelayout/tools/sig_export.hpp>` | Tools | `SigExporter`, `TYPELAYOUT_EXPORT_TYPES` |
 | `<boost/typelayout/tools/compat_check.hpp>` | Tools | `compat::CompatReporter` |
 | `<boost/typelayout/tools/compat_auto.hpp>` | Tools | `TYPELAYOUT_CHECK_COMPAT`, `TYPELAYOUT_ASSERT_COMPAT` |

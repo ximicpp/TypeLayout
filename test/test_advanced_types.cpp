@@ -12,7 +12,7 @@
 
 #include <boost/typelayout/typelayout.hpp>
 #include <boost/typelayout/tools/safety_level.hpp>
-#include <boost/typelayout/tools/transfer.hpp>
+#include <boost/typelayout/transfer.hpp>
 #include <boost/typelayout/tools/compat_check.hpp>
 #include "test_util.hpp"
 #include <cassert>

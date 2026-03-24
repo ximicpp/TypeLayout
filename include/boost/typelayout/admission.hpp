@@ -70,7 +70,7 @@ consteval bool all_bases_byte_copy_safe() noexcept {
 
 // Core decision tree for byte-copy safety.
 //
-// Branch 1: Opaque types -- check !has_pointer && opaque_elements_safe
+// Branch 1: Opaque types -- check !has_pointer && opaque_copy_safe
 // Branch 2: Locally serialization-free types -- trivially_copyable + no pointer
 // Branch 3: Non-union, non-polymorphic class types -- recurse members + bases
 // Branch 4: Everything else -- false
@@ -81,7 +81,7 @@ consteval bool is_byte_copy_safe_impl() noexcept {
     // Branch 1: Opaque types
     if constexpr (has_opaque_signature<Bare>) {
         return !detail::layout_traits<Bare>::has_pointer &&
-               opaque_elements_safe<Bare>::value;
+               opaque_copy_safe<Bare>::value;
     }
     // Branch 2: Locally serialization-free (trivially_copyable + no pointer)
     else if constexpr (std::is_trivially_copyable_v<Bare> &&

@@ -92,7 +92,8 @@ include/boost/typelayout/
 ├── typelayout.hpp              # Umbrella header
 ├── signature.hpp               # get_layout_signature, get_arch_prefix
 ├── layout_traits.hpp           # layout_traits<T>: signature + has_pointer/padding/opaque/etc.
-├── admission.hpp               # is_byte_copy_safe<T>, opaque_elements_safe<T>
+├── admission.hpp               # is_byte_copy_safe<T>, opaque_copy_safe<T>
+├── transfer.hpp                # is_transfer_safe<T>(sig) — cross-endpoint verification
 ├── fixed_string.hpp            # FixedString<N>: compile-time string, to_fixed_string()
 ├── opaque.hpp                  # TYPELAYOUT_REGISTER_OPAQUE macro
 ├── fwd.hpp                     # Forward declarations
@@ -108,7 +109,7 @@ include/boost/typelayout/
 ```
 include/boost/typelayout/tools/
 ├── safety_level.hpp            # SafetyLevel enum + classify_signature() + sig_has_padding()
-├── transfer.hpp                # is_transfer_safe<T>(sig) — cross-endpoint transfer verification — requires P2996
+├── transfer.hpp                # Forwarding header → core transfer.hpp (backward compat)
 ├── sig_export.hpp              # SigExporter, TYPELAYOUT_EXPORT_TYPES — requires P2996
 ├── sig_types.hpp               # TypeEntry, PlatformInfo structs (shared data types)
 ├── compat_check.hpp            # CompatReporter: are_transfer_safe(types, platforms), ABI fingerprinting
@@ -182,7 +183,7 @@ CMake test labels: P2996 core tests use `LABELS "core"` with 120s timeout; C++17
 | How padding is detected | `layout_traits.hpp` → `compute_has_padding<T>()` (bitmap) |
 | How safety is classified | `tools/safety_level.hpp` → `classify_signature()` |
 | How opaque types work | `opaque.hpp` → macros + `has_opaque_signature` concept |
-| How admission works | `admission.hpp` → `is_byte_copy_safe<T>`, `opaque_elements_safe<T>` |
+| How admission works | `admission.hpp` → `is_byte_copy_safe<T>`, `opaque_copy_safe<T>` |
 | Cross-platform pipeline | `tools/sig_export.hpp` (Phase 1) → `tools/compat_check.hpp` (Phase 2) |
 | Transfer-safe query | `tools/compat_check.hpp` → `CompatReporter::are_transfer_safe()` |
 | Data model / ABI detect | `tools/platform_detect.hpp` → `get_data_model()` |

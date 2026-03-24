@@ -232,9 +232,9 @@ static_assert(is_byte_copy_safe_v<FakeXVector<FakeXVector<int32_t>>>,
 static_assert(!is_byte_copy_safe_v<FakeXVector<FakeXVector<UnsafeElement>>>,
     "Nested opaque container with unsafe inner element should NOT be byte-copy safe");
 
-// S3: REGISTER_OPAQUE generates opaque_elements_safe = true
-static_assert(opaque_elements_safe<OpaqueWithPtr>::value,
-    "REGISTER_OPAQUE should generate opaque_elements_safe = true");
+// S3: REGISTER_OPAQUE generates opaque_copy_safe = true
+static_assert(opaque_copy_safe<OpaqueWithPtr>::value,
+    "REGISTER_OPAQUE should generate opaque_copy_safe = true");
 
 // 5.12: Trivially copyable safe vs opaque-based safe
 static_assert(std::is_trivially_copyable_v<TrivialSafe>,

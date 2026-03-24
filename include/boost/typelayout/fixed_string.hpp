@@ -224,6 +224,21 @@ inline namespace v1 {
         return FixedString<20>(result);
     }
 
+namespace detail {
+
+/// Check whether a signature (FixedString) contains pointer-like tokens.
+/// Keep in sync with sig_parser.hpp::sig_has_pointer (runtime string_view version).
+template <typename Sig>
+consteval bool sig_has_pointer(const Sig& sig) noexcept {
+    return sig.contains_token(FixedString{"ptr["}) ||
+           sig.contains_token(FixedString{"fnptr["}) ||
+           sig.contains_token(FixedString{"memptr["}) ||
+           sig.contains_token(FixedString{"ref["}) ||
+           sig.contains_token(FixedString{"rref["});
+}
+
+} // namespace detail
+
 } // inline namespace v1
 } // namespace typelayout
 } // namespace boost

@@ -49,7 +49,7 @@ static_assert(is_byte_copy_safe_v<WriterSharedData>,
 For runtime handshake (processes negotiate at startup):
 
 ```cpp
-#include <boost/typelayout/tools/transfer.hpp>
+#include <boost/typelayout/transfer.hpp>
 
 // In the writer process, expose the signature via a named pipe or socket:
 constexpr auto local_sig = get_layout_signature<SharedData>();
@@ -210,7 +210,7 @@ When plugins are separately distributed and compiled, use a runtime transfer-saf
 handshake at load time:
 
 ```cpp
-#include <boost/typelayout/tools/transfer.hpp>
+#include <boost/typelayout/transfer.hpp>
 using namespace boost::typelayout;
 
 // Plugin exports its signature as a C function

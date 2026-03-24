@@ -30,7 +30,7 @@ inline namespace v1 {
     // Used by is_byte_copy_safe to check whether an opaque container's
     // element types are themselves byte-copy safe.
     template <typename T>
-    struct opaque_elements_safe : std::false_type {};
+    struct opaque_copy_safe : std::false_type {};
 
 } // inline namespace v1
 } // namespace typelayout

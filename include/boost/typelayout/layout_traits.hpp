@@ -23,17 +23,6 @@ inline namespace v1 {
 
 namespace detail {
 
-// Signature-scanning helpers (token-boundary-aware to avoid false positives).
-
-template <typename Sig>
-consteval bool sig_has_pointer(const Sig& sig) noexcept {
-    return sig.contains_token(FixedString{"ptr["}) ||
-           sig.contains_token(FixedString{"fnptr["}) ||
-           sig.contains_token(FixedString{"memptr["}) ||
-           sig.contains_token(FixedString{"ref["}) ||
-           sig.contains_token(FixedString{"rref["});
-}
-
 // Recursively check whether T (or any nested member/base) is opaque.
 template <typename T>
 consteval bool type_has_opaque() noexcept;

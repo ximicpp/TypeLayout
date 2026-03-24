@@ -104,7 +104,7 @@ For scenarios where the remote type's signature is received at runtime (e.g., a
 plugin that exports its signature string over IPC or RPC):
 
 ```cpp
-#include <boost/typelayout/tools/transfer.hpp>
+#include <boost/typelayout/transfer.hpp>
 using namespace boost::typelayout;
 
 // Plugin exports at load time:

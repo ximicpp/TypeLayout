@@ -58,12 +58,7 @@ inline SafetyLevel classify_signature(std::string_view sig) noexcept {
     if (sig_contains_token(sig, "O("))
         return SafetyLevel::Opaque;
 
-    bool has_pointer =
-        sig_contains_token(sig, "ptr[") ||
-        sig_contains_token(sig, "fnptr[") ||
-        sig_contains_token(sig, "memptr[") ||
-        sig_contains_token(sig, "ref[") ||
-        sig_contains_token(sig, "rref[");
+    bool has_pointer = detail::sig_has_pointer(sig);
 
     if (has_pointer)
         return SafetyLevel::PointerRisk;

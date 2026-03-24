@@ -46,7 +46,7 @@
         }                                                                      \
     };                                                                         \
     template <>                                                                 \
-    struct opaque_elements_safe<Type> : std::true_type {};
+    struct opaque_copy_safe<Type> : std::true_type {};
 
 // ===========================================================================
 // Relocatable variants — no trivially_copyable assertion.
@@ -76,7 +76,7 @@
         }                                                                      \
     };                                                                         \
     template <>                                                                 \
-    struct opaque_elements_safe<Type> : std::true_type {};
+    struct opaque_copy_safe<Type> : std::true_type {};
 
 // TYPELAYOUT_OPAQUE_CONTAINER_RELOCATABLE(Template, name)
 //   Single-parameter container template.  Embeds element type signature.
@@ -100,19 +100,10 @@
                    ::boost::typelayout::FixedString{">"};                      \
         }                                                                      \
         static constexpr bool pointer_free =                                   \
-            !calculate().contains_token(                                       \
-                ::boost::typelayout::FixedString{"ptr["}) &&                   \
-            !calculate().contains_token(                                       \
-                ::boost::typelayout::FixedString{"fnptr["}) &&                 \
-            !calculate().contains_token(                                       \
-                ::boost::typelayout::FixedString{"memptr["}) &&                \
-            !calculate().contains_token(                                       \
-                ::boost::typelayout::FixedString{"ref["}) &&                   \
-            !calculate().contains_token(                                       \
-                ::boost::typelayout::FixedString{"rref["});                    \
+            !::boost::typelayout::detail::sig_has_pointer(calculate());        \
     };                                                                         \
     template <typename T_>                                                      \
-    struct opaque_elements_safe<Template<T_>>                                   \
+    struct opaque_copy_safe<Template<T_>>                                   \
         : std::bool_constant<                                                  \
               ::boost::typelayout::is_byte_copy_safe_v<T_>> {};
 
@@ -140,19 +131,10 @@
                    ::boost::typelayout::FixedString{">"};                      \
         }                                                                      \
         static constexpr bool pointer_free =                                   \
-            !calculate().contains_token(                                       \
-                ::boost::typelayout::FixedString{"ptr["}) &&                   \
-            !calculate().contains_token(                                       \
-                ::boost::typelayout::FixedString{"fnptr["}) &&                 \
-            !calculate().contains_token(                                       \
-                ::boost::typelayout::FixedString{"memptr["}) &&                \
-            !calculate().contains_token(                                       \
-                ::boost::typelayout::FixedString{"ref["}) &&                   \
-            !calculate().contains_token(                                       \
-                ::boost::typelayout::FixedString{"rref["});                    \
+            !::boost::typelayout::detail::sig_has_pointer(calculate());        \
     };                                                                         \
     template <typename K_, typename V_>                                         \
-    struct opaque_elements_safe<Template<K_, V_>>                               \
+    struct opaque_copy_safe<Template<K_, V_>>                               \
         : std::bool_constant<                                                  \
               ::boost::typelayout::is_byte_copy_safe_v<K_> &&                  \
               ::boost::typelayout::is_byte_copy_safe_v<V_>> {};

@@ -75,12 +75,12 @@ Extension mechanisms
 
 Internal support (not stable user-facing concepts)
   detail::layout_traits<T>                layout_traits.hpp
-  detail::SafetyLevel                     tools/safety_level.hpp
-  detail::classify_signature()            tools/safety_level.hpp
+  compat::SafetyLevel                     tools/safety_level.hpp
+  compat::classify_signature()            tools/safety_level.hpp
   FixedString<N>                          fixed_string.hpp
   get_arch_prefix()                       signature.hpp  [detail::]
   sig_has_padding(string_view)            sig_parser.hpp  [detail::]
-  opaque_elements_safe<T>                 fwd.hpp  [detail::]
+  opaque_copy_safe<T>                 fwd.hpp  [detail::]
 ```
 
 This framing keeps the user-visible surface small without changing the underlying
@@ -143,7 +143,7 @@ architecture.
 |-------|-------------------|
 | `REGISTER_OPAQUE` | Trivially copyable concrete type. Has `static_assert`. |
 | `OPAQUE_TYPE_RELOCATABLE` | Non-trivially-copyable concrete type (e.g. offset_ptr wrappers). No `static_assert`. Different safety semantics. |
-| `OPAQUE_CONTAINER_RELOCATABLE` | Single-parameter template. Embeds element type signature. Generates `opaque_elements_safe` specialization that recurses into element. |
+| `OPAQUE_CONTAINER_RELOCATABLE` | Single-parameter template. Embeds element type signature. Generates `opaque_copy_safe` specialization that recurses into element. |
 | `OPAQUE_MAP_RELOCATABLE` | Two-parameter template. Cannot be expressed by single-parameter variant. |
 
 ### Extension mechanisms: tools (display + pipeline)
@@ -159,9 +159,8 @@ architecture.
 | Concept | Role |
 |---------|------|
 | `has_opaque` | Cross-validation `static_assert` skip condition in `layout_traits`. Not exposed as user API. |
-| `total_size` / `alignment` | `sizeof`/`alignof` wrappers in `detail::layout_traits`. Zero concept cost. |
 | `sig_has_padding` | Second path of dual-path padding validation. |
-| `opaque_elements_safe<T>` | Recursion termination point for `is_byte_copy_safe` on opaque types. |
+| `opaque_copy_safe<T>` | Recursion termination point for `is_byte_copy_safe` on opaque types. |
 
 ---
 
@@ -175,7 +174,7 @@ Can any remaining concept be removed without breaking the system?
 |---------|-------------------|
 | `get_layout_signature<T>()` | Foundation; all downstream concepts consume the signature |
 | `layout_traits<T>` | `admission.hpp` reads `has_pointer`; `sig_export.hpp` reads `has_pointer` |
-| `is_byte_copy_safe_v<T>` | `is_transfer_safe`; opaque macros' `opaque_elements_safe` |
+| `is_byte_copy_safe_v<T>` | `is_transfer_safe`; opaque macros' `opaque_copy_safe` |
 | `REGISTER_OPAQUE` (4 macros) | Only mechanism for unanalyzable types; each variant handles a distinct shape |
 | `SigExporter` | Phase 1 of cross-platform pipeline; no alternative |
 | `CompatReporter` | Phase 2 of cross-platform pipeline; no alternative |
@@ -190,7 +189,7 @@ Can any remaining concept be removed without breaking the system?
 
 ### Conclusion
 
-No core question is redundant. The only candidates for deletion (`detail::SafetyLevel`,
+No core question is redundant. The only candidates for deletion (`compat::SafetyLevel`,
 `is_transfer_safe`) have near-zero maintenance cost and provide clear explanatory or
 user-facing value. Further simplification would degrade usability without reducing
 complexity.

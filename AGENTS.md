@@ -43,14 +43,14 @@
 |---|---------|--------|---------|
 | 1 | `get_layout_signature<T>()` | `signature.hpp` | Compile-time layout signature |
 | 2 | `is_byte_copy_safe_v<T>` | `admission.hpp` | Byte-copy safety predicate |
-| 3 | `is_transfer_safe<T>(sig)` | `tools/transfer.hpp` | Cross-endpoint transfer check |
+| 3 | `is_transfer_safe<T>(sig)` | `transfer.hpp` | Cross-endpoint transfer check |
 | 4 | `TYPELAYOUT_REGISTER_OPAQUE` macros | `opaque.hpp` | Opaque type registration |
 | 5 | `SigExporter` | `tools/sig_export.hpp` | Phase 1: export signatures |
 | 6 | `CompatReporter` | `tools/compat_check.hpp` | Phase 2: compatibility report |
 
 Internal (in `detail::` namespace, not public API):
 - `detail::layout_traits<T>` -- layout inspection struct
-- `detail::SafetyLevel` / `detail::classify_signature()` -- safety classification
+- `compat::SafetyLevel` / `compat::classify_signature()` -- safety classification
 
 ## Code Map -- Key Entry Points
 
@@ -60,9 +60,9 @@ Internal (in `detail::` namespace, not public API):
 | How types are classified | `detail/reflect.hpp` -> `classify_type()`, `detail/type_map.hpp` |
 | How layout_traits works | `layout_traits.hpp` -> `detail::layout_traits<T>` struct |
 | How padding is detected | `layout_traits.hpp` -> `compute_has_padding<T>()` (bitmap) |
-| How safety is classified | `tools/safety_level.hpp` -> `detail::classify_signature()` |
+| How safety is classified | `tools/safety_level.hpp` -> `compat::classify_signature()` |
 | How opaque types work | `opaque.hpp` -> macros + `has_opaque_signature` concept |
-| How admission works | `admission.hpp` -> `is_byte_copy_safe<T>`, `opaque_elements_safe<T>` |
+| How admission works | `admission.hpp` -> `is_byte_copy_safe<T>`, `opaque_copy_safe<T>` |
 | Cross-platform pipeline | `tools/sig_export.hpp` (Phase 1) -> `tools/compat_check.hpp` (Phase 2) |
 | Transfer-safe query | `tools/compat_check.hpp` -> `CompatReporter::are_transfer_safe(types, platforms)` |
 | Data model / ABI detect | `tools/platform_detect.hpp` -> `get_data_model()` |

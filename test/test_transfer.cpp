@@ -9,7 +9,7 @@
 
 #include <boost/typelayout/typelayout.hpp>
 #include <boost/typelayout/layout_traits.hpp>
-#include <boost/typelayout/tools/transfer.hpp>
+#include <boost/typelayout/transfer.hpp>
 #include "test_util.hpp"
 #include <iostream>
 #include <cstdint>

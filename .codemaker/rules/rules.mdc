@@ -129,7 +129,7 @@ Valid types: `fix:`, `test:`, `docs:`, `chore:`, `perf:`, `feat:`, `refactor:`
 |---|---------|--------|---------|
 | 1 | `get_layout_signature<T>()` | `signature.hpp` | Compile-time layout signature |
 | 2 | `is_byte_copy_safe_v<T>` | `admission.hpp` | Byte-copy safety predicate |
-| 3 | `is_transfer_safe<T>(sig)` | `tools/transfer.hpp` | Cross-endpoint transfer check |
+| 3 | `is_transfer_safe<T>(sig)` | `transfer.hpp` | Cross-endpoint transfer check |
 | 4 | `TYPELAYOUT_REGISTER_OPAQUE` macros | `opaque.hpp` | Opaque type registration |
 | 5 | `SigExporter` | `tools/sig_export.hpp` | Phase 1: export signatures |
 | 6 | `CompatReporter` | `tools/compat_check.hpp` | Phase 2: compatibility report |

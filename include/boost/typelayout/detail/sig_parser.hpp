@@ -217,6 +217,16 @@ constexpr bool check_padding_consistency(bool ct_has_padding,
     return r.truncated || (ct_has_padding == r.has_padding);
 }
 
+/// Check whether a signature (string_view) contains pointer-like tokens.
+/// Keep in sync with fixed_string.hpp::sig_has_pointer (consteval FixedString version).
+inline bool sig_has_pointer(std::string_view sig) noexcept {
+    return sig_contains_token(sig, "ptr[") ||
+           sig_contains_token(sig, "fnptr[") ||
+           sig_contains_token(sig, "memptr[") ||
+           sig_contains_token(sig, "ref[") ||
+           sig_contains_token(sig, "rref[");
+}
+
 } // namespace detail
 } // inline namespace v1
 } // namespace typelayout
