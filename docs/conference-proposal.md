@@ -6,28 +6,25 @@
 
 ## Abstract
 
-This talk is a P2996 experience report: what happens when you build a
-non-trivial consteval library on C++26 static reflection — and what
-you learn about the API surface, its limits, and cross-compiler
-behavior along the way.
+*Which of my types can I safely memcpy between which build targets
+without serialization?* In domains where serialization overhead is
+unacceptable — game engines, high-frequency trading, HPC,
+shared-memory IPC — this question matters for every message type on
+every target platform. Standard C++ alone cannot answer this portably
+at compile time. `sizeof` misses field offsets. `offsetof` is
+conditionally-supported on non-standard-layout types (private members,
+inheritance). Manual assertions are platform-local and cannot compare
+across compilers.
 
-The driving question is practical: *which of my types can I safely
-memcpy between which build targets without serialization?* In
-domains where serialization overhead is unacceptable — game engines,
-high-frequency trading, HPC, shared-memory IPC — this question
-matters for every message type on every target platform. Standard
-C++ alone cannot answer this portably at compile time. `sizeof` misses
-field offsets. `offsetof` is conditionally-supported on
-non-standard-layout types (private members, inheritance). Manual assertions are platform-local and cannot compare across compilers.
-
-The running case study is TypeLayout, a layout-signature library that
-uses a small set of reflection primitives to generate a compile-time
-**layout signature** — a deterministic string encoding every field offset, size,
-alignment, and padding gap of any C++ type, including classes with
-private members and inheritance hierarchies. Export
-signatures where you have a P2996 compiler, verify compatibility
-anywhere without P2996 — and get a definitive answer for every
-type-target pair: transfer-safe, layout mismatch, or pointer risk.
+The running case study is TypeLayout, a layout-signature library built
+on C++26 static reflection (P2996). It generates a compile-time
+**layout signature** — a deterministic string encoding every field
+offset, size, alignment, and padding gap of any C++ type, including
+classes with private members and inheritance hierarchies — and provides
+a definitive answer for every type-target pair: transfer-safe, layout
+mismatch, or pointer risk. The talk also serves as a P2996 experience
+report: reusable reflection patterns, API friction points, and
+cross-compiler behavior observed along the way.
 
 ## Outline
 
@@ -163,11 +160,9 @@ type-target pair: transfer-safe, layout mismatch, or pointer risk.
     one-line macro that declares safety properties and a tag.
     The signature encodes tag, size, alignment, and element type.
     Safety recurses into the element type.
-- **Runtime transfer verification** — the plugin `dlopen` pattern:
-  a plugin exports its signature as a C string; the host calls
-  `is_transfer_safe<T>(plugin_sig)` at load time. One call checks
-  two conditions: byte-copy safe + signature match — the definition
-  of *transfer-safe* from Part 1's matrix.
+- **Runtime transfer verification**: a single
+  `is_transfer_safe<T>(remote_sig)` call checks both conditions
+  (byte-copy safe + signature match) at load time.
 
 ### Part 5 — The Cross-Platform Pipeline (7 min)
 
