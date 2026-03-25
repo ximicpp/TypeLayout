@@ -135,7 +135,7 @@ cross-compiler surprises encountered while building the library.
 - Friction points: constexpr step limits on large types, missing
   expansion statements (P1306).
 
-### Part 4 — Beyond Layout Match: Transport Safety (13 min)
+### Part 4 — Beyond Layout Match: Transfer Safety (13 min)
 
 *"Matching layout is necessary but not sufficient."*
 
