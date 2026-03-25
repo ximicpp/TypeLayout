@@ -4,15 +4,6 @@
 
 **Your Class is Lying to You: Cross-Platform Layout Verification with C++26 Reflection**
 
-## Session Format
-
-Preferred: Standard Session (60 minutes)
-Also available as: Half Session (30 minutes)
-
-## Session Level
-
-Intermediate to Advanced
-
 ## Abstract
 
 This talk is a P2996 experience report: what happens when you build a
@@ -193,32 +184,3 @@ type-target pair: transfer-safe, layout mismatch, or pointer risk.
   definitive answer.
 
 ### Q&A (5 min)
-
-## Target Audience
-
-- **Primary**: C++ developers working with IPC, shared memory, network
-  protocols, plugin systems, or binary file formats — anyone who has
-  written `static_assert(sizeof(T) == N)` or wished `offsetof` worked
-  on their real types.
-- **Secondary**: Library authors exploring P2996 reflection as a
-  building block for compile-time analysis.
-- **Tertiary**: Compiler implementers and language designers interested
-  in real-world P2996 implementation experience — especially
-  `offset_of` and `access_context::unchecked()` across compilers.
-
-## Prerequisites
-
-- Familiarity with `sizeof`, `alignof`, `offsetof`
-- Basic understanding of memory layout (padding, alignment)
-- No prior P2996 or reflection knowledge required — explained in talk
-
-## Supplementary Materials
-
-*(Available upon acceptance. Anonymous repository link provided to
-reviewers on request — full implementation, test suite, and
-cross-platform demo can be inspected before the acceptance decision.)*
-
-- **Source code**: Complete library, header-only, Boost Software License
-- **Test suite**: 12 tests (7 core P2996 + 5 tools), 200+ static_assert
-- **Cross-platform demo**: Pre-generated signatures for 6 build targets
-- **WG21 paper**: Implementation experience report drafted for SG7
