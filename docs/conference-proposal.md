@@ -27,9 +27,7 @@ high-frequency trading, HPC, shared-memory IPC — this question
 matters for every message type on every target platform. Standard
 C++ alone cannot answer this portably at compile time. `sizeof` misses
 field offsets. `offsetof` is conditionally-supported on
-non-standard-layout types (private members, inheritance). Manual
-assertions are
-platform-local and cannot compare across compilers.
+non-standard-layout types (private members, inheritance). Manual assertions are platform-local and cannot compare across compilers.
 
 The running case study is TypeLayout, a layout-signature library that
 uses a small set of reflection primitives to generate a compile-time
@@ -39,14 +37,6 @@ private members and inheritance hierarchies. Export
 signatures where you have a P2996 compiler, verify compatibility
 anywhere without P2996 — and get a definitive answer for every
 type-target pair: transfer-safe, layout mismatch, or pointer risk.
-
-The talk opens with the compatibility matrix, then drills into *why*
-each result is what it is — teaching reusable reflection patterns,
-consteval techniques, and safety classification through the results the
-matrix reveals. Attendees leave with concrete P2996 experience,
-reusable consteval patterns, and an open-source reference
-implementation (200+ `static_assert` checks across 17 type categories,
-from primitives and records through pointers and opaque containers).
 
 ## Outline
 
@@ -83,16 +73,8 @@ from primitives and records through pointers and opaque containers).
       XVector<float> samples_; // offset_ptr-based, registered opaque
   };
   ```
-- Six build targets spanning two data models and three compilers:
-  ```
-  x86_64_linux_gcc         LP64   long=8  wchar=4  ldbl=16
-  x86_64_linux_clang       LP64   long=8  wchar=4  ldbl=16
-  arm64_linux_gcc           LP64   long=8  wchar=4  ldbl=16(!)  # fld128, not fld80
-  arm64_macos_clang         LP64   long=8  wchar=4  ldbl=8
-  x86_64_windows_msvc       LLP64  long=4  wchar=2  ldbl=8
-  x86_64_windows_clangcl    LLP64  long=4  wchar=2  ldbl=8
-  ```
-- Open with the compatibility matrix — the answer first, explanation
+- Open with the compatibility matrix (six build targets, two data
+  models, three compilers) — the answer first, explanation
   later:
   ```
   Build targets: 6     ABI equivalence: {x86_linux_gcc, x86_linux_clang, arm64_linux_gcc}
@@ -112,14 +94,6 @@ from primitives and records through pointers and opaque containers).
     windows_msvc: ...@24:i32[s:4,a:4],@28:array[s:16,a:2]<wchar[s:2,a:2],8>...
                        ^^^                  ^^^
   ```
-- Contrast with the status quo: "How would you verify this today?"
-  Existing tools each cover part of the problem — `pahole` dumps
-  layouts but requires post-build diffing; `offsetof` is compile-time
-  but conditionally-supported on non-standard-layout types and
-  inapplicable to non-standard-layout types. None provides
-  compile-time, cross-platform verification in one step.
-  With TypeLayout, a single `static_assert` comparing two layout
-  signatures replaces per-field, per-platform manual assertions.
 
 ### Part 2 — What the Signatures Tell You (12 min)
 
@@ -160,11 +134,6 @@ from primitives and records through pointers and opaque containers).
   is_bit_field(member)
   bit_size_of(member)
   ```
-- Code walkthrough of the recursive consteval signature generator,
-  introducing each primitive in context.
-- Key enablers: `offset_of` returns the compiler's own layout
-  decision (works on every type, unlike `offsetof`);
-  `access_context::unchecked()` makes private members visible.
 - Show that the core pattern works **without a library** — a minimal
   consteval layout check in ~10 lines of raw P2996:
   ```cpp
@@ -181,12 +150,8 @@ from primitives and records through pointers and opaque containers).
       return sizeof(T) == sizeof(U);
   }
   ```
-  This is the kernel of the idea. TypeLayout adds flattening,
-  bit-field handling, opaque registration, and cross-platform export
-  on top — but the audience can reuse the pattern independently.
 - Friction points: constexpr step limits on large types, missing
-  expansion statements (P1306), cross-compiler bit-field allocation
-  differences.
+  expansion statements (P1306).
 
 ### Part 4 — Beyond Layout Match: Transport Safety (13 min)
 
@@ -222,8 +187,7 @@ from primitives and records through pointers and opaque containers).
     compile-time signatures + ABI metadata to a header file.
   - **Phase 2** (on any machine, no P2996 needed): include the exported
     headers and run a compatibility check that produces the matrix
-    from Part 1. Phase 2 does not require P2996 — export where you
-    have the compiler, verify anywhere.
+    from Part 1.
 - ABI equivalence grouping: same-fingerprint build targets are
   grouped automatically, but the signature comparison is the
   definitive answer.
