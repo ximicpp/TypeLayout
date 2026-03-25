@@ -44,14 +44,12 @@ cross-compiler surprises encountered while building the library.
   class MessageHeader {                      // base class
       uint32_t magic_; uint16_t version_; uint16_t type_;
   };
-  class TelemetryMsg : public MessageHeader { // inheritance + bit-fields
+  class TelemetryMsg : public MessageHeader { // inheritance
       Timestamp ts_; float values_[4];
-      uint8_t quality_ : 4; uint8_t flags_ : 4;
   };
   class PlatformRiskyMsg : public MessageHeader { // platform-variant
       Timestamp ts_;
       long counter_;    // LP64: 8B, LLP64: 4B
-      wchar_t label_[8]; // Linux/macOS: 4B, Windows: 2B
   };
   class EventRef : public MessageHeader {    // pointer member
       Timestamp ts_; EventRef* next_;
@@ -78,9 +76,9 @@ cross-compiler surprises encountered while building the library.
   Safety: Safe / Pointer! / Opaque.  MATCH + Safe = transfer-safe.
 
   [DIFFER] PlatformRiskyMsg:
-    linux_gcc:    ...@24:i64[s:8,a:8],@32:array[s:32,a:4]<wchar[s:4,a:4],8>...
-    windows_msvc: ...@24:i32[s:4,a:4],@28:array[s:16,a:2]<wchar[s:2,a:2],8>...
-                       ^^^                  ^^^
+    linux_gcc:    ...@24:i64[s:8,a:8]...
+    windows_msvc: ...@24:i32[s:4,a:4]...
+                       ^^^
   ```
 
 ### Part 2 — What the Signatures Tell You (12 min)
@@ -89,22 +87,20 @@ cross-compiler surprises encountered while building the library.
 
 - Drill into `TelemetryMsg`'s signature to teach the format:
   ```
-  [64-le]record[s:48,a:8]{
+  [64-le]record[s:40,a:8]{
     @0:u32[s:4,a:4],               // magic_    (from MessageHeader)
     @4:u16[s:2,a:2],               // version_
     @6:u16[s:2,a:2],               // type_
     @8:i64[s:8,a:8],               // ts_.seconds_  (flattened!)
     @16:u32[s:4,a:4],              // ts_.nanos_
-    @24:array[s:16,a:4]<f32[s:4,a:4],4>,  // values_[4]
-    @40.0:bits<4,u8[s:1,a:1]>,    // quality_ : 4
-    @40.4:bits<4,u8[s:1,a:1]>     // flags_ : 4
+    @24:array[s:16,a:4]<f32[s:4,a:4],4>   // values_[4]
   }
   ```
   Key observations: base class and nested struct fields are flattened
   (inheritance erased, only byte identity remains); private members
   are visible via `access_context::unchecked()`.
-- Drill into the `PlatformRiskyMsg` diff: `i64` vs `i32` (long) and
-  `wchar[s:4]` vs `wchar[s:2]` pinpoint exactly which field broke.
+- Drill into the `PlatformRiskyMsg` diff: `i64` vs `i32` (`long`)
+  pinpoints exactly which field broke.
 
 ### Part 3 — How Reflection Builds Signatures (15 min, dense)
 
@@ -119,8 +115,6 @@ cross-compiler surprises encountered while building the library.
   type_of(member)
   size_of(type)                    — size in bytes (reflection version of sizeof)
   offset_of(member)                — returns {.bytes, .bits}
-  is_bit_field(member)
-  bit_size_of(member)
   ```
 - Show that the core pattern works **without a library** — a minimal
   consteval layout check in ~10 lines of raw P2996:
