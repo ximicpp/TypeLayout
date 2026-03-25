@@ -30,11 +30,11 @@ cross-compiler surprises encountered while building the library.
 
 ### Part 1 — The Question and the Answer (8 min)
 
-*"Six types, six targets. Which can I memcpy without serialization?"*
+*"Four message types, six targets. Which can I memcpy without serialization?"*
 
-- Introduce six demo types (four top-level message types plus two
-  building blocks — `Timestamp` and `MessageHeader` — that appear
-  flattened inside the others). Not trivial standard-layout structs, but
+- Introduce four message types built from two reusable building
+  blocks (`Timestamp` and `MessageHeader`, flattened inside the
+  others). Not trivial standard-layout structs, but
   real C++ code where `offsetof` is conditionally-supported or
   inapplicable:
   ```cpp
