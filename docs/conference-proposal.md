@@ -21,7 +21,7 @@ on C++26 static reflection (P2996). It generates a compile-time
 **layout signature** — a deterministic string encoding every field
 offset, size, alignment, and padding gap of any C++ type, including
 classes with private members and inheritance hierarchies — and provides
-a definitive answer for every type-target pair: transfer-safe, layout
+a verifiable answer for every type-target pair: transfer-safe, layout
 mismatch, or pointer risk. Along the way, attendees gain hands-on
 P2996 experience — the reflection patterns, API friction points, and
 cross-compiler surprises encountered while building the library.
