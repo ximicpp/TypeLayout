@@ -51,11 +51,6 @@ from primitives and records through pointers and opaque containers).
 
 *"Six types, six targets. Which can I memcpy without serialization?"*
 
-- Open by delivering on the title: "Your class is lying to you"
-  means `sizeof` and `offsetof` give you incomplete information —
-  they hide padding, can't see private members, and don't work on
-  bit-fields. The class *looks* self-describing, but its true layout
-  is invisible to standard tools.
 - Introduce six demo types (four top-level message types plus two
   building blocks — `Timestamp` and `MessageHeader` — that appear
   flattened inside the others). Not trivial standard-layout structs, but
@@ -116,10 +111,6 @@ from primitives and records through pointers and opaque containers).
     Opaque = contains opaque type (user-declared safety)
   Combine Safety with MATCH/DIFFER for the transfer decision.
 
-  Note: same ABI fingerprint != same signatures — arm64 uses fld128
-  for long double vs x86_64's fld80, so types containing long double
-  still DIFFER despite being in the same equivalence group.
-
   [DIFFER] PlatformRiskyMsg:
     linux_gcc:    ...@24:i64[s:8,a:8],@32:array[s:32,a:4]<wchar[s:4,a:4],8>...
     windows_msvc: ...@24:i32[s:4,a:4],@28:array[s:16,a:2]<wchar[s:2,a:2],8>...
@@ -138,20 +129,8 @@ from primitives and records through pointers and opaque containers).
   but conditionally-supported on non-standard-layout types and
   inapplicable to bit-fields. None provides compile-time,
   cross-platform, bit-field-aware verification in one step.
-  ```cpp
-  // Non-standard-layout: offsetof is conditionally-supported here:
-  static_assert(offsetof(TelemetryMsg, ts_) == 8);  // may warn or fail
-  // Bit-fields: completely impossible — no offsetof for bit-fields.
-  // And even if offsetof worked: 6 targets x N fields = unmaintainable.
-  ```
-  With TypeLayout:
-  ```cpp
-  // RemoteTelemetryMsg: same logical type defined at the remote endpoint
-  static_assert(
-      get_layout_signature<TelemetryMsg>() ==
-          get_layout_signature<RemoteTelemetryMsg>(),
-      "Layout mismatch — see signature diff for details");
-  ```
+  With TypeLayout, a single `static_assert` comparing two layout
+  signatures replaces per-field, per-platform manual assertions.
 
 **Takeaway**: The compatibility matrix gives you a definitive,
 per-type-per-target answer. The rest of the talk explains how it's
@@ -250,10 +229,6 @@ time? That's where P2996 static reflection comes in.*
   This is the kernel of the idea. TypeLayout adds flattening,
   bit-field handling, opaque registration, and cross-platform export
   on top — but the audience can reuse the pattern independently.
-- **Dual-path padding validation** — two independent paths (P2996
-  byte-coverage bitmap vs. C++17 signature parser) cross-validated
-  with `static_assert`. If they disagree, either the generator or the
-  compiler has a bug. (Details in supplementary materials.)
 - Friction points (honest report):
   - Constexpr step limits on large types (>50 fields need
     `-fconstexpr-steps`).
@@ -287,28 +262,15 @@ Layout match is necessary, but is it sufficient?*
   - Formula: **signature match + byte-copy safe = safe to memcpy.**
 - **Opaque types** — the `BufferedReadings` story:
   - Some types (offset_ptr containers, platform handles) are not
-    fully analyzable by reflection. Register them as opaque with
-    declared safety properties:
-    ```cpp
-    TYPELAYOUT_OPAQUE_CONTAINER_RELOCATABLE(XVector, "xvec")
-    ```
-    Signature: `O(xvec|24|8)<f32[s:4,a:4]>` — format is
-    `O(tag|sizeof|alignof)<element_sig>`. Safety recurses into the
-    element type.
+    fully analyzable by reflection. Register them as opaque with a
+    one-line macro that declares safety properties and a tag.
+    The signature encodes tag, size, alignment, and element type.
+    Safety recurses into the element type.
 - **Runtime transfer verification** — the plugin `dlopen` pattern:
-  ```cpp
-  // Plugin exports its signature
-  extern "C" const char* msg_layout() {
-      static constexpr auto s = get_layout_signature<TelemetryMsg>();
-      return s.c_str();
-  }
-  // Host verifies at load time
-  if (!is_transfer_safe<TelemetryMsg>(plugin_get_sig()))
-      return Error::ABIMismatch;
-  ```
-  Two conditions in one call: byte-copy safe (which implies no
-  pointer risk) + signature match — the definition of *transfer-safe*
-  from Part 1's matrix.
+  a plugin exports its signature as a C string; the host calls
+  `is_transfer_safe<T>(plugin_sig)` at load time. One call checks
+  two conditions: byte-copy safe + signature match — the definition
+  of *transfer-safe* from Part 1's matrix.
 
 **Takeaway**: Layout match tells you the bytes line up. Byte-copy
 safety tells you whether copying those bytes is meaningful. Together
@@ -319,31 +281,20 @@ they answer: "can I memcpy this class to that endpoint?"
 *"Export once, compare anywhere."*
 
 - Two-phase workflow:
-  - **Phase 1** (on each build target): compile a one-line exporter.
-    ```cpp
-    TYPELAYOUT_EXPORT_TYPES(
-        TelemetryMsg, PlatformRiskyMsg, EventRef, BufferedReadings)
-    ```
-    Produces `x86_64_linux_gcc.sig.hpp` — compile-time signatures +
-    ABI metadata (pointer size, sizeof(long), data model).
-  - **Phase 2** (on any machine, C++17 only):
-    ```cpp
-    #include "sigs/x86_64_linux_gcc.sig.hpp"
-    #include "sigs/arm64_macos_clang.sig.hpp"
-    #include "sigs/x86_64_windows_msvc.sig.hpp"
-    TYPELAYOUT_CHECK_COMPAT(
-        x86_64_linux_gcc, arm64_macos_clang, x86_64_windows_msvc)
-    ```
-    Outputs the compatibility matrix from Part 1. Phase 2 does not
-    require P2996 — compare signatures where the compiler is
-    available, verify anywhere.
+  - **Phase 1** (on each build target): a one-line macro exports
+    compile-time signatures + ABI metadata to a header file.
+  - **Phase 2** (on any machine, C++17 only): include the exported
+    headers and run a compatibility check that produces the matrix
+    from Part 1. Phase 2 does not require P2996 — export where you
+    have the compiler, verify anywhere.
 - ABI equivalence grouping: build targets with identical fingerprints
   (pointer size, sizeof(long), sizeof(wchar_t), sizeof(long double),
   max alignment, arch prefix encoding endianness) are grouped
   automatically. Same-ABI build targets are *likely* but not
-  *guaranteed* to match — compiler-specific packing rules or type
-  representation differences (e.g. fld80 vs fld128) can still
-  produce different signatures. The signature comparison is definitive.
+  *guaranteed* to match — for example, arm64 uses fld128 for
+  `long double` vs x86_64's fld80, so types containing `long double`
+  DIFFER despite sharing an ABI group. The signature comparison is
+  definitive.
 
 **Takeaway**: You don't need P2996 on every machine. Export where you
 have the compiler, verify anywhere.
