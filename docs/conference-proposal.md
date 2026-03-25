@@ -2,7 +2,7 @@
 
 ## Title
 
-**Your Class is Lying to You: Zero-Copy Transport Verification with C++26 Reflection**
+**Your Class is Lying to You: Cross-Platform Layout Verification with C++26 Reflection**
 
 ## Session Format
 
