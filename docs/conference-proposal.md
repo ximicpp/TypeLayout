@@ -11,29 +11,31 @@ Also available as: Half Session (30 minutes)
 
 ## Session Level
 
-Intermediate
+Intermediate to Advanced
 
 ## Abstract
 
-*Which of my types can I safely memcpy between which build targets
-without serialization?* Standard C++ alone cannot answer this portably
-at compile time. `sizeof` misses field offsets. `offsetof` is
-conditionally-supported on non-standard-layout types (private members,
-inheritance) and completely inapplicable to bit-fields. Manual
-assertions are platform-local, O(n) per field, and cannot compare
-across compilers. (Serialization frameworks solve a different problem —
-schema translation; this talk is about verifying when you can skip it.)
+This talk is a P2996 experience report: what happens when you build a
+non-trivial consteval library on C++26 static reflection — and what
+you learn about the API surface, its limits, and cross-compiler
+behavior along the way.
 
-This talk presents a P2996 experience report: what happens when you
-build a non-trivial consteval library on C++26 static reflection. The
-running case study is TypeLayout, a layout-signature library that uses
-eight reflection primitives to generate a compile-time **layout
-signature** — a deterministic string encoding every field offset, size,
-alignment, and padding byte of any C++ type, including classes with
+The driving question is practical: *which of my types can I safely
+memcpy between which build targets without serialization?* Standard
+C++ alone cannot answer this portably at compile time. `sizeof` misses
+field offsets. `offsetof` is conditionally-supported on
+non-standard-layout types (private members, inheritance) and
+completely inapplicable to bit-fields. Manual assertions are
+platform-local and cannot compare across compilers.
+
+The running case study is TypeLayout, a layout-signature library that
+uses a small set of reflection primitives to generate a compile-time
+**layout signature** — a deterministic string encoding every field offset, size,
+alignment, and padding gap of any C++ type, including classes with
 private members, inheritance hierarchies, and bit-fields. Export
 signatures where you have a P2996 compiler, verify compatibility
 anywhere with plain C++17 — and get a definitive answer for every
-type-platform pair: transfer-safe, layout mismatch, or pointer risk.
+type-target pair: transfer-safe, layout mismatch, or pointer risk.
 
 The talk opens with the compatibility matrix, then drills into *why*
 each result is what it is — teaching reusable reflection patterns,
@@ -45,13 +47,18 @@ from primitives and records through pointers and opaque containers).
 
 ## Outline
 
-### Part 1 — The Question and the Answer (10 min)
+### Part 1 — The Question and the Answer (8 min)
 
 *"Six types, six targets. Which can I memcpy without serialization?"*
 
+- Open by delivering on the title: "Your class is lying to you"
+  means `sizeof` and `offsetof` give you incomplete information —
+  they hide padding, can't see private members, and don't work on
+  bit-fields. The class *looks* self-describing, but its true layout
+  is invisible to standard tools.
 - Introduce six demo types (four top-level message types plus two
   building blocks — `Timestamp` and `MessageHeader` — that appear
-  flattened inside the others). Deliberately not flat POD structs, but
+  flattened inside the others). Not trivial standard-layout structs, but
   real C++ code where `offsetof` is conditionally-supported or
   inapplicable:
   ```cpp
@@ -90,10 +97,8 @@ from primitives and records through pointers and opaque containers).
 - Open with the compatibility matrix — the answer first, explanation
   later:
   ```
-  Build targets: 6     ABI equivalence: {linux_gcc, linux_clang, arm_linux_gcc}
-                                         {windows_msvc, windows_clangcl}
-  (Same fingerprint != same signatures: arm64 uses fld128 for long double
-   vs x86_64's fld80, so types containing long double still DIFFER.)
+  Build targets: 6     ABI equivalence: {x86_linux_gcc, x86_linux_clang, arm64_linux_gcc}
+                                         {win_msvc, win_clangcl}
 
   Type              x86_linux  arm_linux  macOS   Windows   Safety
   ────────────────────────────────────────────────────────────────
@@ -102,9 +107,18 @@ from primitives and records through pointers and opaque containers).
   EventRef            MATCH      MATCH    MATCH    MATCH     Pointer!
   BufferedReadings    MATCH      MATCH    MATCH    MATCH     Opaque
 
-  Safety: Safe = byte-copy safe (memcpy-able when signatures match)
-          Pointer! = contains pointer (memcpy produces dangling ref)
-          Opaque = contains opaque type (user-declared safety)
+  x86_linux covers both gcc and clang (ABI-equivalent).
+  Building blocks (Timestamp, MessageHeader) are flattened into messages.
+
+  Safety describes the type, not the transfer verdict:
+    Safe = byte-copy safe (no pointers, no opaque)
+    Pointer! = contains pointer (memcpy produces dangling ref)
+    Opaque = contains opaque type (user-declared safety)
+  Combine Safety with MATCH/DIFFER for the transfer decision.
+
+  Note: same ABI fingerprint != same signatures — arm64 uses fld128
+  for long double vs x86_64's fld80, so types containing long double
+  still DIFFER despite being in the same equivalence group.
 
   [DIFFER] PlatformRiskyMsg:
     linux_gcc:    ...@24:i64[s:8,a:8],@32:array[s:32,a:4]<wchar[s:4,a:4],8>...
@@ -119,24 +133,32 @@ from primitives and records through pointers and opaque containers).
   - `EventRef` matches everywhere but is flagged `Pointer!` — dangling.
   - `BufferedReadings` is `Opaque` — requires user trust.
 - Contrast with the status quo: "How would you verify this today?"
+  Existing tools each cover part of the problem — `pahole` dumps
+  layouts but requires post-build diffing; `offsetof` is compile-time
+  but conditionally-supported on non-standard-layout types and
+  inapplicable to bit-fields. None provides compile-time,
+  cross-platform, bit-field-aware verification in one step.
   ```cpp
-  // Non-standard-layout: conditionally-supported, not portable:
-  static_assert(offsetof(TelemetryMsg, ts_) == 8);  // may compile, not reliable
+  // Non-standard-layout: offsetof is conditionally-supported here:
+  static_assert(offsetof(TelemetryMsg, ts_) == 8);  // may warn or fail
   // Bit-fields: completely impossible — no offsetof for bit-fields.
   // And even if offsetof worked: 6 targets x N fields = unmaintainable.
   ```
   With TypeLayout:
   ```cpp
+  // RemoteTelemetryMsg: same logical type defined at the remote endpoint
   static_assert(
       get_layout_signature<TelemetryMsg>() ==
           get_layout_signature<RemoteTelemetryMsg>(),
       "Layout mismatch — see signature diff for details");
   ```
 
-**Takeaway**: *Which types can I zero-copy between which targets?*
-Before P2996, standard C++ alone could not answer this portably at
-compile time for classes with private members, inheritance, or
-bit-fields.
+**Takeaway**: The compatibility matrix gives you a definitive,
+per-type-per-target answer. The rest of the talk explains how it's
+built and what each column means.
+
+*The matrix gives us the answer. Now let's learn to read the evidence
+behind it.*
 
 ### Part 2 — What the Signatures Tell You (12 min)
 
@@ -171,12 +193,15 @@ bit-fields.
 - The gotcha: two types can have the same `sizeof` but different field
   offsets. Concrete example: `Timestamp` has `sizeof == 16` but only
   12 bytes of data (seconds_ + nanos_) — 4 bytes of tail padding are
-  invisible to `sizeof`. This is why `TelemetryMsg::values_` starts
+  included in `sizeof` but invisible in the source code. This is why `TelemetryMsg::values_` starts
   at offset 24, not 20. The signature catches it; `sizeof` doesn't.
 
 **Takeaway**: Signatures are human-readable diffs. When they fail, you
 can see exactly which field diverged and why — no debugger, no core
 dump, no printf.
+
+*We can now read signatures — but how are they generated at compile
+time? That's where P2996 static reflection comes in.*
 
 ### Part 3 — How Reflection Builds Signatures (15 min, dense)
 
@@ -189,6 +214,7 @@ dump, no printf.
   nonstatic_data_members_of(^^T, access_context::unchecked())
   bases_of(^^T, access_context::unchecked())
   type_of(member)
+  size_of(type)                    — size in bytes (reflection version of sizeof)
   offset_of(member)                — returns {.bytes, .bits}
   is_bit_field(member)
   bit_size_of(member)
@@ -229,16 +255,22 @@ dump, no printf.
   with `static_assert`. If they disagree, either the generator or the
   compiler has a bug. (Details in supplementary materials.)
 - Friction points (honest report):
-  - **Constexpr step limits**: `FixedString` concatenation is O(n^2)
-    in constexpr steps, so types with >50 fields can exhaust the
-    default limit and need `-fconstexpr-steps=5000000`.
-  - Expansion statements (P1306, colloquially `template for`) would
-    replace index-based template recursion; bit-field allocation
-    strategies differ across compilers. Both noted briefly.
+  - Constexpr step limits on large types (>50 fields need
+    `-fconstexpr-steps`).
+  - Bit-field allocation differs across compilers — `offset_of`
+    faithfully reports each compiler's decision, correctly detecting
+    cross-compiler incompatibility.
+  - Expansion statements (P1306) would simplify the recursion;
+    virtual inheritance is rejected at compile time.
 
-**Takeaway**: P2996 provides exactly the right primitives for layout
-analysis. The main adoption barrier is constexpr step limits — a
-signal for tooling work, not an API deficiency.
+**Takeaway**: The core pattern fits in ~10 lines of raw P2996 —
+reusable without any library. The main friction (constexpr step
+limits, missing expansion statements) is a tooling gap, not an API
+deficiency.
+
+*We have signatures, and we know how they're generated. But look back
+at the matrix — `EventRef` is all MATCH, yet flagged `Pointer!`.
+Layout match is necessary, but is it sufficient?*
 
 ### Part 4 — Beyond Layout Match: Transport Safety (13 min)
 
@@ -260,8 +292,9 @@ signal for tooling work, not an API deficiency.
     ```cpp
     TYPELAYOUT_OPAQUE_CONTAINER_RELOCATABLE(XVector, "xvec")
     ```
-    Signature: `O(xvec|24|8)<f32[s:4,a:4]>` — opaque shell with
-    element type embedded. Safety recurses into the element type.
+    Signature: `O(xvec|24|8)<f32[s:4,a:4]>` — format is
+    `O(tag|sizeof|alignof)<element_sig>`. Safety recurses into the
+    element type.
 - **Runtime transfer verification** — the plugin `dlopen` pattern:
   ```cpp
   // Plugin exports its signature
@@ -281,7 +314,7 @@ signal for tooling work, not an API deficiency.
 safety tells you whether copying those bytes is meaningful. Together
 they answer: "can I memcpy this class to that endpoint?"
 
-### Part 5 — The Cross-Platform Pipeline (5 min)
+### Part 5 — The Cross-Platform Pipeline (7 min)
 
 *"Export once, compare anywhere."*
 
@@ -304,16 +337,29 @@ they answer: "can I memcpy this class to that endpoint?"
     Outputs the compatibility matrix from Part 1. Phase 2 does not
     require P2996 — compare signatures where the compiler is
     available, verify anywhere.
-- ABI equivalence grouping: platforms with identical fingerprints
+- ABI equivalence grouping: build targets with identical fingerprints
   (pointer size, sizeof(long), sizeof(wchar_t), sizeof(long double),
-  max alignment) are grouped automatically. Same-ABI platforms are
-  *likely* but not *guaranteed* to match — compiler-specific packing
-  rules can still differ. The signature comparison is definitive.
+  max alignment, arch prefix encoding endianness) are grouped
+  automatically. Same-ABI build targets are *likely* but not
+  *guaranteed* to match — compiler-specific packing rules or type
+  representation differences (e.g. fld80 vs fld128) can still
+  produce different signatures. The signature comparison is definitive.
 
 **Takeaway**: You don't need P2996 on every machine. Export where you
 have the compiler, verify anywhere.
 
 ### Q&A (5 min)
+
+## Non-Goals
+
+This talk does not cover serialization frameworks (Protobuf,
+FlatBuffers, Cap'n Proto), ABI stability guarantees, dynamic or
+polymorphic type transport, or automatic remediation of layout
+mismatches. The scope is *detection and verification*, not correction.
+IDL-based serialization and layout signatures are complementary:
+serialization eliminates layout dependence entirely; layout signatures
+verify that you can safely skip serialization for a given type-target
+pair.
 
 ## Key Takeaways
 
@@ -324,9 +370,9 @@ have the compiler, verify anywhere.
 2. `offsetof` is conditionally-supported on non-standard-layout types
    and inapplicable to bit-fields. P2996's `offset_of` works on any
    type the compiler can lay out.
-3. Eight P2996 reflection primitives form a functionally complete
-   subset for layout analysis. The API is well-designed; the main
-   friction is constexpr step limits.
+3. Nine P2996 reflection features form a functionally complete
+   toolkit for layout analysis. The core pattern fits in ~10 lines
+   and is reusable without any library.
 4. Layout match alone is not enough. Byte-copy safety (no pointers,
    no non-relocatable opaque) completes the transport decision.
 5. Export signatures where you have a P2996 compiler, compare them
@@ -359,9 +405,9 @@ have the compiler, verify anywhere.
 meeting (June 2025). Bloomberg's Clang fork provides a
 production-quality implementation today. Yet most public examples
 remain toy demos (enum-to-string, JSON serialization sketches). This
-talk presents a non-trivial consteval system — 200+ `static_assert`
-checks across 17 type categories — that stress-tests the API
-surface and reports what works, what's awkward, and what needs tooling
+talk presents a non-trivial consteval system — 12 tests across 17
+type categories with extensive compile-time validation — that
+stress-tests the API surface and reports what works, what's awkward, and what needs tooling
 investment. It shows what reflection enables for **systems
 programming**, not just metaprogramming convenience.
 
@@ -380,8 +426,9 @@ reuse the technique without any library. It reports what works well
 (index-based recursion without expansion statements), and what's a
 real barrier (constexpr step limits). It also reports cross-compiler
 differences (bit-field allocation strategies, `long double`
-representation) that P2996 faithfully captures but cannot resolve. Compiler teams and SG7 benefit from this
-feedback.
+representation) that P2996 faithfully captures but cannot resolve.
+This data is directly actionable: compiler teams and SG7 benefit from
+systematic feedback on how reflection behaves across implementations.
 
 **Immediately reproducible.** The case-study library is header-only,
 open-source (Boost Software License), with no external dependencies. Attendees
@@ -394,9 +441,9 @@ and the code will work unchanged when mainstream C++26 compilers ship.
 |------|-------|------|
 | 1 | The matrix — 6 types (4 messages + 2 building blocks), 6 build targets | 5 min |
 | 2 | Signature anatomy + the PlatformRiskyMsg diff | 8 min |
-| 3 | Reflection patterns: key primitives, access_context, friction | 10 min |
+| 3 | Reflection patterns: key primitives, access_context, friction | 8 min |
 | 4 | Transport safety + opaque + cross-platform pipeline (one slide) | 6 min |
-| 5 | Q&A | 1 min |
+| 5 | Q&A | 3 min |
 
 Parts 4 and 5 of the full version are merged into one section. The
 cross-platform pipeline is shown as a single slide with pointers to
@@ -404,8 +451,9 @@ documentation.
 
 ## Supplementary Materials
 
-*(Available upon acceptance; anonymous repository link provided to
-reviewers on request.)*
+*(Available upon acceptance. Anonymous repository link provided to
+reviewers on request — full implementation, test suite, and
+cross-platform demo can be inspected before the acceptance decision.)*
 
 - **Source code**: Complete library, header-only, Boost Software License
 - **Test suite**: 12 tests (7 core P2996 + 5 tools), 200+ static_assert
