@@ -32,6 +32,9 @@ cross-compiler surprises encountered while building the library.
 
 *"Four message types, six targets. Which can I memcpy without serialization?"*
 
+- Existing tools (`pahole`, `-fdump-record-layouts`) show one build's
+  layout after the fact; they cannot compare across targets at compile
+  time.
 - Introduce four message types built from two reusable building
   blocks (`Timestamp` and `MessageHeader`, flattened inside the
   others). Not trivial standard-layout structs, but
@@ -100,7 +103,9 @@ cross-compiler surprises encountered while building the library.
   ```
   Key observations: base class and nested struct fields are flattened
   (inheritance erased, only byte identity remains); private members
-  are visible via `access_context::unchecked()`.
+  are visible via `access_context::unchecked()`; four bytes of
+  hidden padding appear at @20 — invisible in source, explicit in
+  the signature.
 - Drill into the `PlatformRiskyMsg` diff: `i64` vs `i32` (`long`)
   pinpoints exactly which field broke.
 
@@ -160,7 +165,7 @@ cross-compiler surprises encountered while building the library.
   `is_transfer_safe<T>(remote_sig)` call checks both conditions
   (byte-copy safe + signature match) at load time.
 
-### Part 5 — The Cross-Platform Pipeline (7 min)
+### Part 5 — The Cross-Platform Pipeline (5 min)
 
 *"Export once, compare anywhere."*
 
@@ -173,5 +178,13 @@ cross-compiler surprises encountered while building the library.
 - ABI equivalence grouping: same-fingerprint build targets are
   grouped automatically, but the signature comparison is the
   verifiable answer.
+
+### Conclusion (2 min)
+
+*"Your class was lying — now you know exactly how, and how to catch it."*
+
+- Return to the opening matrix: four types, six targets, every cell
+  answered at compile time. No manual assertions, no serialization,
+  no post-build tooling.
 
 ### Q&A (5 min)
