@@ -22,13 +22,13 @@ on C++26 static reflection (P2996). It generates a compile-time
 offset, size, alignment, and padding gap of any C++ type, including
 classes with private members and inheritance hierarchies — and provides
 a verifiable answer for every type-target pair: transfer-safe, layout
-mismatch, or pointer risk. Along the way, attendees gain hands-on
+mismatch, pointer risk, or opaque. Along the way, attendees gain hands-on
 P2996 experience — the reflection patterns, API friction points, and
 cross-compiler surprises encountered while building the library.
 
 ## Outline
 
-### Part 1 — The Question and the Answer (8 min)
+### Part 1 — The Question and the Answer (10 min)
 
 *"Four message types, six targets. Which can I memcpy without serialization?"*
 
@@ -56,7 +56,7 @@ cross-compiler surprises encountered while building the library.
   };
   class BufferedReadings : public MessageHeader { // opaque container
       uint32_t sensor_id_;
-      XVector<float> samples_; // offset_ptr-based, registered opaque
+      XVector<float> samples_; // shared-memory container (offset_ptr-based), registered opaque
   };
   ```
 - Open with the compatibility matrix (six build targets, two data
@@ -74,6 +74,7 @@ cross-compiler surprises encountered while building the library.
   BufferedReadings    MATCH      MATCH    MATCH    MATCH     Opaque
 
   Safety: Safe / Pointer! / Opaque.  MATCH + Safe = transfer-safe.
+  (Safety describes the type itself; DIFFER means layout mismatch on that platform.)
 
   [DIFFER] PlatformRiskyMsg:
     linux_gcc:    ...@24:i64[s:8,a:8]...
@@ -81,7 +82,7 @@ cross-compiler surprises encountered while building the library.
                        ^^^
   ```
 
-### Part 2 — What the Signatures Tell You (12 min)
+### Part 2 — What the Signatures Tell You (10 min)
 
 *"Reading the diff."*
 
@@ -93,6 +94,7 @@ cross-compiler surprises encountered while building the library.
     @6:u16[s:2,a:2],               // type_
     @8:i64[s:8,a:8],               // ts_.seconds_  (flattened!)
     @16:u32[s:4,a:4],              // ts_.nanos_
+    @20:pad:4,                      // hidden padding!
     @24:array[s:16,a:4]<f32[s:4,a:4],4>   // values_[4]
   }
   ```
@@ -102,9 +104,9 @@ cross-compiler surprises encountered while building the library.
 - Drill into the `PlatformRiskyMsg` diff: `i64` vs `i32` (`long`)
   pinpoints exactly which field broke.
 
-### Part 3 — How Reflection Builds Signatures (15 min, dense)
+### Part 3 — How Reflection Builds Signatures (15 min)
 
-*"Reflection patterns for layout analysis."*
+*"From P2996 primitives to layout signatures."*
 
 - The P2996 primitives central to signature generation:
   ```
@@ -170,6 +172,6 @@ cross-compiler surprises encountered while building the library.
     from Part 1.
 - ABI equivalence grouping: same-fingerprint build targets are
   grouped automatically, but the signature comparison is the
-  definitive answer.
+  verifiable answer.
 
 ### Q&A (5 min)
