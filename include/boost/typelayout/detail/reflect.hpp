@@ -1,13 +1,18 @@
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 //
-// P2996 reflection helpers. Requires Bloomberg P2996 toolchain.
+// P2996 reflection helpers. Requires a P2996-capable compiler
+// (GCC 16+ or Bloomberg Clang fork).
 
 #ifndef BOOST_TYPELAYOUT_DETAIL_REFLECT_HPP
 #define BOOST_TYPELAYOUT_DETAIL_REFLECT_HPP
 
 #include <boost/typelayout/fixed_string.hpp>
-#include <experimental/meta>
+#if __has_include(<meta>)
+    #include <meta>
+#else
+    #include <experimental/meta>
+#endif
 #include <type_traits>
 
 namespace boost {

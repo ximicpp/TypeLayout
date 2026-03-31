@@ -20,7 +20,8 @@
 // Core headers (signature generation, layout_traits, classify, admission)
 // require P2996.  Tools-layer headers marked "C++17, no P2996" do not.
 
-#if defined(__cpp_reflection) || defined(__clang__) && __has_feature(cxx_reflection)
+#if defined(__cpp_reflection) || defined(__cpp_impl_reflection) || \
+    (defined(__clang__) && __has_feature(cxx_reflection))
     #define BOOST_TYPELAYOUT_HAS_REFLECTION 1
 #else
     #define BOOST_TYPELAYOUT_HAS_REFLECTION 0

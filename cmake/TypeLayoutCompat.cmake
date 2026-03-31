@@ -97,10 +97,16 @@ function(typelayout_add_sig_export)
     endif()
 
     # P2996 compiler flags (required for Phase 1)
-    target_compile_options(${ARG_TARGET} PRIVATE
-        -std=c++26 -freflection -freflection-latest -stdlib=libc++
-    )
-    target_link_options(${ARG_TARGET} PRIVATE -stdlib=libc++)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        target_compile_options(${ARG_TARGET} PRIVATE
+            -std=c++26 -freflection -freflection-latest -stdlib=libc++
+        )
+        target_link_options(${ARG_TARGET} PRIVATE -stdlib=libc++)
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(${ARG_TARGET} PRIVATE
+            -std=c++26 -freflection
+        )
+    endif()
 
     # Create output directory
     file(MAKE_DIRECTORY ${ARG_OUTPUT_DIR})

@@ -44,11 +44,11 @@ This decision affects compile flags, test labels, and what headers can be includ
      ```cmake
      add_executable(test_<name> test/test_<name>.cpp)
      target_include_directories(test_<name> PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-     target_compile_options(test_<name> PRIVATE -std=c++17 -stdlib=libc++)
-     target_link_options(test_<name> PRIVATE -stdlib=libc++)
+     target_compile_options(test_<name> PRIVATE -std=c++17)
      add_test(NAME test_<name> COMMAND test_<name>)
      set_tests_properties(test_<name> PROPERTIES TIMEOUT 30 LABELS "tools")
      ```
+     Note: Do not add `-stdlib=libc++` — it is Clang-specific and breaks GCC builds.
 
 6. **Build and test**: Delete `build/` and run `/build-test` (new CMake target requires reconfigure).
 

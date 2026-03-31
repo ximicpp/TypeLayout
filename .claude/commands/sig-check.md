@@ -5,7 +5,7 @@ The user provides a type (e.g., `$ARGUMENTS`) and this skill compiles a temporar
 ## Steps
 
 1. Take the type name from `$ARGUMENTS`. If empty, ask the user for a type.
-2. Create a temporary source file in WSL `/tmp/sig_check.cpp` that:
+2. Create a temporary source file `/tmp/sig_check.cpp` that:
    - Includes the necessary TypeLayout headers
    - Includes any headers the user specifies (ask if the type is not a builtin/standard type)
    - Uses `get_layout_signature<T>()` and `layout_traits<T>` to print:
@@ -15,15 +15,38 @@ The user provides a type (e.g., `$ARGUMENTS`) and this skill compiles a temporar
      - `has_padding`
      - `field_count`
      - Safety classification via `classify<T>`
-3. Compile and run in WSL (or macOS/Docker as appropriate)
+3. Compile and run using the appropriate method (WSL, local compiler, or Docker)
 
-## Windows (WSL) Example
+## Compiler Selection
 
+Prefer GCC 16+ over Bloomberg Clang. The CMakeLists.txt auto-detects flags, but for
+one-off compilation:
+
+**GCC 16**:
 ```bash
-wsl -e bash -c 'cd /mnt/g/workspace/TypeLayout && \
-  export LD_LIBRARY_PATH=/root/clang-p2996-install/lib && \
-  CXX=/root/clang-p2996-install/bin/clang++ && \
-  cat > /tmp/sig_check.cpp << '\''SRCEOF'\''
+g++ -std=c++26 -freflection -I include -o /tmp/sig_check /tmp/sig_check.cpp
+```
+
+**Bloomberg Clang (WSL/legacy)**:
+```bash
+CXX=/root/clang-p2996-install/bin/clang++
+$CXX -std=c++26 -freflection -freflection-latest -stdlib=libc++ \
+  -I include -o /tmp/sig_check /tmp/sig_check.cpp
+```
+
+**Docker (GCC 16)**:
+```bash
+docker run --rm --platform linux/amd64 \
+  -v $(pwd):/workspace -w /workspace \
+  sourcemation/gcc-16 \
+  bash -c 'apt-get update -qq && apt-get install -y -qq cmake > /dev/null 2>&1 && \
+  g++ -std=c++26 -freflection -I include -o /tmp/sig_check /tmp/sig_check.cpp && \
+  /tmp/sig_check'
+```
+
+## Test Source Template
+
+```cpp
 #include <boost/typelayout/typelayout.hpp>
 #include <boost/typelayout/tools/classify.hpp>
 #include <iostream>
@@ -59,10 +82,6 @@ int main() {
               << "\n";
     return 0;
 }
-SRCEOF
-  $CXX -std=c++26 -freflection -freflection-latest -stdlib=libc++ \
-    -I include -o /tmp/sig_check /tmp/sig_check.cpp && \
-  /tmp/sig_check'
 ```
 
 ## Important Notes

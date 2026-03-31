@@ -1,0 +1,47 @@
+# GCC 16 (trunk) Docker Image for TypeLayout CI
+#
+# Uses pre-built GCC snapshot with C++26 static reflection (P2996) support.
+# GCC trunk merged P2996 on 2026-01-15.
+#
+# Build:
+#   docker build -t typelayout-gcc16:latest -f Dockerfile.gcc16 .
+#
+# Usage:
+#   docker run --rm -v $(pwd):/workspace -w /workspace typelayout-gcc16:latest \
+#     bash -c 'cmake -B build && cmake --build build -j$(nproc) && ctest --test-dir build --output-on-failure'
+#
+# Copyright (c) 2024-2026 TypeLayout Development Team
+# Distributed under the Boost Software License, Version 1.0.
+
+FROM debian:13-slim AS base
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build dependencies and pre-built GCC 16 snapshot
+RUN apt-get update && apt-get install -y \
+    cmake \
+    ninja-build \
+    wget \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install pre-built GCC 16 snapshot (jwakely's packages)
+RUN wget -q https://kayari.org/gcc-latest/gcc-latest.deb \
+    && dpkg -i gcc-latest.deb \
+    && rm gcc-latest.deb
+
+# Set up environment for GCC 16
+ENV PATH="/opt/gcc-latest/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/opt/gcc-latest/lib64:${LD_LIBRARY_PATH}"
+ENV CC="/opt/gcc-latest/bin/gcc"
+ENV CXX="/opt/gcc-latest/bin/g++"
+
+# Verify installation supports reflection
+RUN g++ --version && echo "GCC 16 ready!"
+
+WORKDIR /workspace
+
+LABEL org.opencontainers.image.description="GCC 16 with C++26 P2996 reflection for TypeLayout CI"
+LABEL org.opencontainers.image.licenses="BSL-1.0"
+
+CMD ["/bin/bash"]

@@ -15,6 +15,9 @@ set(BOOST_TYPELAYOUT_CONSTEXPR_STEPS "5000000" CACHE STRING
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     add_compile_options(-freflection -freflection-latest -Wall -Wextra)
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND
+       CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "16")
+    add_compile_options(-freflection -Wall -Wextra)
 endif()
 
 # Header-only library
@@ -26,6 +29,10 @@ target_include_directories(typelayout INTERFACE
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND BOOST_TYPELAYOUT_CONSTEXPR_STEPS GREATER 0)
     target_compile_options(typelayout INTERFACE
         -fconstexpr-steps=${BOOST_TYPELAYOUT_CONSTEXPR_STEPS}
+    )
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND BOOST_TYPELAYOUT_CONSTEXPR_STEPS GREATER 0)
+    target_compile_options(typelayout INTERFACE
+        -fconstexpr-ops-limit=${BOOST_TYPELAYOUT_CONSTEXPR_STEPS}
     )
 endif()
 

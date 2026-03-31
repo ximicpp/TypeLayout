@@ -4,7 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build & Test
 
-This project requires Bloomberg Clang P2996 (C++26 static reflection). The compiler is NOT available natively on Windows or macOS — use WSL or Docker.
+This project requires a P2996-capable compiler (C++26 static reflection). Supported compilers:
+- **GCC 16+** (trunk merged P2996 on 2026-01-15) — recommended
+- **Bloomberg Clang P2996 fork** — experimental, legacy option
+
+Neither is available natively on Windows or macOS — use WSL or Docker.
 
 ### Windows (WSL) — Primary Method
 
@@ -41,7 +45,15 @@ ctest --test-dir build --output-on-failure
 
 If P2996_MISSING, use Docker (see below).
 
-### Docker (any platform, fallback)
+### Docker with GCC 16 — Recommended
+
+```bash
+docker build -t typelayout-gcc16:latest -f .github/docker/Dockerfile.gcc16 .github/docker/
+docker run --rm -v $(pwd):/workspace -w /workspace typelayout-gcc16:latest \
+  bash -c 'cmake -B build -DCMAKE_CXX_COMPILER=g++ && cmake --build build -j$(nproc) && ctest --test-dir build --output-on-failure'
+```
+
+### Docker with Bloomberg Clang (legacy fallback)
 
 ```bash
 docker run --rm -v $(pwd):/workspace -w /workspace \
@@ -59,7 +71,8 @@ ctest --test-dir build -R test_layout_traits --output-on-failure
 
 ### Important Notes
 
-- `LD_LIBRARY_PATH` is required at runtime for the P2996 libc++
+- GCC 16: `LD_LIBRARY_PATH` may be needed for the GCC runtime (`/opt/gcc-latest/lib64`)
+- Bloomberg Clang: `LD_LIBRARY_PATH` is required at runtime for the P2996 libc++
 - All 12 tests must pass (7 core + 5 tools)
 - If build fails with stale cache, delete `build/` directory and reconfigure
 - Git push must be done from Windows git (WSL lacks credentials): `git push origin main`
