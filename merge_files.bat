@@ -1,1 +1,0 @@
-Get-ChildItem -Recurse -File -Include *.hpp,*.h,*.cpp,*.c,*.py | Where-Object { $_.Name -ne "all_files_merged.txt" } | Sort-Object FullName | ForEach-Object { "=== $($_.FullName | Resolve-Path -Relative) ==="; Get-Content $_.FullName; "" } | Out-File all_files_merged.txt -Encoding utf8

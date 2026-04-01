@@ -1,1 +1,0 @@
-find . -type f \( -name "*.hpp" -o -name "*.h" -o -name "*.cpp" -o -name "*.c" -o -name "*.py" \) ! -name "all_files_merged.txt" | sort | xargs awk 'FNR==1{print "=== " FILENAME " ==="} {print} ENDFILE{print ""}' > all_files_merged.txt

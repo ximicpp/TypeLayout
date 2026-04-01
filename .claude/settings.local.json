@@ -24,7 +24,18 @@
       "Bash(wsl -d Ubuntu bash -c \"cd /mnt/g/workspace/TypeLayout && git config --global credential.helper ''/mnt/c/Program\\\\ Files/Git/mingw64/bin/git-credential-manager.exe'' 2>&1; git push origin main 2>&1; echo DONE:$?\")",
       "Bash(wsl -d Ubuntu bash -c \"sleep 15 && cd /mnt/g/workspace/TypeLayout && git log --oneline origin/main..HEAD 2>&1; git remote get-url origin 2>&1\")",
       "Bash(ls \"g:/workspace/TypeLayout/\"*.md)",
-      "WebSearch"
+      "WebSearch",
+      "WebFetch(domain:isocpp.org)",
+      "WebFetch(domain:www.open-std.org)",
+      "WebFetch(domain:cppcon.org)",
+      "WebFetch(domain:herbsutter.com)",
+      "WebFetch(domain:gcc.gnu.org)",
+      "WebFetch(domain:discourse.llvm.org)",
+      "WebFetch(domain:releases.llvm.org)",
+      "WebFetch(domain:vittorioromeo.com)",
+      "WebFetch(domain:hub.docker.com)",
+      "WebFetch(domain:jwakely.github.io)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }
