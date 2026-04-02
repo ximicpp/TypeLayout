@@ -8,12 +8,6 @@
 //   - Registered relocatable opaque types with safe elements: safe
 //   - Types with pointers, references, or unregistered opaque members: unsafe
 //
-// Relationship to compat::SafetyLevel (tools/safety_level.hpp):
-//   SafetyLevel and is_byte_copy_safe are orthogonal dimensions:
-//   - SafetyLevel measures "how much external trust is required" (display-only).
-//   - is_byte_copy_safe measures "given that trust, is the type safe".
-//   A type can be Opaque AND is_byte_copy_safe == true: the safety level
-//   describes analyzability, is_byte_copy_safe describes the conclusion.
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.

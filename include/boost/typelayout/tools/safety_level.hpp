@@ -1,10 +1,8 @@
 // safety_level.hpp -- SafetyLevel enum + runtime classify_signature().
 //
-// Display-only classification for CompatReporter output.
-// All definitions live in namespace detail to indicate they are
-// reporting utilities, not core decision-making predicates.
-// For programmatic decisions, use layout_traits<T>::has_padding,
-// has_pointer, has_opaque directly.
+// Internal display-only classification for CompatReporter output.
+// NOT part of the public API. For programmatic decisions, use
+// is_byte_copy_safe_v<T> and layout signature comparison.
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
@@ -18,6 +16,7 @@ namespace boost {
 namespace typelayout {
 inline namespace v1 {
 namespace compat {
+namespace detail {
 
 // =========================================================================
 // SafetyLevel -- five-tier safety classification for display purposes.
@@ -46,19 +45,13 @@ constexpr const char* safety_level_name(SafetyLevel level) noexcept {
 }
 
 /// Runtime classify: scans signature string for safety level.
-///
-/// LIMITATION: cannot detect !trivially_copyable -- this property is not
-/// encoded in the signature string.  Invariant holds in practice because
-/// all export entry points (SigExporter::add, TYPELAYOUT_EXPORT_TYPES)
-/// enforce trivially_copyable via static_assert before producing
-/// signature strings consumed by this function.
 inline SafetyLevel classify_signature(std::string_view sig) noexcept {
-    using detail::sig_contains_token;
+    using ::boost::typelayout::v1::detail::sig_contains_token;
 
     if (sig_contains_token(sig, "O("))
         return SafetyLevel::Opaque;
 
-    bool has_pointer = detail::sig_has_pointer(sig);
+    bool has_pointer = ::boost::typelayout::v1::detail::sig_has_pointer(sig);
 
     if (has_pointer)
         return SafetyLevel::PointerRisk;
@@ -74,12 +67,13 @@ inline SafetyLevel classify_signature(std::string_view sig) noexcept {
     if (has_platform_variant)
         return SafetyLevel::PlatformVariant;
 
-    if (detail::sig_has_padding(sig))
+    if (::boost::typelayout::v1::detail::sig_has_padding(sig))
         return SafetyLevel::PaddingRisk;
 
     return SafetyLevel::TrivialSafe;
 }
 
+} // namespace detail
 } // namespace compat
 } // inline namespace v1
 } // namespace typelayout

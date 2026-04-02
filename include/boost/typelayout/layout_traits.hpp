@@ -256,15 +256,6 @@ struct layout_traits {
 
 } // namespace detail
 
-// Public predicates -- access layout_traits properties without entering detail.
-template <typename T>
-inline constexpr bool has_pointer_v = detail::layout_traits<T>::has_pointer;
-
-template <typename T>
-inline constexpr bool has_padding_v = detail::layout_traits<T>::has_padding;
-
-template <typename T>
-inline constexpr bool has_opaque_v = detail::layout_traits<T>::has_opaque;
 
 } // inline namespace v1
 } // namespace typelayout

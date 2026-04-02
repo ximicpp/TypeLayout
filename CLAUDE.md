@@ -73,7 +73,6 @@ ctest --test-dir build -R test_layout_traits --output-on-failure
 
 - GCC 16: `LD_LIBRARY_PATH` may be needed for the GCC runtime (`/opt/gcc-latest/lib64`)
 - Bloomberg Clang: `LD_LIBRARY_PATH` is required at runtime for the P2996 libc++
-- All 12 tests must pass (7 core + 5 tools)
 - If build fails with stale cache, delete `build/` directory and reconfigure
 - Git push must be done from Windows git (WSL lacks credentials): `git push origin main`
 
@@ -87,13 +86,14 @@ ctest --test-dir build -R test_layout_traits --output-on-failure
 
 **Boost.TypeLayout** — compile-time type layout signature library via C++26 static reflection (P2996).
 
-Core question it answers: "Can struct T be safely `memcpy`'d between A and B?"
+Core question: **"Can this struct be safely memcpy'd between A and B?"**
 
-Two `consteval` functions form the public API:
-- `get_layout_signature<T>()` → `FixedString` with full byte-level layout
-- Compare signatures directly: `get_layout_signature<T>() == get_layout_signature<U>()` → `true` if identical byte layouts
+Public API:
+- `get_layout_signature<T>()` → `FixedString` — compile-time byte-level layout encoding
+- `is_byte_copy_safe_v<T>` → can this type's bytes be safely transported?
+- `is_transfer_safe<T>(remote_sig)` → byte-copy safe AND layout matches remote?
 
-Signatures are deterministic, human-readable strings encoding field types, sizes, alignments, offsets, and padding. Example: `[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:f64[s:8,a:8]}`
+Example signature: `[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:f64[s:8,a:8]}`
 
 ## Architecture
 
@@ -118,33 +118,55 @@ include/boost/typelayout/
     └── sig_parser.hpp          # Signature string parser (C++17): padding detection, token matching
 ```
 
-**Tools layer** (mostly C++17, no P2996 needed) — safety analysis + cross-platform:
+**Tools layer** (cross-platform pipeline):
 ```
 include/boost/typelayout/tools/
-├── safety_level.hpp            # SafetyLevel enum + classify_signature() + sig_has_padding()
-├── transfer.hpp                # Forwarding header → core transfer.hpp (backward compat)
-├── sig_export.hpp              # SigExporter, TYPELAYOUT_EXPORT_TYPES — requires P2996
-├── sig_types.hpp               # TypeEntry, PlatformInfo structs (shared data types)
-├── compat_check.hpp            # CompatReporter: are_transfer_safe(types, platforms), ABI fingerprinting
-├── platform_detect.hpp         # Arch/OS/compiler detection macros + get_data_model()
+├── sig_export.hpp              # SigExporter, TYPELAYOUT_EXPORT_TYPES (P2996)
+├── compat_check.hpp            # CompatReporter: layout_match(), are_transfer_safe()
+├── sig_types.hpp               # TypeEntry, PlatformInfo (shared data types)
+├── safety_level.hpp            # Internal: SafetyLevel enum for CompatReporter display
+├── platform_detect.hpp         # Arch/OS/compiler detection macros
 └── detail/foreach.hpp          # Variadic macro helper
 ```
 
-Tools layer must not `#include` core headers unless the tool file is explicitly marked as P2996-required.
+## Core Concepts
 
-## Key Design Concepts
+Six concepts form the conceptual foundation. Everything else is implementation detail.
 
-- **FixedString<N>**: N = exact content length (no wasted capacity, no over-allocation). All signatures are FixedString.
-- **consteval, not constexpr** for all signature-generating functions. `constexpr` is only for helper utilities.
-- **Flattening**: Structs are recursively flattened — field names and inheritance erased, only byte identity preserved.
-- **Safety levels** (ordered worst→best): `Opaque > PointerRisk > PlatformVariant > PaddingRisk > TrivialSafe`
-- **Terminology**: "serialization-free" = TrivialSafe (strict); "transfer-safe" = byte-copy safe + layout match (broad, includes PaddingRisk/Opaque/PlatformVariant)
-- **Dual-path padding detection**: `compute_has_padding` (compile-time bitmap via P2996) cross-validated against `sig_has_padding` (runtime string parser), enforced by `static_assert`. Both must agree.
-- **Opaque types**: Unanalyzable types registered via `TYPELAYOUT_REGISTER_OPAQUE`. Signature format: `O(Tag|N|A)`. Opaque container: `O(Tag|N|A)<elem_sig>`. Opaque map: `O(Tag|N|A)<key_sig,val_sig>`. Opaque types must be registered BEFORE any signature generation that encounters them.
-- **Admission predicates** (`admission.hpp`): `is_byte_copy_safe_v<T>` recursively checks each member/base, accepting registered relocatable opaque types. Orthogonal to SafetyLevel — a type can be `SafetyLevel::Opaque` AND `is_byte_copy_safe == true`.
-- **Serialization-free blocking**: Only `PointerRisk` blocks serialization-free. `PaddingRisk`, `PlatformVariant`, and `Opaque` do not block when signatures match across the specified platforms.
-- **Array element recursion**: `type_has_opaque` and `compute_has_padding` recurse into array element types via `std::remove_all_extents_t`.
-- **Virtual inheritance rejection**: `signature_impl.hpp` rejects types with virtual bases at compile time.
+### 1. Layout Signature
+
+Encode a type's byte-level layout as a compile-time string. The signature captures: architecture prefix (bit-width + endianness), leaf field types, sizes, alignments, and offsets. It does NOT capture: field names, type names, or nesting structure. Two signatures are equal if and only if the byte layouts are identical.
+
+### 2. Recursive Flattening
+
+Nested structs and base classes are recursively expanded into the parent's offset space. Field names and structural boundaries are erased — only leaf fields with absolute offsets survive. This means two differently-structured types with identical byte layouts produce the same signature. Design trade-off: this correctly answers "can I memcpy these bytes?" but cannot detect semantic field reordering (e.g., swapped field names with same types).
+
+### 3. Byte-Copy Safe
+
+`is_byte_copy_safe_v<T>` — can this type's bytes be safely transported (to a buffer, over network, into shared memory)? Recursively checks each member and base: no pointers/references (would dangle after memcpy), not polymorphic (vtable pointer). Note: this is a transport-level concept, not a C++ object-model concept. `trivially_copyable` is used as a fast-path shortcut in the implementation, but is neither necessary nor sufficient for byte-copy safety.
+
+### 4. Layout Match
+
+Same struct, two platforms — are the layout signatures identical? Mismatches arise from platform-dependent types: `long` (LP64 8B vs LLP64 4B), `long double` (x86_64 16B vs ARM64 8B), `wchar_t` (Linux 4B vs Windows 2B), or different compiler packing rules. Checked by comparing exported signature strings — either via `static_assert` (compile-time) or `CompatReporter` (runtime report).
+
+### 5. Transfer Safe
+
+**transfer_safe = byte_copy_safe AND layout_match.** This is the final answer the project provides. A type is transfer-safe when its bytes can be memcpy'd on platform A, sent to platform B, and read back correctly.
+
+### 6. Opaque
+
+User-controlled analysis boundary. The user deliberately tells TypeLayout to stop recursive analysis and takes responsibility for byte-copy safety. This is NOT a system limitation — it is a design feature for user control. Typical uses: types containing pointers that remain valid after memcpy (e.g., `offset_ptr`, fixed-mapped shared memory), third-party types already verified by other means, or types whose internal structure should not be exposed in signatures. Signature records only tag + size + align: `O(Tag|N|A)`. Registered via `TYPELAYOUT_REGISTER_OPAQUE` (requires trivially_copyable) or `TYPELAYOUT_OPAQUE_TYPE_RELOCATABLE` (no such requirement).
+
+## Implementation Details
+
+These support the core concepts but are not part of the conceptual framework:
+
+- **FixedString<N>**: Compile-time string type. N = exact content length. All signatures are FixedString.
+- **consteval**: All signature-generating functions are `consteval`, not `constexpr`.
+- **Safety Classification**: Five-tier display labels (TrivialSafe/PaddingRisk/PlatformVariant/PointerRisk/Opaque) used by `CompatReporter` output. Not a decision predicate — use `is_byte_copy_safe` + `layout_match` for programmatic decisions.
+- **Dual-path padding detection**: `compute_has_padding` (compile-time bitmap) cross-validated against `sig_has_padding` (string parser) via `static_assert`. Internal correctness check.
+- **trivially_copyable**: Fast-path in `is_byte_copy_safe` admission check. Not a core concept — it is a C++ object-model property orthogonal to transport safety.
+- **Virtual inheritance rejection**: Types with virtual bases are rejected at compile time.
 
 ## Code Conventions
 
@@ -157,27 +179,6 @@ Tools layer must not `#include` core headers unless the tool file is explicitly 
 - `static_assert` preferred: every compile-time property should be validated with `static_assert` first, optionally printed at runtime for debugging.
 - Inline test types: test structs/classes are defined inside the test .cpp file, not in shared headers.
 
-## Test Matrix
-
-12 tests (7 core + 5 tools):
-
-| Test | Label | C++ | What it validates |
-|------|-------|-----|-------------------|
-| `test_fixed_string` | core | C++26 | FixedString ops, to_fixed_string |
-| `test_opaque` | core | C++26 | Opaque registration, CV-qualified, base class, EBO |
-| `test_layout_traits` | core | C++26 | Signature consistency, has_pointer/opaque/padding, field_count |
-| `test_empty_member_probe` | core | C++26 | Empty member/NUA/EBO signature correctness |
-| `test_padding_precision` | core | C++26 | Byte-coverage bitmap vs sig parser, classify consistency |
-| `test_byte_copy_safe` | core | C++26 | Recursive byte-copy admission, opaque elements, polymorphic rejection |
-| `test_classify` | tools | C++26 | Five-tier classify<T> for all type categories |
-| `test_transfer` | tools | C++26 | is_transfer_safe, cross-endpoint transfer verification |
-| `test_sig_export` | tools | C++26 | SigExporter output structure |
-| `test_rt_padding` | tools | C++17 | Runtime sig_has_padding (no P2996) |
-| `test_compat_check` | tools | C++17 | CompatReporter, classify_signature, are_transfer_safe, ABI equivalence |
-| `test_advanced_types` | core | C++26 | Multi-dimensional arrays, nested unions, cross-platform round-trip, is_transfer_safe |
-
-CMake test labels: P2996 core tests use `LABELS "core"` with 120s timeout; C++17-only tests use `LABELS "tools"` with 30s timeout. C++17 tests set `-std=c++17 -stdlib=libc++` manually and do NOT link the `typelayout` interface library.
-
 ## Signature Format
 
 - **Arch prefix**: `[BITS-ENDIAN]` e.g. `[64-le]`, `[32-be]`
@@ -186,20 +187,29 @@ CMake test labels: P2996 core tests use `LABELS "core"` with 120s timeout; C++17
 - **Opaque**: `O(Tag|N|A)`, container: `O(Tag|N|A)<elem_sig>`, map: `O(Tag|N|A)<key_sig,val_sig>`
 - **Array**: `TYPE[N]` for fixed-size arrays, element type is recursed into
 
-## Code Map — Key Entry Points
+## Code Map
 
-| Task | Start here |
-|------|-----------|
-| How signatures are generated | `detail/signature_impl.hpp` → `TypeSignature<T>::calculate()` |
-| How types are classified | `detail/reflect.hpp` → `classify_type()`, `detail/type_map.hpp` |
-| How layout_traits works | `layout_traits.hpp` → `layout_traits<T>` struct |
-| How padding is detected | `layout_traits.hpp` → `compute_has_padding<T>()` (bitmap) |
-| How safety is classified | `tools/safety_level.hpp` → `classify_signature()` |
-| How opaque types work | `opaque.hpp` → macros + `has_opaque_signature` concept |
-| How admission works | `admission.hpp` → `is_byte_copy_safe<T>`, `opaque_copy_safe<T>` |
-| Cross-platform pipeline | `tools/sig_export.hpp` (Phase 1) → `tools/compat_check.hpp` (Phase 2) |
-| Transfer-safe query | `tools/compat_check.hpp` → `CompatReporter::are_transfer_safe()` |
-| Data model / ABI detect | `tools/platform_detect.hpp` → `get_data_model()` |
+**Public API** (6 core concepts):
+
+| Concept | Entry point |
+|---------|-------------|
+| Layout Signature | `signature.hpp` → `get_layout_signature<T>()` |
+| Byte-Copy Safe | `admission.hpp` → `is_byte_copy_safe_v<T>` |
+| Transfer Safe | `transfer.hpp` → `is_transfer_safe<T>(remote_sig)` |
+| Layout Match | `tools/compat_check.hpp` → `layout_match(a, b)` |
+| Opaque | `opaque.hpp` → `TYPELAYOUT_REGISTER_OPAQUE` macros |
+| Cross-platform pipeline | `tools/sig_export.hpp` → `SigExporter`, `tools/compat_check.hpp` → `CompatReporter` |
+
+**Internal implementation**:
+
+| What | Where |
+|------|-------|
+| Recursive flattening engine | `detail/signature_impl.hpp` → `TypeSignature<T>::calculate()` |
+| Type → canonical name mapping | `detail/type_map.hpp` |
+| P2996 reflection helpers | `detail/reflect.hpp` |
+| Padding detection (bitmap) | `layout_traits.hpp` → `compute_has_padding<T>()` |
+| Signature string parser | `detail/sig_parser.hpp` |
+| Display classification | `tools/safety_level.hpp` → `SafetyLevel` (internal to CompatReporter) |
 
 ## Available Skills (.claude/commands/)
 

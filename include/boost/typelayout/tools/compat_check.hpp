@@ -1,5 +1,9 @@
 // Cross-platform compatibility checking.
 //
+// Public API:
+//   - layout_match(a, b)          -- constexpr signature comparison
+//   - CompatReporter              -- cross-platform report + are_transfer_safe()
+//
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
@@ -27,6 +31,8 @@ namespace compat {
 constexpr bool layout_match(const char* a, const char* b) noexcept {
     return std::string_view(a) == std::string_view(b);
 }
+
+namespace detail {
 
 inline const char* safety_label(SafetyLevel level) noexcept {
     switch (level) {
@@ -66,7 +72,7 @@ struct TypeResult {
     std::string name;
     bool        layout_match;
     bool        byte_copy_safe;
-    SafetyLevel safety;           // display-only classification
+    SafetyLevel safety;
     std::vector<std::string> layout_sigs;
 };
 
@@ -83,10 +89,6 @@ struct PlatformData {
     const char*       arch_prefix       = "";
     std::string       data_model;
 
-    /// ABI fingerprint: the tuple of platform-level parameters that affect
-    /// type layout.  Matching fingerprints are a necessary (but not
-    /// sufficient) condition for identical signatures — compilers may
-    /// still differ in struct packing rules.
     bool abi_matches(const PlatformData& other) const noexcept {
         return pointer_size      == other.pointer_size &&
                sizeof_long       == other.sizeof_long &&
@@ -96,6 +98,8 @@ struct PlatformData {
                std::string_view(arch_prefix) == std::string_view(other.arch_prefix);
     }
 };
+
+} // namespace detail
 
 /// Compares signatures across platforms and prints a compatibility matrix.
 class CompatReporter {
@@ -110,35 +114,18 @@ public:
         });
     }
 
-    void add_platform(const PlatformData& pd) { platforms_.push_back(pd); }
+    void add_platform(const detail::PlatformData& pd) { platforms_.push_back(pd); }
 
     void add_platform(const std::string& name,
                       const TypeEntry* types, std::size_t count) {
         platforms_.push_back({name, types, count});
     }
 
-    // Transfer-safe criteria (aligned with is_transfer_safe<T>):
-    //   (1) byte_copy_safe == true on all platforms (computed at export time
-    //       via is_byte_copy_safe_v<T>: trivially_copyable + no pointers +
-    //       not polymorphic + recursive member/base check)
-    //   (2) layout signature matches across the specified platforms
-
     /// Check if the specified types are transfer-safe across the
-    /// specified platforms.  This is the core query for the use case:
-    /// "given type set T and platform set P, can I memcpy safely?"
+    /// specified platforms.
     ///
     /// Returns true when every type in @p type_names is byte-copy safe
     /// and has an identical layout signature across every platform.
-    ///
-    /// Usage (brace-init):
-    ///   reporter.are_transfer_safe(
-    ///       {"PacketHeader", "SensorRecord"},
-    ///       {"x86_64_linux_clang", "arm64_macos_clang"});
-    ///
-    /// Usage (programmatic):
-    ///   std::vector<std::string> types = read_config("types.txt");
-    ///   std::vector<std::string> plats = read_config("platforms.txt");
-    ///   reporter.are_transfer_safe(types, plats);
     [[nodiscard]] bool are_transfer_safe(
             std::initializer_list<std::string_view> type_names,
             std::initializer_list<std::string_view> platform_names) const {
@@ -154,10 +141,22 @@ public:
                                    platform_names.begin(), platform_names.end());
     }
 
-    std::vector<TypeResult> compare() const {
+    /// Print the report with character-level diff annotations for DIFFER entries.
+    void print_diff_report(std::ostream& os = std::cout) const {
+        print_report_impl(os, true);
+    }
+
+    /// Print the report to `os`.
+    void print_report(std::ostream& os = std::cout) const {
+        print_report_impl(os, false);
+    }
+
+private:
+    std::vector<detail::PlatformData> platforms_;
+
+    std::vector<detail::TypeResult> compare() const {
         if (platforms_.empty()) return {};
 
-        // Collect the union of all type names, preserving first-seen order.
         std::vector<std::string> all_names;
         for (const auto& plat : platforms_) {
             for (std::size_t i = 0; i < plat.type_count; ++i) {
@@ -170,16 +169,16 @@ public:
             }
         }
 
-        std::vector<TypeResult> results;
+        std::vector<detail::TypeResult> results;
         results.reserve(all_names.size());
 
         for (const auto& name : all_names) {
-            TypeResult tr;
+            detail::TypeResult tr;
             tr.name = name;
             tr.layout_match = true;
             tr.byte_copy_safe = true;
 
-            SafetyLevel worst_safety = SafetyLevel::TrivialSafe;
+            detail::SafetyLevel worst_safety = detail::SafetyLevel::TrivialSafe;
             std::string first_sig;
 
             for (const auto& plat : platforms_) {
@@ -201,7 +200,7 @@ public:
                 if (!entry->byte_copy_safe)
                     tr.byte_copy_safe = false;
 
-                auto level = classify_signature(entry->layout_sig);
+                auto level = detail::classify_signature(entry->layout_sig);
                 if (static_cast<int>(level) > static_cast<int>(worst_safety))
                     worst_safety = level;
             }
@@ -210,19 +209,6 @@ public:
         }
         return results;
     }
-
-    /// Print the report with character-level diff annotations for DIFFER entries.
-    void print_diff_report(std::ostream& os = std::cout) const {
-        print_report_impl(os, true);
-    }
-
-    /// Print the report to `os`.
-    void print_report(std::ostream& os = std::cout) const {
-        print_report_impl(os, false);
-    }
-
-private:
-    std::vector<PlatformData> platforms_;
 
     void print_report_impl(std::ostream& os, bool with_diff) const {
         auto results = compare();
@@ -253,11 +239,9 @@ private:
             }
         }
 
-        // ABI equivalence groups: platforms with identical ABI fingerprints
-        // are likely (but not guaranteed) to produce identical signatures.
         auto groups = abi_equivalence_groups();
         if (!groups.empty()) {
-            os << "\n  ABI equivalence (identical ABI fingerprint → layouts likely match):\n";
+            os << "\n  ABI equivalence (identical ABI fingerprint):\n";
             for (const auto& g : groups) {
                 os << "    {";
                 for (std::size_t i = 0; i < g.size(); ++i) {
@@ -286,25 +270,22 @@ private:
 
             os << "  " << std::left << std::setw(24) << r.name
                << std::right << std::setw(8) << layout_str
-               << "    " << safety_stars(r.safety)
+               << "    " << detail::safety_stars(r.safety)
                << "  " << verdict << "\n";
         }
 
         os << std::string(72, '-') << "\n\n";
 
-        // Emit DIFFER blocks.
         for (const auto& r : results) {
             if (!r.layout_match) {
                 os << "  [DIFFER] " << r.name << " layout signatures:\n";
 
                 if (with_diff) {
-                    // Compute the widest platform name for alignment
                     std::size_t max_name = 0;
                     for (const auto& p : platforms_)
                         if (p.name.size() > max_name) max_name = p.name.size();
                     const std::size_t prefix_w = 4 + max_name + 2;
 
-                    // Find first non-missing sig as reference
                     std::string ref_sig;
                     for (const auto& s : r.layout_sigs) {
                         if (s != "<missing>") { ref_sig = s; break; }
@@ -332,21 +313,19 @@ private:
             }
         }
 
-        // Safety warnings
         bool has_warnings = false;
         for (const auto& r : results) {
-            if (r.layout_match && r.safety != SafetyLevel::TrivialSafe) {
+            if (r.layout_match && r.safety != detail::SafetyLevel::TrivialSafe) {
                 if (!has_warnings) {
                     os << "  Safety warnings:\n";
                     has_warnings = true;
                 }
-                os << "  [" << safety_stars(r.safety) << "] "
-                   << r.name << " -- " << safety_reason(r.safety) << "\n";
+                os << "  [" << detail::safety_stars(r.safety) << "] "
+                   << r.name << " -- " << detail::safety_reason(r.safety) << "\n";
             }
         }
         if (has_warnings) os << "\n";
 
-        // Summary
         os << std::string(72, '=') << "\n";
         if (transfer_safe == total) {
             os << "  ALL " << total
@@ -370,7 +349,7 @@ private:
               "compile-time assertions.\n\n";
     }
 
-    static std::string format_verdict(const TypeResult& r,
+    static std::string format_verdict(const detail::TypeResult& r,
                                       int& transfer_safe,
                                       int& layout_compatible) {
         if (!r.layout_match)
@@ -383,15 +362,14 @@ private:
 
         ++transfer_safe;
 
-        // Transfer-safe -- add qualifier based on display classification
         switch (r.safety) {
-            case SafetyLevel::TrivialSafe:
+            case detail::SafetyLevel::TrivialSafe:
                 return "Transfer-safe";
-            case SafetyLevel::PaddingRisk:
+            case detail::SafetyLevel::PaddingRisk:
                 return "Transfer-safe (padding may leak uninitialized bytes)";
-            case SafetyLevel::PlatformVariant:
+            case detail::SafetyLevel::PlatformVariant:
                 return "Transfer-safe (platform-variant fields matched)";
-            case SafetyLevel::Opaque:
+            case detail::SafetyLevel::Opaque:
                 return "Transfer-safe (contains opaque fields)";
             default:
                 return "Transfer-safe";
@@ -402,7 +380,7 @@ private:
                                    std::size_t prefix_width) {
         std::size_t pos = 0;
         while (pos < a.size() && pos < b.size() && a[pos] == b[pos]) ++pos;
-        if (pos == a.size() && pos == b.size()) return "";  // identical
+        if (pos == a.size() && pos == b.size()) return "";
 
         std::string arrow(prefix_width + pos, ' ');
         arrow += "^--- diverges at position ";
@@ -427,7 +405,6 @@ private:
         if (t_begin == t_end || p_begin == p_end)
             return false;
 
-        // Resolve platform indices.
         std::vector<std::size_t> plat_idx;
         for (auto it = p_begin; it != p_end; ++it) {
             std::string_view pname(*it);
@@ -442,7 +419,6 @@ private:
             if (!found) return false;
         }
 
-        // For each type, verify byte_copy_safe + signature match across selected platforms.
         for (auto it = t_begin; it != t_end; ++it) {
             std::string_view tname(*it);
             std::string_view first_sig;
@@ -464,16 +440,13 @@ private:
         return true;
     }
 
-    /// Find groups of platforms with identical ABI fingerprints.
-    /// Matching fingerprints suggest (but do not guarantee) identical layouts.
-    /// Only returns groups of size >= 2 (singletons are not interesting).
     std::vector<std::vector<std::string>> abi_equivalence_groups() const {
         std::vector<std::vector<std::string>> groups;
         std::vector<bool> visited(platforms_.size(), false);
 
         for (std::size_t i = 0; i < platforms_.size(); ++i) {
             if (visited[i]) continue;
-            if (platforms_[i].pointer_size == 0) continue;  // no metadata
+            if (platforms_[i].pointer_size == 0) continue;
 
             std::vector<std::string> group;
             group.push_back(platforms_[i].name);
@@ -491,7 +464,7 @@ private:
         return groups;
     }
 
-    static const TypeEntry* find_type(const PlatformData& plat,
+    static const TypeEntry* find_type(const detail::PlatformData& plat,
                                       const std::string& name) {
         for (std::size_t i = 0; i < plat.type_count; ++i) {
             if (std::string_view(plat.types[i].name) == name)

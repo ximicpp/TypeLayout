@@ -26,12 +26,16 @@ namespace boost {
 namespace typelayout {
 inline namespace v1 {
 
-/// One registered type's name + signature.
+namespace detail {
+
+/// One registered type's name + signature (internal to SigExporter).
 struct ExportEntry {
     std::string name;
     std::string layout_sig;
     bool        byte_copy_safe;
 };
+
+} // namespace detail
 
 /// Collects type signatures and writes a .sig.hpp header.
 class SigExporter {
@@ -88,7 +92,7 @@ public:
 
     const std::string& platform_name() const { return platform_name_; }
     const std::string& display_name() const { return display_name_; }
-    const std::vector<ExportEntry>& entries() const { return entries_; }
+    const std::vector<detail::ExportEntry>& entries() const { return entries_; }
 
     /// Write the .sig.hpp header. Returns 0 on success.
     int write(const std::string& path) const {
@@ -124,7 +128,7 @@ public:
 private:
     std::string platform_name_;
     std::string display_name_;
-    std::vector<ExportEntry> entries_;
+    std::vector<detail::ExportEntry> entries_;
 
     static std::string escape(const std::string& s) {
         std::string result;
