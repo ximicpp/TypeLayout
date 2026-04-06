@@ -6,7 +6,7 @@ Use this when: adding support for a new fundamental type, pointer variant, aggre
 
 1. **Leaf/fundamental type** (e.g., `__int128`, `_Float16`) -> add mapping in `detail/type_map.hpp`
 2. **New aggregate form** (e.g., variant, tuple-like) -> add handling in `detail/signature_impl.hpp`
-3. **Unanalyzable/opaque type** (e.g., `std::string`) -> register via macros in `opaque.hpp`
+3. **User-sealed opaque type** (e.g., `offset_ptr`-based containers) -> register via macros in `opaque.hpp`
 4. **New type classification** (e.g., new reflect category) -> update `detail/reflect.hpp`
 
 ## Steps
@@ -29,17 +29,11 @@ Use this when: adding support for a new fundamental type, pointer variant, aggre
 5. **Update safety classification** in `tools/safety_level.hpp`:
    - If the new type needs a new safety level or classification rule, update `classify_signature()`
 
-6. **Update dual-path padding detection** if the new type can have padding:
-   - `layout_traits.hpp`: update `compute_has_padding<T>()` bitmap logic
-   - `tools/safety_level.hpp`: update `sig_has_padding()` string parser
-   - Both paths MUST agree -- the `static_assert` in `layout_traits.hpp` enforces this
-
-7. **Add tests**:
+6. **Add tests**:
    - `test_layout_traits.cpp`: signature correctness, trait flags
-   - `test_padding_precision.cpp`: padding bitmap vs parser agreement
-   - `test_classify.cpp`: safety classification for the new type
+   - `test_compat_check.cpp`: safety classification for the new type
 
-8. **Build and test**: Run `/build-test` to verify all 10 tests pass.
+7. **Build and test**: Run `/build-test` to verify all tests pass.
 
 ## Key Files
 
@@ -47,12 +41,11 @@ Use this when: adding support for a new fundamental type, pointer variant, aggre
 - `include/boost/typelayout/detail/signature_impl.hpp` -- signature generation engine
 - `include/boost/typelayout/detail/reflect.hpp` -- type classification helpers
 - `include/boost/typelayout/opaque.hpp` -- opaque registration macros
-- `include/boost/typelayout/layout_traits.hpp` -- padding bitmap + traits
-- `include/boost/typelayout/tools/safety_level.hpp` -- runtime parser + classification
+- `include/boost/typelayout/layout_traits.hpp` -- signature + has_pointer traits
+- `include/boost/typelayout/tools/safety_level.hpp` -- runtime safety classification
 
 ## Important Notes
 
 - Always run `/sig-check <YourType>` after implementation to verify the generated signature
 - Platform-specific types need guards in `type_map.hpp` (check `sizeof` and `#ifdef`)
-- The dual-path padding cross-validation is non-negotiable -- both paths must stay in sync
-- Array types: `type_has_opaque` and `compute_has_padding` recurse via `std::remove_all_extents_t`
+- `sig_has_pointer` in `sig_parser.hpp` and `fixed_string.hpp` must stay in sync

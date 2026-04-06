@@ -8,13 +8,11 @@ The user provides a type (e.g., `$ARGUMENTS`) and this skill compiles a temporar
 2. Create a temporary source file `/tmp/sig_check.cpp` that:
    - Includes the necessary TypeLayout headers
    - Includes any headers the user specifies (ask if the type is not a builtin/standard type)
-   - Uses `get_layout_signature<T>()` and `layout_traits<T>` to print:
+   - Uses `get_layout_signature<T>()` and `detail::layout_traits<T>` to print:
      - The full signature string
      - `has_pointer`
-     - `has_opaque`
-     - `has_padding`
-     - `field_count`
-     - Safety classification via `classify<T>`
+     - `is_byte_copy_safe`
+     - Safety classification via `classify_signature()`
 3. Compile and run using the appropriate method (WSL, local compiler, or Docker)
 
 ## Compiler Selection
@@ -48,7 +46,7 @@ docker run --rm --platform linux/amd64 \
 
 ```cpp
 #include <boost/typelayout/typelayout.hpp>
-#include <boost/typelayout/tools/classify.hpp>
+#include <boost/typelayout/tools/safety_level.hpp>
 #include <iostream>
 #include <cstdint>
 
@@ -61,25 +59,19 @@ using namespace boost::typelayout;
 int main() {
     using T = USER_TYPE;
     constexpr auto sig = get_layout_signature<T>();
-    constexpr auto traits = layout_traits<T>{};
-    constexpr auto level = classify_v<T>;
+    constexpr bool has_ptr = detail::layout_traits<T>::has_pointer;
+    constexpr bool copy_safe = is_byte_copy_safe_v<T>;
+    auto level = compat::detail::classify_signature(
+        std::string_view(sig.value, sig.size()));
 
-    std::cout << "Type:         USER_TYPE\n";
-    std::cout << "Signature:    " << sig.value << "\n";
-    std::cout << "Size:         " << sizeof(T) << "\n";
-    std::cout << "Alignment:    " << alignof(T) << "\n";
-    std::cout << "has_pointer:  " << traits.has_pointer << "\n";
-    std::cout << "has_opaque:   " << traits.has_opaque << "\n";
-    std::cout << "has_padding:  " << traits.has_padding << "\n";
-    std::cout << "field_count:  " << traits.field_count << "\n";
-    std::cout << "Safety:       " << static_cast<int>(level)
-              << (level == SafetyLevel::TrivialSafe    ? " (TrivialSafe)"    :
-                  level == SafetyLevel::PaddingRisk    ? " (PaddingRisk)"    :
-                  level == SafetyLevel::PointerRisk    ? " (PointerRisk)"    :
-                  level == SafetyLevel::PlatformVariant? " (PlatformVariant)":
-                  level == SafetyLevel::Opaque         ? " (Opaque)"         :
-                                                         " (Unknown)")
-              << "\n";
+    std::cout << "Type:            USER_TYPE\n";
+    std::cout << "Signature:       " << sig.value << "\n";
+    std::cout << "Size:            " << sizeof(T) << "\n";
+    std::cout << "Alignment:       " << alignof(T) << "\n";
+    std::cout << "has_pointer:     " << has_ptr << "\n";
+    std::cout << "byte_copy_safe:  " << copy_safe << "\n";
+    std::cout << "Safety:          "
+              << compat::detail::safety_level_name(level) << "\n";
     return 0;
 }
 ```

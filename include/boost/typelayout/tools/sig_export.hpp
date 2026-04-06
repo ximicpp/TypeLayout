@@ -1,6 +1,7 @@
 // Generates .sig.hpp headers containing constexpr signature strings.
-// Compile with P2996, run on each target platform, then compare the
-// resulting headers with compat_check.hpp.
+// Compile with P2996 on each target platform to produce .sig.hpp,
+// then compare signatures across platforms via static_assert or
+// CompatReporter in a CI build step.
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.

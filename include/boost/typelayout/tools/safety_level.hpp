@@ -19,24 +19,22 @@ namespace compat {
 namespace detail {
 
 // =========================================================================
-// SafetyLevel -- five-tier safety classification for display purposes.
+// SafetyLevel -- four-tier safety classification for display purposes.
 //
-// Ordered best (0) to worst (4).  classify_signature() returns the worst
+// Ordered best (0) to worst (3).  classify_signature() returns the worst
 // applicable level found in a signature string.
 // =========================================================================
 
 enum class SafetyLevel {
     TrivialSafe,     // 0 -- safe for memcpy + cross-platform transfer
-    PaddingRisk,     // 1 -- has padding (info-leak risk)
-    PlatformVariant, // 2 -- wchar_t / fld (long double) / bit-fields differ across platforms
-    PointerRisk,     // 3 -- contains pointers; memcpy produces dangling refs
-    Opaque,          // 4 -- unanalyzable; user must verify manually
+    PlatformVariant, // 1 -- wchar_t / fld (long double) / bit-fields differ across platforms
+    PointerRisk,     // 2 -- contains pointers; memcpy produces dangling refs
+    Opaque,          // 3 -- unanalyzable; user must verify manually
 };
 
 constexpr const char* safety_level_name(SafetyLevel level) noexcept {
     switch (level) {
         case SafetyLevel::TrivialSafe:     return "TrivialSafe";
-        case SafetyLevel::PaddingRisk:     return "PaddingRisk";
         case SafetyLevel::PointerRisk:     return "PointerRisk";
         case SafetyLevel::PlatformVariant: return "PlatformVariant";
         case SafetyLevel::Opaque:          return "Opaque";
@@ -51,9 +49,7 @@ inline SafetyLevel classify_signature(std::string_view sig) noexcept {
     if (sig_contains_token(sig, "O("))
         return SafetyLevel::Opaque;
 
-    bool has_pointer = ::boost::typelayout::v1::detail::sig_has_pointer(sig);
-
-    if (has_pointer)
+    if (::boost::typelayout::v1::detail::sig_has_pointer(sig))
         return SafetyLevel::PointerRisk;
 
     bool has_platform_variant =
@@ -66,9 +62,6 @@ inline SafetyLevel classify_signature(std::string_view sig) noexcept {
 
     if (has_platform_variant)
         return SafetyLevel::PlatformVariant;
-
-    if (::boost::typelayout::v1::detail::sig_has_padding(sig))
-        return SafetyLevel::PaddingRisk;
 
     return SafetyLevel::TrivialSafe;
 }

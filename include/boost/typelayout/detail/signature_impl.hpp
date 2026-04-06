@@ -65,6 +65,7 @@
 namespace boost {
 namespace typelayout {
 inline namespace v1 {
+namespace detail {
 
     // Detect opaque TypeSignature specializations (e.g. TYPELAYOUT_REGISTER_OPAQUE).
     template <typename T>
@@ -256,6 +257,7 @@ inline namespace v1 {
             return concatenate_layout_union_fields<T>(std::make_index_sequence<count>{});
     }
 
+} // namespace detail
 } // inline namespace v1
 } // namespace typelayout
 } // namespace boost

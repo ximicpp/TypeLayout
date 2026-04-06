@@ -14,6 +14,8 @@ namespace boost {
 namespace typelayout {
 inline namespace v1 {
 
+namespace detail {
+
     // =========================================================================
     // Helper: format "name[s:SIZE,a:ALIGN]"
     // =========================================================================
@@ -26,19 +28,6 @@ inline namespace v1 {
                to_fixed_string<Align>() +
                FixedString{"]"};
     }
-
-    // =========================================================================
-    // Fixed-width integers
-    // =========================================================================
-
-    template <> struct TypeSignature<int8_t>   { static consteval auto calculate() noexcept { return FixedString{"i8[s:1,a:1]"}; } };
-    template <> struct TypeSignature<uint8_t>  { static consteval auto calculate() noexcept { return FixedString{"u8[s:1,a:1]"}; } };
-    template <> struct TypeSignature<int16_t>  { static consteval auto calculate() noexcept { return FixedString{"i16[s:2,a:2]"}; } };
-    template <> struct TypeSignature<uint16_t> { static consteval auto calculate() noexcept { return FixedString{"u16[s:2,a:2]"}; } };
-    template <> struct TypeSignature<int32_t>  { static consteval auto calculate() noexcept { return FixedString{"i32[s:4,a:4]"}; } };
-    template <> struct TypeSignature<uint32_t> { static consteval auto calculate() noexcept { return FixedString{"u32[s:4,a:4]"}; } };
-    template <> struct TypeSignature<int64_t>  { static consteval auto calculate() noexcept { return FixedString{"i64[s:8,a:8]"}; } };
-    template <> struct TypeSignature<uint64_t> { static consteval auto calculate() noexcept { return FixedString{"u64[s:8,a:8]"}; } };
 
     // =========================================================================
     // Fundamental types (only when distinct from fixed-width aliases)
@@ -86,6 +75,30 @@ inline namespace v1 {
         (std::is_same_v<T, long long> && !llong_is_int64) ||
         (std::is_same_v<T, unsigned long long> && !ullong_is_uint64);
 
+    // Byte-element types (size=1, align=1): arrays collapsed to "bytes[s:N,a:1]".
+    template <typename T>
+    [[nodiscard]] consteval bool is_byte_element() noexcept {
+        return std::is_same_v<T, char> || std::is_same_v<T, signed char> ||
+               std::is_same_v<T, unsigned char> || std::is_same_v<T, int8_t> ||
+               std::is_same_v<T, uint8_t> || std::is_same_v<T, std::byte> ||
+               std::is_same_v<T, char8_t>;
+    }
+
+} // namespace detail
+
+    // =========================================================================
+    // Fixed-width integers
+    // =========================================================================
+
+    template <> struct TypeSignature<int8_t>   { static consteval auto calculate() noexcept { return FixedString{"i8[s:1,a:1]"}; } };
+    template <> struct TypeSignature<uint8_t>  { static consteval auto calculate() noexcept { return FixedString{"u8[s:1,a:1]"}; } };
+    template <> struct TypeSignature<int16_t>  { static consteval auto calculate() noexcept { return FixedString{"i16[s:2,a:2]"}; } };
+    template <> struct TypeSignature<uint16_t> { static consteval auto calculate() noexcept { return FixedString{"u16[s:2,a:2]"}; } };
+    template <> struct TypeSignature<int32_t>  { static consteval auto calculate() noexcept { return FixedString{"i32[s:4,a:4]"}; } };
+    template <> struct TypeSignature<uint32_t> { static consteval auto calculate() noexcept { return FixedString{"u32[s:4,a:4]"}; } };
+    template <> struct TypeSignature<int64_t>  { static consteval auto calculate() noexcept { return FixedString{"i64[s:8,a:8]"}; } };
+    template <> struct TypeSignature<uint64_t> { static consteval auto calculate() noexcept { return FixedString{"u64[s:8,a:8]"}; } };
+
     // =========================================================================
     // Floating point
     // =========================================================================
@@ -93,7 +106,7 @@ inline namespace v1 {
     template <> struct TypeSignature<float>    { static consteval auto calculate() noexcept { return FixedString{"f32[s:4,a:4]"}; } };
     template <> struct TypeSignature<double>   { static consteval auto calculate() noexcept { return FixedString{"f64[s:8,a:8]"}; } };
     template <> struct TypeSignature<long double> {
-        static consteval auto calculate() noexcept { return format_size_align<sizeof(long double), alignof(long double)>(BOOST_TYPELAYOUT_LONG_DOUBLE_TAG); }
+        static consteval auto calculate() noexcept { return detail::format_size_align<sizeof(long double), alignof(long double)>(BOOST_TYPELAYOUT_LONG_DOUBLE_TAG); }
     };
 
     // =========================================================================
@@ -101,7 +114,7 @@ inline namespace v1 {
     // =========================================================================
 
     template <> struct TypeSignature<char>     { static consteval auto calculate() noexcept { return FixedString{"char[s:1,a:1]"}; } };
-    template <> struct TypeSignature<wchar_t>  { static consteval auto calculate() noexcept { return format_size_align<sizeof(wchar_t), alignof(wchar_t)>("wchar"); } };
+    template <> struct TypeSignature<wchar_t>  { static consteval auto calculate() noexcept { return detail::format_size_align<sizeof(wchar_t), alignof(wchar_t)>("wchar"); } };
     template <> struct TypeSignature<char8_t>  { static consteval auto calculate() noexcept { return FixedString{"char8[s:1,a:1]"}; } };
     template <> struct TypeSignature<char16_t> { static consteval auto calculate() noexcept { return FixedString{"char16[s:2,a:2]"}; } };
     template <> struct TypeSignature<char32_t> { static consteval auto calculate() noexcept { return FixedString{"char32[s:4,a:4]"}; } };
@@ -111,7 +124,7 @@ inline namespace v1 {
     // =========================================================================
 
     template <> struct TypeSignature<bool>     { static consteval auto calculate() noexcept { return FixedString{"bool[s:1,a:1]"}; } };
-    template <> struct TypeSignature<std::nullptr_t> { static consteval auto calculate() noexcept { return format_size_align<sizeof(std::nullptr_t), alignof(std::nullptr_t)>("nullptr"); } };
+    template <> struct TypeSignature<std::nullptr_t> { static consteval auto calculate() noexcept { return detail::format_size_align<sizeof(std::nullptr_t), alignof(std::nullptr_t)>("nullptr"); } };
     template <> struct TypeSignature<std::byte> { static consteval auto calculate() noexcept { return FixedString{"byte[s:1,a:1]"}; } };
 
     // =========================================================================
@@ -121,28 +134,28 @@ inline namespace v1 {
     template <typename R, typename... Args>
     struct TypeSignature<R(*)(Args...)> {
         static consteval auto calculate() noexcept {
-            return format_size_align<sizeof(R(*)(Args...)), alignof(R(*)(Args...))>("fnptr");
+            return detail::format_size_align<sizeof(R(*)(Args...)), alignof(R(*)(Args...))>("fnptr");
         }
     };
 
     template <typename R, typename... Args>
     struct TypeSignature<R(*)(Args...) noexcept> {
         static consteval auto calculate() noexcept {
-            return format_size_align<sizeof(R(*)(Args...) noexcept), alignof(R(*)(Args...) noexcept)>("fnptr");
+            return detail::format_size_align<sizeof(R(*)(Args...) noexcept), alignof(R(*)(Args...) noexcept)>("fnptr");
         }
     };
 
     template <typename R, typename... Args>
     struct TypeSignature<R(*)(Args..., ...)> {
         static consteval auto calculate() noexcept {
-            return format_size_align<sizeof(R(*)(Args..., ...)), alignof(R(*)(Args..., ...))>("fnptr");
+            return detail::format_size_align<sizeof(R(*)(Args..., ...)), alignof(R(*)(Args..., ...))>("fnptr");
         }
     };
 
     template <typename R, typename... Args>
     struct TypeSignature<R(*)(Args..., ...) noexcept> {
         static consteval auto calculate() noexcept {
-            return format_size_align<sizeof(R(*)(Args..., ...) noexcept), alignof(R(*)(Args..., ...) noexcept)>("fnptr");
+            return detail::format_size_align<sizeof(R(*)(Args..., ...) noexcept), alignof(R(*)(Args..., ...) noexcept)>("fnptr");
         }
     };
 
@@ -169,20 +182,20 @@ inline namespace v1 {
 
     template <typename T>
     struct TypeSignature<T*> {
-        static consteval auto calculate() noexcept { return format_size_align<sizeof(T*), alignof(T*)>("ptr"); }
+        static consteval auto calculate() noexcept { return detail::format_size_align<sizeof(T*), alignof(T*)>("ptr"); }
     };
     template <typename T>
     struct TypeSignature<T&> {
         // References are stored as pointers; use sizeof(T*) for layout identity.
-        static consteval auto calculate() noexcept { return format_size_align<sizeof(T*), alignof(T*)>("ref"); }
+        static consteval auto calculate() noexcept { return detail::format_size_align<sizeof(T*), alignof(T*)>("ref"); }
     };
     template <typename T>
     struct TypeSignature<T&&> {
-        static consteval auto calculate() noexcept { return format_size_align<sizeof(T*), alignof(T*)>("rref"); }
+        static consteval auto calculate() noexcept { return detail::format_size_align<sizeof(T*), alignof(T*)>("rref"); }
     };
     template <typename T, typename C>
     struct TypeSignature<T C::*> {
-        static consteval auto calculate() noexcept { return format_size_align<sizeof(T C::*), alignof(T C::*)>("memptr"); }
+        static consteval auto calculate() noexcept { return detail::format_size_align<sizeof(T C::*), alignof(T C::*)>("memptr"); }
     };
 
     // =========================================================================
@@ -192,24 +205,15 @@ inline namespace v1 {
     template <typename T>
     struct TypeSignature<T[]> {
         static consteval auto calculate() noexcept {
-            static_assert(always_false<T>::value, "Unbounded array T[] has no defined size");
+            static_assert(detail::always_false<T>::value, "Unbounded array T[] has no defined size");
             return FixedString{""};
         }
     };
 
-    // Byte-element types (size=1, align=1): arrays collapsed to "bytes[s:N,a:1]".
-    template <typename T>
-    [[nodiscard]] consteval bool is_byte_element() noexcept {
-        return std::is_same_v<T, char> || std::is_same_v<T, signed char> ||
-               std::is_same_v<T, unsigned char> || std::is_same_v<T, int8_t> ||
-               std::is_same_v<T, uint8_t> || std::is_same_v<T, std::byte> ||
-               std::is_same_v<T, char8_t>;
-    }
-
     template <typename T, size_t N>
     struct TypeSignature<T[N]> {
         static consteval auto calculate() noexcept {
-            if constexpr (is_byte_element<T>()) {
+            if constexpr (detail::is_byte_element<T>()) {
                 return FixedString{"bytes[s:"} + to_fixed_string<N>() + FixedString{",a:1]"};
             } else {
                 return FixedString{"array[s:"} + to_fixed_string<sizeof(T[N])>() +
@@ -227,8 +231,8 @@ inline namespace v1 {
     template <typename T>
     struct TypeSignature {
         static consteval auto calculate() noexcept {
-            if constexpr (is_distinct_fundamental_int_v<T>) {
-                return fundamental_int_signature<T>();
+            if constexpr (detail::is_distinct_fundamental_int_v<T>) {
+                return detail::fundamental_int_signature<T>();
             }
             else if constexpr (std::is_enum_v<T>) {
                 using U = std::underlying_type_t<T>;
@@ -241,7 +245,7 @@ inline namespace v1 {
             else if constexpr (std::is_union_v<T>) {
                 return FixedString{"union[s:"} + to_fixed_string<sizeof(T)>() +
                        FixedString{",a:"} + to_fixed_string<alignof(T)>() +
-                       FixedString{"]{"} + get_layout_union_content<T>() + FixedString{"}"};
+                       FixedString{"]{"} + detail::get_layout_union_content<T>() + FixedString{"}"};
             }
             else if constexpr (std::is_class_v<T>) {
                 return FixedString{"record[s:"} +
@@ -249,19 +253,19 @@ inline namespace v1 {
                        FixedString{",a:"} +
                        to_fixed_string<alignof(T)>() +
                        FixedString{"]{"} +
-                       get_layout_content<T>() +
+                       detail::get_layout_content<T>() +
                        FixedString{"}"};
             }
             else if constexpr (std::is_void_v<T>) {
-                static_assert(always_false<T>::value, "void has no layout; use void*");
+                static_assert(detail::always_false<T>::value, "void has no layout; use void*");
                 return FixedString{""};
             }
             else if constexpr (std::is_function_v<T>) {
-                static_assert(always_false<T>::value, "function types have no size; use function pointer");
+                static_assert(detail::always_false<T>::value, "function types have no size; use function pointer");
                 return FixedString{""};
             }
             else {
-                static_assert(always_false<T>::value, "unsupported type for layout signature");
+                static_assert(detail::always_false<T>::value, "unsupported type for layout signature");
                 return FixedString{""};
             }
         }

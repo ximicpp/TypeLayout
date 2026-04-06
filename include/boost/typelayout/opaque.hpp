@@ -2,7 +2,7 @@
 //
 // Opaque Tag Matching Assumption:
 //   When two endpoints compare opaque type signatures for cross-platform
-//   transfer safety (via is_transfer_safe), matching is based on:
+//   transfer safety, matching is based on:
 //     - tag name (e.g. "vector", "string")
 //     - sizeof
 //     - alignof
@@ -81,7 +81,7 @@
 // TYPELAYOUT_OPAQUE_CONTAINER_RELOCATABLE(Template, name)
 //   Single-parameter container template.  Embeds element type signature.
 //   pointer_free is derived from the generated signature (scans for all
-//   pointer-like tokens, matching layout_traits sig_has_pointer).
+//   pointer-like tokens via detail::sig_has_pointer).
 #define TYPELAYOUT_OPAQUE_CONTAINER_RELOCATABLE(Template, name)                \
     template <typename T_>                                                      \
     struct TypeSignature<Template<T_>> {                                        \
@@ -110,7 +110,7 @@
 // TYPELAYOUT_OPAQUE_MAP_RELOCATABLE(Template, name)
 //   Two-parameter container template.  Embeds key + value type signatures.
 //   pointer_free is derived from the generated signature (scans for all
-//   pointer-like tokens, matching layout_traits sig_has_pointer).
+//   pointer-like tokens via detail::sig_has_pointer).
 #define TYPELAYOUT_OPAQUE_MAP_RELOCATABLE(Template, name)                      \
     template <typename K_, typename V_>                                         \
     struct TypeSignature<Template<K_, V_>> {                                    \

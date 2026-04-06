@@ -65,7 +65,7 @@ consteval bool all_bases_byte_copy_safe() noexcept {
 // Core decision tree for byte-copy safety.
 //
 // Branch 1: Opaque types -- check !has_pointer && opaque_copy_safe
-// Branch 2: Locally serialization-free types -- trivially_copyable + no pointer
+// Branch 2: trivially_copyable + no pointer (fast path)
 // Branch 3: Non-union, non-polymorphic class types -- recurse members + bases
 // Branch 4: Everything else -- false
 template <typename T>
@@ -77,7 +77,7 @@ consteval bool is_byte_copy_safe_impl() noexcept {
         return !detail::layout_traits<Bare>::has_pointer &&
                opaque_copy_safe<Bare>::value;
     }
-    // Branch 2: Locally serialization-free (trivially_copyable + no pointer)
+    // Branch 2: trivially_copyable + no pointer (fast path)
     else if constexpr (std::is_trivially_copyable_v<Bare> &&
                        !detail::layout_traits<Bare>::has_pointer) {
         return true;

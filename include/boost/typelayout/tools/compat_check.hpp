@@ -1,8 +1,8 @@
-// Cross-platform compatibility checking.
+// Cross-platform compatibility checking (used in CI build steps).
 //
 // Public API:
 //   - layout_match(a, b)          -- constexpr signature comparison
-//   - CompatReporter              -- cross-platform report + are_transfer_safe()
+//   - CompatReporter              -- cross-platform compatibility report
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
@@ -37,7 +37,6 @@ namespace detail {
 inline const char* safety_label(SafetyLevel level) noexcept {
     switch (level) {
         case SafetyLevel::TrivialSafe:     return "Safe";
-        case SafetyLevel::PaddingRisk:     return "Pad";
         case SafetyLevel::PointerRisk:     return "Warn";
         case SafetyLevel::PlatformVariant: return "Risk";
         case SafetyLevel::Opaque:          return "Opaq";
@@ -48,7 +47,6 @@ inline const char* safety_label(SafetyLevel level) noexcept {
 inline const char* safety_stars(SafetyLevel level) noexcept {
     switch (level) {
         case SafetyLevel::TrivialSafe:     return "***";
-        case SafetyLevel::PaddingRisk:     return "**-";
         case SafetyLevel::PointerRisk:     return "*!-";
         case SafetyLevel::PlatformVariant: return "*--";
         case SafetyLevel::Opaque:          return "---";
@@ -59,7 +57,6 @@ inline const char* safety_stars(SafetyLevel level) noexcept {
 inline const char* safety_reason(SafetyLevel level) noexcept {
     switch (level) {
         case SafetyLevel::TrivialSafe:     return "fixed-width scalars only";
-        case SafetyLevel::PaddingRisk:     return "has alignment padding";
         case SafetyLevel::PointerRisk:     return "contains pointers or references";
         case SafetyLevel::PlatformVariant: return "bit-fields or platform-dependent types (wchar_t, long double)";
         case SafetyLevel::Opaque:          return "contains opaque (unanalyzable) fields";
@@ -118,7 +115,7 @@ public:
 
     void add_platform(const std::string& name,
                       const TypeEntry* types, std::size_t count) {
-        platforms_.push_back({name, types, count});
+        platforms_.push_back({name, types, count, 0, 0, 0, 0, 0, "", {}});
     }
 
     /// Check if the specified types are transfer-safe across the
@@ -253,8 +250,8 @@ private:
         }
         os << "\n";
 
-        os << "Safety: *** = transfer-safe, **- = transfer-safe (padding risk),\n"
-           << "        *!- = pointer risk, *-- = platform-variant, --- = opaque.\n\n";
+        os << "Safety: *** = transfer-safe, *!- = pointer risk,\n"
+           << "        *-- = platform-variant, --- = opaque.\n\n";
 
         os << std::string(72, '-') << "\n";
         os << "  " << std::left << std::setw(24) << "Type"
@@ -365,8 +362,6 @@ private:
         switch (r.safety) {
             case detail::SafetyLevel::TrivialSafe:
                 return "Transfer-safe";
-            case detail::SafetyLevel::PaddingRisk:
-                return "Transfer-safe (padding may leak uninitialized bytes)";
             case detail::SafetyLevel::PlatformVariant:
                 return "Transfer-safe (platform-variant fields matched)";
             case detail::SafetyLevel::Opaque:

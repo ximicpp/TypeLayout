@@ -15,9 +15,11 @@ namespace boost {
 namespace typelayout {
 inline namespace v1 {
 
+    namespace detail {
     // TODO(P2593): Replace with std::always_false when available in C++26.
     template <typename...>
     struct always_false : std::false_type {};
+    } // namespace detail
 
     // Forward declaration of the primary TypeSignature template.
     // Specializations are in detail/type_map.hpp; the primary template
