@@ -248,13 +248,26 @@ namespace detail {
                        FixedString{"]{"} + detail::get_layout_union_content<T>() + FixedString{"}"};
             }
             else if constexpr (std::is_class_v<T>) {
-                return FixedString{"record[s:"} +
-                       to_fixed_string<sizeof(T)>() +
-                       FixedString{",a:"} +
-                       to_fixed_string<alignof(T)>() +
-                       FixedString{"]{"} +
-                       detail::get_layout_content<T>() +
-                       FixedString{"}"};
+                if constexpr (std::is_polymorphic_v<T>) {
+                    // Polymorphic types have a hidden vptr.  Mark it as a flag
+                    // in the record params (not as a field, since P2996 does not
+                    // expose its offset).  sig_has_pointer scans for "vptr" token.
+                    return FixedString{"record[s:"} +
+                           to_fixed_string<sizeof(T)>() +
+                           FixedString{",a:"} +
+                           to_fixed_string<alignof(T)>() +
+                           FixedString{",vptr]{"} +
+                           detail::get_layout_content<T>() +
+                           FixedString{"}"};
+                } else {
+                    return FixedString{"record[s:"} +
+                           to_fixed_string<sizeof(T)>() +
+                           FixedString{",a:"} +
+                           to_fixed_string<alignof(T)>() +
+                           FixedString{"]{"} +
+                           detail::get_layout_content<T>() +
+                           FixedString{"}"};
+                }
             }
             else if constexpr (std::is_void_v<T>) {
                 static_assert(detail::always_false<T>::value, "void has no layout; use void*");

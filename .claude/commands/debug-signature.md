@@ -23,7 +23,7 @@ Use this when: a signature is wrong, pointer detection gives unexpected results,
    | Signature mismatch between platforms | Type size/alignment differs | `detail/type_map.hpp`, check `sizeof`/`alignof` |
 
 4. **For pointer detection issues**:
-   - `sig_has_pointer` in `sig_parser.hpp` (runtime, `string_view`) scans for `ptr[`, `fnptr[`, `memptr[`, `ref[`, `rref[`
+   - `sig_has_pointer` in `sig_parser.hpp` (runtime, `string_view`) scans for `ptr[`, `fnptr[`, `memptr[`, `ref[`, `rref[`, `vptr`
    - `sig_has_pointer` in `fixed_string.hpp` (compile-time, `FixedString`) must recognize the same tokens
    - `layout_traits<T>::has_pointer` uses the compile-time version, or `TypeSignature<T>::pointer_free` for opaque types
 

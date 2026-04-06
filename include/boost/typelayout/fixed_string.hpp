@@ -234,7 +234,8 @@ consteval bool sig_has_pointer(const Sig& sig) noexcept {
            sig.contains_token(FixedString{"fnptr["}) ||
            sig.contains_token(FixedString{"memptr["}) ||
            sig.contains_token(FixedString{"ref["}) ||
-           sig.contains_token(FixedString{"rref["});
+           sig.contains_token(FixedString{"rref["}) ||
+           sig.contains_token(FixedString{"vptr"});
 }
 
 } // namespace detail

@@ -123,7 +123,7 @@ Key elements encoded in the signature:
 - Architecture prefix: bit-width + endianness
 - Leaf field types: canonical names (u32, f64, ptr, etc.)
 - Field offsets, sizes, and alignments
-- Pointer/reference tokens (ptr, fnptr, ref, rref, memptr)
+- Pointer-like tokens (ptr, fnptr, ref, rref, memptr, vptr)
 
 **2.5 Code demo**: `get_layout_signature<PacketHeader>()`
 
@@ -132,7 +132,9 @@ Key elements encoded in the signature:
 - Pointer tokens in signature = unsafe for transport (for safety checking)
 
 These are not separate concepts -- they are direct consequences of what
-the signature encodes. Section 3 shows how each is used.
+the signature encodes. Even hidden pointers (like the vptr in polymorphic
+types) are encoded as tokens, so safety checking is entirely derivable
+from the signature. Section 3 shows how each property is used.
 
 ### 3. Two Applications of the Signature (10 min)
 
@@ -162,15 +164,12 @@ static_assert(is_byte_copy_safe_v<T>,
 What makes a type NOT byte-copy safe:
 - Pointers / references: dangle in another address space
 - Polymorphic types: hidden vptr is an absolute address
-- Unions: cannot statically determine active member
 
-Key technique: pointer detection reuses the Layout Signature -- scan for
-pointer tokens (ptr, fnptr, ref, rref, memptr) in the signature string,
-no separate analysis pass needed. Polymorphism and union checks use
-standard type traits (`is_polymorphic`, `is_union`).
-
-Note: `trivially_copyable` is only a fast-path shortcut -- the real
-safety determination comes from the signature scan + type trait checks.
+All of these are pointer-like -- and all are encoded as tokens in the
+Layout Signature. Safety checking is just scanning the signature for
+pointer tokens (ptr, fnptr, ref, rref, memptr, vptr). No separate
+analysis pass needed -- the signature already contains the answer.
+`trivially_copyable` is only a fast-path shortcut.
 
 **3.3 The answer**
 
@@ -221,7 +220,7 @@ One core mechanism -- Layout Signature -- answers both questions:
 | Application | How |
 |-------------|-----|
 | Cross-platform layout comparison | Signature equality (`sigA == sigB`) |
-| Byte-copy safety checking | Pointer token scan + standard traits |
+| Byte-copy safety checking | Pointer token scan in the signature |
 
 Both satisfied -> safe to memcpy across platforms.
 
@@ -249,7 +248,7 @@ One mechanism (how does it work?)
 
 Two applications (what do I get from it?)
   -> Cross-platform comparison: signature equality = layout match
-  -> Safety checking: pointer token scan + type traits
+  -> Safety checking: pointer token scan in the signature
   -> The answer: both satisfied = safe to memcpy
 
 Proof (does it actually work?)

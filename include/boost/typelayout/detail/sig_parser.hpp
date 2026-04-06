@@ -39,7 +39,8 @@ inline bool sig_has_pointer(std::string_view sig) noexcept {
            sig_contains_token(sig, "fnptr[") ||
            sig_contains_token(sig, "memptr[") ||
            sig_contains_token(sig, "ref[") ||
-           sig_contains_token(sig, "rref[");
+           sig_contains_token(sig, "rref[") ||
+           sig_contains_token(sig, "vptr");
 }
 
 } // namespace detail

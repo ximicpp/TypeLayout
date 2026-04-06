@@ -3,10 +3,9 @@
 // is_byte_copy_safe_v<T> determines whether type T is safe for byte-level
 // transport (memcpy to a buffer, send over network, write to shared memory).
 //
-// The predicate recursively checks each member and base class:
-//   - Trivially copyable types without pointers: safe
-//   - Registered relocatable opaque types with safe elements: safe
-//   - Types with pointers, references, or unregistered opaque members: unsafe
+// Safety is determined by scanning the Layout Signature for pointer tokens
+// (ptr, fnptr, memptr, ref, rref, vptr) plus recursive member checking.
+// Polymorphic types are caught via the vptr token in their signature.
 //
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
@@ -66,7 +65,7 @@ consteval bool all_bases_byte_copy_safe() noexcept {
 //
 // Branch 1: Opaque types -- check !has_pointer && opaque_copy_safe
 // Branch 2: trivially_copyable + no pointer (fast path)
-// Branch 3: Non-union, non-polymorphic class types -- recurse members + bases
+// Branch 3: Class or union -- recurse members + bases
 // Branch 4: Everything else -- false
 template <typename T>
 consteval bool is_byte_copy_safe_impl() noexcept {
@@ -82,16 +81,16 @@ consteval bool is_byte_copy_safe_impl() noexcept {
                        !detail::layout_traits<Bare>::has_pointer) {
         return true;
     }
-    // Branch 3: Non-union, non-polymorphic class -- recurse
-    else if constexpr (std::is_class_v<Bare> &&
-                       !std::is_union_v<Bare> &&
-                       !std::is_polymorphic_v<Bare>) {
-        constexpr std::size_t bc = get_base_count<Bare>();
+    // Branch 3: Class or union -- recurse members (and bases for classes)
+    // Polymorphic types: vptr is encoded in the signature as a pointer token,
+    //   so Branch 2 already rejects them (has_pointer = true).
+    else if constexpr (std::is_class_v<Bare> || std::is_union_v<Bare>) {
+        constexpr std::size_t bc = std::is_union_v<Bare> ? 0 : get_base_count<Bare>();
         constexpr std::size_t fc = get_member_count<Bare>();
         return all_bases_byte_copy_safe<Bare, 0, bc>() &&
                all_members_byte_copy_safe<Bare, 0, fc>();
     }
-    // Branch 4: Otherwise not safe
+    // Branch 4: Otherwise not safe (e.g. bare function types)
     else {
         return false;
     }

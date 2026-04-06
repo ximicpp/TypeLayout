@@ -25,7 +25,7 @@
 //                     | 'bool' | 'byte' | 'nullptr'
 //                     | 'ptr' | 'fnptr' | 'memptr' | 'ref' | 'rref'
 //
-//   params         ::= param (',' param)*
+//   params         ::= param (',' param)* (',' 'vptr')?
 //   param          ::= key ':' value
 //   key            ::= 's' | 'a'
 //   value          ::= DIGIT+

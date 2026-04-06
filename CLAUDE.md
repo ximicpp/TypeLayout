@@ -90,7 +90,7 @@ Core question: **"Can this struct be safely memcpy'd between A and B?"**
 
 Core mechanism: Layout Signature — encode a type's byte-level layout as a compile-time string via P2996. Two applications derived from the signature:
 - Cross-platform comparison: `sigA == sigB` → byte layouts are identical
-- Safety checking: `is_byte_copy_safe_v<T>` → pointer token scan + standard traits
+- Safety checking: `is_byte_copy_safe_v<T>` → pointer token scan in the signature
 - `TYPELAYOUT_REGISTER_OPAQUE` — practical utility: user seals internal layout from signatures
 
 Answer: byte_copy_safe AND signatures match → safe to memcpy across platforms.
@@ -142,7 +142,7 @@ Two applications derived from the signature:
 
 **Application 1: Cross-platform layout comparison** — Two platforms produce the same signature → byte layouts are identical. Different signatures → pinpoint exactly which types differ. Layout match is just signature string equality.
 
-**Application 2: Byte-copy safety checking** — `is_byte_copy_safe_v<T>`: can this type's bytes be safely transported? Pointer detection reuses the Layout Signature (scans for pointer tokens `ptr`, `fnptr`, `ref`, `rref`, `memptr` in the signature string). Polymorphism and union checks use standard type traits. `trivially_copyable` is only a fast-path shortcut.
+**Application 2: Byte-copy safety checking** — `is_byte_copy_safe_v<T>`: can this type's bytes be safely transported? Pointer detection reuses the Layout Signature (scans for pointer tokens `ptr`, `fnptr`, `ref`, `rref`, `memptr`, `vptr` in the signature string). Polymorphic types are caught via the `vptr` token encoded in their signature. `trivially_copyable` is only a fast-path shortcut.
 
 **The answer**: byte_copy_safe AND signatures match → safe to memcpy across platforms. Both checks are compile-time: byte_copy_safe via `static_assert`, signature comparison via `static_assert` in a CI build that `#include`s exported `.sig.hpp` from each target platform.
 
@@ -172,6 +172,8 @@ These support the core mechanism but are not part of the conceptual framework:
 
 - **Arch prefix**: `[BITS-ENDIAN]` e.g. `[64-le]`, `[32-be]`
 - **Record**: `record[s:SIZE,a:ALIGN]{@OFFSET:TYPE[s:SIZE,a:ALIGN],...}`
+- **Polymorphic record**: `record[s:SIZE,a:ALIGN,vptr]{...}` (vptr flag, no offset — P2996 does not expose vptr position)
+- **Union**: `union[s:SIZE,a:ALIGN]{@OFFSET:TYPE,...}`
 - **Opaque**: `O(Tag|N|A)`, container: `O(Tag|N|A)<elem_sig>`, map: `O(Tag|N|A)<key_sig,val_sig>`
 - **Array**: `array[s:SIZE,a:ALIGN]<elem_sig,count>`, byte arrays: `bytes[s:N,a:1]`
 
