@@ -73,7 +73,7 @@ Same source code, different byte layout:
 | Tool | Limitation |
 |------|-----------|
 | `trivially_copyable` | Accepts types with pointers (false positive) |
-| `static_assert(sizeof == N)` | Does not inspect internal field layout |
+| `static_assert(sizeof(T) == N)` | Does not inspect internal field layout |
 | Protocol Buffers / FlatBuffers | Requires external IDL, cannot use native C++ types directly |
 | Manual review | Does not scale, misses platform-dependent differences |
 
@@ -91,9 +91,7 @@ mechanism -- the Layout Signature.
 
 ### 2. Layout Signature -- the Core Mechanism (17 min)
 
-One mechanism, two answers. We encode a type's byte-level layout as a
-compile-time string. This signature is the foundation for everything
-that follows.
+One mechanism, two answers.
 
 **2.1 Idea**: encode a type's byte-level layout as a compile-time string.
 Nested structs and base classes are recursively expanded so the signature
@@ -200,8 +198,8 @@ Both checks are compile-time:
 - Diff annotations pinpoint where signatures diverge
 
 **4.5 Practical recommendations**
-- Use fixed-width integers (`int32_t`, not `long`)
-- Avoid `long`, `long double`, `wchar_t` in cross-platform types
+- Avoid platform-dependent types (`long`, `long double`, `wchar_t`);
+  prefer fixed-width alternatives (`int32_t`, `double`)
 - For types whose internal layout should not enter the signature (e.g.,
   `offset_ptr`-based containers), use opaque registration macros
 - Run signature export as part of CI
