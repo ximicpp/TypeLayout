@@ -16,8 +16,9 @@ corrupt, and the same struct compiles to different byte layouts on different
 platforms. Existing tools either miss real problems (trivially_copyable accepts
 types with pointers) or require an external IDL (Protocol Buffers, FlatBuffers).
 
-This talk presents a single compile-time mechanism using C++26 static reflection
-(P2996): encode each type's byte-level layout as a compile-time string signature.
+This talk presents a compile-time mechanism called Layout Signatures, using C++26
+static reflection (P2996): encode each type's byte-level layout as a compile-time
+string.
 From this one representation, two questions are answered at build time: (1) do the
 byte layouts match across platforms? -- just compare signature strings; and (2) is
 the type safe for byte-level transport? -- scan the signature for pointer tokens.
@@ -27,11 +28,11 @@ runtime overhead.
 We will walk through how Layout Signatures are constructed via P2996 recursive
 flattening, then show how the same signature enables both cross-platform comparison
 and safety checking, with live demonstrations on real cross-platform data (x86_64
-Linux, ARM64 macOS, x86_64 Windows).
+Linux, ARM64 macOS).
 
 ## Outline
 
-### 1. The Problem (10 min)
+### 1. The Problem (8 min)
 
 **1.1 Motivating scenarios**
 - Shared memory IPC (Boost.Interprocess, mmap)
@@ -88,13 +89,15 @@ Two sub-questions: (A) is the byte layout identical on both platforms?
 (B) can the bytes be safely transported? We answer both from a single
 mechanism -- the Layout Signature.
 
-### 2. Layout Signature -- the Core Mechanism (15 min)
+### 2. Layout Signature -- the Core Mechanism (17 min)
 
 One mechanism, two answers. We encode a type's byte-level layout as a
 compile-time string. This signature is the foundation for everything
 that follows.
 
 **2.1 Idea**: encode a type's byte-level layout as a compile-time string.
+Nested structs and base classes are recursively expanded so the signature
+captures every leaf field with its absolute offset.
 
 **2.2 C++26 reflection primitives (P2996)**
 - `^^T` -- reflect a type
@@ -103,14 +106,7 @@ that follows.
 - `type_of` -- field type reflection
 - `is_bit_field`, `bit_size_of` -- bit-field support
 
-**2.3 Recursive flattening**
-- Nested structs expanded into parent's offset space
-- Field names and structural boundaries erased
-- Only leaf fields with absolute offsets survive
-- Base classes flattened the same way
-- The result: a canonical, byte-level representation of the type
-
-**2.4 Signature format**
+**2.3 Signature format**
 
 ```
 [64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:f64[s:8,a:8]}
@@ -125,9 +121,9 @@ Key elements encoded in the signature:
 - Field offsets, sizes, and alignments
 - Pointer-like tokens (ptr, fnptr, ref, rref, memptr, vptr)
 
-**2.5 Code demo**: `get_layout_signature<PacketHeader>()`
+**2.4 Code demo**: `get_layout_signature<PacketHeader>()`
 
-**2.6 Two properties fall out of this design**
+**2.5 Two properties fall out of this design**
 - Signature equality = layout match (for cross-platform comparison)
 - Pointer tokens in signature = unsafe for transport (for safety checking)
 
@@ -141,6 +137,8 @@ from the signature. Section 3 shows how each property is used.
 **3.1 Application 1: Cross-platform layout comparison**
 
 Same type, two platforms -- are the byte layouts identical?
+Each platform exports its signatures to a header file at build time;
+a CI build includes both and compares them.
 
 ```cpp
 static_assert(local_sig == remote_sig,
@@ -169,7 +167,6 @@ All of these are pointer-like -- and all are encoded as tokens in the
 Layout Signature. Safety checking is just scanning the signature for
 pointer tokens (ptr, fnptr, ref, rref, memptr, vptr). No separate
 analysis pass needed -- the signature already contains the answer.
-`trivially_copyable` is only a fast-path shortcut.
 
 **3.3 The answer**
 
@@ -189,23 +186,21 @@ Both checks are compile-time:
 - Phase 2: CI build `#include`s all `.sig.hpp`, `static_assert` on equality
 - All checks are compile-time -- no runtime overhead in the deployed binary
 
-**4.2 Live comparison**: same types on 3 platforms
+**4.2 Live comparison**: same types on 2 platforms
 - x86_64 Linux (GCC 16, LP64)
-- ARM64 macOS (Clang 21, LP64)
-- x86_64 Windows (MSVC, LLP64)
+- ARM64 macOS (Clang P2996, LP64)
 
 **4.3 What breaks and why**
-- `long`-containing struct: LP64 vs LLP64
-- `long double` field: x87 16B vs ARM64 8B
-- `wchar_t` array: 4B vs 2B elements
+- `long double` field: x87 80-bit (16B) vs ARM64 64-bit (8B)
 - Struct with only fixed-width types: identical everywhere
+- Even same data model (LP64) can differ in representation
 
 **4.4 CompatReporter output**
 - Compatibility matrix: safe / layout mismatch / not byte-copy safe
 - Diff annotations pinpoint where signatures diverge
 
 **4.5 Practical recommendations**
-- Use fixed-width integers (`int32_t`, not `int`)
+- Use fixed-width integers (`int32_t`, not `long`)
 - Avoid `long`, `long double`, `wchar_t` in cross-platform types
 - For types whose internal layout should not enter the signature (e.g.,
   `offset_ptr`-based containers), use opaque registration macros
@@ -243,8 +238,8 @@ Problem (why should I care?)
 
 One mechanism (how does it work?)
   -> Layout Signature: encode layout as compile-time string via P2996
-  -> Recursive flattening captures everything at the byte level
-  -> Pointer tokens are naturally part of the signature
+  -> Every leaf field captured with absolute offset; pointer tokens included
+  -> P2996 reflection provides the primitives
 
 Two applications (what do I get from it?)
   -> Cross-platform comparison: signature equality = layout match
@@ -252,7 +247,7 @@ Two applications (what do I get from it?)
   -> The answer: both satisfied = safe to memcpy
 
 Proof (does it actually work?)
-  -> Live cross-platform demo on 3 platforms
+  -> Live cross-platform demo on 2 platforms
   -> Practical workflow and recommendations
 
 Takeaway (what do I do next?)
