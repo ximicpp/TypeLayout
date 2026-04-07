@@ -25,8 +25,8 @@ the type safe for byte-level transport? -- scan the signature for pointer tokens
 The approach works directly on native C++ types -- no IDL, no code generation, no
 runtime overhead.
 
-We will walk through how Layout Signatures are constructed via P2996 recursive
-flattening, then show how the same signature enables both cross-platform comparison
+We will walk through how Layout Signatures are constructed using P2996 reflection
+primitives, then show how the same signature enables both cross-platform comparison
 and safety checking, with live demonstrations on real cross-platform data (x86_64
 Linux, ARM64 macOS).
 
