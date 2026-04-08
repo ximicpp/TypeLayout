@@ -46,7 +46,10 @@ namespace platform {
 
 // --- OS ---
 
-#if defined(__linux__)
+#if defined(__ANDROID__)
+    #define TYPELAYOUT_OS_NAME "android"
+    #define TYPELAYOUT_OS_DISPLAY "Android"
+#elif defined(__linux__)
     #define TYPELAYOUT_OS_NAME "linux"
     #define TYPELAYOUT_OS_DISPLAY "Linux"
 #elif defined(_WIN32)
@@ -58,9 +61,6 @@ namespace platform {
 #elif defined(__FreeBSD__)
     #define TYPELAYOUT_OS_NAME "freebsd"
     #define TYPELAYOUT_OS_DISPLAY "FreeBSD"
-#elif defined(__ANDROID__)
-    #define TYPELAYOUT_OS_NAME "android"
-    #define TYPELAYOUT_OS_DISPLAY "Android"
 #else
     #define TYPELAYOUT_OS_NAME "unknown_os"
     #define TYPELAYOUT_OS_DISPLAY "Unknown OS"

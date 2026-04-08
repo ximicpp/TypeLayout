@@ -8,8 +8,8 @@
 // Library Version
 // =========================================================================
 
-#define BOOST_TYPELAYOUT_VERSION 100      // 1.0.0 (major * 10000 + minor * 100 + patch)
-#define BOOST_TYPELAYOUT_VERSION_MAJOR 1
+#define BOOST_TYPELAYOUT_VERSION 20000    // 2.0.0 (major * 10000 + minor * 100 + patch)
+#define BOOST_TYPELAYOUT_VERSION_MAJOR 2
 #define BOOST_TYPELAYOUT_VERSION_MINOR 0
 #define BOOST_TYPELAYOUT_VERSION_PATCH 0
 
