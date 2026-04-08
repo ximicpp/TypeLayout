@@ -40,9 +40,10 @@ Linux, ARM64 macOS).
 - Persistent file formats (memory-mapped DB)
 - Common pattern: `memcpy(&header, buffer, sizeof(Header))`
 
-**1.2 Pitfalls A -- same platform, byte-copy safety**
+**1.2 Pitfalls A -- byte-copy safety**
 
-Even on the same machine, memcpy can silently produce broken data:
+Even on the same machine, memcpy across address spaces can silently
+produce broken data:
 
 | Pitfall | Why it breaks |
 |---------|---------------|
