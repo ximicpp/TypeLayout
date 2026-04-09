@@ -7,7 +7,7 @@ Runnable demo sources for the TypeLayout cross-platform compatibility pipeline.
 | File | Phase | Description |
 |------|-------|-------------|
 | `cross_platform_check.cpp` | 1 -- Export | Registers types with `TYPELAYOUT_EXPORT_TYPES` and writes `.sig.hpp` files |
-| `compat_check.cpp` | 2 -- Check | Includes pre-generated `.sig.hpp` files and runs `TYPELAYOUT_CHECK_COMPAT` |
+| `compat_check.cpp` | 2 -- Check | Includes pre-generated `.sig.hpp` files and runs `TYPELAYOUT_CHECK_COMPAT` (non-zero exit on incompatibility) |
 | `sigs/*.sig.hpp` | -- | Pre-generated signature files for three reference platforms |
 
 ## Quick Commands
@@ -18,7 +18,7 @@ clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ \
     -I../include -o sig_export cross_platform_check.cpp
 ./sig_export sigs/
 
-# Phase 2: build and run the checker
+# Phase 2: build and run the checker (returns non-zero on incompatibility)
 clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ \
     -I../include -o compat_check compat_check.cpp
 ./compat_check

@@ -148,6 +148,17 @@ public:
         print_report_impl(os, false);
     }
 
+    /// Returns true when every compared type has a matching layout signature
+    /// and satisfies the exported byte-copy-safety preconditions.
+    [[nodiscard]] bool all_types_transfer_safe() const {
+        auto results = compare();
+        return !results.empty() &&
+               std::all_of(results.begin(), results.end(),
+                           [](const detail::TypeResult& r) {
+                               return r.layout_match && r.byte_copy_safe;
+                           });
+    }
+
 private:
     std::vector<detail::PlatformData> platforms_;
 
@@ -342,8 +353,9 @@ private:
         }
         os << std::string(72, '=') << "\n\n";
 
-        os << "  All preconditions are enforced by signature matching and "
-              "compile-time assertions.\n\n";
+        os << "  Layout mismatches can be enforced with generated checks and "
+              "compile-time assertions; transport preconditions are reported "
+              "here and can be surfaced in CI.\n\n";
     }
 
     static std::string format_verdict(const detail::TypeResult& r,

@@ -248,9 +248,10 @@ function(typelayout_add_compat_pipeline)
             enable_testing()
         endif()
 
-        # Running the Phase 2 executable produces the compatibility report
+        # Running the Phase 2 executable produces the compatibility report.
         # A non-zero exit code (from TYPELAYOUT_CHECK_COMPAT) or
-        # compilation failure (from TYPELAYOUT_ASSERT_COMPAT) signals incompatibility
+        # compilation failure (from TYPELAYOUT_ASSERT_COMPAT) signals
+        # incompatibility.
         add_test(
             NAME ${_check_target}
             COMMAND ${_check_target}

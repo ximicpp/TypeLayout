@@ -12,15 +12,15 @@ Standard session (60 minutes including Q&A)
 
 C++ types routinely cross boundaries -- between processes, binaries, machines, and storage formats -- yet the language gives us little build-time proof that two targets agree on byte-level layout, or that those bytes are safe to transport at all. A type can be trivially copyable and still be unsafe to transport, and a type that looks harmless in source can still compile to a different representation on another platform.
 
-This talk presents a compile-time layout-signature technique built on C++26 reflection (P2996). If the compiler can enumerate fields, base classes, offsets, and bit-fields, it can derive a canonical signature that we compare during the build. That signature, together with a small set of explicit safety rules, answers two build-time questions: do two targets agree on the same byte-level representation, and does this type satisfy our stated preconditions for byte-level transport? We walk through one end-to-end workflow -- generate signatures on target platforms, compare them in a verification build, and wire the checks into CI -- and show three concrete outcomes: a fixed-width type that passes, a type whose layout matches but still contains unsafe pointers, and a type that diverges across platforms despite looking reasonable in source.
+This talk presents a compile-time layout-signature technique built on C++26 reflection (P2996). If the compiler can enumerate fields, base classes, offsets, and bit-fields, it can derive a canonical signature that we compare during the build to verify cross-target byte-level representation. That same machinery, together with a small set of explicit safety rules, also tells us whether a type satisfies our stated preconditions for byte-level transport. We walk through one end-to-end workflow -- generate signatures on target platforms, compare them in a verification build, and wire the checks into CI -- and show three concrete outcomes: a fixed-width type that passes, a type whose layout matches but still contains unsafe pointers, and a type that diverges across platforms despite looking reasonable in source.
 
 We also make the method's limits explicit: it proves layout agreement and checks stated transport-safety assumptions; it does not prove semantic compatibility. We cover practical limits around virtual inheritance, opaque types, and implementation-defined fields such as `long`, `wchar_t`, and `long double`.
 
 ## Key Takeaways
 
 - Learn what makes a C++ type acceptable for byte-level transport, and why `trivially_copyable` and `sizeof` checks are not enough.
-- See how C++26 reflection can construct a compile-time layout signature, and how that single representation supports both layout comparison and transport-safety analysis -- without an external IDL, generated serialization stubs, or runtime verification overhead.
-- Leave with a CI-friendly verification workflow: export signatures per platform, aggregate them in a verification build, and fail the build on mismatch.
+- See how C++26 reflection can construct a compile-time layout signature for verifying cross-target byte-level representation, and how that same machinery also supports transport-safety analysis -- without an external IDL, generated serialization stubs, or runtime verification overhead.
+- Leave with a CI-friendly verification workflow: export signatures per platform, aggregate them in a verification build, and fail the build on layout mismatches or violated transport preconditions.
 
 ## Outline
 
@@ -34,7 +34,7 @@ We also make the method's limits explicit: it proves layout agreement and checks
 
 - Using reflection to enumerate fields, bases, offsets, and bit-fields
 - Recursively flattening nested structs and base classes into a canonical compile-time representation with absolute offsets
-- What the signature encodes: architecture prefix, leaf types, sizes, alignments, absolute offsets, bit-field details, and pointer-like tokens -- the layout-relevant facts this method compares across platforms
+- What the signature encodes: architecture prefix plus the layout-relevant facts this method compares across platforms
 
 ### 3. What the signature tells us
 
@@ -53,7 +53,6 @@ We also make the method's limits explicit: it proves layout agreement and checks
 
 - What this method proves, and what it intentionally leaves out
 - Handling virtual inheritance, explicitly-registered opaque types, and implementation-defined fields
-- Guidelines for designing C++ types that survive cross-platform transport
 
 ## Reviewer Notes
 

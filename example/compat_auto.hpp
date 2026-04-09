@@ -11,7 +11,9 @@
 #include <boost/typelayout/tools/compat_check.hpp>
 #include <boost/typelayout/tools/detail/foreach.hpp>
 
-// Generates main() that prints a compatibility report.
+// Generates main() that prints a compatibility report and returns non-zero
+// when a compared type has a layout mismatch or fails exported
+// transport-precondition checks.
 
 #define TYPELAYOUT_DETAIL_ADD_PLATFORM(ns)                              \
     reporter.add_platform(                                              \
@@ -23,7 +25,7 @@
         TYPELAYOUT_DETAIL_FOR_EACH(TYPELAYOUT_DETAIL_ADD_PLATFORM,      \
                                    __VA_ARGS__)                         \
         reporter.print_report();                                        \
-        return 0;                                                       \
+        return reporter.all_types_transfer_safe() ? 0 : 1;              \
     }
 
 // static_assert that all types match across listed platforms.
