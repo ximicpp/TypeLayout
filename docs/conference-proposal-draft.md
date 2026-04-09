@@ -39,8 +39,8 @@ We also make the method's limits explicit: it proves layout agreement and checks
 ### 3. What the signature tells us
 
 - Layout agreement: comparing signatures across platforms
-- Transport-safety checks: combining the signature with a small set of safety rules
-- Three concrete examples: fixed-width safe type, pointer-containing type with matching layout, and platform-divergent type
+- Transport-safety checks: combining the signature with a small set of safety rules (pointer-like members, polymorphic types, explicitly-registered opaque types, implementation-defined fields)
+- Three concrete examples: a fixed-width type that passes, a pointer-containing type with matching layout, and a platform-divergent type
 
 ### 4. The workflow in practice
 
@@ -51,7 +51,7 @@ We also make the method's limits explicit: it proves layout agreement and checks
 ### 5. What the method cannot promise
 
 - What this method proves, and what it intentionally leaves out
-- Handling virtual inheritance, opaque types with explicit contracts, and implementation-defined fields
+- Handling virtual inheritance, explicitly-registered opaque types, and implementation-defined fields
 - Guidelines for designing C++ types that survive cross-platform transport
 
 ## Reviewer Notes
