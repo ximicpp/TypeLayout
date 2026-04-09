@@ -2,7 +2,7 @@
 
 ## Title
 
-**Can We Verify C++ Object Layouts Across Boundaries? Build-Time Layout and Transport Checks with C++26 Reflection**
+**When C++ Types Cross Boundaries: Build-Time Checks for Layout and Byte Transport**
 
 ## Format
 
@@ -10,13 +10,13 @@ Standard session (60 minutes including Q&A)
 
 ## Abstract
 
-C++ types routinely cross boundaries: across processes, machines, plugins, and storage. Teams reuse them for IPC, protocol headers, and mapped files, yet the language gives us little build-time proof that those bytes still describe the same layout, or are even safe to move as raw bytes. A type can be trivially copyable and still be unsafe to transport. A type can also look ordinary in source and still compile to a different layout on another platform or data model.
+C++ types stop being local implementation details the moment they cross a boundary: across processes, binaries, machines, and storage. The same structs often get reused in interfaces, files, protocol headers, and mapped data, yet the language gives us little build-time proof that those bytes still describe the same layout, or are even safe to move as raw bytes. A type can be trivially copyable and still be unsafe to transport. A type can also look ordinary in source and still compile to a different layout on another platform.
 
-This talk shows how P2996-style C++26 reflection, now landing in real toolchains, makes a new kind of build-time verification practical. If the compiler can enumerate fields, base classes, offsets, and bit-fields, it can describe a C++ type's object layout in a form checked during the build. That compile-time layout description, together with a small set of safety rules, answers two practical questions: do two targets produce the same layout, and is the type suitable for byte-level transport at all?
+This talk shows how P2996-style C++26 reflection, now landing in real toolchains, makes a new kind of build-time verification practical. If the compiler can enumerate fields, base classes, offsets, and bit-fields, it can describe a C++ type's layout in a form checked during the build. From that description, plus a small set of safety rules, we can answer two practical questions: do two targets produce the same layout, and is the type suitable for byte-level transport at all?
 
-The session is framed as an engineering workflow, not a reflection tour. Using real code, generated artifacts, and cross-platform examples, we will show the core check, how signatures are exported on target platforms, how a verification build aggregates them, and how CI can fail when layouts diverge or safety rules are violated. Attendees will see three concrete outcomes: a safe fixed-width type, a type whose layout matches but still contains unsafe pointers, and a type that diverges across platforms despite looking reasonable in source.
+The session focuses on one end-to-end workflow, not a reflection tour: generate signatures on target platforms, compare them in a verification build, and let CI fail when layouts diverge or safety rules are violated. We will use real code and three concrete examples: a safe fixed-width type, a type whose layout matches but still contains unsafe pointers, and a type that diverges across platforms despite looking reasonable in source. You do not need to work on networking or shared memory to run into this problem; any codebase that reuses ordinary structs across build, binary, or storage boundaries can benefit from the method.
 
-We will also make the method's boundaries explicit. It does not promise semantic compatibility; it checks byte-layout compatibility and the assumptions required for byte transport. We will cover practical limits around virtual inheritance, opaque types, and implementation-defined fields such as `long`, `wchar_t`, and `long double`. The goal is to leave attendees with a reusable build-time verification method for C++ types used across boundaries, not just an explanation of a language feature.
+We will also make the method's boundaries explicit. This method does not prove semantic compatibility. It checks byte-layout compatibility and the assumptions required for byte transport. We will cover practical limits around virtual inheritance, opaque types, and implementation-defined fields such as `long`, `wchar_t`, and `long double`.
 
 ## Key Takeaways
 
@@ -26,9 +26,9 @@ We will also make the method's boundaries explicit. It does not promise semantic
 
 ## Outline
 
-### 1. Where C++ types break across boundaries
+### 1. Where C++ types stop being local details
 
-- Why teams reuse C++ structs at process, machine, plugin, and storage boundaries
+- Why the same C++ structs end up at process, machine, plugin, and storage boundaries
 - The two recurring failure modes: transport-unsound bytes and cross-platform layout drift
 - Why existing checks catch only fragments of the real problem
 
@@ -36,15 +36,15 @@ We will also make the method's boundaries explicit. It does not promise semantic
 
 - Using reflection to enumerate fields, bases, offsets, and bit-fields
 - Flattening C++ object layouts into a compile-time signature with size, alignment, and offset information
-- Why one layout description, combined with a small rule set, supports multiple build-time checks
+- Why one layout description can drive both checks
 
 ### 3. One representation, two answers
 
 - Layout equality as a direct signature comparison
-- Transport safety as a property derived from the layout description together with a small safety rule set
+- How transport safety is derived from that description and a small safety rule set
 - Three concrete examples: fixed-width safe type, pointer-containing type with matching layout, and platform-divergent type
 
-### 4. Turning the checks into a CI gate
+### 4. One end-to-end CI workflow
 
 - Export signatures on each target platform
 - Aggregate generated headers in a verification build
