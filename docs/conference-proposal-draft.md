@@ -39,7 +39,8 @@ We also make the method's limits explicit: it proves layout agreement and checks
 ### 3. What the signature tells us
 
 - Layout agreement: comparing signatures across platforms
-- Transport-safety checks: combining the signature with a small set of safety rules that reject pointer-like and polymorphic cases, require explicit contracts for opaque types, and use cross-platform comparison to expose implementation-defined differences
+- Transport-safety checks: combining the signature with explicit rules for pointer-like, polymorphic, and opaque cases
+- Cross-platform comparison: using signatures to expose implementation-defined differences
 - Three concrete examples: a fixed-width type that passes, a pointer-containing type with matching layout, and a platform-divergent type
 
 ### 4. The workflow in practice
