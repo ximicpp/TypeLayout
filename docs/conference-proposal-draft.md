@@ -2,7 +2,7 @@
 
 ## Title
 
-**When C++ Types Cross Boundaries: Checking Layout and Byte Transport at Build Time**
+**Can I Safely memcpy This Type? Compile-Time Layout Verification with C++26 Reflection**
 
 ## Format
 
@@ -10,11 +10,11 @@ Standard session (60 minutes including Q&A)
 
 ## Abstract
 
-A C++ type stops being just a local implementation detail when it crosses a boundary: processes, binaries, machines, or storage. The same struct can become an IPC message, a protocol header, a mapped file record, or another binary contract. At that point, C++ gives us little build-time proof that two targets will lay out those bytes the same way, or that moving them as raw bytes is even sound. A type can be trivially copyable and still be unsafe to transport. It can also look harmless in source and still compile differently on another platform.
+A C++ type stops being just a local implementation detail when it crosses a boundary: processes, binaries, machines, or storage. The same struct can become an IPC message, a protocol header, a mapped file record, or another binary contract. At that point, C++ gives us little build-time proof that two targets agree on layout, or that moving those bytes around is even sound. A type can be trivially copyable and still be unsafe to transport. It can also look harmless in source and still compile differently on another platform.
 
-P2996-style C++26 reflection is beginning to land in real toolchains, making a new kind of build-time verification practical. If the compiler can enumerate fields, base classes, offsets, and bit-fields, it can emit a layout signature we can compare during the build. That signature, together with a few safety rules and explicit contracts for opaque types, lets us ask two questions: do two targets agree on the same captured layout, and is the type suitable for byte-level transport at all?
+This talk presents compile-time layout signatures built on P2996-style C++26 reflection, which is beginning to land in real toolchains. If the compiler can enumerate fields, base classes, offsets, and bit-fields, it can emit a signature we compare during the build. That signature, together with a small safety rule set and explicit contracts for opaque types, lets us ask two questions: do two targets agree on the same captured layout, and is the type suitable for byte-level transport at all?
 
-This session follows one end-to-end workflow rather than touring reflection features: generate signatures on target platforms, compare them in a verification build, and surface results in CI with `static_assert`, reporting, or a small wrapper around the generated checks. We will look at three concrete outcomes: a safe fixed-width type, a type whose signature matches but still contains unsafe pointers, and a type that diverges across platforms despite looking reasonable in source. The intended takeaway is a reusable method for codebases that reuse C++ structs across process, binary, or storage boundaries.
+This session follows one end-to-end workflow rather than touring reflection features: generate signatures on target platforms, compare them in a verification build, and wire the generated checks into CI. We will look at three concrete outcomes: a safe fixed-width type, a type whose signature matches but still contains unsafe pointers, and a type that diverges across platforms despite looking reasonable in source. The takeaway is a reusable method for codebases that reuse C++ structs across process, binary, or storage boundaries.
 
 We will also make the method's limits explicit. It does not prove semantic compatibility. It tells us whether two targets agree on the captured layout and whether byte transport meets a clear set of assumptions. We will cover practical limits around virtual inheritance, opaque types that require explicit contracts, and implementation-defined fields such as `long`, `wchar_t`, and `long double`.
 
@@ -22,7 +22,7 @@ We will also make the method's limits explicit. It does not prove semantic compa
 
 - Learn when C++ types are genuinely suitable for byte-level transport, and why `trivially_copyable` and `sizeof` checks are not enough.
 - See how C++26 reflection can construct a compile-time layout signature, and how that signature plus a small safety rule set supports both layout comparison and transport-safety analysis.
-- Leave with a CI-friendly verification workflow: export signatures on target platforms, aggregate generated headers, and surface mismatches with `static_assert`, reporting, or a thin wrapper around the generated checks.
+- Leave with a CI-friendly verification workflow: export signatures on target platforms, aggregate generated headers, and wire the generated checks into CI.
 
 ## Outline
 
@@ -36,7 +36,7 @@ We will also make the method's limits explicit. It does not prove semantic compa
 
 - Using reflection to enumerate fields, bases, offsets, and bit-fields
 - Flattening C++ object layouts into a compile-time signature with size, alignment, and offset information
-- Why one layout signature, combined with a small safety rule set and explicit opaque-type contracts, can drive both checks
+- Why one layout signature can drive both checks, with a small safety rule set and explicit opaque-type contracts where needed
 
 ### 3. From one description to two checks
 
@@ -48,7 +48,7 @@ We will also make the method's limits explicit. It does not prove semantic compa
 
 - Export signatures on each target platform
 - Aggregate generated headers in a verification build
-- Use `static_assert`, reporting, or a thin wrapper around the generated checks to surface mismatches in CI when representations diverge or preconditions are violated
+- Use generated checks, `static_assert`, and reporting to surface mismatches in CI when representations diverge or preconditions are violated
 
 ### 5. What the method cannot promise
 
