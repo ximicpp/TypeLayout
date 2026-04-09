@@ -90,7 +90,7 @@ Two sub-questions: (A) is the byte layout identical on both platforms?
 (B) can the bytes be safely transported? We answer both from a single
 mechanism -- the Layout Signature.
 
-### 2. Layout Signature -- the Core Mechanism (17 min)
+### 2. Layout Signature -- the Core Mechanism (20 min, includes Demo A)
 
 One mechanism, two answers.
 
@@ -120,7 +120,13 @@ Key elements encoded in the signature:
 - Field offsets, sizes, and alignments
 - Pointer-like tokens (ptr, fnptr, ref, rref, memptr, vptr)
 
-**2.4 Code demo**: `get_layout_signature<PacketHeader>()`
+**2.4 Demo A -- signature generation** (5 min)
+
+Live: define a struct, call `get_layout_signature<T>()`, inspect the
+output string.  Show three cases:
+- Safe struct (fixed-width fields only) -- clean signature
+- Struct with pointer -- `ptr[` token appears in signature
+- Polymorphic class -- `vptr` token appears in signature
 
 **2.5 Two properties fall out of this design**
 - Signature equality = layout match (for cross-platform comparison)
@@ -178,7 +184,7 @@ Both checks are compile-time:
 - Signature match: `static_assert(local_sig == remote_sig)` in a CI build
   that `#include`s exported `.sig.hpp` from each target platform
 
-### 4. Cross-Platform Demo (15 min)
+### 4. Demo B -- Cross-Platform Comparison (10 min)
 
 **4.1 Workflow: how to use it in practice**
 - Phase 1: compile on each target platform, export signatures to `.sig.hpp`
@@ -194,18 +200,14 @@ Both checks are compile-time:
 - Struct with only fixed-width types: identical everywhere
 - Even same data model (LP64) can differ in representation
 
-**4.4 CompatReporter output**
-- Compatibility matrix: safe / layout mismatch / not byte-copy safe
-- Diff annotations pinpoint where signatures diverge
-
-**4.5 Practical recommendations**
+**4.4 Practical recommendations**
 - Avoid platform-dependent types (`long`, `long double`, `wchar_t`);
   prefer fixed-width alternatives (`int32_t`, `double`)
 - For types whose internal layout should not enter the signature (e.g.,
   `offset_ptr`-based containers), use opaque registration macros
 - Run signature export as part of CI
 
-### 5. Summary + Q&A (10 min)
+### 5. Summary + Q&A (12 min)
 
 **5.1 Recap**
 
@@ -246,7 +248,8 @@ Two applications (what do I get from it?)
   -> The answer: both satisfied = safe to memcpy
 
 Proof (does it actually work?)
-  -> Live cross-platform demo on 2 platforms
+  -> Demo A: live signature generation (safe, pointer, polymorphic)
+  -> Demo B: live cross-platform comparison on 2 platforms
   -> Practical workflow and recommendations
 
 Takeaway (what do I do next?)
