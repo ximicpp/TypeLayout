@@ -46,7 +46,7 @@ We also make the method's limits explicit: it proves layout agreement and checks
 
 - Export signatures on each target platform
 - Aggregate generated headers in a verification build
-- Use generated checks and `static_assert` to catch layout mismatches, and use reporting or exported safety flags to surface violated transport preconditions in CI
+- Use generated checks, `static_assert`, and CI reporting to surface layout mismatches or violated transport preconditions
 
 ### 5. What the method cannot promise
 
