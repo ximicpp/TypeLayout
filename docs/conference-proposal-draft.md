@@ -19,7 +19,7 @@ We will also make the method's limits explicit: it proves layout agreement and t
 ## Key Takeaways
 
 - Learn when C++ types are genuinely suitable for byte-level transport, and why `trivially_copyable` and `sizeof` checks are not enough.
-- See how C++26 reflection can construct a compile-time layout signature, and how that one representation supports both layout comparison and transport-safety analysis -- no IDL, no code generation, no runtime overhead.
+- See how C++26 reflection can construct a compile-time layout signature, and how that one representation supports both layout comparison and transport-safety analysis -- no external IDL, no serialization stubs, no runtime overhead.
 - Leave with a CI-friendly verification workflow: export signatures per platform, aggregate them, and fail builds on mismatch.
 
 ## Outline
