@@ -34,12 +34,12 @@ We also make the method's limits explicit: it proves layout agreement and checks
 
 - Using reflection to enumerate fields, bases, offsets, and bit-fields
 - Recursively flattening nested structs and base classes into a canonical compile-time representation with absolute offsets
-- What the signature encodes: architecture prefix, leaf types, sizes, alignments, absolute offsets, bit-field details, and pointer-like tokens -- the ABI-relevant facts this method compares across platforms
+- What the signature encodes: architecture prefix, leaf types, sizes, alignments, absolute offsets, bit-field details, and pointer-like tokens -- the layout-relevant facts this method compares across platforms
 
 ### 3. What the signature tells us
 
 - Layout agreement: comparing signatures across platforms
-- Transport-safety checks: combining the signature with a small set of safety rules that reject pointer-like and polymorphic cases and require explicit handling for opaque or implementation-defined cases
+- Transport-safety checks: combining the signature with a small set of safety rules that reject pointer-like and polymorphic cases, require explicit contracts for opaque types, and surface implementation-defined cases for comparison
 - Three concrete examples: a fixed-width type that passes, a pointer-containing type with matching layout, and a platform-divergent type
 
 ### 4. The workflow in practice
