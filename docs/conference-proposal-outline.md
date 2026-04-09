@@ -22,7 +22,7 @@ string.
 From this one representation, two questions are answered at build time: (1) do the
 byte layouts match across platforms? -- just compare signature strings; and (2) is
 the type safe for byte-level transport? -- scan the signature for pointer tokens.
-The approach works directly on native C++ types -- no IDL, no code generation, no
+The approach works directly on native C++ types -- no external IDL, no serialization stubs, no
 runtime overhead.
 
 We will walk through how Layout Signatures are constructed using P2996 reflection
@@ -169,9 +169,9 @@ What makes a type NOT byte-copy safe:
 - Polymorphic types: hidden vptr is an absolute address
 
 All of these are pointer-like -- and all are encoded as tokens in the
-Layout Signature. Safety checking is just scanning the signature for
-pointer tokens (ptr, fnptr, ref, rref, memptr, vptr). No separate
-analysis pass needed -- the signature already contains the answer.
+Layout Signature. Transport safety is determined by combining the
+signature with a small safety rule set (pointer token scan, trivially
+copyable fast path, opaque contracts, recursive member/base checks).
 
 **3.3 The answer**
 
@@ -216,7 +216,7 @@ One core mechanism -- Layout Signature -- answers both questions:
 | Application | How |
 |-------------|-----|
 | Cross-platform layout comparison | Signature equality (`sigA == sigB`) |
-| Byte-copy safety checking | Pointer token scan in the signature |
+| Byte-copy safety checking | Signature + small safety rule set |
 
 Both satisfied -> safe to memcpy across platforms.
 
@@ -224,7 +224,7 @@ Both satisfied -> safe to memcpy across platforms.
 - C++26 reflection enables compile-time layout analysis that was previously impossible
 - `trivially_copyable` is not enough -- pointer detection and cross-platform comparison are essential
 - One mechanism (Layout Signature), two applications, zero runtime overhead
-- Works on native C++ types -- no IDL, no code generation
+- Works on native C++ types -- no external IDL, no serialization stubs
 
 **5.3 Q&A**
 
