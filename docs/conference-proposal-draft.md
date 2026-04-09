@@ -10,18 +10,18 @@ Standard session (60 minutes including Q&A)
 
 ## Abstract
 
-A C++ type stops being just a local implementation detail the moment it crosses a boundary: across processes, binaries, machines, and storage. The same struct can become an IPC message, a protocol header, a mapped file record, or some other binary contract. At that point, C++ gives us little build-time proof that the bytes still have the same byte-level representation, or that moving them as raw bytes is even sound. A type can be trivially copyable and still be unsafe to transport. It can also look harmless in source and still compile to a different representation on another platform.
+A C++ type stops being just a local implementation detail when it crosses a boundary: processes, binaries, machines, or storage. The same struct can become an IPC message, a protocol header, a mapped file record, or another binary contract. At that point, C++ gives us little build-time proof that two targets will lay out those bytes the same way, or that moving them as raw bytes is even sound. A type can be trivially copyable and still be unsafe to transport. It can also look harmless in source and still compile differently on another platform.
 
-P2996-style C++26 reflection is beginning to land in real toolchains, making a new kind of build-time verification practical. If the compiler can enumerate fields, base classes, offsets, and bit-fields, it can describe a type's byte-level representation in a form we can compare during the build. From that description, plus a few safety rules and explicit contracts for opaque types, we can answer two questions: do two targets produce the same byte-level representation, and is the type suitable for byte-level transport at all?
+P2996-style C++26 reflection is beginning to land in real toolchains, making a new kind of build-time verification practical. If the compiler can enumerate fields, base classes, offsets, and bit-fields, it can emit a layout signature we can compare during the build. That signature, together with a few safety rules and explicit contracts for opaque types, lets us ask two questions: do two targets agree on the same captured layout, and is the type suitable for byte-level transport at all?
 
-This session follows one end-to-end workflow rather than touring reflection features: generate signatures on target platforms, compare them in a verification build, and feed the results into CI with `static_assert`, reporting, or a small wrapper around the generated checks. We will look at three concrete outcomes: a safe fixed-width type, a type whose byte-level representation matches but still contains unsafe pointers, and a type that diverges across platforms despite looking reasonable in source. The intended takeaway is a reusable method for codebases that reuse C++ structs across process, binary, or storage boundaries.
+This session follows one end-to-end workflow rather than touring reflection features: generate signatures on target platforms, compare them in a verification build, and surface results in CI with `static_assert`, reporting, or a small wrapper around the generated checks. We will look at three concrete outcomes: a safe fixed-width type, a type whose signature matches but still contains unsafe pointers, and a type that diverges across platforms despite looking reasonable in source. The intended takeaway is a reusable method for codebases that reuse C++ structs across process, binary, or storage boundaries.
 
-We will also make the method's limits explicit. It does not prove semantic compatibility. It tells us whether byte-level representations match and whether byte transport satisfies a clear set of assumptions. We will cover practical limits around virtual inheritance, opaque types that require explicit contracts, and implementation-defined fields such as `long`, `wchar_t`, and `long double`.
+We will also make the method's limits explicit. It does not prove semantic compatibility. It tells us whether two targets agree on the captured layout and whether byte transport meets a clear set of assumptions. We will cover practical limits around virtual inheritance, opaque types that require explicit contracts, and implementation-defined fields such as `long`, `wchar_t`, and `long double`.
 
 ## Key Takeaways
 
 - Learn when C++ types are genuinely suitable for byte-level transport, and why `trivially_copyable` and `sizeof` checks are not enough.
-- See how C++26 reflection can construct a compile-time layout signature, and how that signature plus a small safety rule set supports both byte-level representation comparison and transport-safety analysis.
+- See how C++26 reflection can construct a compile-time layout signature, and how that signature plus a small safety rule set supports both layout comparison and transport-safety analysis.
 - Leave with a CI-friendly verification workflow: export signatures on target platforms, aggregate generated headers, and surface mismatches with `static_assert`, reporting, or a thin wrapper around the generated checks.
 
 ## Outline
@@ -35,12 +35,12 @@ We will also make the method's limits explicit. It does not prove semantic compa
 ### 2. What the compiler already knows
 
 - Using reflection to enumerate fields, bases, offsets, and bit-fields
-- Flattening C++ object representations into a compile-time signature with size, alignment, and offset information
-- Why one representation description, combined with a small safety rule set and explicit opaque-type contracts, can drive both checks
+- Flattening C++ object layouts into a compile-time signature with size, alignment, and offset information
+- Why one layout signature, combined with a small safety rule set and explicit opaque-type contracts, can drive both checks
 
 ### 3. From one description to two checks
 
-- Byte-level representation equality as a direct signature comparison
+- Layout agreement as a direct signature comparison
 - How transport safety is derived from that description and a small safety rule set
 - Three concrete examples: fixed-width safe type, pointer-containing type with matching representation, and platform-divergent type
 
