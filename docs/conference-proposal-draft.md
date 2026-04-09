@@ -10,19 +10,17 @@ Standard session (60 minutes including Q&A)
 
 ## Abstract
 
-A C++ type stops being just a local implementation detail when it crosses a boundary: processes, binaries, machines, or storage. The same struct can become an IPC message, a protocol header, a mapped file record, or another binary contract. At that point, C++ gives us little build-time proof that two targets agree on layout, or that moving those bytes around is even sound. A type can be trivially copyable and still be unsafe to transport. It can also look harmless in source and still compile differently on another platform.
+C++ types routinely cross boundaries -- processes, machines, plugins, storage -- yet the language gives us little build-time proof that two targets agree on layout, or that moving those bytes is even sound. A type can be trivially copyable and still unsafe to transport; it can look harmless in source and compile to a different layout on another platform.
 
-This talk presents compile-time layout signatures built on P2996-style C++26 reflection, which is beginning to land in real toolchains. If the compiler can enumerate fields, base classes, offsets, and bit-fields, it can emit a signature we compare during the build. That signature, together with a small safety rule set and explicit contracts for opaque types, lets us ask two questions: do two targets agree on the same captured layout, and is the type suitable for byte-level transport at all?
+This talk presents compile-time layout signatures built on C++26 reflection (P2996). If the compiler can enumerate fields, base classes, offsets, and bit-fields, it can emit a signature we compare during the build. That signature, together with a small safety rule set, answers two questions at build time: do two targets agree on the same layout, and is the type suitable for byte-level transport? We follow one end-to-end workflow -- generate signatures on target platforms, compare them in a verification build, and wire the checks into CI -- with three concrete outcomes: a safe fixed-width type, a type whose signature matches but still contains unsafe pointers, and a type that diverges across platforms despite looking reasonable in source.
 
-This session follows one end-to-end workflow rather than touring reflection features: generate signatures on target platforms, compare them in a verification build, and wire the generated checks into CI. We will look at three concrete outcomes: a safe fixed-width type, a type whose signature matches but still contains unsafe pointers, and a type that diverges across platforms despite looking reasonable in source. The takeaway is a reusable method for codebases that reuse C++ structs across process, binary, or storage boundaries.
-
-We will also make the method's limits explicit. It does not prove semantic compatibility. It tells us whether two targets agree on the captured layout and whether byte transport meets a clear set of assumptions. We will cover practical limits around virtual inheritance, opaque types that require explicit contracts, and implementation-defined fields such as `long`, `wchar_t`, and `long double`.
+We will also make the method's limits explicit: it proves layout agreement and transport-safety assumptions, not semantic compatibility. We cover practical limits around virtual inheritance, opaque types, and implementation-defined fields such as `long`, `wchar_t`, and `long double`.
 
 ## Key Takeaways
 
 - Learn when C++ types are genuinely suitable for byte-level transport, and why `trivially_copyable` and `sizeof` checks are not enough.
-- See how C++26 reflection can construct a compile-time layout signature, and how that signature plus a small safety rule set supports both layout comparison and transport-safety analysis.
-- Leave with a CI-friendly verification workflow: export signatures on target platforms, aggregate generated headers, and wire the generated checks into CI.
+- See how C++26 reflection can construct a compile-time layout signature, and how that one representation supports both layout comparison and transport-safety analysis -- no IDL, no code generation, no runtime overhead.
+- Leave with a CI-friendly verification workflow: export signatures per platform, aggregate them, and fail builds on mismatch.
 
 ## Outline
 
@@ -30,19 +28,19 @@ We will also make the method's limits explicit. It does not prove semantic compa
 
 - Why the same C++ structs end up at process, binary, machine, and storage boundaries
 - The two recurring failure modes: transport-unsound bytes and cross-platform representation drift
-- Why existing checks catch only fragments of the real problem
+- Why existing checks -- `trivially_copyable`, `sizeof`, even IDL-based schemes -- each catch only a fragment of the real problem
 
-### 2. What the compiler already knows
+### 2. How a layout signature is built
 
 - Using reflection to enumerate fields, bases, offsets, and bit-fields
-- Flattening C++ object layouts into a compile-time signature with size, alignment, and offset information
-- Why one layout signature can drive both checks, with a small safety rule set and explicit opaque-type contracts where needed
+- Recursively flattening nested structs and base classes into one compile-time string with absolute offsets
+- What the signature encodes: leaf types, sizes, alignments, offsets, and pointer-like tokens
 
-### 3. From one description to two checks
+### 3. What the signature tells us
 
-- Layout agreement as a direct signature comparison
-- How transport safety is derived from that description and a small safety rule set
-- Three concrete examples: fixed-width safe type, pointer-containing type with matching representation, and platform-divergent type
+- Layout agreement: comparing signatures across platforms
+- Transport safety: scanning the signature for pointer tokens
+- Three concrete examples: fixed-width safe type, pointer-containing type with matching layout, and platform-divergent type
 
 ### 4. The workflow in practice
 
@@ -62,3 +60,4 @@ We will also make the method's limits explicit. It does not prove semantic compa
 - The talk includes real code, generated artifacts, and multi-target verification examples rather than slides that stay at the language-feature level; some example artifacts are simulated where a target toolchain is not yet part of the live demo path.
 - The material is intended for C++ teams that reuse structs at process, binary, machine, or storage boundaries; networking and shared-memory examples are only one slice of the use cases.
 - The core workflow is backed by reflection-capable implementations that are available today in limited toolchains, but the talk is framed around the method and engineering workflow, not around claiming uniform toolchain coverage or launching a product or library.
+- Live demos have pre-recorded fallbacks; cross-platform artifacts are pre-generated where a second target is not available on stage.
