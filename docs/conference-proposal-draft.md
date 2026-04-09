@@ -39,14 +39,14 @@ We also make the method's limits explicit: it proves layout agreement and checks
 ### 3. What the signature tells us
 
 - Layout agreement: comparing signatures across platforms
-- Transport-safety checks: combining the signature with a small set of safety rules that reject pointer-like and polymorphic cases, require explicit contracts for opaque types, and surface implementation-defined cases for comparison
+- Transport-safety checks: combining the signature with a small set of safety rules that reject pointer-like and polymorphic cases, require explicit contracts for opaque types, and use cross-platform comparison to expose implementation-defined differences
 - Three concrete examples: a fixed-width type that passes, a pointer-containing type with matching layout, and a platform-divergent type
 
 ### 4. The workflow in practice
 
 - Export signatures on each target platform
 - Aggregate generated headers in a verification build
-- Use generated checks, `static_assert`, and reporting to surface mismatches in CI when representations diverge or preconditions are violated
+- Use generated checks and `static_assert` to catch layout mismatches, and use reporting or exported safety flags to surface violated transport preconditions in CI
 
 ### 5. What the method cannot promise
 
@@ -57,6 +57,6 @@ We also make the method's limits explicit: it proves layout agreement and checks
 ## Reviewer Notes
 
 - This is not a general reflection overview. It is a concrete C++26 reflection application aimed at a real systems problem: checking build-time byte-level representation and transport properties of C++ types used across boundaries.
-- The talk includes real code, generated artifacts, and multi-target verification examples rather than staying at the language-feature level.
+- The talk includes real code, generated artifacts, and cross-target verification examples rather than staying at the language-feature level; where a target toolchain is not part of the live reflection path, the comparison artifact is pre-generated or simulated explicitly.
 - The material is intended for C++ teams that reuse structs at process, binary, machine, or storage boundaries; networking and shared-memory examples are only one slice of the use cases.
-- The core workflow is backed by reflection-capable implementations that are available today in limited toolchains, but the talk is framed around the method and engineering workflow, not around claiming uniform toolchain coverage or launching a product or library.
+- The core workflow is backed by reflection-capable implementations available today, while the cross-target story combines live-capable paths with explicitly pre-generated artifacts where toolchain coverage is still incomplete. The talk is framed around the method and engineering workflow, not around claiming uniform toolchain coverage or launching a product or library.
