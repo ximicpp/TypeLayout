@@ -10,7 +10,7 @@ Standard session (60 minutes including Q&A)
 
 ## Abstract
 
-C++ types routinely cross boundaries -- processes, machines, plugins, storage -- yet the language gives us little build-time proof that two targets agree on layout, or that moving those bytes is even sound. A type can be trivially copyable and still unsafe to transport; it can look harmless in source and compile to a different layout on another platform.
+C++ types routinely cross boundaries -- processes, machines, binaries, storage -- yet the language gives us little build-time proof that two targets agree on layout, or that moving those bytes is even sound. A type can be trivially copyable and still unsafe to transport; it can look harmless in source and compile to a different layout on another platform.
 
 This talk presents compile-time layout signatures built on C++26 reflection (P2996). If the compiler can enumerate fields, base classes, offsets, and bit-fields, it can emit a signature we compare during the build. That signature, together with a small safety rule set, answers two questions at build time: do two targets agree on the same layout, and is the type suitable for byte-level transport? We follow one end-to-end workflow -- generate signatures on target platforms, compare them in a verification build, and wire the checks into CI -- with three concrete outcomes: a safe fixed-width type, a type whose signature matches but still contains unsafe pointers, and a type that diverges across platforms despite looking reasonable in source.
 
@@ -39,7 +39,7 @@ We will also make the method's limits explicit: it proves layout agreement and t
 ### 3. What the signature tells us
 
 - Layout agreement: comparing signatures across platforms
-- Transport safety: scanning the signature for pointer tokens
+- Transport safety: combining the signature with a small safety rule set
 - Three concrete examples: fixed-width safe type, pointer-containing type with matching layout, and platform-divergent type
 
 ### 4. The workflow in practice
