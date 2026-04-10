@@ -35,7 +35,7 @@ We also make the method's limits explicit: it proves layout agreement and checks
 - Using reflection to enumerate fields, bases, offsets, and bit-fields
 - Recursively flattening nested structs and base classes into a canonical compile-time representation with absolute offsets
 - What the signature encodes: architecture prefix, leaf types with canonical names, sizes, alignments, offsets, and pointer-like tokens (e.g., `[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:f64[s:8,a:8]}`)
-- Edge cases: bit-field canonicalization, empty bases, arrays, and byte-array collapse
+- Edge cases such as bit-fields, arrays, and empty bases
 
 ### 3. What the signature tells us
 
@@ -46,7 +46,7 @@ We also make the method's limits explicit: it proves layout agreement and checks
 
 ### 4. The workflow in practice
 
-- Each target platform compiles a signature-export translation unit that writes per-type `.sig.hpp` headers (one constexpr string per type)
+- Each target platform exports per-type `.sig.hpp` signature headers at build time
 - A verification build on any single platform `#include`s all exported headers and runs `static_assert` on signature equality
 - CI integration: fail the build when representations diverge or transport-safety preconditions are violated; show reporter output that pinpoints which types and which fields differ
 - Incremental adoption: start with a handful of boundary types, expand coverage as the team gains confidence
@@ -59,6 +59,6 @@ We also make the method's limits explicit: it proves layout agreement and checks
 ## Reviewer Notes
 
 - This is not a general reflection overview. It is a concrete C++26 reflection application aimed at a real systems problem: checking build-time byte-level representation and transport properties of C++ types used across boundaries.
-- The talk includes real code, generated artifacts, and cross-target verification examples rather than staying at the language-feature level; where a target toolchain is not part of the live reflection path, the comparison artifact is pre-generated or simulated explicitly.
+- The talk includes real code, generated artifacts, and cross-target verification examples rather than staying at the language-feature level.
 - The material is intended for C++ teams that reuse structs at process, binary, machine, or storage boundaries; networking and shared-memory examples are only one slice of the use cases.
-- The core workflow is backed by reflection-capable implementations available today, while the cross-target story combines live-capable paths with explicitly pre-generated artifacts where toolchain coverage is still incomplete. The talk is framed around the method and engineering workflow, not around claiming uniform toolchain coverage or launching a product or library.
+- The core workflow is backed by reflection-capable implementations available today; cross-platform artifacts are pre-generated where a second target is not part of the live path. The talk is framed around the method and engineering workflow, not around claiming uniform toolchain coverage.
