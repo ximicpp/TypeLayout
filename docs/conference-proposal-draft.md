@@ -46,7 +46,7 @@ We also make the method's limits explicit: it proves layout agreement and checks
 
 ### 4. The workflow in practice
 
-- Each target platform exports per-type `.sig.hpp` signature headers at build time
+- Each target platform exports `.sig.hpp` headers for a selected set of boundary types
 - A verification build on any single platform `#include`s all exported headers and runs `static_assert` on signature equality
 - CI integration: fail the build when representations diverge or transport-safety preconditions are violated; show reporter output that pinpoints which types and which fields differ
 - Incremental adoption: start with a handful of boundary types, expand coverage as the team gains confidence
