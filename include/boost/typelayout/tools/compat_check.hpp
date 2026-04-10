@@ -64,6 +64,65 @@ inline const char* safety_reason(SafetyLevel level) noexcept {
     return "";
 }
 
+/// A parsed field from a signature's {...} member list.
+struct SigField {
+    std::string_view full;     // e.g., "@0:u32[s:4,a:4]"
+    std::string_view offset;   // e.g., "0", "8", "4.3"
+    std::string_view type_sig; // e.g., "u32[s:4,a:4]"
+};
+
+/// Parse a single "@OFFSET:TYPE_SIG" segment into a SigField.
+inline SigField make_sig_field(std::string_view seg) noexcept {
+    SigField f{seg, {}, {}};
+    if (!seg.empty() && seg[0] == '@') {
+        for (std::size_t j = 1; j < seg.size(); ++j) {
+            if (seg[j] == ':') {
+                f.offset = seg.substr(1, j - 1);
+                f.type_sig = seg.substr(j + 1);
+                break;
+            }
+        }
+    }
+    return f;
+}
+
+/// Extract signature header (everything before the first '{').
+inline std::string_view sig_header(std::string_view sig) noexcept {
+    auto brace = sig.find('{');
+    return (brace == std::string_view::npos) ? sig : sig.substr(0, brace);
+}
+
+/// Parse the member list from inside {...} into individual field entries.
+/// Uses bracket-depth-aware comma splitting to handle nested signatures.
+inline std::vector<SigField> parse_sig_fields(std::string_view sig) {
+    auto open = sig.find('{');
+    if (open == std::string_view::npos) return {};
+    auto close = sig.rfind('}');
+    if (close == std::string_view::npos || close <= open) return {};
+
+    std::string_view content = sig.substr(open + 1, close - open - 1);
+    if (content.empty()) return {};
+
+    std::vector<SigField> fields;
+    int depth = 0;
+    std::size_t start = 0;
+    for (std::size_t i = 0; i < content.size(); ++i) {
+        char c = content[i];
+        if (c == '[' || c == '{' || c == '<' || c == '(') ++depth;
+        else if (c == ']' || c == '}' || c == '>' || c == ')') {
+            if (depth > 0) --depth;
+        }
+        else if (c == ',' && depth == 0) {
+            fields.push_back(make_sig_field(content.substr(start, i - start)));
+            start = i + 1;
+        }
+    }
+    if (start < content.size())
+        fields.push_back(make_sig_field(content.substr(start)));
+
+    return fields;
+}
+
 /// Result of comparing one type across platforms.
 struct TypeResult {
     std::string name;
@@ -309,6 +368,7 @@ private:
                             std::string ann = format_diff(ref_sig, r.layout_sigs[i], prefix_w);
                             if (!ann.empty())
                                 os << ann << "\n";
+                            format_field_diff(os, ref_sig, r.layout_sigs[i]);
                         }
                     }
                 } else {
@@ -404,6 +464,53 @@ private:
             arrow += " (second string ends here)";
         }
         return arrow;
+    }
+
+    static void format_field_diff(std::ostream& os,
+                                  const std::string& ref_sig,
+                                  const std::string& other_sig) {
+        auto ref_fields = detail::parse_sig_fields(ref_sig);
+        auto oth_fields = detail::parse_sig_fields(other_sig);
+
+        if (ref_fields.empty() && oth_fields.empty()) return;
+
+        std::size_t max_n = std::max(ref_fields.size(), oth_fields.size());
+        std::size_t diff_count = 0;
+        for (std::size_t i = 0; i < max_n; ++i) {
+            bool match = (i < ref_fields.size() && i < oth_fields.size() &&
+                          ref_fields[i].full == oth_fields[i].full);
+            if (!match) ++diff_count;
+        }
+        if (diff_count == 0) return;
+
+        auto ref_hdr = detail::sig_header(ref_sig);
+        auto oth_hdr = detail::sig_header(other_sig);
+        bool hdr_diff = (ref_hdr != oth_hdr);
+
+        os << "    Field diff: " << diff_count << " of "
+           << max_n << " field(s) differ";
+        if (hdr_diff) os << "; header differs";
+        os << "\n";
+
+        if (hdr_diff) {
+            os << "      header: " << ref_hdr << "\n"
+               << "          vs: " << oth_hdr << "\n";
+        }
+        for (std::size_t i = 0; i < max_n; ++i) {
+            if (i < ref_fields.size() && i < oth_fields.size()) {
+                if (ref_fields[i].full != oth_fields[i].full) {
+                    os << "      #" << (i + 1) << ": "
+                       << ref_fields[i].full << " vs "
+                       << oth_fields[i].full << "\n";
+                }
+            } else if (i < ref_fields.size()) {
+                os << "      #" << (i + 1) << ": "
+                   << ref_fields[i].full << " (only in reference)\n";
+            } else {
+                os << "      #" << (i + 1) << ": "
+                   << oth_fields[i].full << " (only in other)\n";
+            }
+        }
     }
 
     template <typename TIter, typename PIter>
