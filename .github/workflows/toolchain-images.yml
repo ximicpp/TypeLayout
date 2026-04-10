@@ -1,0 +1,103 @@
+name: Toolchain Images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/docker/Dockerfile.gcc16
+      - .github/docker/Dockerfile.p2996
+      - .github/workflows/toolchain-images.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAMESPACE: ximicpp
+
+jobs:
+  build_gcc16:
+    name: Publish GCC16 Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute GCC16 image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/typelayout-gcc16
+          tags: |
+            type=raw,value=sha-${{ github.sha }}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push GCC16 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .github/docker/Dockerfile.gcc16
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Record published GCC16 refs
+        run: |
+          {
+            echo "Published image refs:"
+            echo "- ghcr.io/${IMAGE_NAMESPACE}/typelayout-gcc16:sha-${GITHUB_SHA}"
+            if [ "${GITHUB_REF_NAME}" = "main" ]; then
+              echo "- ghcr.io/${IMAGE_NAMESPACE}/typelayout-gcc16:latest"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build_p2996:
+    name: Publish P2996 Clang Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute P2996 image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/typelayout-p2996
+          tags: |
+            type=raw,value=sha-${{ github.sha }}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push P2996 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .github/docker/Dockerfile.p2996
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Record published P2996 refs
+        run: |
+          {
+            echo "Published image refs:"
+            echo "- ghcr.io/${IMAGE_NAMESPACE}/typelayout-p2996:sha-${GITHUB_SHA}"
+            if [ "${GITHUB_REF_NAME}" = "main" ]; then
+              echo "- ghcr.io/${IMAGE_NAMESPACE}/typelayout-p2996:latest"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

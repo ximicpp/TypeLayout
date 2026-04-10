@@ -7,7 +7,10 @@ Runnable demo sources for the TypeLayout cross-platform compatibility pipeline.
 | File | Phase | Description |
 |------|-------|-------------|
 | `cross_platform_check.cpp` | 1 -- Export | Registers types with `TYPELAYOUT_EXPORT_TYPES` and writes `.sig.hpp` files |
-| `compat_check.cpp` | 2 -- Check | Includes pre-generated `.sig.hpp` files and runs `TYPELAYOUT_CHECK_COMPAT` (non-zero exit on incompatibility) |
+| `compat_check.cpp` | 2 -- Check | Negative-path checker for pre-generated `.sig.hpp` files; expected to return non-zero on incompatibility |
+| `compat_ci_export.cpp` | 1 -- Export | Green-path exporter for the reference CI pipeline |
+| `compat_ci_check.cpp` | 2 -- Check | Green-path checker for signatures that are expected to pass |
+| `compat_ci_check_linux.cpp` | 2 -- Check | Linux-only aggregator for live-generated GCC/Clang artifacts in root CI |
 | `sigs/*.sig.hpp` | -- | Pre-generated signature files for three reference platforms |
 
 ## Quick Commands

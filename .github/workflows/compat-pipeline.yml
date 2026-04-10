@@ -1,0 +1,218 @@
+name: Compat Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_macos_cross_target:
+        description: "Run the optional macOS cross-target export and aggregate jobs"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  CLANG_LD_LIBRARY_PATH: /opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu
+
+jobs:
+  export_linux_gcc16:
+    name: Export Linux GCC16 Signatures
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ximicpp/typelayout-gcc16:latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure exporter
+        run: cmake -S . -B build-gcc16 -G Ninja
+
+      - name: Build exporter
+        run: cmake --build build-gcc16 --target compat_ci_export --parallel
+
+      - name: Export signatures
+        run: ./build-gcc16/compat_ci_export "$RUNNER_TEMP/sigs"
+
+      - name: Upload Linux GCC16 signatures
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-sigs-linux-gcc16
+          path: ${{ runner.temp }}/sigs/x86_64_linux_gcc.sig.hpp
+          if-no-files-found: error
+
+  export_linux_clang_p2996:
+    name: Export Linux Clang P2996 Signatures
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ximicpp/typelayout-p2996:latest
+    env:
+      LD_LIBRARY_PATH: /opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure exporter
+        run: cmake -S . -B build-clang -G Ninja
+
+      - name: Build exporter
+        run: cmake --build build-clang --target compat_ci_export --parallel
+
+      - name: Export signatures
+        run: ./build-clang/compat_ci_export "$RUNNER_TEMP/sigs"
+
+      - name: Upload Linux Clang signatures
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-sigs-linux-clang
+          path: ${{ runner.temp }}/sigs/x86_64_linux_clang.sig.hpp
+          if-no-files-found: error
+
+  compat_linux:
+    name: Aggregate Linux Compat Check
+    runs-on: ubuntu-latest
+    needs:
+      - export_linux_gcc16
+      - export_linux_clang_p2996
+    container:
+      image: ghcr.io/ximicpp/typelayout-p2996:latest
+    env:
+      LD_LIBRARY_PATH: /opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Linux GCC16 signatures
+        uses: actions/download-artifact@v4
+        with:
+          name: compat-sigs-linux-gcc16
+          path: ${{ runner.temp }}/compat-sigs
+
+      - name: Download Linux Clang signatures
+        uses: actions/download-artifact@v4
+        with:
+          name: compat-sigs-linux-clang
+          path: ${{ runner.temp }}/compat-sigs
+
+      - name: Show downloaded signature set
+        run: ls -l "$RUNNER_TEMP/compat-sigs"
+
+      - name: Configure aggregate checker
+        run: >
+          cmake -S . -B build-compat-linux -G Ninja
+          -DTYPELAYOUT_BUILD_COMPAT_CI=OFF
+          -DTYPELAYOUT_BUILD_COMPAT_CI_LINUX=ON
+          -DTYPELAYOUT_COMPAT_CI_LINUX_SIGS_DIR="$RUNNER_TEMP/compat-sigs"
+
+      - name: Build aggregate checker
+        run: cmake --build build-compat-linux --target compat_ci_check_linux --parallel
+
+      - name: Run aggregate checker
+        run: ctest --test-dir build-compat-linux -R compat_ci_check_linux --output-on-failure
+
+  export_macos_clang_p2996:
+    name: Export macOS Clang P2996 Signatures
+    if: ${{ vars.TYPELAYOUT_ENABLE_MACOS_COMPAT == '1' || (github.event_name == 'workflow_dispatch' && inputs.run_macos_cross_target == true) }}
+    runs-on: [self-hosted, macOS, ARM64, p2996]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify macOS P2996 toolchain
+        run: |
+          test -x /usr/local/bin/clang++
+          /usr/local/bin/clang++ --version
+
+      - name: Configure exporter
+        run: >
+          cmake -S . -B build-macos -G Ninja
+          -DCMAKE_CXX_COMPILER=/usr/local/bin/clang++
+          -DCMAKE_CXX_FLAGS=-std=c++26\ -freflection\ -freflection-latest\ -stdlib=libc++
+
+      - name: Build exporter
+        run: cmake --build build-macos --target compat_ci_export --parallel
+
+      - name: Export signatures
+        run: ./build-macos/compat_ci_export "$RUNNER_TEMP/sigs"
+
+      - name: Upload macOS Clang signatures
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-sigs-macos-clang
+          path: ${{ runner.temp }}/sigs/arm64_macos_clang.sig.hpp
+          if-no-files-found: error
+
+  compat_cross_target:
+    name: Aggregate Cross-Target Compat Check
+    if: ${{ vars.TYPELAYOUT_ENABLE_MACOS_COMPAT == '1' || (github.event_name == 'workflow_dispatch' && inputs.run_macos_cross_target == true) }}
+    runs-on: ubuntu-latest
+    needs:
+      - export_linux_clang_p2996
+      - export_macos_clang_p2996
+    container:
+      image: ghcr.io/ximicpp/typelayout-p2996:latest
+    env:
+      LD_LIBRARY_PATH: /opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Linux Clang signatures
+        uses: actions/download-artifact@v4
+        with:
+          name: compat-sigs-linux-clang
+          path: ${{ runner.temp }}/compat-sigs-cross
+
+      - name: Download macOS Clang signatures
+        uses: actions/download-artifact@v4
+        with:
+          name: compat-sigs-macos-clang
+          path: ${{ runner.temp }}/compat-sigs-cross
+
+      - name: Show downloaded cross-target signature set
+        run: ls -l "$RUNNER_TEMP/compat-sigs-cross"
+
+      - name: Configure cross-target checker
+        run: >
+          cmake -S . -B build-compat-cross -G Ninja
+          -DTYPELAYOUT_BUILD_COMPAT_CI=ON
+          -DTYPELAYOUT_BUILD_COMPAT_CI_LINUX=OFF
+          -DTYPELAYOUT_COMPAT_CI_SIGS_DIR="$RUNNER_TEMP/compat-sigs-cross"
+
+      - name: Build cross-target checker
+        run: cmake --build build-compat-cross --target compat_ci_check --parallel
+
+      - name: Run cross-target checker
+        run: ctest --test-dir build-compat-cross -R compat_ci_check --output-on-failure
+
+  compat_demo_negative:
+    name: Negative Demo Compat Check
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ximicpp/typelayout-p2996:latest
+    env:
+      LD_LIBRARY_PATH: /opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure negative demo checker
+        run: cmake -S . -B build-demo-negative -G Ninja
+
+      - name: Build negative demo checker
+        run: cmake --build build-demo-negative --target compat_check --parallel
+
+      - name: Run negative demo checker (expected failure)
+        run: |
+          set +e
+          ./build-demo-negative/compat_check > "$RUNNER_TEMP/compat-negative.log" 2>&1
+          status=$?
+          cat "$RUNNER_TEMP/compat-negative.log"
+          test "$status" -ne 0
+          grep -q "Layout mismatch" "$RUNNER_TEMP/compat-negative.log"
+          grep -q "not byte-copy safe" "$RUNNER_TEMP/compat-negative.log"
