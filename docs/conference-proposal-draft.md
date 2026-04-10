@@ -34,7 +34,8 @@ We also make the method's limits explicit: it proves layout agreement and checks
 
 - Using reflection to enumerate fields, bases, offsets, and bit-fields
 - Recursively flattening nested structs and base classes into a canonical compile-time representation with absolute offsets
-- What the signature encodes: architecture prefix plus the layout-relevant facts this method compares across platforms
+- What the signature encodes: architecture prefix, leaf types with canonical names, sizes, alignments, offsets, and pointer-like tokens (e.g., `[64-le]record[s:16,a:8]{@0:u32[s:4,a:4],@8:f64[s:8,a:8]}`)
+- Edge cases: bit-field canonicalization, empty bases, arrays, and byte-array collapse
 
 ### 3. What the signature tells us
 
@@ -45,9 +46,10 @@ We also make the method's limits explicit: it proves layout agreement and checks
 
 ### 4. The workflow in practice
 
-- Export signatures on each target platform
-- Aggregate generated headers in a verification build
-- Use generated checks, `static_assert`, and CI reporting to surface layout mismatches or violated transport preconditions
+- Each target platform compiles a signature-export translation unit that writes per-type `.sig.hpp` headers (one constexpr string per type)
+- A verification build on any single platform `#include`s all exported headers and runs `static_assert` on signature equality
+- CI integration: fail the build when representations diverge or transport-safety preconditions are violated; show reporter output that pinpoints which types and which fields differ
+- Incremental adoption: start with a handful of boundary types, expand coverage as the team gains confidence
 
 ### 5. What the method cannot promise
 
