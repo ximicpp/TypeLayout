@@ -59,4 +59,5 @@ If signatures match across targets and the type passes transport precondition ch
 - This is not a general reflection overview. It is a concrete application of C++26 reflection (P2996) to a real systems problem: checking object representation and explicit transport preconditions for native C++ types used across boundaries.
 - The talk includes real code, exported signature artifacts, and cross-target verification examples rather than staying at the language-feature level.
 - The intended audience is C++ teams that exchange native object bytes across controlled boundaries such as shared-memory IPC, plugin interfaces, persistent storage, and cross-target builds.
+- To our knowledge, using C++26 reflection to generate and compare layout signatures across targets at compile time -- without external tools or IDL -- is new.
 - The live workflow uses GCC 16 (which merged P2996 into trunk in January 2026) via Docker on Linux, with a second target's exported signatures verified in the same build. macOS with an experimental Clang fork serves as an alternative demo path.
