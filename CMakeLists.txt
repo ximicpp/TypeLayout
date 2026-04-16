@@ -57,11 +57,7 @@ endif()
 # Cross-platform compatibility CMake module
 include(cmake/TypeLayoutCompat.cmake)
 
-# Examples — Phase 1: Signature export (requires P2996)
-add_executable(sig_export example/cross_platform_check.cpp)
-target_link_libraries(sig_export PRIVATE typelayout)
-
-# Examples — Phase 2: Compatibility check
+# Examples — Compatibility check
 add_executable(compat_check example/compat_check.cpp)
 target_link_libraries(compat_check PRIVATE typelayout)
 target_include_directories(compat_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/example)
