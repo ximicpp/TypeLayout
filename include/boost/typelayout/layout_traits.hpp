@@ -18,17 +18,24 @@ inline namespace v1 {
 namespace detail {
 
 template <typename T>
+[[nodiscard]] consteval bool type_has_pointer_layout() noexcept {
+    using Bare = std::remove_cv_t<T>;
+    if constexpr (requires { TypeSignature<Bare>::pointer_free; }) {
+        return !TypeSignature<Bare>::pointer_free;
+    } else {
+        return sig_has_pointer(get_layout_signature<Bare>());
+    }
+}
+
+template <typename T>
+[[nodiscard]] consteval bool is_pointer_free_layout() noexcept {
+    return !type_has_pointer_layout<T>();
+}
+
+template <typename T>
 struct layout_traits {
     static constexpr auto signature = get_layout_signature<T>();
-
-    static constexpr bool has_pointer = []() consteval {
-        if constexpr (requires { TypeSignature<std::remove_cv_t<T>>::pointer_free; }) {
-            // Opaque type with explicit user assertion
-            return !TypeSignature<std::remove_cv_t<T>>::pointer_free;
-        } else {
-            return detail::sig_has_pointer(signature);
-        }
-    }();
+    static constexpr bool has_pointer = type_has_pointer_layout<T>();
 };
 
 } // namespace detail

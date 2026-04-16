@@ -60,7 +60,6 @@ include(cmake/TypeLayoutCompat.cmake)
 # Examples — Compatibility check
 add_executable(compat_check example/compat_check.cpp)
 target_link_libraries(compat_check PRIVATE typelayout)
-target_include_directories(compat_check PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/example)
 
 enable_testing()
 add_test(NAME compat_check_demo_negative COMMAND compat_check)
@@ -73,14 +72,12 @@ if(TYPELAYOUT_BUILD_COMPAT_CI)
         TARGET compat_ci_export
         SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/example/compat_ci_export.cpp
         OUTPUT_DIR ${TYPELAYOUT_COMPAT_CI_EXPORT_DIR}
-        INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/example
     )
 
     typelayout_add_compat_check(
         TARGET compat_ci_check
         SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/example/compat_ci_check.cpp
         SIGS_DIR ${TYPELAYOUT_COMPAT_CI_SIGS_DIR}
-        INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/example
     )
     add_test(NAME compat_ci_check COMMAND compat_ci_check)
 endif()
@@ -95,7 +92,6 @@ if(TYPELAYOUT_BUILD_COMPAT_CI_LINUX)
         TARGET compat_ci_check_linux
         SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/example/compat_ci_check_linux.cpp
         SIGS_DIR ${TYPELAYOUT_COMPAT_CI_LINUX_SIGS_DIR}
-        INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/example
     )
     add_test(NAME compat_ci_check_linux COMMAND compat_ci_check_linux)
 endif()

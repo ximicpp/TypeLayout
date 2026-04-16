@@ -15,39 +15,16 @@
 
 include_guard(GLOBAL)
 
-# ---------------------------------------------------------------------------
-# typelayout_add_sig_check
-# ---------------------------------------------------------------------------
-# Convenience wrapper: adds a post-build step to an existing target that
-# runs the target executable and writes signatures to `sig_dir`.
-#
-# Use this when you already manage your own CMake target and just want
-# TypeLayout to add the post-build signature export step.
-#
-# Usage:
-#   add_executable(my_exporter export_types.cpp)
-#   target_link_libraries(my_exporter PRIVATE typelayout)
-#   typelayout_add_sig_check(my_exporter ${CMAKE_BINARY_DIR}/sigs)
-#
-# Arguments:
-#   target  - An existing CMake executable target
-#   sig_dir - Directory where .sig.hpp files will be written
-#
-function(typelayout_add_sig_check target sig_dir)
-    if(NOT TARGET ${target})
-        message(FATAL_ERROR "typelayout_add_sig_check: '${target}' is not a CMake target")
+function(_typelayout_setup_target target)
+    cmake_parse_arguments(ARG "" "" "INCLUDE_DIRS" ${ARGN})
+
+    # typelayout is an interface target: it supplies the public include path
+    # and any shared compile options configured by the root project.
+    target_link_libraries(${target} PRIVATE typelayout)
+
+    if(ARG_INCLUDE_DIRS)
+        target_include_directories(${target} PRIVATE ${ARG_INCLUDE_DIRS})
     endif()
-
-    file(MAKE_DIRECTORY "${sig_dir}")
-
-    add_custom_command(
-        TARGET ${target} POST_BUILD
-        COMMAND $<TARGET_FILE:${target}> "${sig_dir}"
-        COMMENT "[TypeLayout] Exporting signatures from '${target}' to ${sig_dir}"
-        VERBATIM
-    )
-
-    message(STATUS "[TypeLayout] sig_check post-build step added: '${target}' → ${sig_dir}")
 endfunction()
 
 # ---------------------------------------------------------------------------
@@ -86,15 +63,7 @@ function(typelayout_add_sig_export)
 
     add_executable(${ARG_TARGET} ${ARG_SOURCE})
 
-    # TypeLayout headers
-    target_include_directories(${ARG_TARGET} PRIVATE
-        ${CMAKE_SOURCE_DIR}/include
-    )
-
-    # User-specified extra include dirs
-    if(ARG_INCLUDE_DIRS)
-        target_include_directories(${ARG_TARGET} PRIVATE ${ARG_INCLUDE_DIRS})
-    endif()
+    _typelayout_setup_target(${ARG_TARGET} INCLUDE_DIRS ${ARG_INCLUDE_DIRS})
 
     # P2996 compiler flags (required for Phase 1)
     if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
@@ -153,23 +122,15 @@ function(typelayout_add_compat_check)
 
     add_executable(${ARG_TARGET} ${ARG_SOURCE})
 
-    # TypeLayout headers
-    target_include_directories(${ARG_TARGET} PRIVATE
-        ${CMAKE_SOURCE_DIR}/include
-    )
-
-    # Signature files directory
+    set(_include_dirs)
     if(ARG_SIGS_DIR)
-        target_include_directories(${ARG_TARGET} PRIVATE ${ARG_SIGS_DIR})
+        list(APPEND _include_dirs ${ARG_SIGS_DIR})
     endif()
-
-    # User-specified extra include dirs
     if(ARG_INCLUDE_DIRS)
-        target_include_directories(${ARG_TARGET} PRIVATE ${ARG_INCLUDE_DIRS})
+        list(APPEND _include_dirs ${ARG_INCLUDE_DIRS})
     endif()
 
-    # Link typelayout interface library (provides include dirs + compile flags)
-    target_link_libraries(${ARG_TARGET} PRIVATE typelayout)
+    _typelayout_setup_target(${ARG_TARGET} INCLUDE_DIRS ${_include_dirs})
 endfunction()
 
 # ---------------------------------------------------------------------------

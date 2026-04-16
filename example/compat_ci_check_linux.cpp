@@ -6,7 +6,7 @@
 #include "x86_64_linux_gcc.sig.hpp"
 #include "x86_64_linux_clang.sig.hpp"
 
-#include "compat_auto.hpp"
+#include <boost/typelayout/tools/compat_auto.hpp>
 
 TYPELAYOUT_ASSERT_COMPAT(x86_64_linux_gcc, x86_64_linux_clang)
 TYPELAYOUT_CHECK_COMPAT(x86_64_linux_gcc, x86_64_linux_clang)

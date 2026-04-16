@@ -73,12 +73,12 @@ consteval bool is_byte_copy_safe_impl() noexcept {
 
     // Branch 1: Opaque types
     if constexpr (has_opaque_signature<Bare>) {
-        return !detail::layout_traits<Bare>::has_pointer &&
+        return detail::is_pointer_free_layout<Bare>() &&
                opaque_copy_safe<Bare>::value;
     }
     // Branch 2: trivially_copyable + no pointer (fast path)
     else if constexpr (std::is_trivially_copyable_v<Bare> &&
-                       !detail::layout_traits<Bare>::has_pointer) {
+                       detail::is_pointer_free_layout<Bare>()) {
         return true;
     }
     // Branch 3: Class or union -- recurse members (and bases for classes)

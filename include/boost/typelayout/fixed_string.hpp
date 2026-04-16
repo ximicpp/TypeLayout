@@ -4,6 +4,7 @@
 #ifndef BOOST_TYPELAYOUT_FIXED_STRING_HPP
 #define BOOST_TYPELAYOUT_FIXED_STRING_HPP
 
+#include <boost/typelayout/detail/sig_parser.hpp>
 #include <boost/typelayout/fwd.hpp>
 #include <compare>
 #include <ostream>
@@ -226,16 +227,9 @@ inline namespace v1 {
 
 namespace detail {
 
-/// Check whether a signature (FixedString) contains pointer-like tokens.
-/// Keep in sync with sig_parser.hpp::sig_has_pointer (runtime string_view version).
 template <typename Sig>
 consteval bool sig_has_pointer(const Sig& sig) noexcept {
-    return sig.contains_token(FixedString{"ptr["}) ||
-           sig.contains_token(FixedString{"fnptr["}) ||
-           sig.contains_token(FixedString{"memptr["}) ||
-           sig.contains_token(FixedString{"ref["}) ||
-           sig.contains_token(FixedString{"rref["}) ||
-           sig.contains_token(FixedString{"vptr"});
+    return sig_has_pointer(std::string_view(sig));
 }
 
 } // namespace detail

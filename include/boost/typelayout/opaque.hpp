@@ -23,6 +23,43 @@
 
 #include <boost/typelayout/fixed_string.hpp>
 
+namespace boost {
+namespace typelayout {
+inline namespace v1 {
+
+namespace detail {
+
+template <std::size_t Size, std::size_t Align, typename Tag>
+[[nodiscard]] consteval auto opaque_signature(const Tag& tag) noexcept {
+    return FixedString{"O("} + FixedString{tag} + FixedString{"|"} +
+           to_fixed_string<Size>() + FixedString{"|"} +
+           to_fixed_string<Align>() + FixedString{")"};
+}
+
+template <std::size_t Size, std::size_t Align, typename Elem, typename Tag>
+[[nodiscard]] consteval auto opaque_container_signature(const Tag& tag) noexcept {
+    return opaque_signature<Size, Align>(tag) + FixedString{"<"} +
+           TypeSignature<Elem>::calculate() + FixedString{">"};
+}
+
+template <std::size_t Size, std::size_t Align, typename Key, typename Value, typename Tag>
+[[nodiscard]] consteval auto opaque_map_signature(const Tag& tag) noexcept {
+    return opaque_signature<Size, Align>(tag) + FixedString{"<"} +
+           TypeSignature<Key>::calculate() + FixedString{","} +
+           TypeSignature<Value>::calculate() + FixedString{">"};
+}
+
+template <typename Sig>
+[[nodiscard]] consteval bool signature_pointer_free(const Sig& sig) noexcept {
+    return !sig_has_pointer(sig);
+}
+
+} // namespace detail
+
+} // inline namespace v1
+} // namespace typelayout
+} // namespace boost
+
 // TYPELAYOUT_REGISTER_OPAQUE(Type, Tag, HasPointer)
 //   Tag  -- globally unique string identifier
 //   HasPointer -- true if the type contains pointers
@@ -36,13 +73,8 @@
         static constexpr bool is_opaque = true;                                \
         static constexpr bool pointer_free = !(HasPointer);                    \
         static consteval auto calculate() noexcept {                           \
-            return ::boost::typelayout::FixedString{"O("} +                    \
-                   ::boost::typelayout::FixedString{Tag} +                     \
-                   ::boost::typelayout::FixedString{"|"} +                     \
-                   ::boost::typelayout::to_fixed_string<sizeof(Type)>() +      \
-                   ::boost::typelayout::FixedString{"|"} +                     \
-                   ::boost::typelayout::to_fixed_string<alignof(Type)>() +     \
-                   ::boost::typelayout::FixedString{")"};                      \
+            return ::boost::typelayout::detail::opaque_signature<              \
+                sizeof(Type), alignof(Type)>(Tag);                             \
         }                                                                      \
     };                                                                         \
     template <>                                                                 \
@@ -66,13 +98,8 @@
         static constexpr bool is_opaque = true;                                \
         static constexpr bool pointer_free = true;                             \
         static consteval auto calculate() noexcept {                           \
-            return ::boost::typelayout::FixedString{"O("} +                    \
-                   ::boost::typelayout::FixedString{name} +                    \
-                   ::boost::typelayout::FixedString{"|"} +                     \
-                   ::boost::typelayout::to_fixed_string<sizeof(Type)>() +      \
-                   ::boost::typelayout::FixedString{"|"} +                     \
-                   ::boost::typelayout::to_fixed_string<alignof(Type)>() +     \
-                   ::boost::typelayout::FixedString{")"};                      \
+            return ::boost::typelayout::detail::opaque_signature<              \
+                sizeof(Type), alignof(Type)>(name);                            \
         }                                                                      \
     };                                                                         \
     template <>                                                                 \
@@ -87,20 +114,11 @@
     struct TypeSignature<Template<T_>> {                                        \
         static constexpr bool is_opaque = true;                                \
         static consteval auto calculate() noexcept {                           \
-            return ::boost::typelayout::FixedString{"O("} +                    \
-                   ::boost::typelayout::FixedString{name} +                    \
-                   ::boost::typelayout::FixedString{"|"} +                     \
-                   ::boost::typelayout::to_fixed_string<                       \
-                       sizeof(Template<T_>)>() +                               \
-                   ::boost::typelayout::FixedString{"|"} +                     \
-                   ::boost::typelayout::to_fixed_string<                       \
-                       alignof(Template<T_>)>() +                              \
-                   ::boost::typelayout::FixedString{")<"} +                    \
-                   TypeSignature<T_>::calculate() +                            \
-                   ::boost::typelayout::FixedString{">"};                      \
+            return ::boost::typelayout::detail::opaque_container_signature<    \
+                sizeof(Template<T_>), alignof(Template<T_>), T_>(name);        \
         }                                                                      \
         static constexpr bool pointer_free =                                   \
-            !::boost::typelayout::detail::sig_has_pointer(calculate());        \
+            ::boost::typelayout::detail::signature_pointer_free(calculate());  \
     };                                                                         \
     template <typename T_>                                                      \
     struct opaque_copy_safe<Template<T_>>                                   \
@@ -116,22 +134,12 @@
     struct TypeSignature<Template<K_, V_>> {                                    \
         static constexpr bool is_opaque = true;                                \
         static consteval auto calculate() noexcept {                           \
-            return ::boost::typelayout::FixedString{"O("} +                    \
-                   ::boost::typelayout::FixedString{name} +                    \
-                   ::boost::typelayout::FixedString{"|"} +                     \
-                   ::boost::typelayout::to_fixed_string<                       \
-                       sizeof(Template<K_, V_>)>() +                           \
-                   ::boost::typelayout::FixedString{"|"} +                     \
-                   ::boost::typelayout::to_fixed_string<                       \
-                       alignof(Template<K_, V_>)>() +                          \
-                   ::boost::typelayout::FixedString{")<"} +                    \
-                   TypeSignature<K_>::calculate() +                            \
-                   ::boost::typelayout::FixedString{","} +                     \
-                   TypeSignature<V_>::calculate() +                            \
-                   ::boost::typelayout::FixedString{">"};                      \
+            return ::boost::typelayout::detail::opaque_map_signature<          \
+                sizeof(Template<K_, V_>), alignof(Template<K_, V_>),           \
+                K_, V_>(name);                                                 \
         }                                                                      \
         static constexpr bool pointer_free =                                   \
-            !::boost::typelayout::detail::sig_has_pointer(calculate());        \
+            ::boost::typelayout::detail::signature_pointer_free(calculate());  \
     };                                                                         \
     template <typename K_, typename V_>                                         \
     struct opaque_copy_safe<Template<K_, V_>>                               \

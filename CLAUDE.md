@@ -66,7 +66,7 @@ docker run --rm -v $(pwd):/workspace -w /workspace \
 
 After building, run one test by name:
 ```bash
-ctest --test-dir build -R test_layout_traits --output-on-failure
+ctest --test-dir build -R compat_ci_check --output-on-failure
 ```
 
 ### Important Notes
@@ -103,26 +103,29 @@ Header-only library. Two layers:
 
 **Core layer** (requires P2996) — signature generation + type analysis:
 ```
-include/boost/typelayout/
-├── typelayout.hpp              # Umbrella header
-├── signature.hpp               # get_layout_signature, get_arch_prefix
-├── layout_traits.hpp           # detail::layout_traits<T>: signature + has_pointer
-├── admission.hpp               # is_byte_copy_safe<T>, opaque_copy_safe<T>
-├── fixed_string.hpp            # FixedString<N>: compile-time string, to_fixed_string()
-├── opaque.hpp                  # TYPELAYOUT_REGISTER_OPAQUE macro
-├── fwd.hpp                     # Forward declarations
-├── config.hpp                  # Configuration macros
-└── detail/
-    ├── signature_impl.hpp      # TypeSignature<T>::calculate() — the core recursive engine
-    ├── reflect.hpp             # P2996 reflection helpers (member/base count, virtual base check)
-    ├── type_map.hpp            # Type → canonical name mapping (int→i32, double→f64, etc.)
-    └── sig_parser.hpp          # Signature string parser (C++17): pointer token matching
+include/boost/
+├── typelayout.hpp              # Public Boost-style umbrella header (forwards to typelayout/typelayout.hpp)
+└── typelayout/
+    ├── typelayout.hpp          # Full API umbrella
+    ├── signature.hpp           # get_layout_signature, get_arch_prefix
+    ├── layout_traits.hpp       # detail::type_has_pointer_layout(), is_pointer_free_layout(), layout_traits<T>
+    ├── admission.hpp           # is_byte_copy_safe<T>, opaque_copy_safe<T>
+    ├── fixed_string.hpp        # FixedString<N>: compile-time string, to_fixed_string()
+    ├── opaque.hpp              # TYPELAYOUT_REGISTER_OPAQUE and relocatable opaque macros
+    ├── fwd.hpp                 # Forward declarations
+    ├── config.hpp              # Configuration macros
+    └── detail/
+        ├── signature_impl.hpp  # TypeSignature<T>::calculate() — the core recursive engine
+        ├── reflect.hpp         # P2996 reflection helpers (member/base count, virtual base check)
+        ├── type_map.hpp        # Type → canonical name mapping (int→i32, double→f64, etc.)
+        └── sig_parser.hpp      # Signature string parser (C++17): pointer token matching
 ```
 
 **Tools layer** (cross-platform pipeline):
 ```
 include/boost/typelayout/tools/
 ├── sig_export.hpp              # SigExporter, TYPELAYOUT_EXPORT_TYPES (P2996)
+├── compat_auto.hpp             # TYPELAYOUT_CHECK_COMPAT, TYPELAYOUT_ASSERT_COMPAT
 ├── compat_check.hpp            # CompatReporter: cross-platform compatibility report
 ├── sig_types.hpp               # TypeEntry, PlatformInfo (shared data types)
 ├── safety_level.hpp            # Internal: SafetyLevel enum for CompatReporter display
@@ -187,7 +190,7 @@ These support the core mechanism but are not part of the conceptual framework:
 | App 1 | Layout comparison | Signature string equality (`sigA == sigB`) |
 | App 2 | Safety checking | `admission.hpp` → `is_byte_copy_safe_v<T>` |
 | Utility | Opaque | `opaque.hpp` → `TYPELAYOUT_REGISTER_OPAQUE` macros |
-| Pipeline | Cross-platform CI | `tools/sig_export.hpp` → `SigExporter`, `tools/compat_check.hpp` → `CompatReporter` |
+| Pipeline | Cross-platform CI | `tools/sig_export.hpp` → `SigExporter`, `tools/compat_auto.hpp` → generated checks, `tools/compat_check.hpp` → `CompatReporter` |
 
 **Internal implementation**:
 
@@ -196,7 +199,7 @@ These support the core mechanism but are not part of the conceptual framework:
 | Recursive flattening engine | `detail/signature_impl.hpp` → `TypeSignature<T>::calculate()` |
 | Type → canonical name mapping | `detail/type_map.hpp` |
 | P2996 reflection helpers | `detail/reflect.hpp` |
-| Pointer detection | `layout_traits.hpp` → `detail::layout_traits<T>::has_pointer` |
+| Pointer detection | `layout_traits.hpp` → `detail::type_has_pointer_layout<T>()`, `detail::is_pointer_free_layout<T>()` |
 | Signature string parser | `detail/sig_parser.hpp` |
 | Display classification | `tools/safety_level.hpp` → `SafetyLevel` (internal to CompatReporter) |
 
@@ -204,7 +207,7 @@ These support the core mechanism but are not part of the conceptual framework:
 
 | Skill | Purpose |
 |-------|---------|
-| `/build-test` | Build and run all 12 tests |
+| `/build-test` | Build and run the configured compatibility tests |
 | `/commit`, `/push` | Git workflow |
 | `/sig-check <Type>` | Generate signature for a type interactively |
 | `/add-type-category` | Add a new type to signature generation |

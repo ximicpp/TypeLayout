@@ -84,48 +84,70 @@ namespace detail {
                std::is_same_v<T, char8_t>;
     }
 
+    template <typename T>
+    struct forward_signature {
+        static consteval auto calculate() noexcept {
+            return TypeSignature<T>::calculate();
+        }
+    };
+
+    template <typename T>
+    consteval auto fnptr_signature() noexcept {
+        return format_size_align<sizeof(T), alignof(T)>("fnptr");
+    }
+
 } // namespace detail
+
+#define BOOST_TYPELAYOUT_LITERAL_SIGNATURE(Type, Sig)                           \
+    template <> struct TypeSignature<Type> {                                    \
+        static consteval auto calculate() noexcept { return FixedString{Sig}; } \
+    };
+
+#define BOOST_TYPELAYOUT_FORMATTED_SIGNATURE(Type, Name)                                \
+    template <> struct TypeSignature<Type> {                                             \
+        static consteval auto calculate() noexcept {                                     \
+            return detail::format_size_align<sizeof(Type), alignof(Type)>(Name);         \
+        }                                                                                \
+    };
 
     // =========================================================================
     // Fixed-width integers
     // =========================================================================
 
-    template <> struct TypeSignature<int8_t>   { static consteval auto calculate() noexcept { return FixedString{"i8[s:1,a:1]"}; } };
-    template <> struct TypeSignature<uint8_t>  { static consteval auto calculate() noexcept { return FixedString{"u8[s:1,a:1]"}; } };
-    template <> struct TypeSignature<int16_t>  { static consteval auto calculate() noexcept { return FixedString{"i16[s:2,a:2]"}; } };
-    template <> struct TypeSignature<uint16_t> { static consteval auto calculate() noexcept { return FixedString{"u16[s:2,a:2]"}; } };
-    template <> struct TypeSignature<int32_t>  { static consteval auto calculate() noexcept { return FixedString{"i32[s:4,a:4]"}; } };
-    template <> struct TypeSignature<uint32_t> { static consteval auto calculate() noexcept { return FixedString{"u32[s:4,a:4]"}; } };
-    template <> struct TypeSignature<int64_t>  { static consteval auto calculate() noexcept { return FixedString{"i64[s:8,a:8]"}; } };
-    template <> struct TypeSignature<uint64_t> { static consteval auto calculate() noexcept { return FixedString{"u64[s:8,a:8]"}; } };
+    BOOST_TYPELAYOUT_LITERAL_SIGNATURE(int8_t, "i8[s:1,a:1]")
+    BOOST_TYPELAYOUT_LITERAL_SIGNATURE(uint8_t, "u8[s:1,a:1]")
+    BOOST_TYPELAYOUT_LITERAL_SIGNATURE(int16_t, "i16[s:2,a:2]")
+    BOOST_TYPELAYOUT_LITERAL_SIGNATURE(uint16_t, "u16[s:2,a:2]")
+    BOOST_TYPELAYOUT_LITERAL_SIGNATURE(int32_t, "i32[s:4,a:4]")
+    BOOST_TYPELAYOUT_LITERAL_SIGNATURE(uint32_t, "u32[s:4,a:4]")
+    BOOST_TYPELAYOUT_LITERAL_SIGNATURE(int64_t, "i64[s:8,a:8]")
+    BOOST_TYPELAYOUT_LITERAL_SIGNATURE(uint64_t, "u64[s:8,a:8]")
 
     // =========================================================================
     // Floating point
     // =========================================================================
 
-    template <> struct TypeSignature<float>    { static consteval auto calculate() noexcept { return FixedString{"f32[s:4,a:4]"}; } };
-    template <> struct TypeSignature<double>   { static consteval auto calculate() noexcept { return FixedString{"f64[s:8,a:8]"}; } };
-    template <> struct TypeSignature<long double> {
-        static consteval auto calculate() noexcept { return detail::format_size_align<sizeof(long double), alignof(long double)>(BOOST_TYPELAYOUT_LONG_DOUBLE_TAG); }
-    };
+    BOOST_TYPELAYOUT_LITERAL_SIGNATURE(float, "f32[s:4,a:4]")
+    BOOST_TYPELAYOUT_LITERAL_SIGNATURE(double, "f64[s:8,a:8]")
+    BOOST_TYPELAYOUT_FORMATTED_SIGNATURE(long double, BOOST_TYPELAYOUT_LONG_DOUBLE_TAG)
 
     // =========================================================================
     // Character types
     // =========================================================================
 
-    template <> struct TypeSignature<char>     { static consteval auto calculate() noexcept { return FixedString{"char[s:1,a:1]"}; } };
-    template <> struct TypeSignature<wchar_t>  { static consteval auto calculate() noexcept { return detail::format_size_align<sizeof(wchar_t), alignof(wchar_t)>("wchar"); } };
-    template <> struct TypeSignature<char8_t>  { static consteval auto calculate() noexcept { return FixedString{"char8[s:1,a:1]"}; } };
-    template <> struct TypeSignature<char16_t> { static consteval auto calculate() noexcept { return FixedString{"char16[s:2,a:2]"}; } };
-    template <> struct TypeSignature<char32_t> { static consteval auto calculate() noexcept { return FixedString{"char32[s:4,a:4]"}; } };
+    BOOST_TYPELAYOUT_LITERAL_SIGNATURE(char, "char[s:1,a:1]")
+    BOOST_TYPELAYOUT_FORMATTED_SIGNATURE(wchar_t, "wchar")
+    BOOST_TYPELAYOUT_LITERAL_SIGNATURE(char8_t, "char8[s:1,a:1]")
+    BOOST_TYPELAYOUT_LITERAL_SIGNATURE(char16_t, "char16[s:2,a:2]")
+    BOOST_TYPELAYOUT_LITERAL_SIGNATURE(char32_t, "char32[s:4,a:4]")
 
     // =========================================================================
     // Other fundamentals
     // =========================================================================
 
-    template <> struct TypeSignature<bool>     { static consteval auto calculate() noexcept { return FixedString{"bool[s:1,a:1]"}; } };
-    template <> struct TypeSignature<std::nullptr_t> { static consteval auto calculate() noexcept { return detail::format_size_align<sizeof(std::nullptr_t), alignof(std::nullptr_t)>("nullptr"); } };
-    template <> struct TypeSignature<std::byte> { static consteval auto calculate() noexcept { return FixedString{"byte[s:1,a:1]"}; } };
+    BOOST_TYPELAYOUT_LITERAL_SIGNATURE(bool, "bool[s:1,a:1]")
+    BOOST_TYPELAYOUT_FORMATTED_SIGNATURE(std::nullptr_t, "nullptr")
+    BOOST_TYPELAYOUT_LITERAL_SIGNATURE(std::byte, "byte[s:1,a:1]")
 
     // =========================================================================
     // Function pointers
@@ -134,28 +156,28 @@ namespace detail {
     template <typename R, typename... Args>
     struct TypeSignature<R(*)(Args...)> {
         static consteval auto calculate() noexcept {
-            return detail::format_size_align<sizeof(R(*)(Args...)), alignof(R(*)(Args...))>("fnptr");
+            return detail::fnptr_signature<R(*)(Args...)>();
         }
     };
 
     template <typename R, typename... Args>
     struct TypeSignature<R(*)(Args...) noexcept> {
         static consteval auto calculate() noexcept {
-            return detail::format_size_align<sizeof(R(*)(Args...) noexcept), alignof(R(*)(Args...) noexcept)>("fnptr");
+            return detail::fnptr_signature<R(*)(Args...) noexcept>();
         }
     };
 
     template <typename R, typename... Args>
     struct TypeSignature<R(*)(Args..., ...)> {
         static consteval auto calculate() noexcept {
-            return detail::format_size_align<sizeof(R(*)(Args..., ...)), alignof(R(*)(Args..., ...))>("fnptr");
+            return detail::fnptr_signature<R(*)(Args..., ...)>();
         }
     };
 
     template <typename R, typename... Args>
     struct TypeSignature<R(*)(Args..., ...) noexcept> {
         static consteval auto calculate() noexcept {
-            return detail::format_size_align<sizeof(R(*)(Args..., ...) noexcept), alignof(R(*)(Args..., ...) noexcept)>("fnptr");
+            return detail::fnptr_signature<R(*)(Args..., ...) noexcept>();
         }
     };
 
@@ -164,17 +186,11 @@ namespace detail {
     // =========================================================================
 
     template <typename T>
-    struct TypeSignature<const T> {
-        static consteval auto calculate() noexcept { return TypeSignature<T>::calculate(); }
-    };
+    struct TypeSignature<const T> : detail::forward_signature<T> {};
     template <typename T>
-    struct TypeSignature<volatile T> {
-        static consteval auto calculate() noexcept { return TypeSignature<T>::calculate(); }
-    };
+    struct TypeSignature<volatile T> : detail::forward_signature<T> {};
     template <typename T>
-    struct TypeSignature<const volatile T> {
-        static consteval auto calculate() noexcept { return TypeSignature<T>::calculate(); }
-    };
+    struct TypeSignature<const volatile T> : detail::forward_signature<T> {};
 
     // =========================================================================
     // Pointers and references
@@ -197,6 +213,9 @@ namespace detail {
     struct TypeSignature<T C::*> {
         static consteval auto calculate() noexcept { return detail::format_size_align<sizeof(T C::*), alignof(T C::*)>("memptr"); }
     };
+
+#undef BOOST_TYPELAYOUT_FORMATTED_SIGNATURE
+#undef BOOST_TYPELAYOUT_LITERAL_SIGNATURE
 
     // =========================================================================
     // Arrays

@@ -6,7 +6,7 @@
 #include "x86_64_linux_clang.sig.hpp"
 #include "arm64_macos_clang.sig.hpp"
 
-#include "compat_auto.hpp"
+#include <boost/typelayout/tools/compat_auto.hpp>
 
 TYPELAYOUT_ASSERT_COMPAT(x86_64_linux_clang, arm64_macos_clang)
 TYPELAYOUT_CHECK_COMPAT(x86_64_linux_clang, arm64_macos_clang)

@@ -34,16 +34,6 @@ constexpr bool layout_match(const char* a, const char* b) noexcept {
 
 namespace detail {
 
-inline const char* safety_label(SafetyLevel level) noexcept {
-    switch (level) {
-        case SafetyLevel::TrivialSafe:     return "Safe";
-        case SafetyLevel::PointerRisk:     return "Warn";
-        case SafetyLevel::PlatformVariant: return "Risk";
-        case SafetyLevel::Opaque:          return "Opaq";
-    }
-    return "?";
-}
-
 inline const char* safety_stars(SafetyLevel level) noexcept {
     switch (level) {
         case SafetyLevel::TrivialSafe:     return "***";
@@ -66,12 +56,11 @@ inline const char* safety_reason(SafetyLevel level) noexcept {
 
 /// A parsed field from a signature's {...} member list.
 struct SigField {
-    std::string_view full;     // e.g., "@0:u32[s:4,a:4]"
-    std::string_view offset;   // e.g., "0", "8", "4.3"
-    std::string_view type_sig; // e.g., "u32[s:4,a:4]"
+    std::string_view full;
+    std::string_view offset;
+    std::string_view type_sig;
 };
 
-/// Parse a single "@OFFSET:TYPE_SIG" segment into a SigField.
 inline SigField make_sig_field(std::string_view seg) noexcept {
     SigField f{seg, {}, {}};
     if (!seg.empty() && seg[0] == '@') {
@@ -86,14 +75,11 @@ inline SigField make_sig_field(std::string_view seg) noexcept {
     return f;
 }
 
-/// Extract signature header (everything before the first '{').
 inline std::string_view sig_header(std::string_view sig) noexcept {
     auto brace = sig.find('{');
     return (brace == std::string_view::npos) ? sig : sig.substr(0, brace);
 }
 
-/// Parse the member list from inside {...} into individual field entries.
-/// Uses bracket-depth-aware comma splitting to handle nested signatures.
 inline std::vector<SigField> parse_sig_fields(std::string_view sig) {
     auto open = sig.find('{');
     if (open == std::string_view::npos) return {};
@@ -111,8 +97,7 @@ inline std::vector<SigField> parse_sig_fields(std::string_view sig) {
         if (c == '[' || c == '{' || c == '<' || c == '(') ++depth;
         else if (c == ']' || c == '}' || c == '>' || c == ')') {
             if (depth > 0) --depth;
-        }
-        else if (c == ',' && depth == 0) {
+        } else if (c == ',' && depth == 0) {
             fields.push_back(make_sig_field(content.substr(start, i - start)));
             start = i + 1;
         }
@@ -197,7 +182,7 @@ public:
                                    platform_names.begin(), platform_names.end());
     }
 
-    /// Print the report with character-level diff annotations for DIFFER entries.
+    /// Print the report with diff annotations for mismatched signatures.
     void print_diff_report(std::ostream& os = std::cout) const {
         print_report_impl(os, true);
     }
@@ -220,62 +205,6 @@ public:
 
 private:
     std::vector<detail::PlatformData> platforms_;
-
-    std::vector<detail::TypeResult> compare() const {
-        if (platforms_.empty()) return {};
-
-        std::vector<std::string> all_names;
-        for (const auto& plat : platforms_) {
-            for (std::size_t i = 0; i < plat.type_count; ++i) {
-                std::string name(plat.types[i].name);
-                bool found = false;
-                for (const auto& existing : all_names) {
-                    if (existing == name) { found = true; break; }
-                }
-                if (!found) all_names.push_back(std::move(name));
-            }
-        }
-
-        std::vector<detail::TypeResult> results;
-        results.reserve(all_names.size());
-
-        for (const auto& name : all_names) {
-            detail::TypeResult tr;
-            tr.name = name;
-            tr.layout_match = true;
-            tr.byte_copy_safe = true;
-
-            detail::SafetyLevel worst_safety = detail::SafetyLevel::TrivialSafe;
-            std::string first_sig;
-
-            for (const auto& plat : platforms_) {
-                const TypeEntry* entry = find_type(plat, name);
-                if (!entry) {
-                    tr.layout_sigs.emplace_back("<missing>");
-                    tr.layout_match = false;
-                    tr.byte_copy_safe = false;
-                    continue;
-                }
-                std::string sig(entry->layout_sig);
-                if (first_sig.empty()) {
-                    first_sig = sig;
-                } else if (sig != first_sig) {
-                    tr.layout_match = false;
-                }
-                tr.layout_sigs.push_back(std::move(sig));
-
-                if (!entry->byte_copy_safe)
-                    tr.byte_copy_safe = false;
-
-                auto level = detail::classify_signature(entry->layout_sig);
-                if (static_cast<int>(level) > static_cast<int>(worst_safety))
-                    worst_safety = level;
-            }
-            tr.safety = worst_safety;
-            results.push_back(std::move(tr));
-        }
-        return results;
-    }
 
     void print_report_impl(std::ostream& os, bool with_diff) const {
         auto results = compare();
@@ -346,7 +275,6 @@ private:
         for (const auto& r : results) {
             if (!r.layout_match) {
                 os << "  [DIFFER] " << r.name << " layout signatures:\n";
-
                 if (with_diff) {
                     std::size_t max_name = 0;
                     for (const auto& p : platforms_)
@@ -355,17 +283,23 @@ private:
 
                     std::string ref_sig;
                     for (const auto& s : r.layout_sigs) {
-                        if (s != "<missing>") { ref_sig = s; break; }
+                        if (s != "<missing>") {
+                            ref_sig = s;
+                            break;
+                        }
                     }
 
                     for (std::size_t i = 0; i < platforms_.size(); ++i) {
                         os << "    " << platforms_[i].name;
-                        for (std::size_t pad = platforms_[i].name.size(); pad < max_name; ++pad)
+                        for (std::size_t pad = platforms_[i].name.size();
+                             pad < max_name; ++pad) {
                             os << ' ';
+                        }
                         os << ": " << r.layout_sigs[i] << "\n";
 
                         if (i > 0 && r.layout_sigs[i] != ref_sig) {
-                            std::string ann = format_diff(ref_sig, r.layout_sigs[i], prefix_w);
+                            std::string ann =
+                                format_diff(ref_sig, r.layout_sigs[i], prefix_w);
                             if (!ann.empty())
                                 os << ann << "\n";
                             format_field_diff(os, ref_sig, r.layout_sigs[i]);
@@ -416,6 +350,62 @@ private:
         os << "  Layout mismatches can be enforced with generated checks and "
               "compile-time assertions; transport preconditions are reported "
               "here and can be surfaced in CI.\n\n";
+    }
+
+    std::vector<detail::TypeResult> compare() const {
+        if (platforms_.empty()) return {};
+
+        std::vector<std::string> all_names;
+        for (const auto& plat : platforms_) {
+            for (std::size_t i = 0; i < plat.type_count; ++i) {
+                std::string name(plat.types[i].name);
+                bool found = false;
+                for (const auto& existing : all_names) {
+                    if (existing == name) { found = true; break; }
+                }
+                if (!found) all_names.push_back(std::move(name));
+            }
+        }
+
+        std::vector<detail::TypeResult> results;
+        results.reserve(all_names.size());
+
+        for (const auto& name : all_names) {
+            detail::TypeResult tr;
+            tr.name = name;
+            tr.layout_match = true;
+            tr.byte_copy_safe = true;
+
+            detail::SafetyLevel worst_safety = detail::SafetyLevel::TrivialSafe;
+            std::string first_sig;
+
+            for (const auto& plat : platforms_) {
+                const TypeEntry* entry = find_type(plat, name);
+                if (!entry) {
+                    tr.layout_sigs.emplace_back("<missing>");
+                    tr.layout_match = false;
+                    tr.byte_copy_safe = false;
+                    continue;
+                }
+                std::string sig(entry->layout_sig);
+                if (first_sig.empty()) {
+                    first_sig = sig;
+                } else if (sig != first_sig) {
+                    tr.layout_match = false;
+                }
+                tr.layout_sigs.push_back(std::move(sig));
+
+                if (!entry->byte_copy_safe)
+                    tr.byte_copy_safe = false;
+
+                auto level = detail::classify_signature(entry->layout_sig);
+                if (static_cast<int>(level) > static_cast<int>(worst_safety))
+                    worst_safety = level;
+            }
+            tr.safety = worst_safety;
+            results.push_back(std::move(tr));
+        }
+        return results;
     }
 
     static std::string format_verdict(const detail::TypeResult& r,

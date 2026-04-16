@@ -32,9 +32,8 @@ constexpr bool sig_contains_token(std::string_view haystack,
     return false;
 }
 
-/// Check whether a signature (string_view) contains pointer-like tokens.
-/// Keep in sync with fixed_string.hpp::sig_has_pointer (consteval FixedString version).
-inline bool sig_has_pointer(std::string_view sig) noexcept {
+/// Check whether a signature contains pointer-like tokens.
+constexpr bool sig_has_pointer(std::string_view sig) noexcept {
     return sig_contains_token(sig, "ptr[") ||
            sig_contains_token(sig, "fnptr[") ||
            sig_contains_token(sig, "memptr[") ||

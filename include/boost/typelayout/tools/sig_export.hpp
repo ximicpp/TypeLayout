@@ -9,7 +9,7 @@
 #ifndef BOOST_TYPELAYOUT_TOOLS_SIG_EXPORT_HPP
 #define BOOST_TYPELAYOUT_TOOLS_SIG_EXPORT_HPP
 
-#include <boost/typelayout/typelayout.hpp>
+#include <boost/typelayout.hpp>
 #include <boost/typelayout/tools/platform_detect.hpp>
 #include <boost/typelayout/tools/sig_types.hpp>
 #include <boost/typelayout/tools/detail/foreach.hpp>
@@ -78,7 +78,7 @@ public:
     /// The caller is responsible for ensuring byte-copy safety.
     template <typename T>
     void add_relocatable(const std::string& name) {
-        static_assert(!detail::layout_traits<T>::has_pointer,
+        static_assert(detail::is_pointer_free_layout<T>(),
             "SigExporter::add_relocatable<T>: type must be pointer-free "
             "(all opaque members must have pointer_free = true).");
 

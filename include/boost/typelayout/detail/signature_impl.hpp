@@ -105,6 +105,61 @@ namespace detail {
     template <typename T, std::size_t OffsetAdj>
     consteval auto layout_all_prefixed() noexcept;
 
+    template <bool WithLeadingComma>
+    consteval auto field_prefix() noexcept {
+        if constexpr (WithLeadingComma)
+            return FixedString{",@"};
+        else
+            return FixedString{"@"};
+    }
+
+    template <bool WithLeadingComma, std::size_t Offset, typename Sig>
+    consteval auto emit_field_signature(const Sig& sig) noexcept {
+        return field_prefix<WithLeadingComma>() +
+               to_fixed_string<Offset>() +
+               FixedString{":"} +
+               sig;
+    }
+
+    template <bool WithLeadingComma, std::size_t BytePos,
+              std::size_t BitPos, std::size_t BitWidth, typename FieldType>
+    consteval auto emit_bitfield_signature() noexcept {
+        return field_prefix<WithLeadingComma>() +
+               to_fixed_string<BytePos>() +
+               FixedString{"."} +
+               to_fixed_string<BitPos>() +
+               FixedString{":bits<"} +
+               to_fixed_string<BitWidth>() +
+               FixedString{","} +
+               TypeSignature<FieldType>::calculate() +
+               FixedString{">"};
+    }
+
+    template <bool WithLeadingComma, typename FieldType, std::size_t Offset>
+    consteval auto emit_flattened_field() noexcept {
+        if constexpr (std::is_class_v<FieldType> && !std::is_union_v<FieldType>
+                      && !has_opaque_signature<FieldType>
+                      && !std::is_empty_v<FieldType>) {
+            return layout_all_prefixed<FieldType, Offset>();
+        } else if constexpr (std::is_empty_v<FieldType>
+                             && std::is_class_v<FieldType>
+                             && !has_opaque_signature<FieldType>) {
+            return emit_field_signature<WithLeadingComma, Offset>(
+                embedded_empty_signature<FieldType>());
+        } else {
+            return emit_field_signature<WithLeadingComma, Offset>(
+                TypeSignature<FieldType>::calculate());
+        }
+    }
+
+    template <bool AddComma, typename Entry>
+    consteval auto maybe_prepend_comma(const Entry& entry) noexcept {
+        if constexpr (AddComma)
+            return FixedString{","} + entry;
+        else
+            return entry;
+    }
+
     template<typename T, std::size_t Index, std::size_t OffsetAdj>
     consteval auto layout_field_with_comma() noexcept {
         using namespace std::meta;
@@ -117,37 +172,11 @@ namespace detail {
             constexpr std::size_t byte_pos = bit_off.bytes + OffsetAdj;
             constexpr std::size_t bit_pos  = bit_off.bits;
             constexpr std::size_t bwidth   = bit_size_of(member);
-            return FixedString{",@"} +
-                   to_fixed_string<byte_pos>() +
-                   FixedString{"."} +
-                   to_fixed_string<bit_pos>() +
-                   FixedString{":bits<"} +
-                   to_fixed_string<bwidth>() +
-                   FixedString{","} +
-                   TypeSignature<FieldType>::calculate() +
-                   FixedString{">"};
-        // Non-empty class (non-opaque): flatten recursively into parent offset space
-        } else if constexpr (std::is_class_v<FieldType> && !std::is_union_v<FieldType>
-                             && !has_opaque_signature<FieldType>
-                             && !std::is_empty_v<FieldType>) {
-            constexpr std::size_t field_offset = offset_of(member).bytes + OffsetAdj;
-            return layout_all_prefixed<FieldType, field_offset>();
-        // Empty class (EBO / [[no_unique_address]]): emit s:0 signature
-        } else if constexpr (std::is_empty_v<FieldType>
-                             && std::is_class_v<FieldType>
-                             && !has_opaque_signature<FieldType>) {
-            constexpr std::size_t emb_off = offset_of(member).bytes + OffsetAdj;
-            return FixedString{",@"} +
-                   to_fixed_string<emb_off>() +
-                   FixedString{":"} +
-                   embedded_empty_signature<FieldType>();
-        // Leaf (scalar, array, opaque, union): emit type signature directly
+            return emit_bitfield_signature<true, byte_pos, bit_pos,
+                                           bwidth, FieldType>();
         } else {
-            constexpr std::size_t leaf_off = offset_of(member).bytes + OffsetAdj;
-            return FixedString{",@"} +
-                   to_fixed_string<leaf_off>() +
-                   FixedString{":"} +
-                   TypeSignature<FieldType>::calculate();
+            constexpr std::size_t field_offset = offset_of(member).bytes + OffsetAdj;
+            return emit_flattened_field<true, FieldType, field_offset>();
         }
     }
 
@@ -162,21 +191,8 @@ namespace detail {
         using namespace std::meta;
         constexpr auto base_info = bases_of(^^T, access_context::unchecked())[BaseIndex];
         using BaseType = [:type_of(base_info):];
-        if constexpr (std::is_empty_v<BaseType>) {
-            constexpr std::size_t base_emb_off = offset_of(base_info).bytes + OffsetAdj;
-            return FixedString{",@"} +
-                   to_fixed_string<base_emb_off>() +
-                   FixedString{":"} +
-                   embedded_empty_signature<BaseType>();
-        } else if constexpr (has_opaque_signature<BaseType>) {
-            constexpr std::size_t base_opq_off = offset_of(base_info).bytes + OffsetAdj;
-            return FixedString{",@"} +
-                   to_fixed_string<base_opq_off>() +
-                   FixedString{":"} +
-                   TypeSignature<BaseType>::calculate();
-        } else {
-            return layout_all_prefixed<BaseType, offset_of(base_info).bytes + OffsetAdj>();
-        }
+        constexpr std::size_t base_offset = offset_of(base_info).bytes + OffsetAdj;
+        return emit_flattened_field<true, BaseType, base_offset>();
     }
 
     template <typename T, std::size_t OffsetAdj, std::size_t... Is>
@@ -217,30 +233,18 @@ namespace detail {
             constexpr std::size_t ubyte_pos = bit_off.bytes;
             constexpr std::size_t ubit_pos  = bit_off.bits;
             constexpr std::size_t ubwidth   = bit_size_of(member);
-            return FixedString{"@"} +
-                   to_fixed_string<ubyte_pos>() +
-                   FixedString{"."} +
-                   to_fixed_string<ubit_pos>() +
-                   FixedString{":bits<"} +
-                   to_fixed_string<ubwidth>() +
-                   FixedString{","} +
-                   TypeSignature<FieldType>::calculate() +
-                   FixedString{">"};
+            return emit_bitfield_signature<false, ubyte_pos, ubit_pos,
+                                           ubwidth, FieldType>();
         } else {
             constexpr std::size_t uf_off = offset_of(member).bytes;
-            return FixedString{"@"} +
-                   to_fixed_string<uf_off>() +
-                   FixedString{":"} +
-                   TypeSignature<FieldType>::calculate();
+            return emit_field_signature<false, uf_off>(
+                TypeSignature<FieldType>::calculate());
         }
     }
 
     template<typename T, std::size_t Index, bool IsFirst>
     consteval auto layout_union_field_with_comma() noexcept {
-        if constexpr (IsFirst)
-            return layout_union_field<T, Index>();
-        else
-            return FixedString{","} + layout_union_field<T, Index>();
+        return maybe_prepend_comma<!IsFirst>(layout_union_field<T, Index>());
     }
 
     template<typename T, std::size_t... Is>
