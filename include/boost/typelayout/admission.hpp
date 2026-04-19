@@ -82,13 +82,18 @@ consteval bool is_byte_copy_safe_impl() noexcept {
         return true;
     }
     // Branch 3: Class or union -- recurse members (and bases for classes)
-    // Polymorphic types: vptr is encoded in the signature as a pointer token,
-    //   so Branch 2 already rejects them (has_pointer = true).
+    // Polymorphic types: vptr is encoded in the signature as a pointer token
+    //   (has_pointer = true). Since polymorphic types are not trivially_copyable,
+    //   they skip Branch 2 and land here — check has_pointer first.
     else if constexpr (std::is_class_v<Bare> || std::is_union_v<Bare>) {
-        constexpr std::size_t bc = std::is_union_v<Bare> ? 0 : get_base_count<Bare>();
-        constexpr std::size_t fc = get_member_count<Bare>();
-        return all_bases_byte_copy_safe<Bare, 0, bc>() &&
-               all_members_byte_copy_safe<Bare, 0, fc>();
+        if constexpr (detail::layout_traits<Bare>::has_pointer) {
+            return false;
+        } else {
+            constexpr std::size_t bc = std::is_union_v<Bare> ? 0 : get_base_count<Bare>();
+            constexpr std::size_t fc = get_member_count<Bare>();
+            return all_bases_byte_copy_safe<Bare, 0, bc>() &&
+                   all_members_byte_copy_safe<Bare, 0, fc>();
+        }
     }
     // Branch 4: Otherwise not safe (e.g. bare function types)
     else {
