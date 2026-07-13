@@ -62,6 +62,34 @@ add_executable(compat_check example/compat_check.cpp)
 target_link_libraries(compat_check PRIVATE typelayout)
 
 enable_testing()
+
+# Core engine regression tests (signature grammar + admission predicate)
+add_executable(test_core test/test_core.cpp)
+target_link_libraries(test_core PRIVATE typelayout)
+add_test(NAME test_core COMMAND test_core)
+set_tests_properties(test_core PROPERTIES
+    LABELS "typelayout;core")
+
+# Negative compile test: add_relocatable must reject a type whose opaque
+# member hides a pointer. The target is excluded from the normal build;
+# the test builds it on demand and passes only when the compiler emits
+# the gate's static_assert message.
+add_executable(test_gate_negative test/test_gate_negative.cpp)
+target_link_libraries(test_gate_negative PRIVATE typelayout)
+set_target_properties(test_gate_negative PROPERTIES
+    EXCLUDE_FROM_ALL TRUE
+    EXCLUDE_FROM_DEFAULT_BUILD TRUE)
+add_test(NAME test_gate_negative
+    COMMAND ${CMAKE_COMMAND}
+        -DBUILD_DIR=${CMAKE_BINARY_DIR}
+        -DNC_TARGET=test_gate_negative
+        -DNC_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/test/test_gate_negative.cpp
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/test/negative_compile.cmake)
+set_tests_properties(test_gate_negative PROPERTIES
+    PASS_REGULAR_EXPRESSION "add_relocatable<T>: type must be byte-copy safe"
+    RUN_SERIAL TRUE
+    LABELS "typelayout;core;negative")
+
 add_test(NAME compat_check_demo_negative COMMAND compat_check)
 set_tests_properties(compat_check_demo_negative PROPERTIES
     WILL_FAIL TRUE
