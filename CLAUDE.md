@@ -66,8 +66,14 @@ docker run --rm -v $(pwd):/workspace -w /workspace \
 
 After building, run one test by name:
 ```bash
-ctest --test-dir build -R compat_ci_check --output-on-failure
+ctest --test-dir build -R test_core --output-on-failure
 ```
+
+### Test Layout
+
+- `test/test_core.cpp` — compile-time static_assert suite guarding the signature engine (all grammar categories) and the `is_byte_copy_safe` admission predicate, including regressions for polymorphic rejection, member arrays of relocatable opaque types, and pointer-bearing opaque members.
+- `test/test_gate_negative.cpp` — negative compile test: this file MUST NOT compile. The `test_gate_negative` ctest entry (driven by `test/negative_compile.cmake`) builds it on demand and passes only when the compiler emits the `add_relocatable` gate's static_assert message. Do not "fix" its compile error, and keep it excluded from the normal build (`EXCLUDE_FROM_ALL`).
+- `example/compat_*` — cross-platform pipeline checks (`compat_ci_check`, `compat_check_demo_negative`).
 
 ### Important Notes
 
@@ -90,7 +96,7 @@ Core question: **"Can this struct be safely memcpy'd between A and B?"**
 
 Core mechanism: Layout Signature — encode a type's byte-level layout as a compile-time string via P2996. Two applications derived from the signature:
 - Cross-platform comparison: `sigA == sigB` → byte layouts are identical
-- Safety checking: `is_byte_copy_safe_v<T>` → pointer token scan in the signature
+- Safety checking: `is_byte_copy_safe_v<T>` → pointer token scan in the signature, plus explicit polymorphic rejection and opaque `pointer_free` recursion (the scan alone cannot decide these)
 - `TYPELAYOUT_REGISTER_OPAQUE` — practical utility: user seals internal layout from signatures
 
 Answer: byte_copy_safe AND signatures match → safe to memcpy across platforms.
@@ -118,7 +124,7 @@ include/boost/
         ├── signature_impl.hpp  # TypeSignature<T>::calculate() — the core recursive engine
         ├── reflect.hpp         # P2996 reflection helpers (member/base count, virtual base check)
         ├── type_map.hpp        # Type → canonical name mapping (int→i32, double→f64, etc.)
-        └── sig_parser.hpp      # Signature string parser (C++17): pointer token matching
+        └── sig_parser.hpp      # Signature string parser (C++17): pointer/opaque token matching
 ```
 
 **Tools layer** (cross-platform pipeline):
@@ -145,7 +151,7 @@ Two applications derived from the signature:
 
 **Application 1: Cross-platform layout comparison** — Two platforms produce the same signature → byte layouts are identical. Different signatures → pinpoint exactly which types differ. Layout match is just signature string equality.
 
-**Application 2: Byte-copy safety checking** — `is_byte_copy_safe_v<T>`: can this type's bytes be safely transported? Pointer detection reuses the Layout Signature (scans for pointer tokens `ptr`, `fnptr`, `ref`, `rref`, `memptr`, `vptr` in the signature string). Polymorphic types are caught via the `vptr` token encoded in their signature. `trivially_copyable` is only a fast-path shortcut.
+**Application 2: Byte-copy safety checking** — `is_byte_copy_safe_v<T>`: can this type's bytes be safely transported? Pointer detection reuses the Layout Signature (scans for pointer tokens `ptr`, `fnptr`, `ref`, `rref`, `memptr`, `vptr` in the signature string), plus two explicit checks the token scan alone cannot provide: polymorphic types are rejected outright via `is_polymorphic` (the trivially-copyable fast path is accept-only, and member recursion never sees the hidden vptr — do NOT remove this check as "redundant with the vptr token"), and opaque members seal their interior as `O(Tag|N|A)`, so member recursion consults each one's registered `pointer_free` flag instead of the parent's scan. `trivially_copyable` is only a fast-path shortcut.
 
 **The answer**: byte_copy_safe AND signatures match → safe to memcpy across platforms. Both checks are compile-time: byte_copy_safe via `static_assert`, signature comparison via `static_assert` in a CI build that `#include`s exported `.sig.hpp` from each target platform.
 
