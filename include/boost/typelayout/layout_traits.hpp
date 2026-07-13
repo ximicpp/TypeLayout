@@ -17,6 +17,11 @@ inline namespace v1 {
 
 namespace detail {
 
+// Token scan of the VISIBLE layout only: opaque members seal their
+// interior, so O(Tag|N|A) never trips this check even when the opaque
+// type was registered with pointers.  Callers needing the full
+// guarantee must use is_byte_copy_safe_v, which recurses into members
+// and consults each opaque member's registered pointer_free flag.
 template <typename T>
 [[nodiscard]] consteval bool type_has_pointer_layout() noexcept {
     using Bare = std::remove_cv_t<T>;

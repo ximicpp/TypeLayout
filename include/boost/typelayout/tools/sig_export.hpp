@@ -75,12 +75,15 @@ public:
     ///
     /// Use for types containing relocatable opaque members (e.g. offset_ptr
     /// containers) that are byte-copy safe but not trivially_copyable.
-    /// The caller is responsible for ensuring byte-copy safety.
+    /// The admission predicate verifies everything checkable (pointer
+    /// tokens, vptr, opaque pointer_free flags); the relocation-model
+    /// guarantee itself rests on the opaque registration being honest.
     template <typename T>
     void add_relocatable(const std::string& name) {
-        static_assert(detail::is_pointer_free_layout<T>(),
-            "SigExporter::add_relocatable<T>: type must be pointer-free "
-            "(all opaque members must have pointer_free = true).");
+        static_assert(is_byte_copy_safe_v<T>,
+            "SigExporter::add_relocatable<T>: type must be byte-copy safe "
+            "(no pointers, no vptr, and every opaque member registered "
+            "with pointer_free = true and opaque_copy_safe).");
 
         constexpr auto layout = get_layout_signature<T>();
 

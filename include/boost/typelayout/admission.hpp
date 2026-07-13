@@ -5,7 +5,10 @@
 //
 // Safety is determined by scanning the Layout Signature for pointer tokens
 // (ptr, fnptr, memptr, ref, rref, vptr) plus recursive member checking.
-// Polymorphic types are caught via the vptr token in their signature.
+// Two cases the token scan alone cannot decide are handled explicitly:
+// polymorphic types (hidden vptr) are rejected outright, and opaque
+// members seal their internal layout, so recursion consults their
+// registered pointer_free flag instead of the parent's token scan.
 //
 //
 // Copyright (c) 2024-2026 TypeLayout Development Team
@@ -64,9 +67,10 @@ consteval bool all_bases_byte_copy_safe() noexcept {
 // Core decision tree for byte-copy safety.
 //
 // Branch 1: Opaque types -- check !has_pointer && opaque_copy_safe
-// Branch 2: trivially_copyable + no pointer (fast path)
-// Branch 3: Class or union -- recurse members + bases
-// Branch 4: Everything else -- false
+// Branch 2: trivially_copyable + no pointer + no opaque member (fast path)
+// Branch 3: Array -- recurse into element type
+// Branch 4: Class or union -- reject polymorphic, else recurse members + bases
+// Branch 5: Everything else -- false
 template <typename T>
 consteval bool is_byte_copy_safe_impl() noexcept {
     using Bare = std::remove_cv_t<T>;
@@ -77,20 +81,33 @@ consteval bool is_byte_copy_safe_impl() noexcept {
                opaque_copy_safe<Bare>::value;
     }
     // Branch 2: trivially_copyable + no pointer (fast path)
+    // An embedded opaque member shows as O(Tag|N|A) with its pointers
+    // sealed from the token scan, so signatures containing one must fall
+    // through to member recursion, which checks the registered flags.
     else if constexpr (std::is_trivially_copyable_v<Bare> &&
-                       detail::is_pointer_free_layout<Bare>()) {
+                       detail::is_pointer_free_layout<Bare>() &&
+                       !sig_has_opaque(get_layout_signature<Bare>())) {
         return true;
     }
-    // Branch 3: Class or union -- recurse members (and bases for classes)
-    // Polymorphic types: vptr is encoded in the signature as a pointer token,
-    //   so Branch 2 already rejects them (has_pointer = true).
-    else if constexpr (std::is_class_v<Bare> || std::is_union_v<Bare>) {
-        constexpr std::size_t bc = std::is_union_v<Bare> ? 0 : get_base_count<Bare>();
-        constexpr std::size_t fc = get_member_count<Bare>();
-        return all_bases_byte_copy_safe<Bare, 0, bc>() &&
-               all_members_byte_copy_safe<Bare, 0, fc>();
+    // Branch 3: Array -- recurse into element type
+    else if constexpr (std::is_array_v<Bare>) {
+        return is_byte_copy_safe_impl<std::remove_extent_t<Bare>>();
     }
-    // Branch 4: Otherwise not safe (e.g. bare function types)
+    // Branch 4: Class or union -- recurse members (and bases for classes)
+    // Polymorphic types are rejected here: Branch 2 is accept-only, so a
+    // polymorphic type (never trivially copyable) would otherwise fall
+    // through to member recursion, which never sees the hidden vptr.
+    else if constexpr (std::is_class_v<Bare> || std::is_union_v<Bare>) {
+        if constexpr (std::is_polymorphic_v<Bare>) {
+            return false;
+        } else {
+            constexpr std::size_t bc = std::is_union_v<Bare> ? 0 : get_base_count<Bare>();
+            constexpr std::size_t fc = get_member_count<Bare>();
+            return all_bases_byte_copy_safe<Bare, 0, bc>() &&
+                   all_members_byte_copy_safe<Bare, 0, fc>();
+        }
+    }
+    // Branch 5: Otherwise not safe (e.g. bare function types)
     else {
         return false;
     }
@@ -112,11 +129,6 @@ consteval bool is_byte_copy_safe_impl() noexcept {
 // check std::is_trivially_copyable_v<T> && is_byte_copy_safe_v<T>.
 template <typename T>
 struct is_byte_copy_safe
-    : std::bool_constant<detail::is_byte_copy_safe_impl<T>()> {};
-
-// Array specialization: recurse into element type.
-template <typename T, std::size_t N>
-struct is_byte_copy_safe<T[N]>
     : std::bool_constant<detail::is_byte_copy_safe_impl<T>()> {};
 
 // Convenience variable template.

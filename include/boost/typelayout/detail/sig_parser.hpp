@@ -42,6 +42,13 @@ constexpr bool sig_has_pointer(std::string_view sig) noexcept {
            sig_contains_token(sig, "vptr");
 }
 
+/// Check whether a signature embeds an opaque signature O(Tag|N|A).
+/// Opaque members seal their internal layout, so a pointer token scan
+/// alone cannot vouch for a signature that contains one.
+constexpr bool sig_has_opaque(std::string_view sig) noexcept {
+    return sig_contains_token(sig, "O(");
+}
+
 } // namespace detail
 } // inline namespace v1
 } // namespace typelayout
