@@ -49,6 +49,7 @@ doc/test/
 task*.md
 task*.md.local
 include/all_files_merged.txt
+.worktrees/
 
 # Keep test drivers despite *.cmake above
 !test/*.cmake
