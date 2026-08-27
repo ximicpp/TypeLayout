@@ -1,0 +1,4 @@
+[submodule "vendor/XOffsetDatastructure"]
+	path = vendor/XOffsetDatastructure
+	url = https://github.com/ximicpp/XOffsetDatastructure.git
+	branch = next_cpp26
