@@ -1,3 +1,6 @@
+#include "agreement.hpp"
+#include "sigs/producer_ok.sig.hpp"
+#include "sigs/producer_packed.sig.hpp"
 #include "world.hpp"
 #include "world_runtime.hpp"
 
@@ -12,6 +15,7 @@
 #include <limits>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -54,6 +58,9 @@ static_assert(sizeof(region_vector<EntityRelativePtr>) == 8 &&
               alignof(region_vector<EntityRelativePtr>) == 4);
 static_assert(!boost::typelayout::get_layout_signature<EntityRelativePtr>()
     .contains(boost::typelayout::FixedString{"O("}));
+static_assert(std::is_same_v<
+              decltype(std::declval<named_agreement>().key),
+              std::string_view>);
 
 struct FinalizingTickValue {
     RegionBuilder* builder;
@@ -516,6 +523,153 @@ void test_reentrant_set_cannot_mutate_validated_world() {
             "custom element assignment must not be expressible");
 }
 
+void require_canonical_agreement_details(
+    const std::array<named_agreement, 4>& details,
+    const std::array<bool, 4>& expected_matches) {
+    constexpr std::array<std::string_view, 4> expected_keys{
+        "WorldSnapshot",
+        "Entity",
+        "EntityRelativePtr",
+        "EntityIndexEntry",
+    };
+
+    for (std::size_t i = 0; i < expected_keys.size(); ++i) {
+        require(details[i].key == expected_keys[i],
+                "Agreement details must use canonical key order");
+        require(details[i].matches == expected_matches[i],
+                "Agreement detail match result is incorrect");
+    }
+}
+
+void test_local_agreement() {
+    const auto normal =
+        boost::typelayout::platform::producer_ok::get_platform_info();
+    const auto packed =
+        boost::typelayout::platform::producer_packed::get_platform_info();
+
+    require(check_current_agreement(normal) == agreement_result::match,
+            "normal producer Agreement must match");
+    require(check_current_agreement(packed) == agreement_result::differ,
+            "packed producer Agreement must differ");
+    require_canonical_agreement_details(
+        current_agreement_details(normal), {true, true, true, true});
+    require_canonical_agreement_details(
+        current_agreement_details(packed), {true, false, true, true});
+
+    std::array<std::string, 4> copied_names{
+        "EntityRelativePtr",
+        "WorldSnapshot",
+        "EntityIndexEntry",
+        "Entity",
+    };
+    std::array<boost::typelayout::TypeEntry, 4> permuted_types{
+        normal.types[2],
+        normal.types[0],
+        normal.types[3],
+        normal.types[1],
+    };
+    for (std::size_t i = 0; i < permuted_types.size(); ++i) {
+        permuted_types[i].name = copied_names[i].c_str();
+    }
+    auto permuted = normal;
+    permuted.types = permuted_types.data();
+    require(check_current_agreement(permuted) == agreement_result::match,
+            "Agreement must join copied key strings independent of order");
+    require_canonical_agreement_details(
+        current_agreement_details(permuted), {true, true, true, true});
+
+    auto signature_mismatch_types = permuted_types;
+    signature_mismatch_types[3].layout_sig = "not-the-Entity-signature";
+    auto signature_mismatch = permuted;
+    signature_mismatch.types = signature_mismatch_types.data();
+    require(check_current_agreement(signature_mismatch) ==
+                agreement_result::differ,
+            "a valid registry with one signature mismatch must differ");
+    require_canonical_agreement_details(
+        current_agreement_details(signature_mismatch),
+        {true, false, true, true});
+
+    auto unsafe_types = permuted_types;
+    unsafe_types[0].byte_copy_safe = false;
+    auto unsafe = permuted;
+    unsafe.types = unsafe_types.data();
+    require(check_current_agreement(unsafe) == agreement_result::differ,
+            "a valid registry with an unsafe type must differ");
+    require_canonical_agreement_details(
+        current_agreement_details(unsafe), {true, true, false, true});
+
+    auto missing = normal;
+    missing.type_count = 3;
+    require(check_current_agreement(missing) == agreement_result::incomplete,
+            "a registry with a missing key must be incomplete");
+
+    std::string duplicate_key = "WorldSnapshot";
+    std::array<boost::typelayout::TypeEntry, 4> duplicate_types{
+        normal.types[0],
+        normal.types[1],
+        normal.types[2],
+        normal.types[0],
+    };
+    duplicate_types[3].name = duplicate_key.c_str();
+    auto duplicate = normal;
+    duplicate.types = duplicate_types.data();
+    require(check_current_agreement(duplicate) ==
+                agreement_result::incomplete,
+            "a registry with duplicate key contents must be incomplete");
+
+    auto extra_types = std::array<boost::typelayout::TypeEntry, 4>{
+        normal.types[0],
+        normal.types[1],
+        normal.types[2],
+        {"UnexpectedType", normal.types[3].layout_sig, true},
+    };
+    auto extra = normal;
+    extra.types = extra_types.data();
+    require(check_current_agreement(extra) == agreement_result::incomplete,
+            "a registry with an extra key must be incomplete");
+    require_canonical_agreement_details(
+        current_agreement_details(extra), {true, true, true, false});
+
+    std::array<boost::typelayout::TypeEntry, 5> too_many_types{
+        normal.types[0],
+        normal.types[1],
+        normal.types[2],
+        normal.types[3],
+        {"UnexpectedType", normal.types[0].layout_sig, true},
+    };
+    auto wrong_count = normal;
+    wrong_count.types = too_many_types.data();
+    wrong_count.type_count = too_many_types.size();
+    require(check_current_agreement(wrong_count) ==
+                agreement_result::incomplete,
+            "a registry whose type_count is not four must be incomplete");
+
+    auto null_registry = normal;
+    null_registry.types = nullptr;
+    require(check_current_agreement(null_registry) ==
+                agreement_result::incomplete,
+            "a null registry must be incomplete");
+    require_canonical_agreement_details(
+        current_agreement_details(null_registry),
+        {false, false, false, false});
+
+    auto null_name_types = permuted_types;
+    null_name_types[1].name = nullptr;
+    auto null_name = permuted;
+    null_name.types = null_name_types.data();
+    require(check_current_agreement(null_name) ==
+                agreement_result::incomplete,
+            "a registry with a null key string must be incomplete");
+
+    auto null_layout_types = permuted_types;
+    null_layout_types[1].layout_sig = nullptr;
+    auto null_layout = permuted;
+    null_layout.types = null_layout_types.data();
+    require(check_current_agreement(null_layout) ==
+                agreement_result::incomplete,
+            "a registry with a null signature string must be incomplete");
+}
+
 } // namespace
 
 int main() {
@@ -525,4 +679,5 @@ int main() {
     test_canonical_typed_access_and_descriptor_provenance();
     test_builder_capabilities_expire_without_mutation();
     test_reentrant_set_cannot_mutate_validated_world<RegionBuilder>();
+    test_local_agreement();
 }

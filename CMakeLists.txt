@@ -100,6 +100,20 @@ add_test(NAME test_relocatable_checkpoint COMMAND test_relocatable_checkpoint)
 set_tests_properties(test_relocatable_checkpoint PROPERTIES
     LABELS "typelayout;example;relocatable-world")
 
+add_executable(relocatable_world_export_ok EXCLUDE_FROM_ALL
+    example/relocatable_world_demo/export_signatures.cpp)
+target_link_libraries(relocatable_world_export_ok PRIVATE typelayout)
+target_include_directories(relocatable_world_export_ok PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/example/relocatable_world_demo)
+
+add_executable(relocatable_world_export_packed EXCLUDE_FROM_ALL
+    example/relocatable_world_demo/export_signatures.cpp)
+target_link_libraries(relocatable_world_export_packed PRIVATE typelayout)
+target_include_directories(relocatable_world_export_packed PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/example/relocatable_world_demo)
+target_compile_definitions(relocatable_world_export_packed PRIVATE
+    TYPELAYOUT_RELOCATABLE_WORLD_PACKED_ENTITY=1)
+
 set(TYPELAYOUT_XOFFSET_HEADER
     "${CMAKE_CURRENT_SOURCE_DIR}/vendor/XOffsetDatastructure/xoffsetdatastructure.hpp")
 
