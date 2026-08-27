@@ -6,11 +6,29 @@
 #include "checkpoint.hpp"
 
 #include "region_storage.hpp"
+#include "world_runtime.hpp"
 
 #include <algorithm>
 #include <limits>
 
 namespace relocatable_world_demo {
+
+struct CheckpointRegionAccess {
+    static std::uint32_t root_offset(const RegionBuffer& buffer) {
+        return buffer.root_offset_;
+    }
+
+    static RegionBuffer copied_buffer(const decoded_checkpoint& decoded) {
+        RegionBuffer buffer;
+        std::memcpy(buffer.storage_->bytes, decoded.payload.data(),
+                    decoded.payload.size());
+        buffer.used_bytes_ = static_cast<std::uint32_t>(decoded.payload.size());
+        buffer.root_offset_ = decoded.root_offset;
+        buffer.state_ = RegionBuffer::state::copied_bytes_unvalidated;
+        return buffer;
+    }
+};
+
 namespace {
 
 constexpr std::size_t version_offset = 8;
@@ -180,6 +198,21 @@ decoded_checkpoint decode_checkpoint_envelope(
         artifact.subspan(checkpoint_header_size, payload_size),
         static_cast<std::uint32_t>(root)
     };
+}
+
+std::vector<std::byte> save_checkpoint(const RegionBuffer& buffer) {
+    if (!buffer.is_validated()) {
+        throw std::logic_error("cannot save an unvalidated region buffer");
+    }
+    return encode_checkpoint(buffer.used_bytes(),
+                             CheckpointRegionAccess::root_offset(buffer));
+}
+
+RegionBuffer load_checkpoint(std::span<const std::byte> artifact) {
+    const auto decoded = decode_checkpoint_envelope(artifact);
+    auto buffer = CheckpointRegionAccess::copied_buffer(decoded);
+    validate_and_freeze_world(buffer);
+    return buffer;
 }
 
 } // namespace relocatable_world_demo

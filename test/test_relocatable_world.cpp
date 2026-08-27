@@ -113,7 +113,7 @@ std::string_view read_text(std::span<const std::byte> bytes,
 
 } // namespace
 
-int main() {
+void test_unvalidated_canonical_representation() {
     RegionBuilder builder;
     const auto root = populate_canonical_world(builder);
     const auto root_offset = decode_non_null(root.raw_offset_plus_one());
@@ -183,4 +183,148 @@ int main() {
             "Hero target must point to Boss");
     require(boss.target.raw_offset_plus_one() == hero_pointer,
             "Boss target must point to Hero");
+}
+
+namespace {
+
+template <typename Exception, typename Function>
+void require_throws(Function&& function, const char* message) {
+    try {
+        std::forward<Function>(function)();
+    } catch (const Exception&) {
+        return;
+    }
+    throw std::runtime_error(message);
+}
+
+void test_empty_world_validation() {
+    RegionBuilder builder;
+    const auto root = builder.make_object<WorldSnapshot>();
+    auto buffer = std::move(builder).finish(root);
+
+    require_throws<std::logic_error>([&] {
+        static_cast<void>(world_root(buffer));
+    }, "typed root access must fail before validation");
+
+    validate_and_freeze_world(buffer);
+    require(buffer.is_validated(), "empty world must validate");
+
+    const auto& world = world_root(buffer);
+    const auto view = buffer.view();
+    require(view.elements(world.entities).empty(),
+            "empty world must expose no entities");
+    require(view.map(world.entity_index).begin() ==
+                view.map(world.entity_index).end(),
+            "empty world must expose an empty index");
+    require(view.elements(world.party).empty(),
+            "empty world must expose an empty party");
+    require(view.resolve(world.local_player) == nullptr,
+            "empty world must expose a null local player");
+}
+
+void test_one_entity_empty_name_validation() {
+    static_assert(alignof(char) == 1,
+                  "character payload alignment must be vacuous");
+
+    RegionBuilder builder;
+    const auto root = builder.make_object<WorldSnapshot>();
+    const auto entities = builder.make_array<Entity>(1);
+    const auto index_entries = builder.make_array<EntityIndexEntry>(1);
+    const auto party = builder.make_array<EntityRelativePtr>(1);
+
+    builder.bind(builder.get(root).entities, entities);
+    builder.bind(builder.get(root).entity_index, index_entries);
+    builder.bind(builder.get(root).party, party);
+
+    auto& entity = builder.at(entities, 0);
+    entity.id = hero_id;
+    entity.kind = EntityKind::player;
+    entity.position = {1, 2};
+    entity.hp = 3;
+    builder.assign(entity.name, "");
+    builder.bind(entity.owner, region_handle<Entity>{});
+    builder.bind(entity.target, region_handle<Entity>{});
+    builder.at(index_entries, 0) = {hero_id, 0};
+
+    const auto entity_handle = builder.element_handle(entities, 0);
+    builder.bind(builder.at(party, 0), entity_handle);
+    builder.bind(builder.get(root).local_player, entity_handle);
+
+    auto buffer = std::move(builder).finish(root);
+    validate_and_freeze_world(buffer);
+
+    const auto& world = world_root(buffer);
+    const auto view = buffer.view();
+    const auto entity_view = view.elements(world.entities);
+    const auto party_view = view.elements(world.party);
+    const auto index_view = view.map(world.entity_index);
+    require(entity_view.size() == 1,
+            "one-entity world must expose its entity range");
+    require(view.text(entity_view[0].name).empty(),
+            "null/zero name must expose an empty string");
+    require(party_view.size() == 1 &&
+                view.resolve(party_view[0]) == &entity_view[0],
+            "one-entity world must expose its party link");
+    require(index_view.find(hero_id) != index_view.end() &&
+                index_view.find(hero_id)->value == 0,
+            "one-entity world must expose its index entry");
+}
+
+void test_canonical_typed_access_and_descriptor_provenance() {
+    auto buffer = build_canonical_world();
+    require(buffer.is_validated(), "canonical world must be validated");
+
+    const auto& world = world_root(buffer);
+    const auto view = buffer.view();
+    const auto entities = view.elements(world.entities);
+    const auto party = view.elements(world.party);
+    const auto index = view.map(world.entity_index);
+
+    require(world.tick == 42, "canonical typed root must expose tick 42");
+    require(entities.size() == 2,
+            "canonical typed view must expose both entities");
+    require(view.text(entities[0].name) == "Hero" &&
+                view.text(entities[1].name) == "Boss",
+            "canonical typed view must expose both names");
+    require(party.size() == 2,
+            "canonical typed view must expose both party entries");
+    require(index.begin() != index.end() &&
+                index.find(hero_id) != index.end() &&
+                index.find(hero_id)->value == 0 &&
+                index.find(boss_id) != index.end() &&
+                index.find(boss_id)->value == 1 &&
+                index.find(9999) == index.end(),
+            "canonical typed map must support binary-search lookup");
+    require(view.resolve(entities[0].owner) == nullptr,
+            "Hero owner must remain null");
+    require(view.resolve(entities[1].owner) == &entities[0],
+            "Boss owner must resolve to Hero");
+    require(view.resolve(entities[0].target) == &entities[1] &&
+                view.resolve(entities[1].target) == &entities[0],
+            "canonical target cycle must resolve");
+    require(view.resolve(party[0]) == &entities[0] &&
+                view.resolve(party[1]) == &entities[1],
+            "canonical party links must resolve");
+    require(view.resolve(world.local_player) == &entities[0],
+            "canonical local player must resolve to Hero");
+
+    const auto stack_entities = world.entities;
+    require_throws<std::invalid_argument>([&] {
+        static_cast<void>(view.elements(stack_entities));
+    }, "stack descriptor must be rejected before offset resolution");
+
+    auto second_buffer = build_canonical_world();
+    const auto& second_world = world_root(second_buffer);
+    require_throws<std::invalid_argument>([&] {
+        static_cast<void>(view.elements(second_world.entities));
+    }, "foreign descriptor must be rejected before offset resolution");
+}
+
+} // namespace
+
+int main() {
+    test_unvalidated_canonical_representation();
+    test_empty_world_validation();
+    test_one_entity_empty_name_validation();
+    test_canonical_typed_access_and_descriptor_provenance();
 }

@@ -197,6 +197,7 @@ private:
     friend class RegionBuilder;
     friend class WorldRegionValidator;
     friend struct WorldRegionAccess;
+    friend struct CheckpointRegionAccess;
     friend RegionBuffer load_checkpoint(std::span<const std::byte>);
 };
 

@@ -13,6 +13,9 @@
 namespace relocatable_world_demo {
 
 region_handle<WorldSnapshot> populate_canonical_world(RegionBuilder& builder);
+void validate_and_freeze_world(RegionBuffer& buffer);
+RegionBuffer build_canonical_world();
+const WorldSnapshot& world_root(const RegionBuffer& buffer);
 
 } // namespace relocatable_world_demo
 

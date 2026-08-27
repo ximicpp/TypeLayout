@@ -15,6 +15,8 @@
 
 namespace relocatable_world_demo {
 
+class RegionBuffer;
+
 enum class rejection_layer {
     envelope,
     region,
@@ -52,6 +54,8 @@ std::vector<std::byte> encode_checkpoint(std::span<const std::byte> payload,
                                          std::uint32_t root_offset);
 decoded_checkpoint decode_checkpoint_envelope(
     std::span<const std::byte> artifact);
+std::vector<std::byte> save_checkpoint(const RegionBuffer& buffer);
+RegionBuffer load_checkpoint(std::span<const std::byte> artifact);
 
 } // namespace relocatable_world_demo
 
