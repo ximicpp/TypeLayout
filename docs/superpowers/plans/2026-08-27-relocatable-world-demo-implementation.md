@@ -425,7 +425,7 @@ void test_builder_and_view() {
 
 Also add tests that `make_array<T>(0)` binds null/zero, a 4097-byte request throws `std::length_error`, a maximal public array count is rejected as over-capacity before cursor movement, and a second allocation never changes the storage base. Exercise the three checked arithmetic helpers directly with `std::numeric_limits<std::size_t>::max()` to prove multiplication, addition, and align-up overflow rejection; the public `std::uint32_t` counts cannot overflow 64-bit `std::size_t` on the declared nodes. Call all tests from `main()`.
 
-Create a second builder and prove that handle/member `bind`, `assign`, and `set` reject foreign destination or source handles. Add Release-active negative tests proving that null pointer-to-members are rejected before either an ordinary write or topology bind can dereference them. Prove at compile time that direct stack-destination bind/assign calls are not expressible, mutable `get`/`at` do not exist, ordinary `set` rejects descriptors and native pointers, and `finish` rejects every root handle type except `WorldSnapshot`. Retain valid handles across `finish()` and prove every subsequent builder operation throws `std::logic_error`. Add compile-time checks that `RegionFixture`, every descriptor, and later `Entity`/`WorldSnapshot` are not publicly copy- or move-assignable. These are construction-boundary tests, not payload state.
+Create a second builder and prove that handle/member `bind`, `assign`, and `set` reject foreign destination or source handles. Add Release-active negative tests proving that null pointer-to-members are rejected before either an ordinary write or topology bind can dereference them. Prove that invalid topology sources leave every already-bound destination byte unchanged. Prove at compile time that direct stack-destination bind/assign calls are not expressible, mutable `get`/`at` do not exist, ordinary `set` rejects descriptors, native pointers, converting value types, and non-trivial assignment expressions, and `finish` rejects every root handle type except `WorldSnapshot`. Include a runtime RED witness in which an old converting `set` finalizes and validates mid-call before resuming its write; the final concept/API test must make that expression uncallable. Retain valid handles across `finish()` and prove every subsequent builder operation throws `std::logic_error`. Add compile-time checks that `RegionFixture`, every descriptor, and later `Entity`/`WorldSnapshot` are not publicly copy- or move-assignable. These are construction-boundary tests, not payload state.
 
 Add `static_assert` checks that `RegionBuilder` is neither copy- nor move-constructible/assignable. Its address is the construction-handle provenance token, so moving it while handles exist is forbidden by design.
 
@@ -496,20 +496,29 @@ public:
     region_array_handle<T> make_array(std::uint32_t count);
 
     template <typename Owner, typename Member, typename Value>
-        requires ordinary_copy_admitted<Member>
+        requires ordinary_copy_admitted<Member> &&
+                 std::is_same_v<std::remove_cvref_t<Value>,
+                                std::remove_cv_t<Member>> &&
+                 std::is_trivially_assignable_v<Member&, Value&&>
     void set(region_handle<Owner> destination,
              Member Owner::* member,
              Value&& value);
 
     template <typename Owner, typename Member, typename Value>
-        requires ordinary_copy_admitted<Member>
+        requires ordinary_copy_admitted<Member> &&
+                 std::is_same_v<std::remove_cvref_t<Value>,
+                                std::remove_cv_t<Member>> &&
+                 std::is_trivially_assignable_v<Member&, Value&&>
     void set(region_array_handle<Owner> destination,
              std::uint32_t index,
              Member Owner::* member,
              Value&& value);
 
     template <typename T, typename Value>
-        requires ordinary_copy_admitted<T>
+        requires ordinary_copy_admitted<T> &&
+                 std::is_same_v<std::remove_cvref_t<Value>,
+                                std::remove_cv_t<T>> &&
+                 std::is_trivially_assignable_v<T&, Value&&>
     void set(region_array_handle<T> destination,
              std::uint32_t index,
              Value&& value);
@@ -543,7 +552,7 @@ public:
 };
 ```
 
-`region_array_handle<T>` carries the same issuing-builder provenance plus checked first-element offset and count; it is construction-only and never stored. No public builder operation returns a mutable typed reference, pointer, or span. Ordinary `set` accepts only an assignable member or whole array element admitted for `ordinary_copy`, explicitly excluding native pointers and region descriptors. Dedicated `bind`/`assign` overloads take a destination handle, optional checked array index, and pointer-to-member; they reject a null pointer-to-member before dereference, verify destination and source provenance internally, and return `void`, so stack destinations are not expressible. `finish()` accepts only a null-or-owned `region_handle<WorldSnapshot>`, rejects null or foreign handles, records that exact root offset and checked cursor, and permanently closes the builder. Implement allocation with checked `align_up`, checked multiplication, and checked cursor addition. Call `std::start_lifetime_as<T>` for a single object and `std::start_lifetime_as_array<T>` once for a non-empty array. Zero storage first, populate objects only at their final addresses, and reject every operation after `finish()`.
+`region_array_handle<T>` carries the same issuing-builder provenance plus checked first-element offset and count; it is construction-only and never stored. No public builder operation returns a mutable typed reference, pointer, or span. Ordinary `set` accepts only a member or whole array element admitted for `ordinary_copy`, explicitly excluding native pointers and region descriptors; its value must have the exact cvref-stripped target type and the selected assignment must be trivial, so conversion or custom assignment cannot reenter the builder. Dedicated `bind`/`assign` overloads take a destination handle, optional checked array index, and pointer-to-member; they reject a null pointer-to-member and complete every active-state, destination provenance/index, and source provenance/null/count check before typed destination resolution. They return `void`, so stack destinations are not expressible. `finish()` accepts only a null-or-owned `region_handle<WorldSnapshot>`, rejects null or foreign handles, records that exact root offset and checked cursor, and permanently closes the builder. Implement allocation with checked `align_up`, checked multiplication, and checked cursor addition. Call `std::start_lifetime_as<T>` for a single object and `std::start_lifetime_as_array<T>` once for a non-empty array. Zero storage first, populate objects only at their final addresses, and reject every operation after `finish()`.
 
 Implement both `RegionBuffer` move operations explicitly: transfer storage and metadata, then reset the source to an empty non-validated state. `used_bytes()` on a moved-from buffer returns an empty span, while `view()` and the later schema-bound root accessor reject it. Extend the runtime test to move a finished buffer once and check both the preserved destination base and the inert source.
 
@@ -918,7 +927,7 @@ entry key different from entities[value].id
 one entity missing from index coverage
 ```
 
-Add graph-layer cases for a non-null offset outside the region, a misaligned entity offset, and an offset into the middle of an entity. Only the out-of-region `local_player` case will later be printed by the demo. The incomplete-root fixture uses the largest aligned offset below the payload end and asserts the extent-specific rejection. The duplicate-value fixture asserts the explicit duplicate-coverage reason before key/ID agreement is checked; the following coverage scan still preserves the missing-value invariant.
+Add graph-layer cases for a non-null offset outside the region, a misaligned entity offset, and an offset into the middle of an entity. Only the out-of-region `local_player` case will later be printed by the demo. The incomplete-root fixture uses the largest aligned offset below the payload end and asserts the extent-specific rejection. Because equal index/entity counts make duplicate and missing values the same failed one-to-one invariant, the second-value-to-zero fixture asserts the reachable missing-coverage reason before key/ID agreement is checked; there is no separate unreachable duplicate-value diagnostic.
 
 Also add the first positive typed-access tests here. A default root with null/zero entity, index, and party descriptors validates as an empty world. A one-entity fixture with an empty name validates the empty-string rule while exercising non-empty vector/map ranges; explicitly assert that character payload alignment is vacuous because `alignof(char) == 1`. Finally, call `build_canonical_world()`, require `is_validated()`, then use only `world_root(buffer)` and its bound read-only `RegionView` to check both non-empty names, all three stored ranges, selected relationships, and binary-search lookup. Pass the view a descriptor copied to the stack and one belonging to a second validated buffer; both must throw before offset resolution. Retain every construction handle through finish and validation, attempt every surviving builder operation category, and require `std::logic_error`, byte-for-byte unchanged payload, and an unchanged valid typed world. These cases replace the deliberately unavailable positive view test from Task 2.
 

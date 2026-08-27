@@ -515,15 +515,14 @@ void test_index_semantic_rejections() {
 
     require_mutated_rejection_reason(
         rejection_layer::region,
-        "entity appears more than once in the index",
+        "entity is missing from index coverage",
         [](auto& artifact) {
             write_u32_le(artifact,
                          payload_field(index_payload_offset(artifact, 1) +
                                        offsetof(EntityIndexEntry, value)),
                          0);
         },
-        "duplicate/missing index coverage must be rejected before key/ID "
-        "agreement");
+        "one-to-one index coverage must be rejected before key/ID agreement");
 }
 
 void test_graph_rejections() {

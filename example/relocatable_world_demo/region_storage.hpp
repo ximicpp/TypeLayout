@@ -260,44 +260,48 @@ public:
 
     template <typename Owner, typename Member, typename Value>
         requires (detail::ordinary_writable_v<Member> &&
-                  std::is_assignable_v<Member&, Value&&>)
+                  std::is_same_v<std::remove_cvref_t<Value>,
+                                 std::remove_cv_t<Member>> &&
+                  std::is_trivially_assignable_v<Member&, Value&&>)
     void set(region_handle<Owner> destination,
              Member Owner::* member,
              Value&& value) {
-        require_member(member);
-        auto& object = checked_object(destination);
+        require_object_member_destination(destination, member);
+        auto& object = resolve_object_unchecked(destination);
         object.*member = std::forward<Value>(value);
     }
 
     template <typename Owner, typename Member, typename Value>
         requires (detail::ordinary_writable_v<Member> &&
-                  std::is_assignable_v<Member&, Value&&>)
+                  std::is_same_v<std::remove_cvref_t<Value>,
+                                 std::remove_cv_t<Member>> &&
+                  std::is_trivially_assignable_v<Member&, Value&&>)
     void set(region_array_handle<Owner> destination,
              std::uint32_t index,
              Member Owner::* member,
              Value&& value) {
-        require_member(member);
-        auto& object = checked_element(destination, index);
+        require_array_member_destination(destination, index, member);
+        auto& object = resolve_element_unchecked(destination, index);
         object.*member = std::forward<Value>(value);
     }
 
     template <typename T, typename Value>
         requires (detail::ordinary_writable_v<T> &&
-                  std::is_assignable_v<T&, Value&&>)
+                  std::is_same_v<std::remove_cvref_t<Value>,
+                                 std::remove_cv_t<T>> &&
+                  std::is_trivially_assignable_v<T&, Value&&>)
     void set(region_array_handle<T> destination,
              std::uint32_t index,
              Value&& value) {
-        checked_element(destination, index) = std::forward<Value>(value);
+        require_array_destination(destination, index);
+        resolve_element_unchecked(destination, index) =
+            std::forward<Value>(value);
     }
 
     template <typename T>
     region_handle<T> element_handle(region_array_handle<T> handle,
                                     std::uint32_t index) const {
-        ensure_active();
-        require_array_handle(handle);
-        if (index >= handle.count_) {
-            throw std::out_of_range("region array index is out of range");
-        }
+        require_array_destination(handle, index);
         const auto element_offset = detail::checked_add(
             decode_offset(handle.offset_plus_one_),
             detail::checked_multiply(static_cast<std::size_t>(index),
@@ -309,9 +313,10 @@ public:
     void bind(region_handle<Owner> destination,
               region_vector<T> Owner::* member,
               region_array_handle<T> source) {
-        require_member(member);
-        auto& object = checked_object(destination);
-        bind_vector(object.*member, source);
+        require_object_member_destination(destination, member);
+        require_array_source(source);
+        auto& object = resolve_object_unchecked(destination);
+        bind_vector_unchecked(object.*member, source);
     }
 
     template <typename Owner, typename T>
@@ -319,18 +324,20 @@ public:
               std::uint32_t index,
               region_vector<T> Owner::* member,
               region_array_handle<T> source) {
-        require_member(member);
-        auto& object = checked_element(destination, index);
-        bind_vector(object.*member, source);
+        require_array_member_destination(destination, index, member);
+        require_array_source(source);
+        auto& object = resolve_element_unchecked(destination, index);
+        bind_vector_unchecked(object.*member, source);
     }
 
     template <typename Owner, typename K, typename V>
     void bind(region_handle<Owner> destination,
               region_flat_map<K, V> Owner::* member,
               region_array_handle<region_key_value<K, V>> source) {
-        require_member(member);
-        auto& object = checked_object(destination);
-        bind_map(object.*member, source);
+        require_object_member_destination(destination, member);
+        require_array_source(source);
+        auto& object = resolve_object_unchecked(destination);
+        bind_map_unchecked(object.*member, source);
     }
 
     template <typename Owner, typename K, typename V>
@@ -338,18 +345,20 @@ public:
               std::uint32_t index,
               region_flat_map<K, V> Owner::* member,
               region_array_handle<region_key_value<K, V>> source) {
-        require_member(member);
-        auto& object = checked_element(destination, index);
-        bind_map(object.*member, source);
+        require_array_member_destination(destination, index, member);
+        require_array_source(source);
+        auto& object = resolve_element_unchecked(destination, index);
+        bind_map_unchecked(object.*member, source);
     }
 
     template <typename Owner, typename T>
     void bind(region_handle<Owner> destination,
               relative_ptr<T> Owner::* member,
               region_handle<T> source) {
-        require_member(member);
-        auto& object = checked_object(destination);
-        bind_relative(object.*member, source);
+        require_object_member_destination(destination, member);
+        require_nullable_source(source);
+        auto& object = resolve_object_unchecked(destination);
+        bind_relative_unchecked(object.*member, source);
     }
 
     template <typename Owner, typename T>
@@ -357,25 +366,28 @@ public:
               std::uint32_t index,
               relative_ptr<T> Owner::* member,
               region_handle<T> source) {
-        require_member(member);
-        auto& object = checked_element(destination, index);
-        bind_relative(object.*member, source);
+        require_array_member_destination(destination, index, member);
+        require_nullable_source(source);
+        auto& object = resolve_element_unchecked(destination, index);
+        bind_relative_unchecked(object.*member, source);
     }
 
     template <typename T>
     void bind(region_array_handle<relative_ptr<T>> destination,
               std::uint32_t index,
               region_handle<T> source) {
-        auto& pointer = checked_element(destination, index);
-        bind_relative(pointer, source);
+        require_array_destination(destination, index);
+        require_nullable_source(source);
+        auto& pointer = resolve_element_unchecked(destination, index);
+        bind_relative_unchecked(pointer, source);
     }
 
     template <typename Owner>
     void assign(region_handle<Owner> destination,
                 region_string Owner::* member,
                 std::string_view text) {
-        require_member(member);
-        auto& object = checked_object(destination);
+        require_object_member_destination(destination, member);
+        auto& object = resolve_object_unchecked(destination);
         assign_string(object.*member, text);
     }
 
@@ -384,8 +396,8 @@ public:
                 std::uint32_t index,
                 region_string Owner::* member,
                 std::string_view text) {
-        require_member(member);
-        auto& object = checked_element(destination, index);
+        require_array_member_destination(destination, index, member);
+        auto& object = resolve_element_unchecked(destination, index);
         assign_string(object.*member, text);
     }
 
@@ -482,30 +494,51 @@ private:
         }
     }
 
-    template <typename Owner, typename Member>
-    void require_member(Member Owner::* member) const {
-        ensure_active();
-        if (member == nullptr) {
-            throw std::invalid_argument("region member pointer is null");
-        }
-    }
-
     template <typename T>
-    T& checked_object(region_handle<T> handle) {
-        ensure_active();
-        require_handle(handle);
-        return *std::launder(reinterpret_cast<T*>(
-            base() + decode_offset(handle.offset_plus_one_)));
-    }
-
-    template <typename T>
-    T& checked_element(region_array_handle<T> handle,
-                       std::uint32_t index) {
+    void require_array_destination(region_array_handle<T> handle,
+                                   std::uint32_t index) const {
         ensure_active();
         require_array_handle(handle);
         if (index >= handle.count_) {
             throw std::out_of_range("region array index is out of range");
         }
+    }
+
+    template <typename Owner, typename Member>
+    void require_object_member_destination(
+        region_handle<Owner> destination,
+        Member Owner::* member) const {
+        ensure_active();
+        if (member == nullptr) {
+            throw std::invalid_argument("region member pointer is null");
+        }
+        require_handle(destination);
+    }
+
+    template <typename Owner, typename Member>
+    void require_array_member_destination(
+        region_array_handle<Owner> destination,
+        std::uint32_t index,
+        Member Owner::* member) const {
+        ensure_active();
+        if (member == nullptr) {
+            throw std::invalid_argument("region member pointer is null");
+        }
+        require_array_handle(destination);
+        if (index >= destination.count_) {
+            throw std::out_of_range("region array index is out of range");
+        }
+    }
+
+    template <typename T>
+    T& resolve_object_unchecked(region_handle<T> handle) {
+        return *std::launder(reinterpret_cast<T*>(
+            base() + decode_offset(handle.offset_plus_one_)));
+    }
+
+    template <typename T>
+    T& resolve_element_unchecked(region_array_handle<T> handle,
+                                 std::uint32_t index) {
         const auto element_offset = detail::checked_add(
             decode_offset(handle.offset_plus_one_),
             detail::checked_multiply(static_cast<std::size_t>(index),
@@ -514,9 +547,8 @@ private:
     }
 
     template <typename T>
-    void bind_vector(region_vector<T>& destination,
-                     region_array_handle<T> source) {
-        require_array_source(source);
+    void bind_vector_unchecked(region_vector<T>& destination,
+                               region_array_handle<T> source) {
         if (source.count_ == 0) {
             destination.data_.reset_unchecked(region_handle<T>{});
             destination.size_ = 0;
@@ -528,9 +560,9 @@ private:
     }
 
     template <typename K, typename V>
-    void bind_map(region_flat_map<K, V>& destination,
-                  region_array_handle<region_key_value<K, V>> source) {
-        require_array_source(source);
+    void bind_map_unchecked(
+        region_flat_map<K, V>& destination,
+        region_array_handle<region_key_value<K, V>> source) {
         if (source.count_ == 0) {
             destination.entries_.data_.reset_unchecked(
                 region_handle<region_key_value<K, V>>{});
@@ -544,9 +576,8 @@ private:
     }
 
     template <typename T>
-    void bind_relative(relative_ptr<T>& destination,
-                       region_handle<T> source) {
-        require_nullable_source(source);
+    void bind_relative_unchecked(relative_ptr<T>& destination,
+                                 region_handle<T> source) {
         destination.reset_unchecked(source);
     }
 

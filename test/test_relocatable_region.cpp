@@ -36,6 +36,32 @@ struct NativePointerFixture {
     std::uint32_t* pointer;
 };
 
+struct MemberPointerFixture {
+    std::uint32_t RegionFixture::* pointer;
+};
+
+struct ConvertsToScalar {
+    constexpr operator std::uint32_t() const noexcept { return 7; }
+};
+
+struct NontrivialAssignmentValue {
+    std::uint32_t value;
+};
+
+struct NontrivialAssignmentTarget {
+    std::uint32_t value;
+
+    NontrivialAssignmentTarget& operator=(
+        NontrivialAssignmentValue source) noexcept {
+        value = source.value;
+        return *this;
+    }
+};
+
+struct NontrivialAssignmentFixture {
+    NontrivialAssignmentTarget target;
+};
+
 namespace boost::typelayout::v1 {
 template <>
 struct source_context_traits<::DisabledRegionElement>
@@ -107,6 +133,14 @@ static_assert(!std::is_copy_constructible_v<RegionBuilder>);
 static_assert(!std::is_copy_assignable_v<RegionBuilder>);
 static_assert(!std::is_move_constructible_v<RegionBuilder>);
 static_assert(!std::is_move_assignable_v<RegionBuilder>);
+static_assert(std::is_standard_layout_v<NontrivialAssignmentTarget>);
+static_assert(std::is_trivially_copyable_v<NontrivialAssignmentTarget>);
+static_assert(is_admitted_v<NontrivialAssignmentTarget,
+    TransferProfile::ordinary_copy>);
+static_assert(std::is_assignable_v<NontrivialAssignmentTarget&,
+                                   NontrivialAssignmentValue&&>);
+static_assert(!std::is_trivially_assignable_v<NontrivialAssignmentTarget&,
+                                              NontrivialAssignmentValue&&>);
 static_assert(region_capacity == 4096);
 static_assert(source_context_v<relative_ptr<std::uint32_t>> ==
               SourceContext::same_region);
@@ -165,6 +199,14 @@ concept ordinarily_sets_native_pointer = requires(
 };
 
 template <typename Builder>
+concept ordinarily_sets_member_pointer = requires(
+    Builder& builder,
+    region_handle<MemberPointerFixture> handle,
+    std::uint32_t RegionFixture::* pointer) {
+    builder.set(handle, &MemberPointerFixture::pointer, pointer);
+};
+
+template <typename Builder>
 concept ordinarily_sets_string_descriptor = requires(
     Builder& builder,
     region_handle<Entity> handle,
@@ -194,6 +236,47 @@ concept ordinarily_sets_descriptor_element = requires(
     region_array_handle<relative_ptr<std::uint32_t>> destination,
     relative_ptr<std::uint32_t> value) {
     builder.set(destination, 0, value);
+};
+
+template <typename Builder>
+concept accepts_converting_object_member_set = requires(
+    Builder& builder,
+    region_handle<RegionFixture> destination,
+    ConvertsToScalar value) {
+    builder.set(destination, &RegionFixture::scalar, std::move(value));
+};
+
+template <typename Builder>
+concept accepts_converting_array_member_set = requires(
+    Builder& builder,
+    region_array_handle<RegionFixture> destination,
+    ConvertsToScalar value) {
+    builder.set(destination, 0, &RegionFixture::scalar, std::move(value));
+};
+
+template <typename Builder>
+concept accepts_converting_array_element_set = requires(
+    Builder& builder,
+    region_array_handle<std::uint32_t> destination,
+    ConvertsToScalar value) {
+    builder.set(destination, 0, std::move(value));
+};
+
+template <typename Builder>
+concept accepts_nontrivial_object_member_assignment = requires(
+    Builder& builder,
+    region_handle<NontrivialAssignmentFixture> destination,
+    NontrivialAssignmentValue value) {
+    builder.set(destination, &NontrivialAssignmentFixture::target,
+                std::move(value));
+};
+
+template <typename Builder>
+concept accepts_nontrivial_array_element_assignment = requires(
+    Builder& builder,
+    region_array_handle<NontrivialAssignmentTarget> destination,
+    NontrivialAssignmentValue value) {
+    builder.set(destination, 0, std::move(value));
 };
 
 template <typename Builder>
@@ -233,10 +316,16 @@ static_assert(!accepts_wrong_root<RegionBuilder>);
 static_assert(accepts_world_root<RegionBuilder>);
 static_assert(!ordinarily_sets_descriptor<RegionBuilder>);
 static_assert(!ordinarily_sets_native_pointer<RegionBuilder>);
+static_assert(!ordinarily_sets_member_pointer<RegionBuilder>);
 static_assert(!ordinarily_sets_string_descriptor<RegionBuilder>);
 static_assert(!ordinarily_sets_pointer_descriptor<RegionBuilder>);
 static_assert(!ordinarily_sets_map_descriptor<RegionBuilder>);
 static_assert(!ordinarily_sets_descriptor_element<RegionBuilder>);
+static_assert(!accepts_converting_object_member_set<RegionBuilder>);
+static_assert(!accepts_converting_array_member_set<RegionBuilder>);
+static_assert(!accepts_converting_array_element_set<RegionBuilder>);
+static_assert(!accepts_nontrivial_object_member_assignment<RegionBuilder>);
+static_assert(!accepts_nontrivial_array_element_assignment<RegionBuilder>);
 static_assert(!directly_binds_stack_pointer<RegionBuilder>);
 static_assert(!directly_binds_stack_vector<RegionBuilder>);
 static_assert(!directly_assigns_stack_string<RegionBuilder>);
@@ -452,6 +541,86 @@ void test_handle_provenance() {
     });
 }
 
+void test_invalid_bind_sources_leave_destinations_unchanged() {
+    RegionBuilder builder;
+    const auto root = builder.make_object<WorldSnapshot>();
+    const auto entities = builder.make_array<Entity>(1);
+    const auto party = builder.make_array<EntityRelativePtr>(1);
+    const auto fixtures = builder.make_array<RegionFixture>(1);
+    const auto maps = builder.make_array<MapFixture>(1);
+    const auto values = builder.make_array<std::uint32_t>(1);
+    const auto entries = builder.make_array<EntityIndexEntry>(1);
+    const auto entity = builder.element_handle(entities, 0);
+
+    builder.bind(root, &WorldSnapshot::entities, entities);
+    builder.bind(root, &WorldSnapshot::entity_index, entries);
+    builder.bind(root, &WorldSnapshot::local_player, entity);
+    builder.bind(fixtures, 0, &RegionFixture::values, values);
+    builder.bind(maps, 0, &MapFixture::index, entries);
+    builder.bind(entities, 0, &Entity::target, entity);
+    builder.bind(party, 0, entity);
+
+    RegionBuilder foreign;
+    const auto foreign_entities = foreign.make_array<Entity>(1);
+    const auto foreign_values = foreign.make_array<std::uint32_t>(1);
+    const auto foreign_entries = foreign.make_array<EntityIndexEntry>(1);
+    const auto foreign_entity = foreign.element_handle(foreign_entities, 0);
+
+    expect_throws<std::invalid_argument>([&] {
+        builder.bind(root, &WorldSnapshot::entities, foreign_entities);
+    });
+    expect_throws<std::invalid_argument>([&] {
+        builder.bind(root, &WorldSnapshot::entity_index, foreign_entries);
+    });
+    expect_throws<std::invalid_argument>([&] {
+        builder.bind(root, &WorldSnapshot::local_player, foreign_entity);
+    });
+    expect_throws<std::invalid_argument>([&] {
+        builder.bind(fixtures, 0, &RegionFixture::values, foreign_values);
+    });
+    expect_throws<std::invalid_argument>([&] {
+        builder.bind(maps, 0, &MapFixture::index, foreign_entries);
+    });
+    expect_throws<std::invalid_argument>([&] {
+        builder.bind(entities, 0, &Entity::target, foreign_entity);
+    });
+    expect_throws<std::invalid_argument>([&] {
+        builder.bind(party, 0, foreign_entity);
+    });
+
+    auto buffer = std::move(builder).finish(root);
+    const auto bytes = buffer.used_bytes();
+    const auto root_offset = root.raw_offset_plus_one() - 1;
+    const auto fixture_offset = fixtures.raw_offset_plus_one() - 1;
+    const auto map_offset = maps.raw_offset_plus_one() - 1;
+    const auto entity_offset = entities.raw_offset_plus_one() - 1;
+    const auto party_offset = party.raw_offset_plus_one() - 1;
+
+    expect(read_u32(bytes, root_offset + offsetof(WorldSnapshot, entities)) ==
+           entities.raw_offset_plus_one());
+    expect(read_u32(bytes,
+                    root_offset + offsetof(WorldSnapshot, entities) + 4) == 1);
+    expect(read_u32(bytes,
+                    root_offset + offsetof(WorldSnapshot, entity_index)) ==
+           entries.raw_offset_plus_one());
+    expect(read_u32(bytes,
+                    root_offset + offsetof(WorldSnapshot, entity_index) + 4) ==
+           1);
+    expect(read_u32(bytes,
+                    root_offset + offsetof(WorldSnapshot, local_player)) ==
+           entity.raw_offset_plus_one());
+    expect(read_u32(bytes, fixture_offset + offsetof(RegionFixture, values)) ==
+           values.raw_offset_plus_one());
+    expect(read_u32(bytes,
+                    fixture_offset + offsetof(RegionFixture, values) + 4) == 1);
+    expect(read_u32(bytes, map_offset + offsetof(MapFixture, index)) ==
+           entries.raw_offset_plus_one());
+    expect(read_u32(bytes, map_offset + offsetof(MapFixture, index) + 4) == 1);
+    expect(read_u32(bytes, entity_offset + offsetof(Entity, target)) ==
+           entity.raw_offset_plus_one());
+    expect(read_u32(bytes, party_offset) == entity.raw_offset_plus_one());
+}
+
 void test_null_member_pointer_rejection() {
     RegionBuilder set_builder;
     const auto set_fixture = set_builder.make_object<RegionFixture>();
@@ -537,6 +706,7 @@ int main() {
     test_builder_and_view_gate();
     test_empty_and_capacity_boundaries();
     test_handle_provenance();
+    test_invalid_bind_sources_leave_destinations_unchanged();
     test_null_member_pointer_rejection();
     test_finish_closes_builder();
     test_finish_rejects_invalid_world_roots();

@@ -221,9 +221,6 @@ private:
             if (value >= entity_count) {
                 reject_region("index value is outside the entity array");
             }
-            if (covered[value] != 0) {
-                reject_region("entity appears more than once in the index");
-            }
             covered[value] = 1;
         }
         for (const auto entry : covered) {

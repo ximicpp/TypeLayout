@@ -55,6 +55,62 @@ static_assert(sizeof(region_vector<EntityRelativePtr>) == 8 &&
 static_assert(!boost::typelayout::get_layout_signature<EntityRelativePtr>()
     .contains(boost::typelayout::FixedString{"O("}));
 
+struct FinalizingTickValue {
+    RegionBuilder* builder;
+    region_handle<WorldSnapshot> root;
+    RegionBuffer* finalized;
+
+    operator std::uint64_t() const {
+        *finalized = std::move(*builder).finish(root);
+        validate_and_freeze_world(*finalized);
+        return 99;
+    }
+};
+
+struct FinalizingElementAssignment {
+    RegionBuilder* builder;
+    region_handle<WorldSnapshot> root;
+    RegionBuffer* finalized;
+};
+
+struct ReentrantElement {
+    std::uint32_t value;
+
+    ReentrantElement& operator=(FinalizingElementAssignment source) {
+        *source.finalized = std::move(*source.builder).finish(source.root);
+        validate_and_freeze_world(*source.finalized);
+        value = 99;
+        return *this;
+    }
+};
+
+static_assert(std::is_standard_layout_v<ReentrantElement>);
+static_assert(std::is_trivially_copyable_v<ReentrantElement>);
+static_assert(boost::typelayout::is_admitted_v<
+    ReentrantElement,
+    boost::typelayout::TransferProfile::ordinary_copy>);
+static_assert(!std::is_trivially_assignable_v<
+    ReentrantElement&, FinalizingElementAssignment&&>);
+
+template <typename Builder>
+concept accepts_reentrant_tick_set = requires(
+    Builder& builder,
+    region_handle<WorldSnapshot> root,
+    FinalizingTickValue value) {
+    builder.set(root, &WorldSnapshot::tick, std::move(value));
+};
+
+template <typename Builder>
+concept accepts_reentrant_element_set = requires(
+    Builder& builder,
+    region_array_handle<ReentrantElement> elements,
+    FinalizingElementAssignment value) {
+    builder.set(elements, 0, std::move(value));
+};
+
+static_assert(!accepts_reentrant_tick_set<RegionBuilder>);
+static_assert(!accepts_reentrant_element_set<RegionBuilder>);
+
 namespace {
 
 struct DescriptorRepresentation {
@@ -423,6 +479,43 @@ void test_builder_capabilities_expire_without_mutation() {
             "expired builder operations must leave graph links valid");
 }
 
+template <typename Builder>
+void test_reentrant_set_cannot_mutate_validated_world() {
+    if constexpr (accepts_reentrant_tick_set<Builder>) {
+        Builder builder;
+        const auto root = populate_canonical_world(builder);
+        RegionBuffer finalized;
+        builder.set(root, &WorldSnapshot::tick,
+                    FinalizingTickValue{&builder, root, &finalized});
+
+        require(finalized.is_validated(),
+                "reentrant conversion must have validated the world");
+        require(world_root(finalized).tick == 42,
+                "set must not resume into a validated world");
+    }
+    require(!accepts_reentrant_tick_set<Builder>,
+            "converting set expression must not be expressible");
+
+    if constexpr (accepts_reentrant_element_set<Builder>) {
+        Builder builder;
+        const auto root = builder.template make_object<WorldSnapshot>();
+        const auto elements = builder.template make_array<ReentrantElement>(1);
+        RegionBuffer finalized;
+        builder.set(elements, 0,
+                    FinalizingElementAssignment{&builder, root, &finalized});
+
+        require(finalized.is_validated(),
+                "reentrant element assignment must validate the world");
+        const auto element = read_object<ReentrantElement>(
+            finalized.used_bytes(),
+            decode_non_null(elements.raw_offset_plus_one()));
+        require(element.value == 0,
+                "element set must not resume into a validated buffer");
+    }
+    require(!accepts_reentrant_element_set<Builder>,
+            "custom element assignment must not be expressible");
+}
+
 } // namespace
 
 int main() {
@@ -431,4 +524,5 @@ int main() {
     test_one_entity_empty_name_validation();
     test_canonical_typed_access_and_descriptor_provenance();
     test_builder_capabilities_expire_without_mutation();
+    test_reentrant_set_cannot_mutate_validated_world<RegionBuilder>();
 }
