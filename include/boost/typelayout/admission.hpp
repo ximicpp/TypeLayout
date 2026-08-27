@@ -24,11 +24,41 @@ namespace boost {
 namespace typelayout {
 inline namespace v1 {
 
+enum class SourceContext {
+    independent,
+    same_region,
+    address_space_dependent
+};
+
+enum class TransferProfile {
+    ordinary_copy,
+    whole_region_relocation
+};
+
+constexpr SourceContext join_source_context(
+    SourceContext lhs, SourceContext rhs) noexcept {
+    if (lhs == SourceContext::address_space_dependent ||
+        rhs == SourceContext::address_space_dependent) {
+        return SourceContext::address_space_dependent;
+    }
+    if (lhs == SourceContext::same_region ||
+        rhs == SourceContext::same_region) {
+        return SourceContext::same_region;
+    }
+    return SourceContext::independent;
+}
+
+template <typename T>
+struct source_context_traits;
+
 namespace detail {
 
 // Forward declaration for mutual recursion.
 template <typename T>
 consteval bool is_byte_copy_safe_impl() noexcept;
+
+template <typename T>
+consteval SourceContext source_context_impl() noexcept;
 
 // Check whether all non-static data members of T are byte-copy safe.
 template <typename T, std::size_t I, std::size_t N>
@@ -61,6 +91,34 @@ consteval bool all_bases_byte_copy_safe() noexcept {
         } else {
             return all_bases_byte_copy_safe<T, I + 1, N>();
         }
+    }
+}
+
+template <typename T, std::size_t I, std::size_t N>
+consteval SourceContext joined_member_source_context() noexcept {
+    if constexpr (I >= N) {
+        return SourceContext::independent;
+    } else {
+        using namespace std::meta;
+        constexpr auto member = nonstatic_data_members_of(^^T, access_context::unchecked())[I];
+        using FieldType = [:type_of(member):];
+        return join_source_context(
+            source_context_traits<std::remove_cv_t<FieldType>>::value,
+            joined_member_source_context<T, I + 1, N>());
+    }
+}
+
+template <typename T, std::size_t I, std::size_t N>
+consteval SourceContext joined_base_source_context() noexcept {
+    if constexpr (I >= N) {
+        return SourceContext::independent;
+    } else {
+        using namespace std::meta;
+        constexpr auto base_info = bases_of(^^T, access_context::unchecked())[I];
+        using BaseType = [:type_of(base_info):];
+        return join_source_context(
+            source_context_traits<std::remove_cv_t<BaseType>>::value,
+            joined_base_source_context<T, I + 1, N>());
     }
 }
 
@@ -113,6 +171,30 @@ consteval bool is_byte_copy_safe_impl() noexcept {
     }
 }
 
+template <typename T>
+consteval SourceContext source_context_impl() noexcept {
+    using Bare = std::remove_cv_t<T>;
+
+    if constexpr (std::is_pointer_v<Bare> ||
+                  std::is_reference_v<Bare> ||
+                  std::is_member_pointer_v<Bare>) {
+        return SourceContext::address_space_dependent;
+    } else if constexpr (std::is_polymorphic_v<Bare>) {
+        return SourceContext::address_space_dependent;
+    } else if constexpr (std::is_array_v<Bare>) {
+        return source_context_traits<
+            std::remove_cv_t<std::remove_extent_t<Bare>>>::value;
+    } else if constexpr (std::is_class_v<Bare> || std::is_union_v<Bare>) {
+        constexpr std::size_t bc = std::is_union_v<Bare> ? 0 : get_base_count<Bare>();
+        constexpr std::size_t fc = get_member_count<Bare>();
+        return join_source_context(
+            joined_base_source_context<Bare, 0, bc>(),
+            joined_member_source_context<Bare, 0, fc>());
+    } else {
+        return SourceContext::independent;
+    }
+}
+
 } // namespace detail
 
 // is_byte_copy_safe<T> -- compile-time predicate struct.
@@ -134,6 +216,44 @@ struct is_byte_copy_safe
 // Convenience variable template.
 template <typename T>
 inline constexpr bool is_byte_copy_safe_v = is_byte_copy_safe<T>::value;
+
+template <typename T>
+struct source_context_traits
+    : std::integral_constant<SourceContext,
+          detail::source_context_impl<T>()> {};
+
+template <typename T>
+inline constexpr SourceContext source_context_v =
+    source_context_traits<std::remove_cv_t<T>>::value;
+
+template <typename T>
+struct region_relocation_traits {
+    static constexpr bool enabled =
+        std::is_trivially_copyable_v<std::remove_cv_t<T>>;
+};
+
+namespace detail {
+
+template <typename T, TransferProfile Profile>
+consteval bool is_admitted_impl() {
+    using Bare = std::remove_cv_t<T>;
+    if constexpr (Profile == TransferProfile::ordinary_copy) {
+        return std::is_trivially_copyable_v<Bare> &&
+               is_byte_copy_safe_v<Bare> &&
+               source_context_v<Bare> == SourceContext::independent;
+    } else {
+        return is_byte_copy_safe_v<Bare> &&
+               region_relocation_traits<Bare>::enabled &&
+               source_context_v<Bare> !=
+                   SourceContext::address_space_dependent;
+    }
+}
+
+} // namespace detail
+
+template <typename T, TransferProfile Profile>
+inline constexpr bool is_admitted_v =
+    detail::is_admitted_impl<T, Profile>();
 
 } // inline namespace v1
 } // namespace typelayout

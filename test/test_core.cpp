@@ -47,6 +47,16 @@ struct WithFnPtr { void (*cb)(int); };
 struct WithMemPtr { int Flat::*mp; };
 struct WithRef { std::int32_t& r; };
 struct AnonUnion { std::uint32_t tag; union { std::int32_t i; float f; }; };
+struct RegionOffset { std::int32_t delta; };
+struct SameRegionEnvelope { std::uint32_t id; RegionOffset link; };
+struct NonTrivialNoOptIn {
+    std::int32_t value;
+    ~NonTrivialNoOptIn() {}
+};
+struct NonTrivialRegion {
+    std::int32_t value;
+    ~NonTrivialRegion() {}
+};
 
 // Relocatable opaque: byte-copy safe under a relocation model, not
 // trivially copyable in the C++ sense.
@@ -61,6 +71,15 @@ struct SealedHandle { void* impl; };
 namespace boost { namespace typelayout { inline namespace v1 {
 TYPELAYOUT_OPAQUE_TYPE_RELOCATABLE(RelocThing, "RelocThing")
 TYPELAYOUT_REGISTER_OPAQUE(SealedHandle, "SealedHandle", true)
+
+template <>
+struct source_context_traits<::RegionOffset>
+    : std::integral_constant<SourceContext, SourceContext::same_region> {};
+
+template <>
+struct region_relocation_traits<::NonTrivialRegion> {
+    static constexpr bool enabled = true;
+};
 }}}
 
 struct HasRelocMember { RelocThing r; std::int32_t pad; };
@@ -201,6 +220,34 @@ static_assert(!is_byte_copy_safe_v<PtrUnion>);
 static_assert(!is_byte_copy_safe_v<int*>);
 static_assert(!is_byte_copy_safe_v<void*>);
 static_assert(!is_byte_copy_safe_v<int*[4]>);
+
+// =========================================================================
+// Profile-aware transfer admission
+// =========================================================================
+
+static_assert(join_source_context(SourceContext::independent,
+                                  SourceContext::same_region) ==
+              SourceContext::same_region);
+static_assert(join_source_context(SourceContext::same_region,
+                                  SourceContext::address_space_dependent) ==
+              SourceContext::address_space_dependent);
+static_assert(source_context_v<std::uint32_t> == SourceContext::independent);
+static_assert(source_context_v<int*> == SourceContext::address_space_dependent);
+static_assert(source_context_v<RegionOffset> == SourceContext::same_region);
+static_assert(source_context_v<SameRegionEnvelope> == SourceContext::same_region);
+static_assert(source_context_v<WithPtr> == SourceContext::address_space_dependent);
+
+static_assert(is_admitted_v<Flat, TransferProfile::ordinary_copy>);
+static_assert(!is_admitted_v<RegionOffset, TransferProfile::ordinary_copy>);
+static_assert(is_admitted_v<RegionOffset,
+                            TransferProfile::whole_region_relocation>);
+static_assert(!is_admitted_v<WithPtr,
+                             TransferProfile::whole_region_relocation>);
+static_assert(is_byte_copy_safe_v<NonTrivialNoOptIn>);
+static_assert(!is_admitted_v<NonTrivialNoOptIn,
+                             TransferProfile::whole_region_relocation>);
+static_assert(is_admitted_v<NonTrivialRegion,
+                            TransferProfile::whole_region_relocation>);
 
 int main() {
     static constexpr auto flat_sig = get_layout_signature<Flat>();
