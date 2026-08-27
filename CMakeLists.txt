@@ -79,6 +79,18 @@ add_test(NAME test_relocatable_region COMMAND test_relocatable_region)
 set_tests_properties(test_relocatable_region PROPERTIES
     LABELS "typelayout;example;relocatable-world")
 
+add_library(relocatable_world_support STATIC
+    example/relocatable_world_demo/world_runtime.cpp)
+target_link_libraries(relocatable_world_support PUBLIC typelayout)
+target_include_directories(relocatable_world_support PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/example/relocatable_world_demo)
+
+add_executable(test_relocatable_world test/test_relocatable_world.cpp)
+target_link_libraries(test_relocatable_world PRIVATE relocatable_world_support)
+add_test(NAME test_relocatable_world COMMAND test_relocatable_world)
+set_tests_properties(test_relocatable_world PROPERTIES
+    LABELS "typelayout;example;relocatable-world")
+
 set(TYPELAYOUT_XOFFSET_HEADER
     "${CMAKE_CURRENT_SOURCE_DIR}/vendor/XOffsetDatastructure/xoffsetdatastructure.hpp")
 
