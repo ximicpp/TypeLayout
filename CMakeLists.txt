@@ -70,6 +70,26 @@ add_test(NAME test_core COMMAND test_core)
 set_tests_properties(test_core PROPERTIES
     LABELS "typelayout;core")
 
+set(TYPELAYOUT_XOFFSET_HEADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/vendor/XOffsetDatastructure/xoffsetdatastructure.hpp")
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    if(EXISTS "${TYPELAYOUT_XOFFSET_HEADER}")
+        add_executable(xoffset_world_demo
+            example/xoffset_world_demo/demo.cpp)
+        target_link_libraries(xoffset_world_demo PRIVATE typelayout)
+        target_include_directories(xoffset_world_demo PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/example/xoffset_world_demo
+            ${CMAKE_CURRENT_SOURCE_DIR}/vendor/XOffsetDatastructure)
+        add_test(NAME xoffset_world_demo COMMAND xoffset_world_demo)
+        set_tests_properties(xoffset_world_demo PROPERTIES
+            LABELS "typelayout;example;xoffset")
+    else()
+        message(STATUS
+            "Skipping xoffset_world_demo: initialize vendor/XOffsetDatastructure")
+    endif()
+endif()
+
 # Negative compile test: add_relocatable must reject a type whose opaque
 # member hides a pointer. The target is excluded from the normal build;
 # the test builds it on demand and passes only when the compiler emits
