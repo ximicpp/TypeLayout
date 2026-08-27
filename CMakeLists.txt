@@ -128,6 +128,11 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         -O3 -fstrict-aliasing)
 endif()
 
+add_executable(relocatable_world_producer
+    example/relocatable_world_demo/producer.cpp)
+target_link_libraries(relocatable_world_producer PRIVATE
+    relocatable_world_support)
+
 set(TYPELAYOUT_PROBE_NODE "")
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
     set(TYPELAYOUT_PROBE_ARCH "x86_64")
@@ -164,6 +169,15 @@ if(TYPELAYOUT_PROBE_NODE)
         LABELS "typelayout;example;relocatable-world;evidence"
         PASS_REGULAR_EXPRESSION
             "TOOLCHAIN PROBE PASS node=${TYPELAYOUT_PROBE_NODE}")
+
+    add_test(NAME test_relocatable_world_producer
+        COMMAND relocatable_world_producer
+            ${TYPELAYOUT_PROBE_NODE}
+            ${CMAKE_CURRENT_BINARY_DIR}/relocatable-world-producer)
+    set_tests_properties(test_relocatable_world_producer PROPERTIES
+        LABELS "typelayout;example;relocatable-world;evidence"
+        PASS_REGULAR_EXPRESSION
+            "PRODUCER READY node=${TYPELAYOUT_PROBE_NODE} admission=4/4 region=${TYPELAYOUT_PROBE_NODE}.region")
 endif()
 
 add_executable(test_relocatable_world test/test_relocatable_world.cpp)

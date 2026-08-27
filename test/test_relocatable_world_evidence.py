@@ -125,7 +125,7 @@ class EvidenceTests(unittest.TestCase):
             },
         )
 
-        facts = self.directory / "facts.json"
+        facts = self.directory / f"{node}.producer-facts.json"
         self.write_json(
             facts,
             {
@@ -190,12 +190,52 @@ class EvidenceTests(unittest.TestCase):
 
     def test_ready_bundle_hashes_are_bound(self):
         bundle = self.make_ready_bundle()
-        self.seal(bundle)
+        record = self.seal(bundle)
+        self.assertEqual(
+            set(record),
+            {
+                "schema",
+                "node",
+                "status",
+                "probe",
+                "admission",
+                "signatures",
+                "compiler",
+                "build",
+                "locks",
+                "artifacts",
+            },
+        )
+        self.assertEqual(list(record["admission"]), list(evidence.KEYS))
+        self.assertEqual(list(record["signatures"]), list(evidence.KEYS))
+        self.assertEqual(
+            record["artifacts"],
+            {
+                "signature": {
+                    "filename": bundle["signature"].name,
+                    "sha256": self.sha256(bundle["signature"]),
+                },
+                "region": {
+                    "filename": bundle["region"].name,
+                    "sha256": self.sha256(bundle["region"]),
+                },
+            },
+        )
         evidence.validate_provenance(bundle["output"])
         with bundle["region"].open("ab") as stream:
             stream.write(b"x")
         with self.assertRaisesRegex(evidence.EvidenceError, "region.*SHA256"):
             evidence.validate_provenance(bundle["output"])
+
+    def test_sealer_requires_node_named_producer_facts(self):
+        bundle = self.make_ready_bundle()
+        bundle["facts"] = bundle["facts"].rename(
+            self.directory / "facts-from-somewhere.json"
+        )
+        with self.assertRaisesRegex(
+            evidence.EvidenceError, "producer facts filename"
+        ):
+            self.seal(bundle)
 
     def test_ready_provenance_requires_exact_contract_keys(self):
         bundle = self.make_ready_bundle()
@@ -290,6 +330,8 @@ class EvidenceTests(unittest.TestCase):
             record = json.loads(bundle[path_key].read_text(encoding="utf-8"))
             record["admission"]["Entity"] = False
             self.write_json(bundle[path_key], record)
+        bundle["signature"].unlink()
+        bundle["region"].unlink()
         del bundle["signature"]
         del bundle["region"]
 

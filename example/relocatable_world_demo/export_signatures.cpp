@@ -2,10 +2,33 @@
 
 #include <boost/typelayout/tools/sig_export.hpp>
 
+#include <array>
 #include <filesystem>
 #include <iostream>
 #include <string>
 #include <string_view>
+
+namespace {
+
+constexpr std::array<std::string_view, 6> matrix_nodes = {
+    "x86_64_linux_gcc",
+    "x86_64_linux_clang",
+    "arm64_linux_gcc",
+    "arm64_linux_clang",
+    "arm64_macos_clang",
+    "x86_64_macos_clang",
+};
+
+constexpr bool is_matrix_node(std::string_view value) {
+    for (const auto node : matrix_nodes) {
+        if (node == value) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
 
 int main(int argc, char** argv) {
     if (argc != 2 && argc != 3) {
@@ -22,6 +45,10 @@ int main(int argc, char** argv) {
     const std::string platform_id = argc == 3
         ? std::string(argv[2])
         : std::string(default_platform_id);
+    if (argc == 3 && !is_matrix_node(platform_id)) {
+        std::cerr << "matrix PLATFORM_ID must be one of the fixed six nodes\n";
+        return 2;
+    }
 
     boost::typelayout::SigExporter exporter{platform_id};
     relocatable_world_demo::for_each_contract_type(

@@ -283,6 +283,7 @@ def validate_probe(path):
 
 
 def _validate_facts(path):
+    path = Path(path)
     record = load_json(path)
     _expect_exact_keys(
         record,
@@ -291,7 +292,12 @@ def _validate_facts(path):
     )
     if type(record["schema"]) is not int or record["schema"] != 1:
         raise EvidenceError("producer facts schema must be integer 1")
-    validate_node(record["node"])
+    node = validate_node(record["node"])
+    expected_filename = f"{node}.producer-facts.json"
+    if path.name != expected_filename:
+        raise EvidenceError(
+            f"producer facts filename must be exactly {expected_filename!r}"
+        )
     _validate_keyed_booleans(record["admission"], "producer facts admission")
     _validate_signatures(record["signatures"], "producer facts signatures")
     return record
