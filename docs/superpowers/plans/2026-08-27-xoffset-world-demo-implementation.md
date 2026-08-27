@@ -1,5 +1,9 @@
 # XOffset World Checkpoint Demo Implementation Plan
 
+> **SUPERSEDED — DO NOT EXECUTE**
+>
+> This file is retained only as historical design context. Do not execute any task in this plan and do not restore an XOffset build or runtime dependency. The approved standalone design is `docs/superpowers/specs/2026-08-27-relocatable-world-demo-design.md`; its current implementation plans are `docs/superpowers/plans/2026-08-27-relocatable-world-demo-implementation.md` and `docs/superpowers/plans/2026-08-27-relocatable-world-matrix-implementation.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the smallest practical XOffset-backed TypeLayout demo that proves whole-region Admission, four-representation Agreement, no-fixup relative-pointer relocation, useful read/write behavior, and three layer-specific rejections.

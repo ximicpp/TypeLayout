@@ -172,7 +172,8 @@ Its contract is:
 - construction-time writes to private descriptor fields are reached only through active, handle-addressed `RegionBuilder` `bind`/`assign` operations: vector, map, and application-link `bind` use checked construction handles, while string `assign` allocates and copies character storage before resetting its internal `relative_ptr<char>`; no mutable destination reference escapes. Specifically, application `relative_ptr<T>` binding accepts a default null source or a non-null source handle whose owner and generation match the active builder, identifying either a complete standalone `T` object or one complete live `T` array element, never an address inside such an object;
 - `raw_offset_plus_one()` is available for validation and demonstration;
 - resolution always receives a validated `RegionView`; there is no context-free `get()`;
-- `RegionView::resolve(pointer)` first requires the `relative_ptr` descriptor itself to belong to that same validated buffer, then performs checked byte-array offset arithmetic from the region base and returns a const typed pointer only after the target allocation has been validated.
+- before a buffer becomes validated, the complete world validator checks every application link that can be exposed through `RegionView::resolve(pointer)` against the target entity allocation;
+- `RegionView::resolve(pointer)` requires the `relative_ptr` descriptor itself to belong to that same validated buffer, then resolves it from the region base under the validator-established target invariant. It does not repeat the range and target-allocation checks.
 
 The plus-one representation avoids collision between a valid object at payload offset zero and the null value. The fixed 4096-byte region is far below the largest representable non-null offset.
 
@@ -192,7 +193,7 @@ struct region_vector {
 
 Its stored representation is exactly one relative pointer and one element count. It has no stored allocator and no capacity. An empty vector has a null pointer and zero size; a non-empty vector has a non-null, correctly aligned range containing exactly `size_` live `T` elements.
 
-After validation it exposes only `size()`, `operator[]`, `begin()`, and `end()`. Construction is performed by `RegionBuilder`. It has no `reserve`, `emplace_back`, insertion, erasure, or resize operation.
+The descriptor itself exposes only `size()`. After complete validation, `RegionView::elements(vector)` returns a read-only `std::span<const T>` that supplies indexed and iterator access. Construction is performed by `RegionBuilder`. The descriptor has no `reserve`, `emplace_back`, insertion, erasure, or resize operation.
 
 ### 7.3 `region_string`
 
