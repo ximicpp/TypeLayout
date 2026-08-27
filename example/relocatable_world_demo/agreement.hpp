@@ -3,8 +3,8 @@
 // Copyright (c) 2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
-#ifndef RELOCATABLE_WORLD_DEMO_AGREEMENT_HPP
-#define RELOCATABLE_WORLD_DEMO_AGREEMENT_HPP
+#ifndef BOOST_TYPELAYOUT_RELOCATABLE_WORLD_DEMO_AGREEMENT_HPP
+#define BOOST_TYPELAYOUT_RELOCATABLE_WORLD_DEMO_AGREEMENT_HPP
 
 #include "world.hpp"
 
@@ -135,4 +135,4 @@ inline agreement_result check_current_agreement(
 
 } // namespace relocatable_world_demo
 
-#endif // RELOCATABLE_WORLD_DEMO_AGREEMENT_HPP
+#endif // BOOST_TYPELAYOUT_RELOCATABLE_WORLD_DEMO_AGREEMENT_HPP

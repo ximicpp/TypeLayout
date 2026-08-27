@@ -4,8 +4,8 @@
 // Copyright (c) 2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
-#ifndef RELOCATABLE_WORLD_DEMO_WORLD_RUNTIME_HPP
-#define RELOCATABLE_WORLD_DEMO_WORLD_RUNTIME_HPP
+#ifndef BOOST_TYPELAYOUT_RELOCATABLE_WORLD_DEMO_WORLD_RUNTIME_HPP
+#define BOOST_TYPELAYOUT_RELOCATABLE_WORLD_DEMO_WORLD_RUNTIME_HPP
 
 #include "region_storage.hpp"
 #include "world.hpp"
@@ -31,4 +31,4 @@ bool canonical_graph_matches(const RegionBuffer& buffer);
 
 } // namespace relocatable_world_demo
 
-#endif // RELOCATABLE_WORLD_DEMO_WORLD_RUNTIME_HPP
+#endif // BOOST_TYPELAYOUT_RELOCATABLE_WORLD_DEMO_WORLD_RUNTIME_HPP

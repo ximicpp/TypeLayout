@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <memory>
 #include <span>
 #include <stdexcept>
 #include <type_traits>
@@ -634,6 +635,133 @@ void test_handle_provenance() {
     });
 }
 
+void test_stale_handles_rejected_after_same_address_reconstruction() {
+    RegionBuilder reference_builder;
+    const auto reference_root =
+        reference_builder.make_object<WorldSnapshot>();
+    const auto reference_fixture =
+        reference_builder.make_object<RegionFixture>();
+    const auto reference_fixtures =
+        reference_builder.make_array<RegionFixture>(1);
+    const auto reference_selected =
+        reference_builder.make_object<std::uint32_t>();
+    const auto reference_values =
+        reference_builder.make_array<std::uint32_t>(1);
+    static_cast<void>(reference_builder.make_array<std::uint32_t>(0));
+    reference_builder.set(reference_root, &WorldSnapshot::tick,
+                          std::uint64_t{42});
+    reference_builder.set(reference_fixture, &RegionFixture::scalar,
+                          std::uint32_t{17});
+    reference_builder.set(reference_fixtures, 0, &RegionFixture::scalar,
+                          std::uint32_t{23});
+    reference_builder.set(reference_values, 0, std::uint32_t{29});
+    reference_builder.bind(reference_fixture, &RegionFixture::values,
+                           reference_values);
+    reference_builder.bind(reference_fixture, &RegionFixture::selected,
+                           reference_selected);
+    reference_builder.bind(reference_fixtures, 0, &RegionFixture::values,
+                           reference_values);
+    const auto reference_buffer =
+        std::move(reference_builder).finish(reference_root);
+
+    std::allocator<RegionBuilder> allocator;
+    auto* const address = allocator.allocate(1);
+    auto* const original_builder = std::construct_at(address);
+    const auto stale_root = original_builder->make_object<WorldSnapshot>();
+    const auto stale_fixture = original_builder->make_object<RegionFixture>();
+    const auto stale_fixtures =
+        original_builder->make_array<RegionFixture>(1);
+    static_cast<void>(original_builder->make_array<std::byte>(13));
+    const auto stale_selected =
+        original_builder->make_object<std::uint32_t>();
+    const auto stale_values =
+        original_builder->make_array<std::uint32_t>(1);
+    const auto stale_empty_values =
+        original_builder->make_array<std::uint32_t>(0);
+    std::destroy_at(original_builder);
+
+    auto* const rebuilt_builder = std::construct_at(address);
+    expect(rebuilt_builder == original_builder);
+    const auto rebuilt_root =
+        rebuilt_builder->make_object<WorldSnapshot>();
+    const auto rebuilt_fixture =
+        rebuilt_builder->make_object<RegionFixture>();
+    const auto rebuilt_fixtures =
+        rebuilt_builder->make_array<RegionFixture>(1);
+    const auto rebuilt_selected =
+        rebuilt_builder->make_object<std::uint32_t>();
+    const auto rebuilt_values =
+        rebuilt_builder->make_array<std::uint32_t>(1);
+    static_cast<void>(rebuilt_builder->make_array<std::uint32_t>(0));
+    rebuilt_builder->set(rebuilt_root, &WorldSnapshot::tick,
+                         std::uint64_t{42});
+    rebuilt_builder->set(rebuilt_fixture, &RegionFixture::scalar,
+                         std::uint32_t{17});
+    rebuilt_builder->set(rebuilt_fixtures, 0, &RegionFixture::scalar,
+                         std::uint32_t{23});
+    rebuilt_builder->set(rebuilt_values, 0, std::uint32_t{29});
+    rebuilt_builder->bind(rebuilt_fixture, &RegionFixture::values,
+                          rebuilt_values);
+    rebuilt_builder->bind(rebuilt_fixture, &RegionFixture::selected,
+                          rebuilt_selected);
+    rebuilt_builder->bind(rebuilt_fixtures, 0, &RegionFixture::values,
+                          rebuilt_values);
+
+    const auto stale_object_destination_rejected =
+        throws_exception<std::invalid_argument>([&] {
+            rebuilt_builder->set(stale_fixture, &RegionFixture::scalar,
+                                 std::uint32_t{101});
+        });
+    const auto stale_array_destination_rejected =
+        throws_exception<std::invalid_argument>([&] {
+            rebuilt_builder->set(stale_fixtures, 0,
+                                 &RegionFixture::scalar,
+                                 std::uint32_t{102});
+        });
+    const auto stale_object_source_rejected =
+        throws_exception<std::invalid_argument>([&] {
+            rebuilt_builder->bind(rebuilt_fixture,
+                                  &RegionFixture::selected, stale_selected);
+        });
+    const auto stale_array_source_rejected =
+        throws_exception<std::invalid_argument>([&] {
+            rebuilt_builder->bind(rebuilt_fixture, &RegionFixture::values,
+                                  stale_values);
+        });
+    const auto stale_empty_array_source_rejected =
+        throws_exception<std::invalid_argument>([&] {
+            rebuilt_builder->bind(rebuilt_fixtures, 0,
+                                  &RegionFixture::values,
+                                  stale_empty_values);
+        });
+    const auto stale_root_rejected =
+        throws_exception<std::invalid_argument>([&] {
+            static_cast<void>(std::move(*rebuilt_builder).finish(stale_root));
+        });
+    expect(stale_object_destination_rejected &&
+           stale_array_destination_rejected &&
+           stale_object_source_rejected &&
+           stale_array_source_rejected &&
+           stale_empty_array_source_rejected && stale_root_rejected);
+
+    rebuilt_builder->set(rebuilt_fixture, &RegionFixture::scalar,
+                         std::uint32_t{17});
+    rebuilt_builder->set(rebuilt_fixtures, 0, &RegionFixture::scalar,
+                         std::uint32_t{23});
+    rebuilt_builder->bind(rebuilt_fixture, &RegionFixture::selected,
+                          rebuilt_selected);
+    const auto rebuilt_buffer =
+        std::move(*rebuilt_builder).finish(rebuilt_root);
+
+    const auto expected = reference_buffer.used_bytes();
+    const auto actual = rebuilt_buffer.used_bytes();
+    expect(expected.size() == actual.size());
+    expect(std::memcmp(expected.data(), actual.data(), actual.size()) == 0);
+
+    std::destroy_at(rebuilt_builder);
+    allocator.deallocate(address, 1);
+}
+
 void test_invalid_bind_sources_leave_destinations_unchanged() {
     RegionBuilder builder;
     const auto root = builder.make_object<WorldSnapshot>();
@@ -799,6 +927,7 @@ int main() {
     test_builder_and_view_gate();
     test_empty_and_capacity_boundaries();
     test_handle_provenance();
+    test_stale_handles_rejected_after_same_address_reconstruction();
     test_invalid_bind_sources_leave_destinations_unchanged();
     test_null_member_pointer_rejection();
     test_finish_closes_builder();

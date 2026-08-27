@@ -4,11 +4,12 @@
 // Copyright (c) 2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
-#ifndef RELOCATABLE_WORLD_DEMO_REGION_STORAGE_HPP
-#define RELOCATABLE_WORLD_DEMO_REGION_STORAGE_HPP
+#ifndef BOOST_TYPELAYOUT_RELOCATABLE_WORLD_DEMO_REGION_STORAGE_HPP
+#define BOOST_TYPELAYOUT_RELOCATABLE_WORLD_DEMO_REGION_STORAGE_HPP
 
 #include "region.hpp"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -113,13 +114,16 @@ public:
 
 private:
     constexpr region_array_handle(const RegionBuilder* owner,
+                                  std::uint64_t generation,
                                   std::uint32_t offset_plus_one,
                                   std::uint32_t count) noexcept
         : owner_(owner),
+          generation_(generation),
           offset_plus_one_(offset_plus_one),
           count_(count) {}
 
     const RegionBuilder* owner_ = nullptr;
+    std::uint64_t generation_ = 0;
     std::uint32_t offset_plus_one_ = 0;
     std::uint32_t count_ = 0;
     friend class RegionBuilder;
@@ -228,7 +232,8 @@ private:
 
 class RegionBuilder {
 public:
-    RegionBuilder() = default;
+    RegionBuilder()
+        : generation_(issue_generation()) {}
     RegionBuilder(const RegionBuilder&) = delete;
     RegionBuilder& operator=(const RegionBuilder&) = delete;
     RegionBuilder(RegionBuilder&&) = delete;
@@ -240,7 +245,7 @@ public:
         detail::check_stored_type<T>();
         const auto offset = reserve(sizeof(T), alignof(T));
         static_cast<void>(std::start_lifetime_as<T>(base() + offset));
-        return region_handle<T>(this, encode_offset(offset));
+        return region_handle<T>(this, generation_, encode_offset(offset));
     }
 
     template <typename T>
@@ -248,14 +253,15 @@ public:
         ensure_active();
         detail::check_stored_type<T>();
         if (count == 0) {
-            return region_array_handle<T>(this, 0, 0);
+            return region_array_handle<T>(this, generation_, 0, 0);
         }
         const auto byte_count = detail::checked_multiply(
             static_cast<std::size_t>(count), sizeof(T));
         const auto offset = reserve(byte_count, alignof(T));
         static_cast<void>(std::start_lifetime_as_array<T>(
             base() + offset, static_cast<std::size_t>(count)));
-        return region_array_handle<T>(this, encode_offset(offset), count);
+        return region_array_handle<T>(
+            this, generation_, encode_offset(offset), count);
     }
 
     template <typename Owner, typename Member, typename Value>
@@ -306,7 +312,8 @@ public:
             decode_offset(handle.offset_plus_one_),
             detail::checked_multiply(static_cast<std::size_t>(index),
                                      sizeof(T)));
-        return region_handle<T>(this, encode_offset(element_offset));
+        return region_handle<T>(
+            this, generation_, encode_offset(element_offset));
     }
 
     template <typename Owner, typename T>
@@ -403,7 +410,8 @@ public:
 
     RegionBuffer finish(region_handle<WorldSnapshot> root) && {
         ensure_active();
-        if (root.is_null() || root.owner_ != this) {
+        if (root.is_null() || root.owner_ != this ||
+            root.generation_ != generation_) {
             throw std::invalid_argument("region root handle is null or foreign");
         }
         buffer_.used_bytes_ = checked_storage_count(cursor_);
@@ -415,6 +423,24 @@ public:
     }
 
 private:
+    static std::uint64_t issue_generation() {
+        static std::atomic<std::uint64_t> next_generation{1};
+        auto generation = next_generation.load(std::memory_order_relaxed);
+        while (generation != 0) {
+            const auto successor =
+                generation == std::numeric_limits<std::uint64_t>::max()
+                ? 0
+                : generation + 1;
+            if (next_generation.compare_exchange_weak(
+                    generation, successor,
+                    std::memory_order_relaxed,
+                    std::memory_order_relaxed)) {
+                return generation;
+            }
+        }
+        throw std::overflow_error("region builder generation exhausted");
+    }
+
     void ensure_active() const {
         if (!active_ || !buffer_.storage_) {
             throw std::logic_error("region builder is closed");
@@ -465,7 +491,8 @@ private:
 
     template <typename T>
     void require_handle(region_handle<T> handle) const {
-        if (handle.is_null() || handle.owner_ != this) {
+        if (handle.is_null() || handle.owner_ != this ||
+            handle.generation_ != generation_) {
             throw std::invalid_argument("region handle is null or foreign");
         }
     }
@@ -473,14 +500,14 @@ private:
     template <typename T>
     void require_array_handle(region_array_handle<T> handle) const {
         if (handle.count_ == 0 || handle.offset_plus_one_ == 0 ||
-            handle.owner_ != this) {
+            handle.owner_ != this || handle.generation_ != generation_) {
             throw std::invalid_argument("region array handle is null or foreign");
         }
     }
 
     template <typename T>
     void require_array_source(region_array_handle<T> handle) const {
-        if (handle.owner_ != this ||
+        if (handle.owner_ != this || handle.generation_ != generation_ ||
             ((handle.count_ == 0) != (handle.offset_plus_one_ == 0))) {
             throw std::invalid_argument("region array handle is foreign");
         }
@@ -488,7 +515,8 @@ private:
 
     template <typename T>
     void require_nullable_source(region_handle<T> handle) const {
-        if (!handle.is_null() && handle.owner_ != this) {
+        if (!handle.is_null() &&
+            (handle.owner_ != this || handle.generation_ != generation_)) {
             throw std::invalid_argument(
                 "region handle belongs to another builder");
         }
@@ -555,7 +583,8 @@ private:
             return;
         }
         destination.data_.reset_unchecked(
-            region_handle<T>(this, source.offset_plus_one_));
+            region_handle<T>(
+                this, generation_, source.offset_plus_one_));
         destination.size_ = source.count_;
     }
 
@@ -571,7 +600,7 @@ private:
         }
         destination.entries_.data_.reset_unchecked(
             region_handle<region_key_value<K, V>>(
-                this, source.offset_plus_one_));
+                this, generation_, source.offset_plus_one_));
         destination.entries_.size_ = source.count_;
     }
 
@@ -590,10 +619,12 @@ private:
         }
         destination.data_.reset_unchecked(text.empty()
             ? region_handle<char>{}
-            : region_handle<char>(this, characters.offset_plus_one_));
+            : region_handle<char>(
+                this, generation_, characters.offset_plus_one_));
         destination.size_ = characters.count_;
     }
 
+    const std::uint64_t generation_;
     RegionBuffer buffer_;
     std::size_t cursor_ = 0;
     bool active_ = true;
@@ -601,8 +632,9 @@ private:
 
 template <typename T>
 constexpr region_handle<T>::region_handle(const RegionBuilder* owner,
+                                           std::uint64_t generation,
                                            std::uint32_t value) noexcept
-    : owner_(owner), offset_plus_one_(value) {}
+    : owner_(owner), generation_(generation), offset_plus_one_(value) {}
 
 class RegionView {
 public:
@@ -681,4 +713,4 @@ inline RegionView RegionBuffer::view() const {
 
 } // namespace relocatable_world_demo
 
-#endif // RELOCATABLE_WORLD_DEMO_REGION_STORAGE_HPP
+#endif // BOOST_TYPELAYOUT_RELOCATABLE_WORLD_DEMO_REGION_STORAGE_HPP

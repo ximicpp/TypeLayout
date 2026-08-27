@@ -169,7 +169,7 @@ Its contract is:
 - zero encodes null;
 - a non-zero value minus one is the target's byte offset from the beginning of the containing region;
 - its size and alignment are exactly four bytes;
-- construction-time reset is private and is invoked only by `RegionBuilder::bind(relative_ptr<T>&, region_handle<T>)`; that operation accepts a null handle or a handle issued by the same active builder to either a complete standalone `T` object or one complete live `T` array element, and it never accepts an address inside such an object;
+- construction-time reset is private and is invoked only by dedicated `RegionBuilder::bind` overloads addressed by a destination construction handle, optional array index, and pointer-to-member, or by a party-array handle and index; they accept a default null source or a source handle issued by the same active builder generation for either a complete standalone `T` object or one complete live `T` array element, never an address inside such an object, and expose no mutable destination reference;
 - `raw_offset_plus_one()` is available for validation and demonstration;
 - resolution always receives a validated `RegionView`; there is no context-free `get()`;
 - `RegionView::resolve(pointer)` first requires the `relative_ptr` descriptor itself to belong to that same validated buffer, then performs checked byte-array offset arithmetic from the region base and returns a const typed pointer only after the target allocation has been validated.
@@ -242,7 +242,7 @@ Loading allocates a fresh aligned storage object and copies the envelope-checked
 
 ### 8.2 `RegionBuilder`
 
-`RegionBuilder` is not stored in the payload. It returns construction-only `region_handle<T>` values containing checked payload offsets and provides only:
+`RegionBuilder` is not stored in the payload. It returns construction-only `region_handle<T>` values containing checked payload offsets plus private issuing-builder owner and generation provenance, and provides only:
 
 - aligned allocation and lifetime start for one object or one actual contiguous array;
 - Admission-constrained ordinary field and array-element writes addressed by construction handle plus pointer-to-member, returning no reference or pointer;
@@ -250,7 +250,7 @@ Loading allocates a fresh aligned storage object and copies the envelope-checked
 - handle/member binding of a `relative_ptr<T>` to a same-builder construction handle, including party array elements;
 - schema-bound finalization from `region_handle<WorldSnapshot>` only, recording the root offset and used byte count.
 
-No mutable typed reference, pointer, or span leaves the builder. Native pointers and region descriptors are not eligible for the ordinary-write path; descriptors and links use only their dedicated checked operations. Every member operation rejects a null pointer-to-member before dereference, and every operation rechecks that the builder is active and that all destination and non-null source handles belong to it. A topology bind completes its active-state, member, destination provenance/index, and source provenance/null/count checks before resolving or dereferencing the typed destination. Retaining construction handles is harmless because finalization permanently closes the builder before validation.
+No mutable typed reference, pointer, or span leaves the builder. Native pointers and region descriptors are not eligible for the ordinary-write path; descriptors and links use only their dedicated checked operations. Every member operation rejects a null pointer-to-member before dereference, and every operation rechecks that the builder is active and that all destination and non-null source handles match both its address and its unique construction generation; even an empty array source must carry that current provenance. A topology bind completes its active-state, member, destination provenance/index, and source provenance/null/count checks before resolving or dereferencing the typed destination. Generations are issued thread-safely without reuse, permanently fail on exhaustion rather than wrap, and are never stored or serialized. Retaining construction handles is harmless because finalization permanently closes the current builder and those handles cannot authenticate a later builder reconstructed at the same address.
 
 The demo uses a 4096-byte initial capacity. Exceeding it is an error; the underlying region never reallocates.
 

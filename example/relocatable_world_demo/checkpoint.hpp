@@ -3,8 +3,8 @@
 // Copyright (c) 2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
-#ifndef RELOCATABLE_WORLD_DEMO_CHECKPOINT_HPP
-#define RELOCATABLE_WORLD_DEMO_CHECKPOINT_HPP
+#ifndef BOOST_TYPELAYOUT_RELOCATABLE_WORLD_DEMO_CHECKPOINT_HPP
+#define BOOST_TYPELAYOUT_RELOCATABLE_WORLD_DEMO_CHECKPOINT_HPP
 
 #include <array>
 #include <cstddef>
@@ -59,4 +59,4 @@ RegionBuffer load_checkpoint(std::span<const std::byte> artifact);
 
 } // namespace relocatable_world_demo
 
-#endif // RELOCATABLE_WORLD_DEMO_CHECKPOINT_HPP
+#endif // BOOST_TYPELAYOUT_RELOCATABLE_WORLD_DEMO_CHECKPOINT_HPP

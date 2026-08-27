@@ -3,8 +3,8 @@
 // Copyright (c) 2026 TypeLayout Development Team
 // Distributed under the Boost Software License, Version 1.0.
 
-#ifndef RELOCATABLE_WORLD_DEMO_REGION_HPP
-#define RELOCATABLE_WORLD_DEMO_REGION_HPP
+#ifndef BOOST_TYPELAYOUT_RELOCATABLE_WORLD_DEMO_REGION_HPP
+#define BOOST_TYPELAYOUT_RELOCATABLE_WORLD_DEMO_REGION_HPP
 
 #include <boost/typelayout.hpp>
 
@@ -31,8 +31,10 @@ public:
 
 private:
     constexpr region_handle(const RegionBuilder* owner,
+                            std::uint64_t generation,
                             std::uint32_t value) noexcept;
     const RegionBuilder* owner_ = nullptr;
+    std::uint64_t generation_ = 0;
     std::uint32_t offset_plus_one_ = 0;
     friend class RegionBuilder;
     friend class WorldRegionValidator;
@@ -162,4 +164,4 @@ struct region_relocation_traits<
 
 } // namespace boost::typelayout::v1
 
-#endif // RELOCATABLE_WORLD_DEMO_REGION_HPP
+#endif // BOOST_TYPELAYOUT_RELOCATABLE_WORLD_DEMO_REGION_HPP
