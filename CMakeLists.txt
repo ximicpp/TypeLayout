@@ -163,8 +163,10 @@ if(TYPELAYOUT_PROBE_NODE)
             ${CMAKE_CURRENT_BINARY_DIR}/relocatable-world-platform-probe.json
             --runner local-ctest
             --runner-image local-ctest
-            --xcode $<IF:$<PLATFORM_ID:Darwin>,local-xcode,none>
-            --sdk $<IF:$<PLATFORM_ID:Darwin>,local-sdk,none>
+            --xcode-version $<IF:$<PLATFORM_ID:Darwin>,local-xcode-version,none>
+            --xcode-build $<IF:$<PLATFORM_ID:Darwin>,local-xcode-build,none>
+            --sdk-version $<IF:$<PLATFORM_ID:Darwin>,local-sdk-version,none>
+            --sdk-build $<IF:$<PLATFORM_ID:Darwin>,local-sdk-build,none>
             --deployment-target $<IF:$<PLATFORM_ID:Darwin>,local-target,none>
             --sdk-locked true)
     set_tests_properties(relocatable_world_platform_probe PROPERTIES

@@ -56,8 +56,10 @@ COMPILER_KEYS = (
     "version",
     "target",
     "stdlib",
-    "xcode",
-    "sdk",
+    "xcode_version",
+    "xcode_build",
+    "sdk_version",
+    "sdk_build",
     "deployment_target",
     "sdk_locked",
 )
@@ -69,7 +71,27 @@ BUILD_KEYS = (
     "source_sha",
     "flags",
     "workflow_run",
+    "toolchain_artifact_sha256",
 )
+
+APPLE_IDENTITY_KEYS = (
+    "xcode_version",
+    "xcode_build",
+    "sdk_version",
+    "sdk_build",
+    "deployment_target",
+)
+
+NODE_POLICY_KEYS = (
+    "node",
+    "compiler_family",
+    "compiler_revision",
+    "compiler_version",
+    "target",
+    "stdlib",
+    "flags",
+    "toolchain_artifact_sha256",
+) + APPLE_IDENTITY_KEYS
 
 _AUTHORITATIVE_RUNNERS = {
     "x86_64_linux_gcc": "ubuntu-24.04",
@@ -102,12 +124,17 @@ def _duplicate_object(pairs):
     return result
 
 
+def _reject_json_constant(value):
+    raise EvidenceError(f"non-finite JSON constant {value!r} is not permitted")
+
+
 def load_json(path):
     path = Path(path)
     try:
         value = json.loads(
             path.read_text(encoding="utf-8"),
             object_pairs_hook=_duplicate_object,
+            parse_constant=_reject_json_constant,
         )
     except EvidenceError:
         raise
@@ -122,11 +149,8 @@ def _write_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(
-        json.dumps(value, indent=2, sort_keys=False) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
+    with temporary.open("w", encoding="utf-8", newline="\n") as stream:
+        stream.write(json.dumps(value, indent=2, sort_keys=False) + "\n")
     temporary.replace(path)
 
 
@@ -187,6 +211,54 @@ def _expect_sha256(value, where):
 def _expect_source_sha(value, where):
     if not _is_lower_hex(value, 40):
         raise EvidenceError(f"{where} must be a 40-character lowercase source SHA")
+    return value
+
+
+def _is_canonical_positive_decimal(value):
+    return (
+        isinstance(value, str)
+        and value
+        and value[0] != "0"
+        and all(character in "0123456789" for character in value)
+    )
+
+
+def _expect_workflow_run(value, profile, source_sha, where):
+    _expect_nonempty_string(value, where)
+    validate_profile(profile)
+    _expect_source_sha(source_sha, f"{where} source SHA")
+    if profile == "authoritative":
+        parts = value.split(".")
+        if len(parts) != 2 or not all(
+            _is_canonical_positive_decimal(part) for part in parts
+        ):
+            raise EvidenceError(
+                f"{where} must be canonical positive run_id.run_attempt"
+            )
+        return value
+
+    parts = value.split("-")
+    if len(parts) != 4:
+        raise EvidenceError(
+            f"{where} must be local-<head>-<UTC timestamp>-<pid>"
+        )
+    prefix, head, timestamp, process_id = parts
+    timestamp_digits = timestamp[:8] + timestamp[9:15]
+    if (
+        prefix != "local"
+        or head != source_sha[:12]
+        or len(timestamp) != 16
+        or timestamp[8:9] != "T"
+        or timestamp[15:16] != "Z"
+        or len(timestamp_digits) != 14
+        or not all(
+            character in "0123456789" for character in timestamp_digits
+        )
+        or not _is_canonical_positive_decimal(process_id)
+    ):
+        raise EvidenceError(
+            f"{where} must be local-<12-hex-head>-<UTC timestamp>-<pid>"
+        )
     return value
 
 
@@ -252,7 +324,7 @@ def _validate_compiler(value, node, where="compiler"):
             f"{where}.family does not match node {node}: {value['family']!r}"
         )
     if not _is_macos(node):
-        for key in ("xcode", "sdk", "deployment_target"):
+        for key in APPLE_IDENTITY_KEYS:
             if value[key] != "none":
                 raise EvidenceError(f"Linux {where}.{key} must be literal 'none'")
         if not value["sdk_locked"]:
@@ -352,9 +424,16 @@ def _validate_build(value, node):
         raise EvidenceError(f"node {node} is not part of profile {profile}")
     if value["execution"] not in ("native", "emulated"):
         raise EvidenceError("build.execution must be native or emulated")
-    for key in ("runner", "runner_image", "flags", "workflow_run"):
+    for key in ("runner", "runner_image", "flags"):
         _expect_nonempty_string(value[key], f"build.{key}")
-    _expect_source_sha(value["source_sha"], "build.source_sha")
+    source_sha = _expect_source_sha(value["source_sha"], "build.source_sha")
+    _expect_workflow_run(
+        value["workflow_run"], profile, source_sha, "build.workflow_run"
+    )
+    _expect_sha256(
+        value["toolchain_artifact_sha256"],
+        "build.toolchain_artifact_sha256",
+    )
     if profile == "authoritative":
         if value["execution"] != "native":
             raise EvidenceError("authoritative build.execution must be native")
@@ -450,46 +529,267 @@ def validate_provenance(path):
     return record
 
 
-def _required_mapping(record, key, where):
-    mapping = _expect_object(record.get(key), f"{where}.{key}")
-    return mapping
+def _require_fields(record, keys, where):
+    record = _expect_object(record, where)
+    for key in keys:
+        if key not in record:
+            raise EvidenceError(f"{where} is missing required field {key}")
+    return record
+
+
+def _expect_digest_reference(value, where):
+    _expect_nonempty_string(value, where)
+    prefix = "sha256:"
+    if not value.startswith(prefix):
+        raise EvidenceError(f"{where} must be a digest-qualified sha256 reference")
+    return _expect_sha256(value[len(prefix):], where)
 
 
 def _load_lock_policy(sources_lock, outputs_lock, node):
+    node = validate_node(node)
     sources_lock = Path(sources_lock)
     outputs_lock = Path(outputs_lock)
     sources = load_json(sources_lock)
     outputs = load_json(outputs_lock)
-    if sources.get("schema") != 1 or type(sources.get("schema")) is not int:
+    _expect_exact_keys(
+        sources,
+        ("schema", "gcc", "p2996", "linux", "macos", "actions", "recipes"),
+        "source lock top-level",
+    )
+    _expect_exact_keys(
+        outputs,
+        (
+            "schema",
+            "sources_sha256",
+            "source_sha",
+            "workflow_run",
+            "linux",
+            "macos",
+        ),
+        "output lock top-level",
+    )
+    if sources["schema"] != 1 or type(sources["schema"]) is not int:
         raise EvidenceError("source lock schema must be integer 1")
-    if outputs.get("schema") != 1 or type(outputs.get("schema")) is not int:
+    if outputs["schema"] != 1 or type(outputs["schema"]) is not int:
         raise EvidenceError("output lock schema must be integer 1")
     sources_digest = _sha256(sources_lock)
-    if outputs.get("sources_sha256") != sources_digest:
+    if outputs["sources_sha256"] != sources_digest:
         raise EvidenceError("output lock sources_sha256 does not bind the source lock")
-    source_nodes = _required_mapping(sources, "nodes", "source lock")
-    output_nodes = _required_mapping(outputs, "nodes", "output lock")
-    if node not in source_nodes or node not in output_nodes:
-        raise EvidenceError(f"toolchain locks do not define node {node}")
-    source_policy = _expect_object(source_nodes[node], f"source lock node {node}")
-    output_policy = _expect_object(output_nodes[node], f"output lock node {node}")
-    for key in ("compiler_family", "compiler_revision", "flags"):
-        _expect_nonempty_string(
-            source_policy.get(key), f"source lock node {node}.{key}"
-        )
+    output_source_sha = _expect_source_sha(
+        outputs["source_sha"], "output lock.source_sha"
+    )
+    _expect_workflow_run(
+        outputs["workflow_run"],
+        "authoritative",
+        output_source_sha,
+        "output lock.workflow_run",
+    )
+
+    gcc_source = _require_fields(
+        sources["gcc"],
+        ("version", "compiler_family", "compiler_revision", "flags"),
+        "source lock.gcc",
+    )
+    clang_source = _require_fields(
+        sources["p2996"],
+        (
+            "repository",
+            "commit",
+            "compiler_family",
+            "compiler_revision",
+            "flags",
+        ),
+        "source lock.p2996",
+    )
+    for key in ("version", "compiler_family", "compiler_revision", "flags"):
+        _expect_nonempty_string(gcc_source[key], f"source lock.gcc.{key}")
     for key in (
-        "compiler_version",
-        "target",
-        "stdlib",
-        "runner_image",
-        "xcode",
-        "sdk",
-        "deployment_target",
+        "repository",
+        "commit",
+        "compiler_family",
+        "compiler_revision",
+        "flags",
     ):
-        _expect_nonempty_string(
-            output_policy.get(key), f"output lock node {node}.{key}"
+        _expect_nonempty_string(clang_source[key], f"source lock.p2996.{key}")
+    if gcc_source["compiler_family"] != "gcc":
+        raise EvidenceError("source lock.gcc compiler_family must be gcc")
+    if clang_source["compiler_family"] != "clang":
+        raise EvidenceError("source lock.p2996 compiler_family must be clang")
+    if clang_source["commit"] != clang_source["compiler_revision"]:
+        raise EvidenceError("source lock.p2996 commit and compiler_revision differ")
+
+    linux_source = _require_fields(
+        sources["linux"], ("platforms", "docker"), "source lock.linux"
+    )
+    source_platforms = _expect_exact_keys(
+        linux_source["platforms"],
+        ("linux/amd64", "linux/arm64"),
+        "source lock.linux.platforms",
+    )
+    expected_architectures = {
+        "linux/amd64": "x86_64",
+        "linux/arm64": "arm64",
+    }
+    for platform, architecture in expected_architectures.items():
+        platform_source = _require_fields(
+            source_platforms[platform],
+            ("architecture",),
+            f"source lock.linux.platforms.{platform}",
         )
-    return source_policy, output_policy, sources_digest, _sha256(outputs_lock)
+        if platform_source["architecture"] != architecture:
+            raise EvidenceError(
+                f"source lock platform {platform} architecture must be {architecture}"
+            )
+
+    source_macos = _require_fields(
+        sources["macos"], ("nodes",), "source lock.macos"
+    )
+    source_macos_nodes = _expect_exact_keys(
+        source_macos["nodes"],
+        ("arm64_macos_clang", "x86_64_macos_clang"),
+        "source lock.macos.nodes",
+    )
+    output_linux = _expect_exact_keys(
+        outputs["linux"], ("gcc", "p2996"), "output lock.linux"
+    )
+    output_macos = _expect_exact_keys(
+        outputs["macos"],
+        ("arm64_macos_clang", "x86_64_macos_clang"),
+        "output lock.macos",
+    )
+
+    if _is_macos(node):
+        source_node = _require_fields(
+            source_macos_nodes[node],
+            ("flags",) + APPLE_IDENTITY_KEYS,
+            f"source lock.macos.nodes.{node}",
+        )
+        output_node = _require_fields(
+            output_macos[node],
+            (
+                "url",
+                "archive_sha256",
+                "compiler_revision",
+                "compiler_version",
+                "target",
+                "stdlib",
+            )
+            + APPLE_IDENTITY_KEYS
+            + ("observed_runner",),
+            f"output lock.macos.{node}",
+        )
+        for key in ("flags",) + APPLE_IDENTITY_KEYS:
+            _expect_nonempty_string(
+                source_node[key], f"source lock.macos.nodes.{node}.{key}"
+            )
+        for key in (
+            "url",
+            "compiler_revision",
+            "compiler_version",
+            "target",
+            "stdlib",
+        ) + APPLE_IDENTITY_KEYS:
+            _expect_nonempty_string(
+                output_node[key], f"output lock.macos.{node}.{key}"
+            )
+        artifact_digest = _expect_sha256(
+            output_node["archive_sha256"],
+            f"output lock.macos.{node}.archive_sha256",
+        )
+        observed = _expect_exact_keys(
+            output_node["observed_runner"],
+            ("image_os", "image_version"),
+            f"output lock.macos.{node}.observed_runner",
+        )
+        for key in ("image_os", "image_version"):
+            _expect_nonempty_string(
+                observed[key], f"output lock.macos.{node}.observed_runner.{key}"
+            )
+        if output_node["compiler_revision"] != clang_source["compiler_revision"]:
+            raise EvidenceError(
+                f"output lock macOS compiler revision differs for {node}"
+            )
+        for key in APPLE_IDENTITY_KEYS:
+            if output_node[key] != source_node[key]:
+                raise EvidenceError(
+                    f"output lock macOS {key} differs from source hard lock for {node}"
+                )
+        policy = {
+            "node": node,
+            "compiler_family": clang_source["compiler_family"],
+            "compiler_revision": clang_source["compiler_revision"],
+            "compiler_version": output_node["compiler_version"],
+            "target": output_node["target"],
+            "stdlib": output_node["stdlib"],
+            "flags": source_node["flags"],
+            "toolchain_artifact_sha256": artifact_digest,
+            **{key: output_node[key] for key in APPLE_IDENTITY_KEYS},
+        }
+    else:
+        toolchain = "gcc" if node.endswith("_gcc") else "p2996"
+        platform = "linux/arm64" if node.startswith("arm64_") else "linux/amd64"
+        source_compiler = gcc_source if toolchain == "gcc" else clang_source
+        output_toolchain = _require_fields(
+            output_linux[toolchain],
+            (
+                "repository",
+                "index_digest",
+                "compiler_revision",
+                "compiler_version",
+                "stdlib",
+                "platforms",
+            ),
+            f"output lock.linux.{toolchain}",
+        )
+        for key in (
+            "repository",
+            "compiler_revision",
+            "compiler_version",
+            "stdlib",
+        ):
+            _expect_nonempty_string(
+                output_toolchain[key], f"output lock.linux.{toolchain}.{key}"
+            )
+        _expect_digest_reference(
+            output_toolchain["index_digest"],
+            f"output lock.linux.{toolchain}.index_digest",
+        )
+        platform_outputs = _expect_exact_keys(
+            output_toolchain["platforms"],
+            ("linux/amd64", "linux/arm64"),
+            f"output lock.linux.{toolchain}.platforms",
+        )
+        platform_output = _require_fields(
+            platform_outputs[platform],
+            ("manifest_digest", "target"),
+            f"output lock.linux.{toolchain}.platforms.{platform}",
+        )
+        _expect_nonempty_string(
+            platform_output["target"],
+            f"output lock.linux.{toolchain}.platforms.{platform}.target",
+        )
+        artifact_digest = _expect_digest_reference(
+            platform_output["manifest_digest"],
+            f"output lock.linux.{toolchain}.platforms.{platform}.manifest_digest",
+        )
+        if output_toolchain["compiler_revision"] != source_compiler["compiler_revision"]:
+            raise EvidenceError(
+                f"output lock Linux compiler revision differs for {node}"
+            )
+        policy = {
+            "node": node,
+            "compiler_family": source_compiler["compiler_family"],
+            "compiler_revision": source_compiler["compiler_revision"],
+            "compiler_version": output_toolchain["compiler_version"],
+            "target": platform_output["target"],
+            "stdlib": output_toolchain["stdlib"],
+            "flags": source_compiler["flags"],
+            "toolchain_artifact_sha256": artifact_digest,
+            **{key: "none" for key in APPLE_IDENTITY_KEYS},
+        }
+
+    _expect_exact_keys(policy, NODE_POLICY_KEYS, f"normalized policy for {node}")
+    return policy, sources_digest, _sha256(outputs_lock)
 
 
 def _require_platform_probe_pass(probe):
@@ -711,6 +1011,7 @@ def seal_producer(
     runner,
     source_sha,
     workflow_run,
+    toolchain_artifact_sha256,
     output,
     signature=None,
     region=None,
@@ -722,8 +1023,11 @@ def seal_producer(
     if execution not in ("native", "emulated"):
         raise EvidenceError("execution must be native or emulated")
     _expect_nonempty_string(runner, "runner")
-    _expect_source_sha(source_sha, "source_sha")
-    _expect_nonempty_string(workflow_run, "workflow_run")
+    source_sha = _expect_source_sha(source_sha, "source_sha")
+    _expect_workflow_run(workflow_run, profile, source_sha, "workflow_run")
+    toolchain_artifact_sha256 = _expect_sha256(
+        toolchain_artifact_sha256, "toolchain_artifact_sha256"
+    )
     output = Path(output)
     if output.name != f"{node}.provenance.json":
         raise EvidenceError(
@@ -740,16 +1044,23 @@ def seal_producer(
     if probe_record["environment"]["runner"] != runner:
         raise EvidenceError("probe runner does not match --runner")
 
-    source_policy, output_policy, sources_digest, outputs_digest = (
+    policy, sources_digest, outputs_digest = (
         _load_lock_policy(sources_lock, outputs_lock, node)
     )
+    if (
+        toolchain_artifact_sha256
+        != policy["toolchain_artifact_sha256"]
+    ):
+        raise EvidenceError(
+            "toolchain artifact SHA256 does not match output lock"
+        )
     compiler = probe_record["compiler"]
     comparisons = (
-        ("family", source_policy["compiler_family"]),
-        ("revision", source_policy["compiler_revision"]),
-        ("version", output_policy["compiler_version"]),
-        ("target", output_policy["target"]),
-        ("stdlib", output_policy["stdlib"]),
+        ("family", policy["compiler_family"]),
+        ("revision", policy["compiler_revision"]),
+        ("version", policy["compiler_version"]),
+        ("target", policy["target"]),
+        ("stdlib", policy["stdlib"]),
     )
     for key, expected in comparisons:
         if compiler[key] != expected:
@@ -764,31 +1075,27 @@ def seal_producer(
             raise EvidenceError("authoritative producers must execute natively")
         if runner != _AUTHORITATIVE_RUNNERS[node]:
             raise EvidenceError("authoritative runner does not match its node")
-        if environment["runner_image"] != output_policy["runner_image"]:
-            raise EvidenceError("authoritative runner_image does not match output lock")
     else:
         if execution != _LOCAL_EXECUTION[node]:
             raise EvidenceError("local execution mode does not match its node")
-        if _is_macos(node) and environment["runner_image"] != "personal-macos":
-            raise EvidenceError("local macOS runner_image must be personal-macos")
-        if not _is_macos(node) and environment["runner_image"] != output_policy["runner_image"]:
-            raise EvidenceError("local Linux runner_image does not match output lock")
 
-    apple_keys = ("xcode", "sdk", "deployment_target")
     if not _is_macos(node):
-        for key in apple_keys:
+        for key in APPLE_IDENTITY_KEYS:
             if compiler[key] != "none":
                 raise EvidenceError(f"Linux compiler {key} must be literal 'none'")
         if not compiler["sdk_locked"]:
             raise EvidenceError("Linux compiler sdk_locked must be true")
     elif profile == "authoritative":
-        for key in apple_keys:
-            if compiler[key] != output_policy[key]:
+        for key in APPLE_IDENTITY_KEYS:
+            if compiler[key] != policy[key]:
                 raise EvidenceError(f"authoritative macOS {key} does not match output lock")
         if not compiler["sdk_locked"]:
             raise EvidenceError("authoritative macOS sdk_locked must be true")
     else:
-        actual_match = all(compiler[key] == output_policy[key] for key in apple_keys)
+        actual_match = all(
+            compiler[key] == policy[key]
+            for key in APPLE_IDENTITY_KEYS
+        )
         if compiler["sdk_locked"] != actual_match:
             raise EvidenceError("local macOS sdk_locked is not truthful")
 
@@ -841,8 +1148,9 @@ def seal_producer(
             "runner": runner,
             "runner_image": environment["runner_image"],
             "source_sha": source_sha,
-            "flags": source_policy["flags"],
+            "flags": policy["flags"],
             "workflow_run": workflow_run,
+            "toolchain_artifact_sha256": toolchain_artifact_sha256,
         },
         "locks": {
             "sources_sha256": sources_digest,
@@ -1037,6 +1345,7 @@ def _build_parser():
     seal.add_argument("--runner", required=True)
     seal.add_argument("--source-sha", required=True)
     seal.add_argument("--workflow-run", required=True)
+    seal.add_argument("--toolchain-artifact-sha256", required=True)
     seal.add_argument("--output", required=True, type=Path)
     return parser
 
@@ -1082,6 +1391,7 @@ def main(arguments=None):
                 runner=args.runner,
                 source_sha=args.source_sha,
                 workflow_run=args.workflow_run,
+                toolchain_artifact_sha256=args.toolchain_artifact_sha256,
                 output=args.output,
             )
     except EvidenceError as error:

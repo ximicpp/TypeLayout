@@ -35,8 +35,10 @@ struct arguments {
     std::string_view output;
     std::string_view runner;
     std::string_view runner_image;
-    std::string_view xcode;
-    std::string_view sdk;
+    std::string_view xcode_version;
+    std::string_view xcode_build;
+    std::string_view sdk_version;
+    std::string_view sdk_build;
     std::string_view deployment_target;
     bool sdk_locked;
 };
@@ -62,7 +64,7 @@ bool set_once(std::string_view& destination, std::string_view value) {
 }
 
 bool parse_arguments(int argc, char** argv, arguments& result) {
-    if (argc != 15) {
+    if (argc != 19) {
         return false;
     }
     result.node = argv[1];
@@ -79,12 +81,20 @@ bool parse_arguments(int argc, char** argv, arguments& result) {
             if (!set_once(result.runner_image, value)) {
                 return false;
             }
-        } else if (option == "--xcode") {
-            if (!set_once(result.xcode, value)) {
+        } else if (option == "--xcode-version") {
+            if (!set_once(result.xcode_version, value)) {
                 return false;
             }
-        } else if (option == "--sdk") {
-            if (!set_once(result.sdk, value)) {
+        } else if (option == "--xcode-build") {
+            if (!set_once(result.xcode_build, value)) {
+                return false;
+            }
+        } else if (option == "--sdk-version") {
+            if (!set_once(result.sdk_version, value)) {
+                return false;
+            }
+        } else if (option == "--sdk-build") {
+            if (!set_once(result.sdk_build, value)) {
                 return false;
             }
         } else if (option == "--deployment-target") {
@@ -100,8 +110,9 @@ bool parse_arguments(int argc, char** argv, arguments& result) {
         }
     }
     if (result.node.empty() || result.output.empty() || result.runner.empty() ||
-        result.runner_image.empty() || result.xcode.empty() ||
-        result.sdk.empty() || result.deployment_target.empty() ||
+        result.runner_image.empty() || result.xcode_version.empty() ||
+        result.xcode_build.empty() || result.sdk_version.empty() ||
+        result.sdk_build.empty() || result.deployment_target.empty() ||
         sdk_locked_text.empty()) {
         return false;
     }
@@ -324,11 +335,17 @@ bool write_probe_json(const arguments& args, lifetime_results lifetime) {
     write_key(output, "stdlib");
     write_string(output, standard_library());
     output << ",\n    ";
-    write_key(output, "xcode");
-    write_string(output, args.xcode);
+    write_key(output, "xcode_version");
+    write_string(output, args.xcode_version);
     output << ",\n    ";
-    write_key(output, "sdk");
-    write_string(output, args.sdk);
+    write_key(output, "xcode_build");
+    write_string(output, args.xcode_build);
+    output << ",\n    ";
+    write_key(output, "sdk_version");
+    write_string(output, args.sdk_version);
+    output << ",\n    ";
+    write_key(output, "sdk_build");
+    write_string(output, args.sdk_build);
     output << ",\n    ";
     write_key(output, "deployment_target");
     write_string(output, args.deployment_target);
@@ -361,8 +378,10 @@ int main(int argc, char** argv) {
     arguments args{};
     if (!parse_arguments(argc, argv, args)) {
         std::cerr << "usage: relocatable_world_platform_probe NODE OUTPUT_JSON "
-                     "--runner LABEL --runner-image ID --xcode VALUE "
-                     "--sdk VALUE --deployment-target VALUE "
+                     "--runner LABEL --runner-image ID "
+                     "--xcode-version VALUE --xcode-build VALUE "
+                     "--sdk-version VALUE --sdk-build VALUE "
+                     "--deployment-target VALUE "
                      "--sdk-locked true|false\n";
         return 2;
     }
