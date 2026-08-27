@@ -1,6 +1,6 @@
 # Relocatable World Checkpoint Demo Design
 
-**Status:** Approved in chat; awaiting final written-spec review
+**Status:** Approved for implementation on 2026-08-27
 
 **Date:** 2026-08-27
 
@@ -169,10 +169,10 @@ Its contract is:
 - zero encodes null;
 - a non-zero value minus one is the target's byte offset from the beginning of the containing region;
 - its size and alignment are exactly four bytes;
-- `reset(region_handle<T>)` accepts a null handle or a builder-issued handle to either a complete standalone `T` object or one complete live `T` array element in the same region; it never accepts an address inside such an object;
+- construction-time reset is private and is invoked only by `RegionBuilder::bind(relative_ptr<T>&, region_handle<T>)`; that operation accepts a null handle or a handle issued by the same active builder to either a complete standalone `T` object or one complete live `T` array element, and it never accepts an address inside such an object;
 - `raw_offset_plus_one()` is available for validation and demonstration;
 - resolution always receives a validated `RegionView`; there is no context-free `get()`;
-- `RegionView::resolve(pointer)` performs checked byte-array offset arithmetic from the region base and returns a typed pointer only after the target allocation has been validated.
+- `RegionView::resolve(pointer)` first requires the `relative_ptr` descriptor itself to belong to that same validated buffer, then performs checked byte-array offset arithmetic from the region base and returns a const typed pointer only after the target allocation has been validated.
 
 The plus-one representation avoids collision between a valid object at payload offset zero and the null value. The fixed 4096-byte region is far below the largest representable non-null offset.
 
@@ -228,11 +228,13 @@ The validator requires keys to be strictly increasing and therefore unique. Afte
 
 These are practical region containers, not reduced spellings of inline fixed arrays: their element and character counts are encoded at runtime and their payloads live elsewhere in the same region.
 
+All four descriptor families keep trivial copy construction so their representations remain trivially copyable, but their copy and move assignment operators are inaccessible to callers. Trusted view/validator friends never assign them; only `RegionBuilder` writes topology. Consequently a caller holding the builder's mutable construction reference cannot overwrite a bound descriptor, an `Entity`, or a `WorldSnapshot` with descriptor bytes copied from another builder. Ordinary scalar and map-entry initialization remains available where it carries no region link.
+
 ## 8. Region Construction and Lifetime
 
 ### 8.1 `RegionBuffer`
 
-`RegionBuffer` owns an `alignas(64)` storage object containing a 4096-element `std::byte` array. That array provides storage for all nested region objects and gives validation and resolution one well-defined base for byte-offset arithmetic. Every stored type must have alignment no greater than 64. The buffer exposes a byte span for validation and serialization and a typed root only after construction or successful load validation.
+`RegionBuffer` owns an `alignas(64)` storage object containing a 4096-element `std::byte` array. That array provides storage for all nested region objects and gives validation and resolution one well-defined base for byte-offset arithmetic. Every stored type must have alignment no greater than 64. The buffer exposes a byte span for validation and serialization; only the schema-bound `world_root(const RegionBuffer&)` adapter exposes the typed root after successful validation. There is no public arbitrary `root<T>()` cast.
 
 The payload is zero-initialized before objects are constructed so untouched storage does not expose previous memory contents. Agreement covers the location and extent of any padding, but the demo does not interpret padding bytes or require their values to be canonical. The builder establishes every single object directly in its final aligned location and populates its members in place.
 
@@ -246,6 +248,7 @@ Loading allocates a fresh aligned storage object and copies the envelope-checked
 - in-place initialization of a destination `region_string` from bytes;
 - in-place initialization of a destination `region_vector<T>` and its final array;
 - in-place initialization of a destination `region_flat_map<K, V>` and its sorted final array;
+- checked binding of a destination `relative_ptr<T>` to a same-builder construction handle;
 - finalization of the root offset and used byte count.
 
 The demo uses a 4096-byte initial capacity. Exceeding it is an error; the underlying region never reallocates.
@@ -261,7 +264,7 @@ Construction order is strict:
 5. validate the complete region;
 6. freeze topology.
 
-After freezing, only scalar payload mutations such as `tick` and `hp` are allowed.
+After freezing, public reads are const and require descriptors from the same validated buffer. The only public writes are the schema-bound `set_world_tick(...)` and `set_entity_hp(...)` operations; generic root, descriptor, link, index, and topology mutation is unavailable.
 
 ## 9. Checkpoint Envelope
 
@@ -397,7 +400,7 @@ Validation is staged. Before any lifetime-start operation, byte-level checks pro
 
 This two-stage handling of names is required because their descriptors cannot be read until the entity array exists, while their target ranges must be proved disjoint before the character-array lifetimes begin.
 
-Public container iteration and `RegionView::resolve` remain unavailable until the complete sequence succeeds. The schema validator uses private checked offset access while establishing the stages.
+Public container iteration and `RegionView::resolve` remain unavailable until the complete sequence succeeds. Each public view operation additionally rejects a descriptor object that is not physically inside its bound buffer, preventing a descriptor from another validated region from being resolved against the wrong base. The schema validator uses private checked offset access while establishing the stages.
 
 Graph validation reads raw offset-plus-one values first and performs checked byte-offset arithmetic within the `RegionBuffer` storage extent. It does not round-trip pointers through integers. A non-null entity link must:
 
@@ -480,7 +483,7 @@ Every node first compiles and runs the same reflection/platform probe. It requir
 <node>.region
 ```
 
-The provenance binds these two files by SHA256. Each consumer emits `<consumer>.results.json` with its identity, the hashes of evidence it evaluated, and exactly five directed-edge decisions.
+The provenance binds these two files by SHA256. Each independently compiled consumer emits `<consumer>.results.json` with its own verified compiler/runner/SDK facts, the hashes of evidence it evaluated, and exactly five directed-edge decisions. One closure may use only records from one source commit, one workflow invocation, and one committed source/output lock pair; mixing individually valid artifacts from different runs or borrowing a producer's environment identity for a separate consumer job is incomplete evidence.
 
 Every unordered build pair gets one of exactly 15 Agreement records. Each record contains four named TypeLayout decisions, one for each contract key:
 
@@ -503,11 +506,11 @@ The overall workflow closure is distinct from TypeLayout Permit:
 2. otherwise `REJECT` when any named TypeLayout decision or directed transfer rejects;
 3. otherwise `PASS` when all six nodes, 60 named TypeLayout permits, and 30 directed loads succeed.
 
-Consumer and Agreement jobs depend on producer completion but use `if: always()` and emit explicit missing-input results. The final closure job also uses `if: always()`. A failed or skipped job cannot silently shrink the declared matrix.
+Consumer and Agreement jobs depend on producer completion but use `if: always()` and emit explicit missing-input results. The final closure job also uses `if: always()`, consumes the uploaded Agreement artifact as a required input, and verifies it against the same fixed producer evidence before closing the graph. A failed, skipped, stale, or malformed Agreement job cannot be bypassed by silently recomputing a smaller or different matrix inside closure.
 
 ## 15. Toolchains and Developer Experience
 
-Linux uses two pinned multi-platform images, each supporting `linux/amd64` and `linux/arm64`. macOS uses pinned native Bloomberg P2996 archives for ARM64 and x86-64. `toolchain-sources.lock` contains exact source revisions, checksums, and build inputs; its changes trigger native toolchain builds. The build publishes immutable candidates and emits a candidate `toolchains.lock`. That output lock is separately reviewed and committed with image digests, release URLs, and archive checksums; sealing it does not trigger another build.
+Linux uses two pinned multi-platform images, each supporting `linux/amd64` and `linux/arm64`. macOS uses pinned native Bloomberg P2996 archives for ARM64 and x86-64. Because those archives do not redistribute an Apple SDK, authoritative macOS jobs must select the output-lock Xcode/SDK/deployment identity and pass its sysroot explicitly; a personal Mac records its actual SDK and remains non-authoritative when it differs. `toolchain-sources.lock` contains exact source revisions, checksums, and build-recipe hashes; its changes trigger native toolchain builds. The build publishes immutable candidates and emits a candidate `toolchains.lock`. That output lock is separately reviewed and committed with image digests, release URLs, and archive checksums; sealing it does not trigger another candidate build.
 
 The matrix and local launcher refuse to run until the sealed output lock is complete. Empty values, branch-only Bloomberg references, mutable tags such as `latest`, and unverified archives are errors.
 
@@ -516,6 +519,8 @@ The ARM64 Mac entry point is:
 ```bash
 ./tools/run-relocatable-world.sh
 ```
+
+With no arguments it derives the exact current `HEAD` and a unique local invocation ID before doing any work. Advanced/repeatable invocation may pass `--source-sha SHA --run-id ID`; an explicitly supplied source SHA must still equal the current `HEAD`.
 
 It runs:
 
@@ -565,7 +570,7 @@ Once the replacement targets and tests pass, implementation removes `example/xof
 
 `include/boost/typelayout/admission.hpp` and its core tests remain because the whole-region profile is already part of the implemented base demo. They change only if the independent containers expose a real missing TypeLayout behavior.
 
-The existing `docs/superpowers/plans/2026-08-27-xoffset-world-demo-implementation.md` records the superseded XOffset-backed implementation. It does not govern this replacement. A new implementation plan will be written only after this specification is approved.
+The existing `docs/superpowers/plans/2026-08-27-xoffset-world-demo-implementation.md` records the superseded XOffset-backed implementation and does not govern this replacement. The approved work is split between `docs/superpowers/plans/2026-08-27-relocatable-world-demo-implementation.md` for the minimal standalone demo and `docs/superpowers/plans/2026-08-27-relocatable-world-matrix-implementation.md` for locked six-node evidence.
 
 ## 17. Verification and Acceptance
 
@@ -595,6 +600,7 @@ Matrix acceptance additionally requires:
 - six valid node provenance files;
 - all six probes report eight-bit bytes, 64-bit pointers, little-endian order, working P2996 reflection, and usable `std::start_lifetime_as` plus `std::start_lifetime_as_array`;
 - six signature and six region artifacts in a permitting run;
+- one source commit, one workflow invocation, and one committed source/output lock pair across every artifact in the closure;
 - exactly 15 Agreement records containing 60 named TypeLayout `PERMIT` decisions;
 - exactly 30 directed cross-load records with status `PASS`;
 - final workflow closure status `PASS`.
