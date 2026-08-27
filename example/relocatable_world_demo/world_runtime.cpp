@@ -18,6 +18,8 @@ region_handle<WorldSnapshot> populate_canonical_world(RegionBuilder& builder) {
     builder.bind(builder.get(root).entity_index, index_entries);
     builder.bind(builder.get(root).party, party);
 
+    builder.get(root).tick = 42;
+
     auto& hero = builder.at(entities, 0);
     hero.id = hero_id;
     hero.kind = EntityKind::player;
