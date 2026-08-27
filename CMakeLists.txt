@@ -33,18 +33,21 @@ set(TYPELAYOUT_COMPAT_CI_LINUX_SIGS_DIR
     CACHE PATH
     "Directory containing Linux-generated .sig.hpp files for the aggregate CI checker")
 
-if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    add_compile_options(-freflection -freflection-latest -Wall -Wextra)
-elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND
-       CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "16")
-    add_compile_options(-freflection -Wall -Wextra)
-endif()
-
 # Header-only library
 add_library(typelayout INTERFACE)
 target_include_directories(typelayout INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    add_compile_options(-Wall -Wextra)
+    target_compile_options(typelayout INTERFACE
+        -freflection -freflection-latest)
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND
+       CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "16")
+    add_compile_options(-Wall -Wextra)
+    target_compile_options(typelayout INTERFACE -freflection)
+endif()
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND BOOST_TYPELAYOUT_CONSTEXPR_STEPS GREATER 0)
     target_compile_options(typelayout INTERFACE
@@ -64,6 +67,7 @@ add_executable(compat_check example/compat_check.cpp)
 target_link_libraries(compat_check PRIVATE typelayout)
 
 enable_testing()
+find_package(Python3 QUIET COMPONENTS Interpreter)
 
 # Core engine regression tests (signature grammar + admission predicate)
 add_executable(test_core test/test_core.cpp)
@@ -155,7 +159,6 @@ if(TYPELAYOUT_PROBE_ARCH AND TYPELAYOUT_PROBE_OS AND
         "${TYPELAYOUT_PROBE_ARCH}_${TYPELAYOUT_PROBE_OS}_${TYPELAYOUT_PROBE_COMPILER}")
 endif()
 if(TYPELAYOUT_PROBE_NODE)
-    find_package(Python3 QUIET COMPONENTS Interpreter)
     include(cmake/RelocatableWorldProbeDefaults.cmake)
 
     add_test(NAME relocatable_world_platform_probe
@@ -228,6 +231,221 @@ target_include_directories(relocatable_world_export_packed PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/example/relocatable_world_demo)
 target_compile_definitions(relocatable_world_export_packed PRIVATE
     TYPELAYOUT_RELOCATABLE_WORLD_PACKED_ENTITY=1)
+
+set(TYPELAYOUT_RELOCATABLE_WORLD_EVIDENCE_MODE "fixture" CACHE STRING
+    "Evidence input mode: fixture or production")
+set_property(CACHE TYPELAYOUT_RELOCATABLE_WORLD_EVIDENCE_MODE PROPERTY STRINGS
+    fixture production)
+set(TYPELAYOUT_RELOCATABLE_WORLD_PROFILE "authoritative" CACHE STRING
+    "Relocatable-world evidence profile")
+set_property(CACHE TYPELAYOUT_RELOCATABLE_WORLD_PROFILE PROPERTY STRINGS
+    authoritative local-arm64-macos)
+set(TYPELAYOUT_RELOCATABLE_WORLD_CONSUMER_NODE
+    "x86_64_linux_clang" CACHE STRING
+    "Node compiled as the relocatable-world consumer")
+set(TYPELAYOUT_RELOCATABLE_WORLD_EVIDENCE_DIR
+    "${CMAKE_CURRENT_BINARY_DIR}/relocatable-world-matrix/empty-producers"
+    CACHE PATH "Flat producer evidence directory")
+set(TYPELAYOUT_RELOCATABLE_WORLD_RESULTS_DIR
+    "${CMAKE_CURRENT_BINARY_DIR}/relocatable-world-matrix/empty-results"
+    CACHE PATH "Flat consumer result directory")
+set(TYPELAYOUT_RELOCATABLE_WORLD_AGREEMENTS
+    "${CMAKE_CURRENT_BINARY_DIR}/relocatable-world-matrix/fallback/agreements.json"
+    CACHE FILEPATH "Agreement artifact consumed by matrix closure")
+set(TYPELAYOUT_RELOCATABLE_WORLD_CONSUMER_PROBE "" CACHE FILEPATH
+    "Fresh consumer platform probe used in production evidence mode")
+set(TYPELAYOUT_RELOCATABLE_WORLD_TOOLCHAIN_ARTIFACT_SHA256 "" CACHE STRING
+    "Locked manifest or archive digest for the selected consumer")
+set(TYPELAYOUT_RELOCATABLE_WORLD_SOURCE_SHA "" CACHE STRING
+    "Matrix run source SHA")
+set(TYPELAYOUT_RELOCATABLE_WORLD_WORKFLOW_RUN "" CACHE STRING
+    "Matrix run workflow or launcher identity")
+set(TYPELAYOUT_RELOCATABLE_WORLD_SOURCES_LOCK "" CACHE FILEPATH
+    "Strict toolchain source lock")
+set(TYPELAYOUT_RELOCATABLE_WORLD_OUTPUTS_LOCK "" CACHE FILEPATH
+    "Strict toolchain output lock")
+
+if(NOT TYPELAYOUT_RELOCATABLE_WORLD_EVIDENCE_MODE STREQUAL "fixture" AND
+   NOT TYPELAYOUT_RELOCATABLE_WORLD_EVIDENCE_MODE STREQUAL "production")
+    message(FATAL_ERROR
+        "TYPELAYOUT_RELOCATABLE_WORLD_EVIDENCE_MODE must be fixture or production")
+endif()
+
+if(Python3_Interpreter_FOUND)
+    set(_relocatable_world_matrix_root
+        "${CMAKE_CURRENT_BINARY_DIR}/relocatable-world-matrix")
+    set(_relocatable_world_generated_dir
+        "${_relocatable_world_matrix_root}/generated")
+    set(_relocatable_world_consumer_header
+        "${_relocatable_world_generated_dir}/relocatable_world_consumer_input.hpp")
+    set(_relocatable_world_agreement_header
+        "${_relocatable_world_generated_dir}/relocatable_world_agreement_input.hpp")
+    set(_relocatable_world_matrix_header
+        "${_relocatable_world_generated_dir}/relocatable_world_matrix_input.hpp")
+    set(_relocatable_world_evidence_tool
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/relocatable_world_evidence.py")
+
+    if(TYPELAYOUT_RELOCATABLE_WORLD_EVIDENCE_MODE STREQUAL "fixture")
+        set(_relocatable_world_context_args --fixture-context)
+        set(_relocatable_world_consumer_context_args --fixture-context)
+        set(_relocatable_world_agreements_input
+            "${_relocatable_world_matrix_root}/fallback/agreements.json")
+        set(_relocatable_world_matrix_prefix_commands
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                "${_relocatable_world_matrix_root}/fallback"
+            COMMAND ${Python3_EXECUTABLE} "${_relocatable_world_evidence_tool}"
+                fallback-agreements
+                --profile "${TYPELAYOUT_RELOCATABLE_WORLD_PROFILE}"
+                --reason "fixture evidence is intentionally empty"
+                --output "${_relocatable_world_agreements_input}")
+    else()
+        foreach(_required
+                TYPELAYOUT_RELOCATABLE_WORLD_CONSUMER_PROBE
+                TYPELAYOUT_RELOCATABLE_WORLD_TOOLCHAIN_ARTIFACT_SHA256
+                TYPELAYOUT_RELOCATABLE_WORLD_SOURCE_SHA
+                TYPELAYOUT_RELOCATABLE_WORLD_WORKFLOW_RUN
+                TYPELAYOUT_RELOCATABLE_WORLD_SOURCES_LOCK
+                TYPELAYOUT_RELOCATABLE_WORLD_OUTPUTS_LOCK)
+            if("${${_required}}" STREQUAL "")
+                message(FATAL_ERROR
+                    "production evidence mode requires ${_required}")
+            endif()
+        endforeach()
+        set(_relocatable_world_context_args
+            --expect-source-sha "${TYPELAYOUT_RELOCATABLE_WORLD_SOURCE_SHA}"
+            --expect-workflow-run "${TYPELAYOUT_RELOCATABLE_WORLD_WORKFLOW_RUN}"
+            --sources-lock "${TYPELAYOUT_RELOCATABLE_WORLD_SOURCES_LOCK}"
+            --outputs-lock "${TYPELAYOUT_RELOCATABLE_WORLD_OUTPUTS_LOCK}")
+        set(_relocatable_world_consumer_context_args
+            ${_relocatable_world_context_args}
+            --consumer-probe "${TYPELAYOUT_RELOCATABLE_WORLD_CONSUMER_PROBE}"
+            --toolchain-artifact-sha256
+                "${TYPELAYOUT_RELOCATABLE_WORLD_TOOLCHAIN_ARTIFACT_SHA256}")
+        set(_relocatable_world_agreements_input
+            "${TYPELAYOUT_RELOCATABLE_WORLD_AGREEMENTS}")
+        set(_relocatable_world_matrix_prefix_commands)
+    endif()
+
+    add_custom_target(relocatable_world_generate_consumer_input
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "${TYPELAYOUT_RELOCATABLE_WORLD_EVIDENCE_DIR}"
+            "${_relocatable_world_generated_dir}"
+        COMMAND ${Python3_EXECUTABLE} "${_relocatable_world_evidence_tool}"
+            prepare-consumer
+            --profile "${TYPELAYOUT_RELOCATABLE_WORLD_PROFILE}"
+            --consumer "${TYPELAYOUT_RELOCATABLE_WORLD_CONSUMER_NODE}"
+            --evidence "${TYPELAYOUT_RELOCATABLE_WORLD_EVIDENCE_DIR}"
+            ${_relocatable_world_consumer_context_args}
+            --output-header "${_relocatable_world_consumer_header}"
+        BYPRODUCTS "${_relocatable_world_consumer_header}"
+        DEPENDS "${_relocatable_world_evidence_tool}"
+        VERBATIM)
+    add_custom_target(relocatable_world_generate_agreement_input
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "${TYPELAYOUT_RELOCATABLE_WORLD_EVIDENCE_DIR}"
+            "${_relocatable_world_generated_dir}"
+        COMMAND ${Python3_EXECUTABLE} "${_relocatable_world_evidence_tool}"
+            prepare-agreements
+            --profile "${TYPELAYOUT_RELOCATABLE_WORLD_PROFILE}"
+            --evidence "${TYPELAYOUT_RELOCATABLE_WORLD_EVIDENCE_DIR}"
+            ${_relocatable_world_context_args}
+            --output-header "${_relocatable_world_agreement_header}"
+        BYPRODUCTS "${_relocatable_world_agreement_header}"
+        DEPENDS "${_relocatable_world_evidence_tool}"
+        VERBATIM)
+    add_custom_target(relocatable_world_generate_matrix_input
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "${TYPELAYOUT_RELOCATABLE_WORLD_EVIDENCE_DIR}"
+            "${TYPELAYOUT_RELOCATABLE_WORLD_RESULTS_DIR}"
+            "${_relocatable_world_generated_dir}"
+        ${_relocatable_world_matrix_prefix_commands}
+        COMMAND ${Python3_EXECUTABLE} "${_relocatable_world_evidence_tool}"
+            prepare-matrix
+            --profile "${TYPELAYOUT_RELOCATABLE_WORLD_PROFILE}"
+            --evidence "${TYPELAYOUT_RELOCATABLE_WORLD_EVIDENCE_DIR}"
+            --results "${TYPELAYOUT_RELOCATABLE_WORLD_RESULTS_DIR}"
+            --agreements "${_relocatable_world_agreements_input}"
+            ${_relocatable_world_context_args}
+            --output-header "${_relocatable_world_matrix_header}"
+        BYPRODUCTS "${_relocatable_world_matrix_header}"
+        DEPENDS "${_relocatable_world_evidence_tool}"
+        VERBATIM)
+
+    set_source_files_properties(
+        "${_relocatable_world_consumer_header}"
+        "${_relocatable_world_agreement_header}"
+        "${_relocatable_world_matrix_header}"
+        PROPERTIES GENERATED TRUE)
+
+    add_executable(relocatable_world_consumer
+        example/relocatable_world_demo/consumer.cpp
+        "${_relocatable_world_consumer_header}")
+    target_link_libraries(relocatable_world_consumer PRIVATE
+        relocatable_world_support)
+    target_include_directories(relocatable_world_consumer PRIVATE
+        "${_relocatable_world_generated_dir}")
+    add_dependencies(relocatable_world_consumer
+        relocatable_world_generate_consumer_input)
+
+    add_executable(relocatable_world_agreement_check
+        example/relocatable_world_demo/agreement_check.cpp
+        "${_relocatable_world_agreement_header}")
+    target_include_directories(relocatable_world_agreement_check PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/example/relocatable_world_demo"
+        "${_relocatable_world_generated_dir}")
+    set_target_properties(relocatable_world_agreement_check PROPERTIES
+        CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+    add_dependencies(relocatable_world_agreement_check
+        relocatable_world_generate_agreement_input)
+
+    add_executable(relocatable_world_matrix_check
+        example/relocatable_world_demo/matrix_check.cpp
+        "${_relocatable_world_matrix_header}")
+    target_include_directories(relocatable_world_matrix_check PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/example/relocatable_world_demo"
+        "${_relocatable_world_generated_dir}")
+    set_target_properties(relocatable_world_matrix_check PROPERTIES
+        CXX_STANDARD 20 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
+    add_dependencies(relocatable_world_matrix_check
+        relocatable_world_generate_matrix_input)
+
+    add_test(NAME test_relocatable_world_matrix_self_test
+        COMMAND relocatable_world_matrix_check --self-test)
+    set_tests_properties(test_relocatable_world_matrix_self_test PROPERTIES
+        LABELS "typelayout;example;relocatable-world;matrix"
+        PASS_REGULAR_EXPRESSION
+            "SELFTEST PASS: incomplete/reject/pass precedence")
+
+    add_test(NAME test_relocatable_world_generated_header_regeneration
+        COMMAND ${CMAKE_COMMAND}
+            -DBUILD_DIR=${CMAKE_BINARY_DIR}
+            -DBUILD_CONFIG=$<CONFIG>
+            -DCONSUMER_HEADER=${_relocatable_world_consumer_header}
+            -DAGREEMENT_HEADER=${_relocatable_world_agreement_header}
+            -DMATRIX_HEADER=${_relocatable_world_matrix_header}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RegenerateRelocatableWorldHeaders.cmake)
+    set_tests_properties(
+        test_relocatable_world_generated_header_regeneration PROPERTIES
+        RUN_SERIAL TRUE
+        LABELS "typelayout;example;relocatable-world;matrix")
+
+    add_test(NAME test_relocatable_world_consumer_preserves_fallback
+        COMMAND ${CMAKE_COMMAND}
+            -DPYTHON=${Python3_EXECUTABLE}
+            -DEVIDENCE_TOOL=${_relocatable_world_evidence_tool}
+            -DCONSUMER=$<TARGET_FILE:relocatable_world_consumer>
+            -DEVIDENCE_DIR=${TYPELAYOUT_RELOCATABLE_WORLD_EVIDENCE_DIR}
+            -DRESULTS_DIR=${_relocatable_world_matrix_root}/fallback-results
+            -DPROFILE=${TYPELAYOUT_RELOCATABLE_WORLD_PROFILE}
+            -DNODE=${TYPELAYOUT_RELOCATABLE_WORLD_CONSUMER_NODE}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyRelocatableWorldFallback.cmake)
+    set_tests_properties(
+        test_relocatable_world_consumer_preserves_fallback PROPERTIES
+        LABELS "typelayout;example;relocatable-world;matrix")
+else()
+    message(STATUS
+        "Python3 not found: relocatable-world matrix executables are disabled")
+endif()
 
 # Negative compile test: add_relocatable must reject a type whose opaque
 # member hides a pointer. The target is excluded from the normal build;

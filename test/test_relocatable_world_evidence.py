@@ -1,6 +1,7 @@
 import hashlib
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1214,6 +1215,637 @@ class EvidenceTests(unittest.TestCase):
                 "error": "probe did not run",
             },
         )
+
+    def make_complete_matrix_run(self):
+        run_directory = self.directory / "matrix run with spaces"
+        run_directory.mkdir()
+        provenance = {}
+        for node in evidence.NODES:
+            bundle = self.make_ready_bundle(node)
+            record = self.seal(bundle)
+            for suffix in (".provenance.json", ".sig.hpp", ".region"):
+                shutil.copy2(
+                    self.directory / f"{node}{suffix}",
+                    run_directory / f"{node}{suffix}",
+                )
+            provenance[node] = record
+
+        source_sha = "1" * 40
+        workflow_run = "123456789.1"
+        sources_lock = self.directory / "toolchain-sources.lock"
+        outputs_lock = self.directory / "toolchains.lock"
+        run_identity = {
+            "source_sha": source_sha,
+            "workflow_run": workflow_run,
+            "sources_sha256": self.sha256(sources_lock),
+            "outputs_sha256": self.sha256(outputs_lock),
+        }
+        provenance_digests = {
+            node: self.sha256(run_directory / f"{node}.provenance.json")
+            for node in evidence.NODES
+        }
+        region_digests = {
+            node: provenance[node]["artifacts"]["region"]["sha256"]
+            for node in evidence.NODES
+        }
+
+        pairs = []
+        for left_index, left in enumerate(evidence.NODES):
+            for right in evidence.NODES[left_index + 1:]:
+                pairs.append(
+                    {
+                        "left": left,
+                        "right": right,
+                        "decisions": [
+                            {
+                                "key": key,
+                                "status": "PERMIT",
+                                "reason": "Admission and signature agree",
+                            }
+                            for key in evidence.KEYS
+                        ],
+                    }
+                )
+        agreements = {
+            "schema": 1,
+            "profile": "authoritative",
+            "producer_provenance_sha256": provenance_digests,
+            "pairs": pairs,
+        }
+        agreements_path = run_directory / "agreements.json"
+        agreements_path.write_text(
+            json.dumps(agreements, indent=2, sort_keys=False) + "\n",
+            encoding="utf-8",
+        )
+
+        for consumer in evidence.NODES:
+            producer_build = provenance[consumer]["build"]
+            compiler = provenance[consumer]["compiler"]
+            locks = provenance[consumer]["locks"]
+            build = {
+                "source_sha": producer_build["source_sha"],
+                "workflow_run": producer_build["workflow_run"],
+                "sources_sha256": locks["sources_sha256"],
+                "outputs_sha256": locks["outputs_sha256"],
+                "execution": producer_build["execution"],
+                "runner": producer_build["runner"],
+                "runner_image": producer_build["runner_image"],
+                "toolchain_artifact_sha256": producer_build[
+                    "toolchain_artifact_sha256"
+                ],
+                "compiler_family": compiler["family"],
+                "compiler_revision": compiler["revision"],
+                "compiler_version": compiler["version"],
+                "target": compiler["target"],
+                "stdlib": compiler["stdlib"],
+                "flags": producer_build["flags"],
+                "xcode_version": compiler["xcode_version"],
+                "xcode_build": compiler["xcode_build"],
+                "sdk_version": compiler["sdk_version"],
+                "sdk_build": compiler["sdk_build"],
+                "deployment_target": compiler["deployment_target"],
+                "sdk_locked": compiler["sdk_locked"],
+            }
+            results = {
+                "schema": 1,
+                "profile": "authoritative",
+                "consumer": consumer,
+                "consumer_provenance_sha256": provenance_digests[consumer],
+                "build": build,
+                "transfers": [
+                    {
+                        "producer": producer,
+                        "status": "PASS",
+                        "reason": "checkpoint loaded and canonical world validated",
+                        "producer_provenance_sha256": provenance_digests[producer],
+                        "region_sha256": region_digests[producer],
+                    }
+                    for producer in evidence.NODES
+                    if producer != consumer
+                ],
+            }
+            self.write_json(
+                run_directory / f"{consumer}.results.json", results
+            )
+
+        pair_identities = [
+            {"left": pair["left"], "right": pair["right"]}
+            for pair in pairs
+        ]
+        named_identities = [
+            {
+                "left": pair["left"],
+                "right": pair["right"],
+                "key": decision["key"],
+            }
+            for pair in pairs
+            for decision in pair["decisions"]
+        ]
+        transfers = [
+            {"consumer": consumer, "producer": producer}
+            for consumer in evidence.NODES
+            for producer in evidence.NODES
+            if consumer != producer
+        ]
+        identities = {
+            "nodes": list(evidence.NODES),
+            "pairs": pair_identities,
+            "named_decisions": named_identities,
+            "consumers": list(evidence.NODES),
+            "transfers": transfers,
+        }
+        closure = {
+            "schema": 1,
+            "profile": "authoritative",
+            "authoritative": True,
+            "run": run_identity,
+            "agreements_sha256": self.sha256(agreements_path),
+            "expected": identities,
+            "counts": {
+                "nodes": 6,
+                "pairs": 15,
+                "named_decisions": 60,
+                "named_permits": 60,
+                "consumers": 6,
+                "transfers": 30,
+                "passes": 30,
+            },
+            "missing": {key: [] for key in identities},
+            "duplicates": {key: [] for key in identities},
+            "status": "PASS",
+            "error": None,
+        }
+        (run_directory / "closure.json").write_text(
+            json.dumps(closure, indent=2, sort_keys=False) + "\n",
+            encoding="utf-8",
+        )
+        return {
+            "directory": run_directory,
+            "sources_lock": sources_lock,
+            "outputs_lock": outputs_lock,
+            "source_sha": source_sha,
+            "workflow_run": workflow_run,
+            "provenance": provenance,
+        }
+
+    def write_consumer_probe_from_provenance(self, record, output):
+        self.write_json(
+            output,
+            {
+                "schema": 1,
+                "node": record["node"],
+                "probe": record["probe"],
+                "admission": record["admission"],
+                "compiler": record["compiler"],
+                "environment": {
+                    "runner": record["build"]["runner"],
+                    "runner_image": record["build"]["runner_image"],
+                },
+            },
+        )
+
+    def test_task3_strict_validators_accept_only_fixed_identity_shapes(self):
+        fixture = self.make_complete_matrix_run()
+        run_directory = fixture["directory"]
+        for node in evidence.NODES:
+            evidence.validate_results(run_directory / f"{node}.results.json")
+        evidence.validate_agreements(run_directory / "agreements.json")
+        closure = evidence.validate_closure(run_directory / "closure.json")
+        self.assertEqual(
+            tuple(closure["expected"]),
+            ("nodes", "pairs", "named_decisions", "consumers", "transfers"),
+        )
+        self.assertEqual(tuple(closure["missing"]), tuple(closure["expected"]))
+        self.assertEqual(tuple(closure["duplicates"]), tuple(closure["expected"]))
+
+        malformed = evidence.load_json(run_directory / "closure.json")
+        malformed["expected"]["keys"] = list(evidence.KEYS)
+        self.write_json(run_directory / "closure.json", malformed)
+        with self.assertRaisesRegex(evidence.EvidenceError, "expected keys"):
+            evidence.validate_closure(run_directory / "closure.json")
+
+    def test_task3_fixture_preparation_is_empty_isolated_and_marked(self):
+        empty_producers = self.directory / "empty-producers"
+        empty_results = self.directory / "empty-results"
+        fallback = self.directory / "fallback"
+        generated = self.directory / "generated"
+        for directory in (empty_producers, empty_results, fallback, generated):
+            directory.mkdir()
+        agreements = fallback / "agreements.json"
+        evidence.write_fallback_agreements(
+            "authoritative", "fixture has no producers", agreements
+        )
+
+        consumer_header = generated / "relocatable_world_consumer_input.hpp"
+        agreement_header = generated / "relocatable_world_agreement_input.hpp"
+        matrix_header = generated / "relocatable_world_matrix_input.hpp"
+        evidence.prepare_consumer(
+            profile="authoritative",
+            consumer="x86_64_linux_clang",
+            evidence=empty_producers,
+            fixture_context=True,
+            output_header=consumer_header,
+        )
+        evidence.prepare_agreements(
+            profile="authoritative",
+            evidence=empty_producers,
+            fixture_context=True,
+            output_header=agreement_header,
+        )
+        evidence.prepare_matrix(
+            profile="authoritative",
+            evidence=empty_producers,
+            results=empty_results,
+            agreements=agreements,
+            fixture_context=True,
+            output_header=matrix_header,
+        )
+        for header in (consumer_header, agreement_header, matrix_header):
+            text = header.read_text(encoding="utf-8")
+            self.assertIn("fixture_context = true", text)
+            self.assertIn("std::array<char,", text)
+            self.assertNotIn('"fixture has no producers"', text)
+
+        with self.assertRaisesRegex(evidence.EvidenceError, "outside"):
+            evidence.prepare_agreements(
+                profile="authoritative",
+                evidence=empty_producers,
+                fixture_context=True,
+                output_header=(
+                    empty_producers / "relocatable_world_agreement_input.hpp"
+                ),
+            )
+
+        (empty_producers / "unexpected.provenance.json").write_text(
+            "{}\n", encoding="utf-8"
+        )
+        with self.assertRaisesRegex(evidence.EvidenceError, "must be empty"):
+            evidence.prepare_agreements(
+                profile="authoritative",
+                evidence=empty_producers,
+                fixture_context=True,
+                output_header=agreement_header,
+            )
+        with self.assertRaisesRegex(evidence.EvidenceError, "mutually exclusive"):
+            evidence.prepare_consumer(
+                profile="authoritative",
+                consumer="x86_64_linux_clang",
+                evidence=self.directory / "another-empty",
+                fixture_context=True,
+                expect_source_sha="1" * 40,
+                output_header=consumer_header,
+            )
+
+        local_producers = self.directory / "local-empty-producers"
+        local_results = self.directory / "local-empty-results"
+        local_fallback = self.directory / "local-fallback"
+        local_generated = self.directory / "local-generated"
+        for directory in (
+            local_producers,
+            local_results,
+            local_fallback,
+            local_generated,
+        ):
+            directory.mkdir()
+        local_agreement = local_fallback / "agreements.json"
+        evidence.write_fallback_agreements(
+            "local-arm64-macos", "local fixture", local_agreement
+        )
+        local_header = local_generated / "relocatable_world_matrix_input.hpp"
+        evidence.prepare_matrix(
+            profile="local-arm64-macos",
+            evidence=local_producers,
+            results=local_results,
+            agreements=local_agreement,
+            fixture_context=True,
+            output_header=local_header,
+        )
+        self.assertIn(
+            "std::array<matrix::transfer_record, 20>",
+            local_header.read_text(encoding="utf-8"),
+        )
+
+    def test_task3_production_preparation_binds_run_not_output_lock_run(self):
+        fixture = self.make_complete_matrix_run()
+        run_directory = fixture["directory"]
+        generated = self.directory / "generated production"
+        generated.mkdir()
+        producer_directory = self.directory / "production producers"
+        results_directory = self.directory / "production results"
+        agreement_directory = self.directory / "production agreement"
+        for directory in (
+            producer_directory,
+            results_directory,
+            agreement_directory,
+        ):
+            directory.mkdir()
+        for node in evidence.NODES:
+            for suffix in (".provenance.json", ".sig.hpp", ".region"):
+                shutil.copy2(
+                    run_directory / f"{node}{suffix}",
+                    producer_directory / f"{node}{suffix}",
+                )
+            shutil.copy2(
+                run_directory / f"{node}.results.json",
+                results_directory / f"{node}.results.json",
+            )
+        shutil.copy2(
+            run_directory / "agreements.json",
+            agreement_directory / "agreements.json",
+        )
+        consumer = "arm64_linux_clang"
+        probe = self.directory / "consumer-probe.json"
+        self.write_consumer_probe_from_provenance(
+            fixture["provenance"][consumer], probe
+        )
+        common = {
+            "profile": "authoritative",
+            "evidence": producer_directory,
+            "expect_source_sha": fixture["source_sha"],
+            "expect_workflow_run": fixture["workflow_run"],
+            "sources_lock": fixture["sources_lock"],
+            "outputs_lock": fixture["outputs_lock"],
+        }
+        consumer_header = generated / "relocatable_world_consumer_input.hpp"
+        evidence.prepare_consumer(
+            **common,
+            consumer=consumer,
+            consumer_probe=probe,
+            toolchain_artifact_sha256=self.TOOLCHAIN_ARTIFACTS[consumer],
+            output_header=consumer_header,
+        )
+        self.assertIn(
+            "fixture_context = false",
+            consumer_header.read_text(encoding="utf-8"),
+        )
+
+        agreement_header = generated / "relocatable_world_agreement_input.hpp"
+        evidence.prepare_agreements(
+            **common, output_header=agreement_header
+        )
+        matrix_header = generated / "relocatable_world_matrix_input.hpp"
+        evidence.prepare_matrix(
+            **common,
+            results=results_directory,
+            agreements=agreement_directory / "agreements.json",
+            output_header=matrix_header,
+        )
+        self.assertIn(
+            "fixture_context = false",
+            matrix_header.read_text(encoding="utf-8"),
+        )
+
+    def test_task3_generated_strings_are_length_aware_numeric_arrays(self):
+        node = "arm64_linux_clang"
+        bundle = self.make_ready_bundle(node)
+        hostile = 'layout";\n#error injected\\path\u2603'
+        facts = evidence.load_json(bundle["facts"])
+        facts["signatures"]["Entity"] = hostile
+        self.write_json(bundle["facts"], facts)
+        signature_text = bundle["signature"].read_text(encoding="utf-8")
+        bundle["signature"].write_text(
+            signature_text.replace(
+                json.dumps("[64-le]entity"), json.dumps(hostile)
+            ),
+            encoding="utf-8",
+        )
+        record = self.seal(bundle)
+
+        producer_directory = self.directory / "hostile producer evidence"
+        generated = self.directory / "hostile generated"
+        producer_directory.mkdir()
+        generated.mkdir()
+        for suffix in (".provenance.json", ".sig.hpp", ".region"):
+            shutil.copy2(
+                self.directory / f"{node}{suffix}",
+                producer_directory / f"{node}{suffix}",
+            )
+        probe = self.directory / "hostile-consumer-probe.json"
+        self.write_consumer_probe_from_provenance(record, probe)
+        output = generated / "relocatable_world_consumer_input.hpp"
+        evidence.prepare_consumer(
+            profile="authoritative",
+            consumer=node,
+            evidence=producer_directory,
+            consumer_probe=probe,
+            toolchain_artifact_sha256=self.TOOLCHAIN_ARTIFACTS[node],
+            expect_source_sha="1" * 40,
+            expect_workflow_run="123456789.1",
+            sources_lock=bundle["sources_lock"],
+            outputs_lock=bundle["outputs_lock"],
+            output_header=output,
+        )
+        header = output.read_text(encoding="utf-8")
+        self.assertNotIn(hostile, header)
+        self.assertNotIn("#error injected", header)
+        self.assertIn("static_cast<char>(0x", header)
+        self.assertIn("std::string_view", header)
+
+    def test_task3_audit_checks_flat_complete_authoritative_run(self):
+        fixture = self.make_complete_matrix_run()
+        result = evidence.audit_run(
+            directory=fixture["directory"],
+            expect_source_sha=fixture["source_sha"],
+            expect_workflow_run=fixture["workflow_run"],
+            sources_lock=fixture["sources_lock"],
+            outputs_lock=fixture["outputs_lock"],
+            expect_nodes=6,
+            expect_pairs=15,
+            expect_named_permits=60,
+            expect_transfers=30,
+        )
+        self.assertEqual(result["status"], "PASS")
+        with self.assertRaisesRegex(evidence.EvidenceError, "counts"):
+            evidence.audit_run(
+                directory=fixture["directory"],
+                expect_source_sha=fixture["source_sha"],
+                expect_workflow_run=fixture["workflow_run"],
+                sources_lock=fixture["sources_lock"],
+                outputs_lock=fixture["outputs_lock"],
+                expect_nodes=6,
+                expect_pairs=14,
+                expect_named_permits=60,
+                expect_transfers=30,
+            )
+
+        (fixture["directory"] / "source-sha.txt").write_text(
+            fixture["source_sha"] + "\n", encoding="utf-8"
+        )
+        (fixture["directory"] / "workflow-run.txt").write_text(
+            fixture["workflow_run"] + "\n", encoding="utf-8"
+        )
+        self.assertEqual(
+            evidence.audit_run(
+                directory=fixture["directory"],
+                expect_source_sha=fixture["source_sha"],
+                expect_workflow_run=fixture["workflow_run"],
+                sources_lock=fixture["sources_lock"],
+                outputs_lock=fixture["outputs_lock"],
+                expect_nodes=6,
+                expect_pairs=15,
+                expect_named_permits=60,
+                expect_transfers=30,
+            )["status"],
+            "PASS",
+        )
+        (fixture["directory"] / "workflow-run.txt").write_text(
+            fixture["workflow_run"] + "\nextra\n", encoding="utf-8"
+        )
+        with self.assertRaisesRegex(evidence.EvidenceError, "metadata"):
+            evidence.audit_run(
+                directory=fixture["directory"],
+                expect_source_sha=fixture["source_sha"],
+                expect_workflow_run=fixture["workflow_run"],
+                sources_lock=fixture["sources_lock"],
+                outputs_lock=fixture["outputs_lock"],
+                expect_nodes=6,
+                expect_pairs=15,
+                expect_named_permits=60,
+                expect_transfers=30,
+            )
+        (fixture["directory"] / "workflow-run.txt").write_text(
+            fixture["workflow_run"] + "\n", encoding="utf-8"
+        )
+
+        (fixture["directory"] / "nested").mkdir()
+        with self.assertRaisesRegex(evidence.EvidenceError, "flat"):
+            evidence.audit_run(
+                directory=fixture["directory"],
+                expect_source_sha=fixture["source_sha"],
+                expect_workflow_run=fixture["workflow_run"],
+                sources_lock=fixture["sources_lock"],
+                outputs_lock=fixture["outputs_lock"],
+                expect_nodes=6,
+                expect_pairs=15,
+                expect_named_permits=60,
+                expect_transfers=30,
+            )
+
+    def test_task3_audit_rejects_each_cross_artifact_mismatch(self):
+        fixture = self.make_complete_matrix_run()
+        baseline = fixture["directory"]
+        cases = {}
+
+        def alter_json(name, relative, mutation):
+            destination = self.directory / name
+            shutil.copytree(baseline, destination)
+            path = destination / relative
+            record = evidence.load_json(path)
+            mutation(record)
+            self.write_json(path, record)
+            cases[name] = destination
+
+        alter_json(
+            "mixed source",
+            "arm64_linux_gcc.provenance.json",
+            lambda record: record["build"].__setitem__("source_sha", "3" * 40),
+        )
+        alter_json(
+            "mixed attempt",
+            "arm64_linux_gcc.provenance.json",
+            lambda record: record["build"].__setitem__(
+                "workflow_run", "123456789.2"
+            ),
+        )
+        alter_json(
+            "wrong manifest",
+            "arm64_linux_gcc.results.json",
+            lambda record: record["build"].__setitem__(
+                "toolchain_artifact_sha256", "0" * 64
+            ),
+        )
+        alter_json(
+            "wrong lock hash",
+            "arm64_linux_gcc.results.json",
+            lambda record: record["build"].__setitem__(
+                "sources_sha256", "0" * 64
+            ),
+        )
+        alter_json(
+            "wrong mac archive",
+            "arm64_macos_clang.results.json",
+            lambda record: record["build"].__setitem__(
+                "toolchain_artifact_sha256", "0" * 64
+            ),
+        )
+        alter_json(
+            "compiler mismatch",
+            "x86_64_linux_clang.results.json",
+            lambda record: record["build"].__setitem__(
+                "compiler_version", "wrong compiler"
+            ),
+        )
+        alter_json(
+            "flags mismatch",
+            "x86_64_linux_clang.results.json",
+            lambda record: record["build"].__setitem__("flags", "-O0"),
+        )
+        alter_json(
+            "xcode build mismatch",
+            "arm64_macos_clang.results.json",
+            lambda record: record["build"].__setitem__("xcode_build", "wrong"),
+        )
+        alter_json(
+            "sdk build mismatch",
+            "arm64_macos_clang.results.json",
+            lambda record: record["build"].__setitem__("sdk_build", "wrong"),
+        )
+        alter_json(
+            "duplicate transfer",
+            "arm64_linux_clang.results.json",
+            lambda record: record["transfers"][1].__setitem__(
+                "producer", record["transfers"][0]["producer"]
+            ),
+        )
+        alter_json(
+            "non permit",
+            "agreements.json",
+            lambda record: record["pairs"][0]["decisions"][0].__setitem__(
+                "status", "REJECT"
+            ),
+        )
+        alter_json(
+            "stale agreement",
+            "agreements.json",
+            lambda record: record["pairs"][0]["decisions"][0].__setitem__(
+                "reason", "stale decision"
+            ),
+        )
+        alter_json(
+            "non pass",
+            "arm64_linux_clang.results.json",
+            lambda record: record["transfers"][0].__setitem__(
+                "status", "REJECT_GRAPH"
+            ),
+        )
+        alter_json(
+            "closure mismatch",
+            "closure.json",
+            lambda record: record["counts"].__setitem__("passes", 29),
+        )
+
+        altered_region = self.directory / "altered region"
+        shutil.copytree(baseline, altered_region)
+        (altered_region / "x86_64_linux_gcc.region").write_bytes(b"altered")
+        cases["altered region"] = altered_region
+        missing_agreement = self.directory / "missing agreement"
+        shutil.copytree(baseline, missing_agreement)
+        (missing_agreement / "agreements.json").unlink()
+        cases["missing agreement"] = missing_agreement
+
+        for name, directory in cases.items():
+            with self.subTest(name=name), self.assertRaises(evidence.EvidenceError):
+                evidence.audit_run(
+                    directory=directory,
+                    expect_source_sha=fixture["source_sha"],
+                    expect_workflow_run=fixture["workflow_run"],
+                    sources_lock=fixture["sources_lock"],
+                    outputs_lock=fixture["outputs_lock"],
+                    expect_nodes=6,
+                    expect_pairs=15,
+                    expect_named_permits=60,
+                    expect_transfers=30,
+                )
 
 
 if __name__ == "__main__":

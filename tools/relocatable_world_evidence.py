@@ -50,6 +50,48 @@ TRANSFER_STATUSES = (
     "INCOMPLETE",
 )
 
+AGREEMENT_STATUSES = ("PERMIT", "REJECT", "INCOMPLETE")
+RUN_IDENTITY_KEYS = (
+    "source_sha",
+    "workflow_run",
+    "sources_sha256",
+    "outputs_sha256",
+)
+RESULT_BUILD_KEYS = RUN_IDENTITY_KEYS + (
+    "execution",
+    "runner",
+    "runner_image",
+    "toolchain_artifact_sha256",
+    "compiler_family",
+    "compiler_revision",
+    "compiler_version",
+    "target",
+    "stdlib",
+    "flags",
+    "xcode_version",
+    "xcode_build",
+    "sdk_version",
+    "sdk_build",
+    "deployment_target",
+    "sdk_locked",
+)
+CLOSURE_IDENTITY_KEYS = (
+    "nodes",
+    "pairs",
+    "named_decisions",
+    "consumers",
+    "transfers",
+)
+CLOSURE_COUNT_KEYS = (
+    "nodes",
+    "pairs",
+    "named_decisions",
+    "named_permits",
+    "consumers",
+    "transfers",
+    "passes",
+)
+
 PROFILES = ("authoritative", "local-arm64-macos")
 LOCAL_WORKFLOW_RUN_MAX_LENGTH = 128
 LOCAL_WORKFLOW_RUN_ALPHANUMERIC = (
@@ -1253,10 +1295,6 @@ def load_node_toolchain_policy(sources_lock, outputs_lock, node):
     return policy, sources_digest, _sha256(outputs_lock)
 
 
-def _load_lock_policy(sources_lock, outputs_lock, node):
-    return load_node_toolchain_policy(sources_lock, outputs_lock, node)
-
-
 def _require_platform_probe_pass(probe):
     expected = {
         "char_bit": 8,
@@ -1300,12 +1338,21 @@ def _read_generated_signature_header(path, node):
                 f"signature header must declare {key} signature exactly once"
             )
         tail = text.split(declaration, 1)[1]
-        assignment, separator, _ = tail.partition(";")
-        if not separator:
+        assignment_lines = []
+        terminated = False
+        for line in tail.splitlines():
+            literal = line.strip()
+            if not literal:
+                continue
+            if literal.endswith(";"):
+                assignment_lines.append(literal[:-1].rstrip())
+                terminated = True
+                break
+            assignment_lines.append(literal)
+        if not terminated:
             raise EvidenceError(f"signature header {key} signature lacks terminator")
         fragments = []
-        for line in assignment.splitlines():
-            literal = line.strip()
+        for literal in assignment_lines:
             if not literal:
                 continue
             try:
@@ -1724,7 +1771,11 @@ def write_fallback_closure(profile, reason, output):
     expected = {
         "nodes": list(nodes),
         "pairs": pair_identities,
-        "keys": list(KEYS),
+        "named_decisions": [
+            {"left": left, "right": right, "key": key}
+            for left, right in _profile_pairs(profile)
+            for key in KEYS
+        ],
         "consumers": list(nodes),
         "transfers": transfer_identities,
     }
@@ -1748,7 +1799,7 @@ def write_fallback_closure(profile, reason, output):
         "duplicates": {
             "nodes": [],
             "pairs": [],
-            "keys": [],
+            "named_decisions": [],
             "consumers": [],
             "transfers": [],
         },
@@ -1757,6 +1808,1560 @@ def write_fallback_closure(profile, reason, output):
     }
     _write_json(output, record)
     return record
+
+
+def _expect_array(value, where):
+    if not isinstance(value, list):
+        raise EvidenceError(f"{where} must be a JSON array")
+    return value
+
+
+def _expect_nullable_sha256(value, where):
+    if value is None:
+        return None
+    return _expect_sha256(value, where)
+
+
+def _validate_run_identity(value, profile, where="run"):
+    value = _expect_exact_keys(value, RUN_IDENTITY_KEYS, where)
+    source_sha = _expect_source_sha(value["source_sha"], f"{where}.source_sha")
+    _expect_workflow_run(
+        value["workflow_run"], profile, source_sha, f"{where}.workflow_run"
+    )
+    _expect_sha256(value["sources_sha256"], f"{where}.sources_sha256")
+    _expect_sha256(value["outputs_sha256"], f"{where}.outputs_sha256")
+    return value
+
+
+def _validate_consumer_build(value, node, profile, where="build"):
+    value = _expect_exact_keys(value, RESULT_BUILD_KEYS, where)
+    _validate_run_identity(
+        {key: value[key] for key in RUN_IDENTITY_KEYS}, profile, where
+    )
+    if value["execution"] not in ("native", "emulated"):
+        raise EvidenceError(f"{where}.execution must be native or emulated")
+    for key in RESULT_BUILD_KEYS[5:-1]:
+        _expect_nonempty_string(value[key], f"{where}.{key}")
+    _expect_sha256(
+        value["toolchain_artifact_sha256"],
+        f"{where}.toolchain_artifact_sha256",
+    )
+    _expect_boolean(value["sdk_locked"], f"{where}.sdk_locked")
+    if value["compiler_family"] != _expected_family(node):
+        raise EvidenceError(f"{where}.compiler_family does not match {node}")
+    if profile == "authoritative":
+        if value["execution"] != "native":
+            raise EvidenceError(f"{where}.execution must be native")
+        if value["runner"] != _AUTHORITATIVE_RUNNERS[node]:
+            raise EvidenceError(f"{where}.runner does not match {node}")
+        if not value["sdk_locked"]:
+            raise EvidenceError(f"{where}.sdk_locked must be true")
+    elif value["execution"] != _LOCAL_EXECUTION[node]:
+        raise EvidenceError(f"{where}.execution does not match local {node}")
+    if not _is_macos(node):
+        for key in APPLE_IDENTITY_KEYS:
+            if value[key] != "none":
+                raise EvidenceError(f"Linux {where}.{key} must be literal 'none'")
+        if not value["sdk_locked"]:
+            raise EvidenceError(f"Linux {where}.sdk_locked must be true")
+    return value
+
+
+def validate_results(path):
+    path = Path(path)
+    record = load_json(path)
+    _expect_exact_keys(
+        record,
+        (
+            "schema",
+            "profile",
+            "consumer",
+            "consumer_provenance_sha256",
+            "build",
+            "transfers",
+        ),
+        "results top-level",
+    )
+    if type(record["schema"]) is not int or record["schema"] != 1:
+        raise EvidenceError("results schema must be integer 1")
+    profile = validate_profile(record["profile"])
+    consumer = validate_node(record["consumer"])
+    nodes = profile_nodes(profile)
+    if consumer not in nodes:
+        raise EvidenceError(f"consumer {consumer} is not part of profile {profile}")
+    if path.name != f"{consumer}.results.json":
+        raise EvidenceError(
+            f"results filename must be exactly {consumer}.results.json"
+        )
+    consumer_digest = _expect_nullable_sha256(
+        record["consumer_provenance_sha256"],
+        "consumer_provenance_sha256",
+    )
+    build = record["build"]
+    if build is None:
+        if consumer_digest is not None:
+            raise EvidenceError(
+                "fallback results cannot invent consumer provenance"
+            )
+    else:
+        if consumer_digest is None:
+            raise EvidenceError(
+                "evaluated results require consumer provenance"
+            )
+        _validate_consumer_build(build, consumer, profile)
+
+    transfers = _expect_array(record["transfers"], "transfers")
+    expected_producers = [node for node in nodes if node != consumer]
+    if len(transfers) != len(expected_producers):
+        raise EvidenceError("results must preserve every non-self producer slot")
+    for index, (transfer, expected_producer) in enumerate(
+        zip(transfers, expected_producers)
+    ):
+        where = f"transfers[{index}]"
+        transfer = _expect_exact_keys(
+            transfer,
+            (
+                "producer",
+                "status",
+                "reason",
+                "producer_provenance_sha256",
+                "region_sha256",
+            ),
+            where,
+        )
+        if transfer["producer"] != expected_producer:
+            raise EvidenceError(
+                f"{where}.producer must be fixed profile-order {expected_producer}"
+            )
+        status = transfer["status"]
+        if status not in TRANSFER_STATUSES:
+            raise EvidenceError(f"{where}.status is unknown")
+        _expect_nonempty_string(transfer["reason"], f"{where}.reason")
+        provenance_digest = _expect_nullable_sha256(
+            transfer["producer_provenance_sha256"],
+            f"{where}.producer_provenance_sha256",
+        )
+        region_digest = _expect_nullable_sha256(
+            transfer["region_sha256"], f"{where}.region_sha256"
+        )
+        if status in (
+            "PASS",
+            "REJECT_ENVELOPE",
+            "REJECT_REGION",
+            "REJECT_GRAPH",
+        ) and (provenance_digest is None or region_digest is None):
+            raise EvidenceError(f"{where}.{status} requires both digests")
+        if status == "SKIPPED_TYPELAYOUT_REJECT" and provenance_digest is None:
+            raise EvidenceError(
+                f"{where}.SKIPPED_TYPELAYOUT_REJECT requires provenance"
+            )
+        if build is None and status != "INCOMPLETE":
+            raise EvidenceError("fallback results must contain only INCOMPLETE")
+    return record
+
+
+def _expected_agreement(profile, producers):
+    nodes = profile_nodes(profile)
+    by_node = {slot["node"]: slot for slot in producers}
+    pairs = []
+    for left, right in _profile_pairs(profile):
+        decisions = []
+        for key_index, key in enumerate(KEYS):
+            left_record = by_node[left]
+            right_record = by_node[right]
+            if (
+                not left_record["present"]
+                or not right_record["present"]
+                or not left_record["signatures"][key_index]
+                or not right_record["signatures"][key_index]
+            ):
+                status = "INCOMPLETE"
+                reason = "producer evidence incomplete"
+            elif (
+                not left_record["admission"][key_index]
+                or not right_record["admission"][key_index]
+            ):
+                status = "REJECT"
+                reason = "Admission rejected"
+            elif (
+                left_record["signatures"][key_index]
+                != right_record["signatures"][key_index]
+            ):
+                status = "REJECT"
+                reason = "layout signature differs"
+            else:
+                status = "PERMIT"
+                reason = "Admission and signature agree"
+            decisions.append({"key": key, "status": status, "reason": reason})
+        pairs.append({"left": left, "right": right, "decisions": decisions})
+    return {
+        "schema": 1,
+        "profile": profile,
+        "producer_provenance_sha256": {
+            node: (
+                by_node[node]["provenance_sha256"]
+                if by_node[node]["present"]
+                else None
+            )
+            for node in nodes
+        },
+        "pairs": pairs,
+    }
+
+
+def validate_agreements(path):
+    record = load_json(path)
+    _expect_exact_keys(
+        record,
+        ("schema", "profile", "producer_provenance_sha256", "pairs"),
+        "agreements top-level",
+    )
+    if type(record["schema"]) is not int or record["schema"] != 1:
+        raise EvidenceError("agreements schema must be integer 1")
+    profile = validate_profile(record["profile"])
+    nodes = profile_nodes(profile)
+    bindings = _expect_exact_keys(
+        record["producer_provenance_sha256"],
+        nodes,
+        "producer_provenance_sha256",
+    )
+    for node in nodes:
+        _expect_nullable_sha256(
+            bindings[node], f"producer_provenance_sha256.{node}"
+        )
+
+    pairs = _expect_array(record["pairs"], "pairs")
+    expected_pairs = _profile_pairs(profile)
+    if len(pairs) != len(expected_pairs):
+        raise EvidenceError("agreements must preserve every fixed pair")
+    for pair_index, (pair, expected_pair) in enumerate(zip(pairs, expected_pairs)):
+        where = f"pairs[{pair_index}]"
+        pair = _expect_exact_keys(pair, ("left", "right", "decisions"), where)
+        if (pair["left"], pair["right"]) != expected_pair:
+            raise EvidenceError(f"{where} must use fixed profile pair order")
+        decisions = _expect_array(pair["decisions"], f"{where}.decisions")
+        if len(decisions) != len(KEYS):
+            raise EvidenceError(f"{where} must contain four named decisions")
+        missing_producer = (
+            bindings[pair["left"]] is None or bindings[pair["right"]] is None
+        )
+        for key_index, (decision, key) in enumerate(zip(decisions, KEYS)):
+            decision_where = f"{where}.decisions[{key_index}]"
+            decision = _expect_exact_keys(
+                decision, ("key", "status", "reason"), decision_where
+            )
+            if decision["key"] != key:
+                raise EvidenceError(
+                    f"{decision_where}.key must use fixed key order"
+                )
+            if decision["status"] not in AGREEMENT_STATUSES:
+                raise EvidenceError(f"{decision_where}.status is unknown")
+            _expect_nonempty_string(
+                decision["reason"], f"{decision_where}.reason"
+            )
+            if missing_producer != (decision["status"] == "INCOMPLETE"):
+                raise EvidenceError(
+                    f"{decision_where}.status disagrees with provenance presence"
+                )
+    return record
+
+
+def _identity_contract(profile):
+    nodes = profile_nodes(profile)
+    return {
+        "nodes": list(nodes),
+        "pairs": [
+            {"left": left, "right": right}
+            for left, right in _profile_pairs(profile)
+        ],
+        "named_decisions": [
+            {"left": left, "right": right, "key": key}
+            for left, right in _profile_pairs(profile)
+            for key in KEYS
+        ],
+        "consumers": list(nodes),
+        "transfers": [
+            {"consumer": consumer, "producer": producer}
+            for consumer, producer in _profile_transfers(profile)
+        ],
+    }
+
+
+def _identity_token(value):
+    if isinstance(value, str):
+        return (value,)
+    if "key" in value:
+        return (value["left"], value["right"], value["key"])
+    if "consumer" in value:
+        return (value["consumer"], value["producer"])
+    return (value["left"], value["right"])
+
+
+def _validate_identity_map(value, profile, where, *, complete):
+    value = _expect_exact_keys(value, CLOSURE_IDENTITY_KEYS, where)
+    expected = _identity_contract(profile)
+    for kind in CLOSURE_IDENTITY_KEYS:
+        entries = _expect_array(value[kind], f"{where}.{kind}")
+        canonical = expected[kind]
+        if complete:
+            if entries != canonical:
+                raise EvidenceError(f"{where}.{kind} differs from fixed profile")
+            continue
+        canonical_tokens = [_identity_token(entry) for entry in canonical]
+        actual_tokens = []
+        for index, entry in enumerate(entries):
+            if kind in ("nodes", "consumers"):
+                validate_node(entry)
+                token = (entry,)
+            else:
+                keys = {
+                    "pairs": ("left", "right"),
+                    "named_decisions": ("left", "right", "key"),
+                    "transfers": ("consumer", "producer"),
+                }[kind]
+                entry = _expect_exact_keys(
+                    entry, keys, f"{where}.{kind}[{index}]"
+                )
+                token = tuple(entry[key] for key in keys)
+            if token not in canonical_tokens:
+                raise EvidenceError(f"{where}.{kind}[{index}] is not expected")
+            actual_tokens.append(token)
+        if len(set(actual_tokens)) != len(actual_tokens):
+            raise EvidenceError(f"{where}.{kind} contains duplicate diagnostics")
+        order = [canonical_tokens.index(token) for token in actual_tokens]
+        if order != sorted(order):
+            raise EvidenceError(f"{where}.{kind} is not in fixed profile order")
+    return value
+
+
+def validate_closure(path):
+    record = load_json(path)
+    _expect_exact_keys(
+        record,
+        (
+            "schema",
+            "profile",
+            "authoritative",
+            "run",
+            "agreements_sha256",
+            "expected",
+            "counts",
+            "missing",
+            "duplicates",
+            "status",
+            "error",
+        ),
+        "closure top-level",
+    )
+    if type(record["schema"]) is not int or record["schema"] != 1:
+        raise EvidenceError("closure schema must be integer 1")
+    profile = validate_profile(record["profile"])
+    _expect_boolean(record["authoritative"], "closure.authoritative")
+    _validate_identity_map(record["expected"], profile, "expected", complete=True)
+    missing = _validate_identity_map(
+        record["missing"], profile, "missing", complete=False
+    )
+    duplicates = _validate_identity_map(
+        record["duplicates"], profile, "duplicates", complete=False
+    )
+    for kind in CLOSURE_IDENTITY_KEYS:
+        overlap = {
+            _identity_token(value) for value in missing[kind]
+        } & {_identity_token(value) for value in duplicates[kind]}
+        if overlap:
+            raise EvidenceError(f"missing and duplicates overlap for {kind}")
+
+    counts = _expect_exact_keys(
+        record["counts"], CLOSURE_COUNT_KEYS, "counts"
+    )
+    for key in CLOSURE_COUNT_KEYS:
+        if _expect_integer(counts[key], f"counts.{key}") < 0:
+            raise EvidenceError(f"counts.{key} must be non-negative")
+    if counts["named_permits"] > counts["named_decisions"]:
+        raise EvidenceError("counts.named_permits exceeds named_decisions")
+    if counts["passes"] > counts["transfers"]:
+        raise EvidenceError("counts.passes exceeds transfers")
+    status = record["status"]
+    if status not in ("PASS", "REJECT", "INCOMPLETE"):
+        raise EvidenceError("closure.status is unknown")
+
+    if record["run"] is None:
+        if status != "INCOMPLETE" or record["agreements_sha256"] is not None:
+            raise EvidenceError("fallback closure must be INCOMPLETE without Agreement")
+        _expect_nonempty_string(record["error"], "closure.error")
+        if record["authoritative"]:
+            raise EvidenceError("fallback closure cannot be authoritative")
+        if any(counts[key] != 0 for key in CLOSURE_COUNT_KEYS):
+            raise EvidenceError("fallback closure counts must all be zero")
+        if record["missing"] != record["expected"] or any(
+            record["duplicates"][key] for key in CLOSURE_IDENTITY_KEYS
+        ):
+            raise EvidenceError(
+                "fallback closure must preserve every missing identity"
+            )
+    else:
+        _validate_run_identity(record["run"], profile)
+        _expect_sha256(record["agreements_sha256"], "agreements_sha256")
+        if record["error"] is not None:
+            raise EvidenceError("evaluated closure.error must be null")
+
+    expected_counts = {
+        "nodes": len(profile_nodes(profile)),
+        "pairs": len(_profile_pairs(profile)),
+        "named_decisions": len(_profile_pairs(profile)) * len(KEYS),
+        "consumers": len(profile_nodes(profile)),
+        "transfers": len(_profile_transfers(profile)),
+    }
+    diagnostics_empty = all(
+        not missing[key] and not duplicates[key] for key in CLOSURE_IDENTITY_KEYS
+    )
+    complete_counts = all(counts[key] == value for key, value in expected_counts.items())
+    if status in ("PASS", "REJECT") and not (
+        diagnostics_empty and complete_counts
+    ):
+        raise EvidenceError(f"{status} closure must contain every fixed identity")
+    if status == "PASS":
+        if (
+            counts["named_permits"] != expected_counts["named_decisions"]
+            or counts["passes"] != expected_counts["transfers"]
+        ):
+            raise EvidenceError("PASS closure requires every decision and transfer")
+    elif status == "REJECT" and (
+        counts["named_permits"] == expected_counts["named_decisions"]
+        and counts["passes"] == expected_counts["transfers"]
+    ):
+        raise EvidenceError("REJECT closure requires a rejected decision or transfer")
+    if profile == "local-arm64-macos" and record["authoritative"]:
+        raise EvidenceError("local closure cannot be authoritative")
+    if status == "INCOMPLETE" and record["authoritative"]:
+        raise EvidenceError("INCOMPLETE closure cannot be authoritative")
+    return record
+
+
+def _canonical_directory(path, where, *, empty=False):
+    path = Path(path)
+    if path.is_symlink():
+        raise EvidenceError(f"{where} must not be a symlink")
+    try:
+        resolved = path.resolve(strict=True)
+    except OSError as error:
+        raise EvidenceError(f"{where} directory is unavailable: {error}") from error
+    if not resolved.is_dir():
+        raise EvidenceError(f"{where} must be a real directory")
+    if empty:
+        try:
+            entries = list(resolved.iterdir())
+        except OSError as error:
+            raise EvidenceError(f"cannot inspect {where}: {error}") from error
+        if entries:
+            raise EvidenceError(f"{where} must be empty in fixture context")
+    return resolved
+
+
+def _is_within(path, directory):
+    try:
+        Path(path).relative_to(directory)
+        return True
+    except ValueError:
+        return False
+
+
+def _validate_generated_output(output, expected_name, input_directories=(), input_files=()):
+    output = Path(output)
+    if output.name != expected_name:
+        raise EvidenceError(f"generated header must be named {expected_name}")
+    try:
+        resolved_output = output.resolve(strict=False)
+    except OSError as error:
+        raise EvidenceError(f"cannot resolve generated header: {error}") from error
+    for directory in input_directories:
+        if _is_within(resolved_output, Path(directory)):
+            raise EvidenceError("generated output must be outside every input directory")
+    for input_file in input_files:
+        try:
+            resolved_input = Path(input_file).resolve(strict=True)
+        except OSError as error:
+            raise EvidenceError(f"input file is unavailable: {error}") from error
+        if resolved_output == resolved_input:
+            raise EvidenceError("generated output must not overwrite an input file")
+    return output
+
+
+def _write_text_atomic(path, text):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    try:
+        with temporary.open("w", encoding="utf-8", newline="\n") as stream:
+            stream.write(text)
+        temporary.replace(path)
+    except OSError as error:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise EvidenceError(f"cannot atomically write {path}: {error}") from error
+
+
+def _load_context(
+    *,
+    profile,
+    fixture_context,
+    expect_source_sha,
+    expect_workflow_run,
+    sources_lock,
+    outputs_lock,
+    extra_production_values=(),
+):
+    profile = validate_profile(profile)
+    context_values = (
+        expect_source_sha,
+        expect_workflow_run,
+        sources_lock,
+        outputs_lock,
+        *extra_production_values,
+    )
+    if fixture_context:
+        if any(value is not None for value in context_values):
+            raise EvidenceError(
+                "fixture context and production context are mutually exclusive"
+            )
+        return None
+    if any(value is None for value in context_values):
+        raise EvidenceError("production context requires every locked input")
+    expect_source_sha = _expect_source_sha(
+        expect_source_sha, "expect_source_sha"
+    )
+    _expect_workflow_run(
+        expect_workflow_run,
+        profile,
+        expect_source_sha,
+        "expect_workflow_run",
+    )
+    policies = {}
+    sources_digest = None
+    outputs_digest = None
+    for node in profile_nodes(profile):
+        policy, node_sources_digest, node_outputs_digest = (
+            load_node_toolchain_policy(sources_lock, outputs_lock, node)
+        )
+        if sources_digest is None:
+            sources_digest = node_sources_digest
+            outputs_digest = node_outputs_digest
+        elif (
+            sources_digest != node_sources_digest
+            or outputs_digest != node_outputs_digest
+        ):
+            raise EvidenceError("normalized node policies disagree on lock identity")
+        policies[node] = policy
+    return {
+        "profile": profile,
+        "source_sha": expect_source_sha,
+        "workflow_run": expect_workflow_run,
+        "sources_sha256": sources_digest,
+        "outputs_sha256": outputs_digest,
+        "policies": policies,
+    }
+
+
+def _policy_matches_compiler(compiler, policy, profile, node, where):
+    comparisons = {
+        "family": "compiler_family",
+        "revision": "compiler_revision",
+        "version": "compiler_version",
+        "target": "target",
+        "stdlib": "stdlib",
+    }
+    for actual_key, policy_key in comparisons.items():
+        if compiler[actual_key] != policy[policy_key]:
+            raise EvidenceError(
+                f"{where}.{actual_key} does not match normalized policy for {node}"
+            )
+    if not _is_macos(node):
+        for key in APPLE_IDENTITY_KEYS:
+            if compiler[key] != "none":
+                raise EvidenceError(f"Linux {where}.{key} must be literal 'none'")
+        if not compiler["sdk_locked"]:
+            raise EvidenceError(f"Linux {where}.sdk_locked must be true")
+    elif profile == "authoritative":
+        for key in APPLE_IDENTITY_KEYS:
+            if compiler[key] != policy[key]:
+                raise EvidenceError(
+                    f"{where}.{key} does not match normalized policy for {node}"
+                )
+        if not compiler["sdk_locked"]:
+            raise EvidenceError(f"{where}.sdk_locked must be true")
+    else:
+        actual_match = all(compiler[key] == policy[key] for key in APPLE_IDENTITY_KEYS)
+        if compiler["sdk_locked"] != actual_match:
+            raise EvidenceError(f"{where}.sdk_locked is not truthful")
+
+
+def _producer_slot(node, evidence_root, context):
+    empty = {
+        "node": node,
+        "present": False,
+        "error": "producer provenance unavailable",
+        "provenance_sha256": "",
+        "run": {key: "" for key in RUN_IDENTITY_KEYS},
+        "authoritative_eligible": False,
+        "admission": [False] * len(KEYS),
+        "signatures": [""] * len(KEYS),
+        "region_present": False,
+        "region_filename": "",
+        "region_sha256": "",
+    }
+    path = evidence_root / f"{node}.provenance.json"
+    if not path.exists():
+        return empty
+    try:
+        record = validate_provenance(path)
+        if record["status"] == "INCOMPLETE":
+            empty["error"] = record["error"]
+            return empty
+        build = record["build"]
+        compiler = record["compiler"]
+        locks = record["locks"]
+        policy = context["policies"][node]
+        if build["profile"] != context["profile"]:
+            raise EvidenceError("producer profile differs from selected profile")
+        if build["source_sha"] != context["source_sha"]:
+            raise EvidenceError("producer source SHA differs from matrix run")
+        if build["workflow_run"] != context["workflow_run"]:
+            raise EvidenceError("producer workflow run differs from matrix run")
+        if locks["sources_sha256"] != context["sources_sha256"]:
+            raise EvidenceError("producer source-lock digest differs")
+        if locks["outputs_sha256"] != context["outputs_sha256"]:
+            raise EvidenceError("producer output-lock digest differs")
+        if build["flags"] != policy["flags"]:
+            raise EvidenceError("producer flags differ from normalized policy")
+        if (
+            build["toolchain_artifact_sha256"]
+            != policy["toolchain_artifact_sha256"]
+        ):
+            raise EvidenceError("producer toolchain artifact differs from policy")
+        _policy_matches_compiler(
+            compiler, policy, context["profile"], node, "producer compiler"
+        )
+        region = record["artifacts"].get("region")
+        authoritative_eligible = (
+            context["profile"] == "authoritative"
+            and build["execution"] == "native"
+            and compiler["sdk_locked"]
+        )
+        return {
+            "node": node,
+            "present": True,
+            "error": "",
+            "provenance_sha256": _sha256(path),
+            "run": {
+                "source_sha": build["source_sha"],
+                "workflow_run": build["workflow_run"],
+                "sources_sha256": locks["sources_sha256"],
+                "outputs_sha256": locks["outputs_sha256"],
+            },
+            "authoritative_eligible": authoritative_eligible,
+            "admission": [record["admission"][key] for key in KEYS],
+            "signatures": [record["signatures"][key] for key in KEYS],
+            "region_present": region is not None,
+            "region_filename": region["filename"] if region else "",
+            "region_sha256": region["sha256"] if region else "",
+        }
+    except EvidenceError as error:
+        empty["error"] = str(error)
+        return empty
+
+
+def _producer_slots(profile, evidence_root, context):
+    if context is None:
+        return [
+            {
+                "node": node,
+                "present": False,
+                "error": "fixture producer evidence unavailable",
+                "provenance_sha256": "",
+                "run": {key: "" for key in RUN_IDENTITY_KEYS},
+                "authoritative_eligible": False,
+                "admission": [False] * len(KEYS),
+                "signatures": [""] * len(KEYS),
+                "region_present": False,
+                "region_filename": "",
+                "region_sha256": "",
+            }
+            for node in profile_nodes(profile)
+        ]
+    return [
+        _producer_slot(node, evidence_root, context)
+        for node in profile_nodes(profile)
+    ]
+
+
+def _validate_consumer_probe(
+    probe_path, node, context, toolchain_artifact_sha256
+):
+    probe = validate_probe(probe_path)
+    if probe["node"] != node:
+        raise EvidenceError("consumer probe node differs from --consumer")
+    _require_platform_probe_pass(probe)
+    artifact = _expect_sha256(
+        toolchain_artifact_sha256, "toolchain_artifact_sha256"
+    )
+    policy = context["policies"][node]
+    if artifact != policy["toolchain_artifact_sha256"]:
+        raise EvidenceError("consumer toolchain artifact differs from output lock")
+    _policy_matches_compiler(
+        probe["compiler"], policy, context["profile"], node, "consumer compiler"
+    )
+    runner = probe["environment"]["runner"]
+    execution = (
+        "native"
+        if context["profile"] == "authoritative"
+        else _LOCAL_EXECUTION[node]
+    )
+    if context["profile"] == "authoritative" and runner != _AUTHORITATIVE_RUNNERS[node]:
+        raise EvidenceError("consumer runner differs from authoritative node")
+    return {
+        **{key: context[key] for key in RUN_IDENTITY_KEYS},
+        "execution": execution,
+        "runner": runner,
+        "runner_image": probe["environment"]["runner_image"],
+        "toolchain_artifact_sha256": artifact,
+        "compiler_family": probe["compiler"]["family"],
+        "compiler_revision": probe["compiler"]["revision"],
+        "compiler_version": probe["compiler"]["version"],
+        "target": probe["compiler"]["target"],
+        "stdlib": probe["compiler"]["stdlib"],
+        "flags": policy["flags"],
+        "xcode_version": probe["compiler"]["xcode_version"],
+        "xcode_build": probe["compiler"]["xcode_build"],
+        "sdk_version": probe["compiler"]["sdk_version"],
+        "sdk_build": probe["compiler"]["sdk_build"],
+        "deployment_target": probe["compiler"]["deployment_target"],
+        "sdk_locked": probe["compiler"]["sdk_locked"],
+        "authoritative_eligible": (
+            context["profile"] == "authoritative"
+            and execution == "native"
+            and probe["compiler"]["sdk_locked"]
+        ),
+    }
+
+
+_CPP_NODE_NAMES = {node: node for node in NODES}
+_CPP_KEY_NAMES = {
+    "WorldSnapshot": "world_snapshot",
+    "Entity": "entity",
+    "EntityRelativePtr": "entity_relative_ptr",
+    "EntityIndexEntry": "entity_index_entry",
+}
+_CPP_AGREEMENT_STATUS = {
+    "PERMIT": "permit",
+    "REJECT": "reject",
+    "INCOMPLETE": "incomplete",
+}
+_CPP_TRANSFER_STATUS = {
+    "PASS": "pass",
+    "SKIPPED_TYPELAYOUT_REJECT": "skipped_typelayout_reject",
+    "REJECT_ENVELOPE": "reject_envelope",
+    "REJECT_REGION": "reject_region",
+    "REJECT_GRAPH": "reject_graph",
+    "INCOMPLETE": "incomplete",
+}
+
+
+class _CppHeader:
+    def __init__(self, guard, namespace):
+        self.guard = guard
+        self.namespace = namespace
+        self.definitions = []
+        self.counter = 0
+
+    def string(self, value, label="text"):
+        if not isinstance(value, str):
+            raise EvidenceError(f"generated {label} must be a string")
+        encoded = value.encode("utf-8")
+        name = f"generated_text_{self.counter}"
+        self.counter += 1
+        if encoded:
+            initializers = ", ".join(
+                f"static_cast<char>(0x{byte:02x})" for byte in encoded
+            )
+            self.definitions.append(
+                f"inline constexpr std::array<char, {len(encoded)}> "
+                f"{name}_storage{{{{{initializers}}}}};"
+            )
+            self.definitions.append(
+                f"inline constexpr std::string_view {name}{{"
+                f"{name}_storage.data(), {len(encoded)}}};"
+            )
+        else:
+            self.definitions.append(
+                f"inline constexpr std::array<char, 0> {name}_storage{{}};"
+            )
+            self.definitions.append(
+                f"inline constexpr std::string_view {name}{{}};"
+            )
+        return name
+
+    def render(self, body):
+        definitions = "\n".join(self.definitions)
+        return (
+            "// Generated by relocatable_world_evidence.py; do not edit.\n"
+            f"#ifndef {self.guard}\n#define {self.guard}\n\n"
+            '#include "matrix_model.hpp"\n\n'
+            "#include <array>\n#include <string_view>\n\n"
+            f"namespace {self.namespace} {{\n\n"
+            "namespace matrix = relocatable_world_demo::matrix;\n\n"
+            f"{definitions}\n\n{body}\n\n"
+            f"}} // namespace {self.namespace}\n\n"
+            f"#endif // {self.guard}\n"
+        )
+
+
+def _cpp_bool(value):
+    return "true" if value else "false"
+
+
+def _cpp_profile(profile):
+    return (
+        "matrix::profile_id::authoritative"
+        if profile == "authoritative"
+        else "matrix::profile_id::local_arm64_macos"
+    )
+
+
+def _cpp_node(node):
+    return f"matrix::node_id::{_CPP_NODE_NAMES[node]}"
+
+
+def _cpp_run(builder, run, label):
+    values = [builder.string(run[key], f"{label}.{key}") for key in RUN_IDENTITY_KEYS]
+    return "matrix::run_identity{" + ", ".join(values) + "}"
+
+
+def _cpp_producer(builder, slot):
+    error = builder.string(slot["error"], f"{slot['node']} error")
+    provenance = builder.string(
+        slot["provenance_sha256"], f"{slot['node']} provenance"
+    )
+    run = _cpp_run(builder, slot["run"], f"{slot['node']} run")
+    signatures = [
+        builder.string(value, f"{slot['node']} signature")
+        for value in slot["signatures"]
+    ]
+    region_filename = builder.string(
+        slot["region_filename"], f"{slot['node']} region filename"
+    )
+    region_digest = builder.string(
+        slot["region_sha256"], f"{slot['node']} region digest"
+    )
+    admission = ", ".join(_cpp_bool(value) for value in slot["admission"])
+    return (
+        "matrix::producer_record{"
+        f"{_cpp_node(slot['node'])}, {_cpp_bool(slot['present'])}, {error}, "
+        f"{provenance}, {run}, {_cpp_bool(slot['authoritative_eligible'])}, "
+        f"std::array<bool, matrix::key_count>{{{admission}}}, "
+        "std::array<std::string_view, matrix::key_count>{"
+        + ", ".join(signatures)
+        + "}, "
+        f"{_cpp_bool(slot['region_present'])}, {region_filename}, {region_digest}"
+        "}"
+    )
+
+
+def _cpp_producer_array(builder, producers):
+    values = ",\n    ".join(_cpp_producer(builder, slot) for slot in producers)
+    return (
+        f"inline constexpr std::array<matrix::producer_record, {len(producers)}> "
+        f"producers{{{{\n    {values}\n}}}};"
+    )
+
+
+def _fixture_run_identity(profile):
+    return {
+        "source_sha": "0" * 40,
+        "workflow_run": "1.1" if profile == "authoritative" else "fixture-local",
+        "sources_sha256": "0" * 64,
+        "outputs_sha256": "0" * 64,
+    }
+
+
+def prepare_consumer(
+    *,
+    profile,
+    consumer,
+    evidence,
+    output_header,
+    fixture_context=False,
+    consumer_probe=None,
+    toolchain_artifact_sha256=None,
+    expect_source_sha=None,
+    expect_workflow_run=None,
+    sources_lock=None,
+    outputs_lock=None,
+):
+    profile = validate_profile(profile)
+    consumer = validate_node(consumer)
+    if consumer not in profile_nodes(profile):
+        raise EvidenceError(f"consumer {consumer} is not part of profile {profile}")
+    context = _load_context(
+        profile=profile,
+        fixture_context=fixture_context,
+        expect_source_sha=expect_source_sha,
+        expect_workflow_run=expect_workflow_run,
+        sources_lock=sources_lock,
+        outputs_lock=outputs_lock,
+        extra_production_values=(consumer_probe, toolchain_artifact_sha256),
+    )
+    evidence_root = _canonical_directory(
+        evidence, "producer evidence", empty=fixture_context
+    )
+    output_header = _validate_generated_output(
+        output_header,
+        "relocatable_world_consumer_input.hpp",
+        (evidence_root,),
+        (() if consumer_probe is None else (consumer_probe,)),
+    )
+    producers = _producer_slots(profile, evidence_root, context)
+    if fixture_context:
+        run = _fixture_run_identity(profile)
+        build = {
+            **run,
+            "execution": "native",
+            "runner": "fixture",
+            "runner_image": "fixture",
+            "toolchain_artifact_sha256": "0" * 64,
+            "compiler_family": _expected_family(consumer),
+            "compiler_revision": "fixture",
+            "compiler_version": "fixture",
+            "target": "fixture",
+            "stdlib": "fixture",
+            "flags": "fixture",
+            **{
+                key: ("fixture" if _is_macos(consumer) else "none")
+                for key in APPLE_IDENTITY_KEYS
+            },
+            "sdk_locked": not _is_macos(consumer),
+            "authoritative_eligible": False,
+        }
+    else:
+        build = _validate_consumer_probe(
+            consumer_probe, consumer, context, toolchain_artifact_sha256
+        )
+    own = next(slot for slot in producers if slot["node"] == consumer)
+
+    builder = _CppHeader(
+        "BOOST_TYPELAYOUT_RELOCATABLE_WORLD_CONSUMER_INPUT_HPP",
+        "relocatable_world_demo::generated::consumer_input",
+    )
+    evidence_root_view = builder.string(str(evidence_root), "evidence root")
+    provenance_view = builder.string(
+        own["provenance_sha256"] if own["present"] else "",
+        "consumer provenance",
+    )
+    build_run = _cpp_run(builder, build, "consumer build run")
+    build_strings = {
+        key: builder.string(build[key], f"consumer build {key}")
+        for key in RESULT_BUILD_KEYS[4:-1]
+    }
+    producer_declaration = _cpp_producer_array(builder, producers)
+    body = "\n".join(
+        (
+            f"inline constexpr bool fixture_context = {_cpp_bool(fixture_context)};",
+            f"inline constexpr auto profile = {_cpp_profile(profile)};",
+            f"inline constexpr auto consumer = {_cpp_node(consumer)};",
+            f"inline constexpr std::string_view evidence_root = {evidence_root_view};",
+            (
+                "inline constexpr bool consumer_provenance_present = "
+                f"{_cpp_bool(own['present'])};"
+            ),
+            (
+                "inline constexpr std::string_view consumer_provenance_sha256 = "
+                f"{provenance_view};"
+            ),
+            (
+                "inline constexpr matrix::consumer_build_record build{"
+                f"{build_run}, {build_strings['execution']}, "
+                f"{build_strings['runner']}, {build_strings['runner_image']}, "
+                f"{build_strings['toolchain_artifact_sha256']}, "
+                f"{build_strings['compiler_family']}, "
+                f"{build_strings['compiler_revision']}, "
+                f"{build_strings['compiler_version']}, {build_strings['target']}, "
+                f"{build_strings['stdlib']}, {build_strings['flags']}, "
+                f"{build_strings['xcode_version']}, {build_strings['xcode_build']}, "
+                f"{build_strings['sdk_version']}, {build_strings['sdk_build']}, "
+                f"{build_strings['deployment_target']}, "
+                f"{_cpp_bool(build['sdk_locked'])}, "
+                f"{_cpp_bool(build['authoritative_eligible'])}}};"
+            ),
+            producer_declaration,
+        )
+    )
+    _write_text_atomic(output_header, builder.render(body))
+    return output_header
+
+
+def prepare_agreements(
+    *,
+    profile,
+    evidence,
+    output_header,
+    fixture_context=False,
+    expect_source_sha=None,
+    expect_workflow_run=None,
+    sources_lock=None,
+    outputs_lock=None,
+):
+    profile = validate_profile(profile)
+    context = _load_context(
+        profile=profile,
+        fixture_context=fixture_context,
+        expect_source_sha=expect_source_sha,
+        expect_workflow_run=expect_workflow_run,
+        sources_lock=sources_lock,
+        outputs_lock=outputs_lock,
+    )
+    evidence_root = _canonical_directory(
+        evidence, "producer evidence", empty=fixture_context
+    )
+    output_header = _validate_generated_output(
+        output_header,
+        "relocatable_world_agreement_input.hpp",
+        (evidence_root,),
+    )
+    producers = _producer_slots(profile, evidence_root, context)
+    builder = _CppHeader(
+        "BOOST_TYPELAYOUT_RELOCATABLE_WORLD_AGREEMENT_INPUT_HPP",
+        "relocatable_world_demo::generated::agreement_input",
+    )
+    producer_declaration = _cpp_producer_array(builder, producers)
+    body = "\n".join(
+        (
+            f"inline constexpr bool fixture_context = {_cpp_bool(fixture_context)};",
+            f"inline constexpr auto profile = {_cpp_profile(profile)};",
+            producer_declaration,
+        )
+    )
+    _write_text_atomic(output_header, builder.render(body))
+    return output_header
+
+
+def _consumer_build_matches_policy(build, node, profile, context):
+    policy = context["policies"][node]
+    for key in RUN_IDENTITY_KEYS:
+        if build[key] != context[key]:
+            raise EvidenceError(f"consumer {node} {key} differs from matrix run")
+    comparisons = {
+        "toolchain_artifact_sha256": "toolchain_artifact_sha256",
+        "compiler_family": "compiler_family",
+        "compiler_revision": "compiler_revision",
+        "compiler_version": "compiler_version",
+        "target": "target",
+        "stdlib": "stdlib",
+        "flags": "flags",
+    }
+    for build_key, policy_key in comparisons.items():
+        if build[build_key] != policy[policy_key]:
+            raise EvidenceError(
+                f"consumer {node} {build_key} differs from normalized policy"
+            )
+    if not _is_macos(node):
+        for key in APPLE_IDENTITY_KEYS:
+            if build[key] != "none":
+                raise EvidenceError(f"Linux consumer {node} {key} must be none")
+        if not build["sdk_locked"]:
+            raise EvidenceError(f"Linux consumer {node} SDK must be locked")
+    elif profile == "authoritative":
+        for key in APPLE_IDENTITY_KEYS:
+            if build[key] != policy[key]:
+                raise EvidenceError(
+                    f"consumer {node} {key} differs from normalized policy"
+                )
+        if not build["sdk_locked"]:
+            raise EvidenceError(f"authoritative consumer {node} SDK is unlocked")
+    else:
+        actual_match = all(build[key] == policy[key] for key in APPLE_IDENTITY_KEYS)
+        if build["sdk_locked"] != actual_match:
+            raise EvidenceError(f"local consumer {node} sdk_locked is not truthful")
+
+
+def _consumer_slot(node, results_root, producers, context):
+    expected_producers = [
+        producer for producer in profile_nodes(context["profile"]) if producer != node
+    ]
+    empty = {
+        "consumer": node,
+        "present": False,
+        "error": "consumer result unavailable",
+        "run": {key: "" for key in RUN_IDENTITY_KEYS},
+        "authoritative_eligible": False,
+        "transfers": [
+            {"consumer": node, "producer": producer, "status": "INCOMPLETE"}
+            for producer in expected_producers
+        ],
+    }
+    path = results_root / f"{node}.results.json"
+    if not path.exists():
+        return empty
+    producer_by_node = {record["node"]: record for record in producers}
+    try:
+        record = validate_results(path)
+        if record["profile"] != context["profile"] or record["consumer"] != node:
+            raise EvidenceError("consumer result identity differs from selected slot")
+        if record["build"] is None:
+            empty["error"] = "fallback consumer result"
+            return empty
+        build = record["build"]
+        _consumer_build_matches_policy(
+            build, node, context["profile"], context
+        )
+        own_producer = producer_by_node[node]
+        if (
+            not own_producer["present"]
+            or record["consumer_provenance_sha256"]
+            != own_producer["provenance_sha256"]
+        ):
+            raise EvidenceError("consumer result is not bound to own provenance")
+
+        transfers = []
+        for transfer in record["transfers"]:
+            producer = producer_by_node[transfer["producer"]]
+            status = transfer["status"]
+            if not producer["present"]:
+                if status != "INCOMPLETE":
+                    raise EvidenceError(
+                        "missing producer requires INCOMPLETE transfer"
+                    )
+            else:
+                supplied_provenance = transfer["producer_provenance_sha256"]
+                if (
+                    supplied_provenance is not None
+                    and supplied_provenance != producer["provenance_sha256"]
+                ):
+                    raise EvidenceError("transfer producer provenance digest differs")
+                supplied_region = transfer["region_sha256"]
+                if (
+                    supplied_region is not None
+                    and supplied_region != producer["region_sha256"]
+                ):
+                    raise EvidenceError("transfer region digest differs")
+                gate_permits = all(
+                    own_producer["admission"][key_index]
+                    and producer["admission"][key_index]
+                    and own_producer["signatures"][key_index]
+                    == producer["signatures"][key_index]
+                    for key_index in range(len(KEYS))
+                )
+                if gate_permits and status == "SKIPPED_TYPELAYOUT_REJECT":
+                    raise EvidenceError("consumer skipped after a permitting TypeLayout gate")
+                if not gate_permits and status != "SKIPPED_TYPELAYOUT_REJECT":
+                    raise EvidenceError("consumer loaded after a rejecting TypeLayout gate")
+                if status in (
+                    "PASS",
+                    "REJECT_ENVELOPE",
+                    "REJECT_REGION",
+                    "REJECT_GRAPH",
+                ) and not producer["region_present"]:
+                    raise EvidenceError("loader result requires a verified region")
+            transfers.append(
+                {
+                    "consumer": node,
+                    "producer": transfer["producer"],
+                    "status": status,
+                }
+            )
+        return {
+            "consumer": node,
+            "present": True,
+            "error": "",
+            "run": {key: build[key] for key in RUN_IDENTITY_KEYS},
+            "authoritative_eligible": (
+                context["profile"] == "authoritative"
+                and build["execution"] == "native"
+                and build["sdk_locked"]
+            ),
+            "transfers": transfers,
+        }
+    except EvidenceError as error:
+        empty["error"] = str(error)
+        return empty
+
+
+def _fixture_consumer_slots(profile):
+    return [
+        {
+            "consumer": consumer,
+            "present": False,
+            "error": "fixture consumer result unavailable",
+            "run": {key: "" for key in RUN_IDENTITY_KEYS},
+            "authoritative_eligible": False,
+            "transfers": [
+                {
+                    "consumer": consumer,
+                    "producer": producer,
+                    "status": "INCOMPLETE",
+                }
+                for producer in profile_nodes(profile)
+                if producer != consumer
+            ],
+        }
+        for consumer in profile_nodes(profile)
+    ]
+
+
+def _cpp_agreement_pairs(agreement):
+    records = []
+    for pair in agreement["pairs"]:
+        decisions = ", ".join(
+            "matrix::named_decision{"
+            f"matrix::key_id::{_CPP_KEY_NAMES[decision['key']]}, "
+            "matrix::agreement_status::"
+            f"{_CPP_AGREEMENT_STATUS[decision['status']]}}}"
+            for decision in pair["decisions"]
+        )
+        records.append(
+            "matrix::pair_record{"
+            f"{_cpp_node(pair['left'])}, {_cpp_node(pair['right'])}, "
+            f"std::array<matrix::named_decision, matrix::key_count>{{{decisions}}}"
+            "}"
+        )
+    return (
+        f"inline constexpr std::array<matrix::pair_record, {len(records)}> "
+        "agreements{{\n    " + ",\n    ".join(records) + "\n}};"
+    )
+
+
+def prepare_matrix(
+    *,
+    profile,
+    evidence,
+    results,
+    agreements,
+    output_header,
+    fixture_context=False,
+    expect_source_sha=None,
+    expect_workflow_run=None,
+    sources_lock=None,
+    outputs_lock=None,
+):
+    profile = validate_profile(profile)
+    context = _load_context(
+        profile=profile,
+        fixture_context=fixture_context,
+        expect_source_sha=expect_source_sha,
+        expect_workflow_run=expect_workflow_run,
+        sources_lock=sources_lock,
+        outputs_lock=outputs_lock,
+    )
+    evidence_root = _canonical_directory(
+        evidence, "producer evidence", empty=fixture_context
+    )
+    results_root = _canonical_directory(
+        results, "consumer results", empty=fixture_context
+    )
+    agreement_input = Path(agreements)
+    if agreement_input.is_symlink():
+        raise EvidenceError("Agreement input must not be a symlink")
+    try:
+        agreements_path = agreement_input.resolve(strict=True)
+    except OSError as error:
+        raise EvidenceError(f"Agreement input is unavailable: {error}") from error
+    if not agreements_path.is_file():
+        raise EvidenceError("Agreement input must be a regular file")
+    if _is_within(agreements_path, evidence_root) or _is_within(
+        agreements_path, results_root
+    ):
+        raise EvidenceError(
+            "Agreement input must be outside producer and result directories"
+        )
+    output_header = _validate_generated_output(
+        output_header,
+        "relocatable_world_matrix_input.hpp",
+        (evidence_root, results_root),
+        (agreements_path,),
+    )
+    agreement = validate_agreements(agreements_path)
+    if agreement["profile"] != profile:
+        raise EvidenceError("Agreement profile differs from selected profile")
+    producers = _producer_slots(profile, evidence_root, context)
+    recomputed = _expected_agreement(profile, producers)
+    if fixture_context:
+        if any(
+            digest is not None
+            for digest in agreement["producer_provenance_sha256"].values()
+        ) or any(
+            decision["status"] != "INCOMPLETE"
+            for pair in agreement["pairs"]
+            for decision in pair["decisions"]
+        ):
+            raise EvidenceError("fixture Agreement must contain only missing slots")
+        consumers = _fixture_consumer_slots(profile)
+        expected_run = _fixture_run_identity(profile)
+    else:
+        if agreement != recomputed:
+            raise EvidenceError(
+                "Agreement artifact is stale or differs from producer evidence"
+            )
+        consumers = [
+            _consumer_slot(node, results_root, producers, context)
+            for node in profile_nodes(profile)
+        ]
+        expected_run = {key: context[key] for key in RUN_IDENTITY_KEYS}
+
+    builder = _CppHeader(
+        "BOOST_TYPELAYOUT_RELOCATABLE_WORLD_MATRIX_INPUT_HPP",
+        "relocatable_world_demo::generated::matrix_input",
+    )
+    agreement_digest = builder.string(
+        _sha256(agreements_path), "Agreement digest"
+    )
+    run_initializer = _cpp_run(builder, expected_run, "expected run")
+    producer_declaration = _cpp_producer_array(builder, producers)
+
+    bindings = []
+    for node in profile_nodes(profile):
+        digest = agreement["producer_provenance_sha256"][node]
+        digest_view = builder.string(digest or "", f"{node} Agreement binding")
+        bindings.append(
+            "matrix::provenance_binding{"
+            f"{_cpp_node(node)}, {_cpp_bool(digest is not None)}, {digest_view}}}"
+        )
+    binding_declaration = (
+        f"inline constexpr std::array<matrix::provenance_binding, {len(bindings)}> "
+        "agreement_provenance{{\n    "
+        + ",\n    ".join(bindings)
+        + "\n}};"
+    )
+    agreement_declaration = _cpp_agreement_pairs(agreement)
+    consumer_records = []
+    for slot in consumers:
+        consumer_run = _cpp_run(
+            builder, slot["run"], f"{slot['consumer']} consumer run"
+        )
+        consumer_records.append(
+            "matrix::consumer_record{"
+            f"{_cpp_node(slot['consumer'])}, {_cpp_bool(slot['present'])}, "
+            f"{consumer_run}, {_cpp_bool(slot['authoritative_eligible'])}}}"
+        )
+    consumer_declaration = (
+        f"inline constexpr std::array<matrix::consumer_record, {len(consumers)}> "
+        "consumers{{\n    " + ",\n    ".join(consumer_records) + "\n}};"
+    )
+    transfer_records = [
+        "matrix::transfer_record{"
+        f"{_cpp_node(transfer['consumer'])}, {_cpp_node(transfer['producer'])}, "
+        f"matrix::transfer_status::{_CPP_TRANSFER_STATUS[transfer['status']]}}}"
+        for consumer in consumers
+        for transfer in consumer["transfers"]
+    ]
+    transfer_declaration = (
+        f"inline constexpr std::array<matrix::transfer_record, {len(transfer_records)}> "
+        "transfers{{\n    " + ",\n    ".join(transfer_records) + "\n}};"
+    )
+    body = "\n".join(
+        (
+            f"inline constexpr bool fixture_context = {_cpp_bool(fixture_context)};",
+            f"inline constexpr auto profile = {_cpp_profile(profile)};",
+            f"inline constexpr matrix::run_identity expected_run = {run_initializer};",
+            f"inline constexpr std::string_view agreements_sha256 = {agreement_digest};",
+            producer_declaration,
+            binding_declaration,
+            agreement_declaration,
+            consumer_declaration,
+            transfer_declaration,
+        )
+    )
+    _write_text_atomic(output_header, builder.render(body))
+    return output_header
+
+
+def _require_flat_run_directory(directory, profile):
+    root = _canonical_directory(directory, "audit run")
+    nodes = profile_nodes(profile)
+    expected_names = {"agreements.json", "closure.json"}
+    for node in nodes:
+        expected_names.update(
+            {
+                f"{node}.provenance.json",
+                f"{node}.sig.hpp",
+                f"{node}.region",
+                f"{node}.results.json",
+            }
+        )
+    metadata_names = {
+        "source-sha.txt",
+        "workflow-run.txt" if profile == "authoritative" else "run-id.txt",
+    }
+    observed = set()
+    for entry in root.iterdir():
+        if entry.is_symlink() or not entry.is_file():
+            raise EvidenceError("audit run must be one fixed flat directory")
+        if entry.name in observed:
+            raise EvidenceError(f"audit run contains duplicate filename {entry.name}")
+        observed.add(entry.name)
+    missing = expected_names - observed
+    unexpected = observed - expected_names - metadata_names
+    if missing:
+        raise EvidenceError(
+            "audit run is missing fixed files: " + ", ".join(sorted(missing))
+        )
+    if unexpected:
+        raise EvidenceError(
+            "audit run contains unexpected flat files: "
+            + ", ".join(sorted(unexpected))
+        )
+    return root
+
+
+def _validate_optional_run_metadata(
+    root, profile, expect_source_sha, expect_workflow_run
+):
+    names = (
+        "source-sha.txt",
+        "workflow-run.txt" if profile == "authoritative" else "run-id.txt",
+    )
+    paths = [root / name for name in names]
+    present = [path.exists() for path in paths]
+    if any(present) and not all(present):
+        raise EvidenceError("run metadata files must be present as a complete pair")
+    if not any(present):
+        return
+    expected = (expect_source_sha, expect_workflow_run)
+    for path, expected_value in zip(paths, expected):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            raise EvidenceError(f"cannot read run metadata {path.name}: {error}") from error
+        if text not in (expected_value, expected_value + "\n"):
+            raise EvidenceError(
+                f"run metadata {path.name} must be one exact matching line"
+            )
+
+
+def audit_run(
+    *,
+    directory,
+    expect_source_sha,
+    sources_lock,
+    outputs_lock,
+    expect_nodes,
+    expect_pairs,
+    expect_named_permits,
+    expect_transfers,
+    expect_workflow_run=None,
+):
+    if expect_nodes == len(NODES):
+        profile = "authoritative"
+    elif expect_nodes == len(LOCAL_NODES):
+        profile = "local-arm64-macos"
+    else:
+        raise EvidenceError("expect_nodes must select the fixed 6-node or 5-node profile")
+    fixed_counts = {
+        "nodes": len(profile_nodes(profile)),
+        "pairs": len(_profile_pairs(profile)),
+        "named_permits": len(_profile_pairs(profile)) * len(KEYS),
+        "transfers": len(_profile_transfers(profile)),
+    }
+    supplied_counts = {
+        "nodes": expect_nodes,
+        "pairs": expect_pairs,
+        "named_permits": expect_named_permits,
+        "transfers": expect_transfers,
+    }
+    if supplied_counts != fixed_counts:
+        raise EvidenceError("caller-supplied audit counts differ from fixed profile")
+
+    root = _require_flat_run_directory(directory, profile)
+    if expect_workflow_run is None:
+        first_path = root / f"{profile_nodes(profile)[0]}.provenance.json"
+        first = validate_provenance(first_path)
+        if first["status"] == "INCOMPLETE":
+            raise EvidenceError("cannot infer workflow run from incomplete provenance")
+        expect_workflow_run = first["build"]["workflow_run"]
+    _validate_optional_run_metadata(
+        root, profile, expect_source_sha, expect_workflow_run
+    )
+    context = _load_context(
+        profile=profile,
+        fixture_context=False,
+        expect_source_sha=expect_source_sha,
+        expect_workflow_run=expect_workflow_run,
+        sources_lock=sources_lock,
+        outputs_lock=outputs_lock,
+    )
+    producers = _producer_slots(profile, root, context)
+    for producer in producers:
+        if not producer["present"]:
+            raise EvidenceError(
+                f"producer {producer['node']} is incomplete: {producer['error']}"
+            )
+        if not producer["region_present"]:
+            raise EvidenceError(f"producer {producer['node']} is not READY")
+        if profile == "authoritative" and not producer["authoritative_eligible"]:
+            raise EvidenceError(
+                f"producer {producer['node']} is not authoritative evidence"
+            )
+
+    agreement_path = root / "agreements.json"
+    agreement = validate_agreements(agreement_path)
+    if agreement != _expected_agreement(profile, producers):
+        raise EvidenceError("Agreement differs from recomputed producer decisions")
+    if any(
+        decision["status"] != "PERMIT"
+        for pair in agreement["pairs"]
+        for decision in pair["decisions"]
+    ):
+        raise EvidenceError("audited Agreement contains a non-PERMIT decision")
+
+    consumers = [
+        _consumer_slot(node, root, producers, context)
+        for node in profile_nodes(profile)
+    ]
+    for consumer in consumers:
+        if not consumer["present"]:
+            raise EvidenceError(
+                f"consumer {consumer['consumer']} is incomplete: {consumer['error']}"
+            )
+        if profile == "authoritative" and not consumer["authoritative_eligible"]:
+            raise EvidenceError(
+                f"consumer {consumer['consumer']} is not authoritative evidence"
+            )
+        if any(
+            transfer["status"] != "PASS"
+            for transfer in consumer["transfers"]
+        ):
+            raise EvidenceError(
+                f"consumer {consumer['consumer']} contains a non-PASS transfer"
+            )
+
+    closure = validate_closure(root / "closure.json")
+    if closure["profile"] != profile:
+        raise EvidenceError("closure profile differs from audit profile")
+    expected_run = {key: context[key] for key in RUN_IDENTITY_KEYS}
+    if closure["run"] != expected_run:
+        raise EvidenceError("closure run identity differs from audited context")
+    if closure["agreements_sha256"] != _sha256(agreement_path):
+        raise EvidenceError("closure Agreement digest differs from agreements.json")
+    if closure["expected"] != _identity_contract(profile):
+        raise EvidenceError("closure expected identities differ from fixed profile")
+    expected_closure_counts = {
+        "nodes": fixed_counts["nodes"],
+        "pairs": fixed_counts["pairs"],
+        "named_decisions": fixed_counts["named_permits"],
+        "named_permits": fixed_counts["named_permits"],
+        "consumers": fixed_counts["nodes"],
+        "transfers": fixed_counts["transfers"],
+        "passes": fixed_counts["transfers"],
+    }
+    if closure["counts"] != expected_closure_counts:
+        raise EvidenceError("closure counts differ from audited fixed graph")
+    if any(closure[where][key] for where in ("missing", "duplicates") for key in CLOSURE_IDENTITY_KEYS):
+        raise EvidenceError("closure contains missing or duplicate identities")
+    if closure["status"] != "PASS" or closure["error"] is not None:
+        raise EvidenceError("audited closure is not PASS")
+    expected_authoritative = profile == "authoritative"
+    if closure["authoritative"] != expected_authoritative:
+        raise EvidenceError("closure authoritative flag differs from evidence profile")
+    return closure
 
 
 def _add_profile_argument(parser):
@@ -1769,6 +3374,15 @@ def _build_parser():
 
     validate = commands.add_parser("validate-provenance")
     validate.add_argument("file", type=Path)
+
+    validate_results_parser = commands.add_parser("validate-results")
+    validate_results_parser.add_argument("file", type=Path)
+
+    validate_agreements_parser = commands.add_parser("validate-agreements")
+    validate_agreements_parser.add_argument("file", type=Path)
+
+    validate_closure_parser = commands.add_parser("validate-closure")
+    validate_closure_parser.add_argument("file", type=Path)
 
     verify_producer = commands.add_parser("verify-producer-bundle")
     verify_producer.add_argument("--node", required=True)
@@ -1812,6 +3426,58 @@ def _build_parser():
     seal.add_argument("--workflow-run", required=True)
     seal.add_argument("--toolchain-artifact-sha256", required=True)
     seal.add_argument("--output", required=True, type=Path)
+
+    prepare_consumer_parser = commands.add_parser("prepare-consumer")
+    _add_profile_argument(prepare_consumer_parser)
+    prepare_consumer_parser.add_argument("--consumer", required=True)
+    prepare_consumer_parser.add_argument("--evidence", required=True, type=Path)
+    prepare_consumer_parser.add_argument("--consumer-probe", type=Path)
+    prepare_consumer_parser.add_argument("--toolchain-artifact-sha256")
+    prepare_consumer_parser.add_argument("--expect-source-sha")
+    prepare_consumer_parser.add_argument("--expect-workflow-run")
+    prepare_consumer_parser.add_argument("--sources-lock", type=Path)
+    prepare_consumer_parser.add_argument("--outputs-lock", type=Path)
+    prepare_consumer_parser.add_argument("--fixture-context", action="store_true")
+    prepare_consumer_parser.add_argument(
+        "--output-header", required=True, type=Path
+    )
+
+    prepare_agreements_parser = commands.add_parser("prepare-agreements")
+    _add_profile_argument(prepare_agreements_parser)
+    prepare_agreements_parser.add_argument(
+        "--evidence", required=True, type=Path
+    )
+    prepare_agreements_parser.add_argument("--expect-source-sha")
+    prepare_agreements_parser.add_argument("--expect-workflow-run")
+    prepare_agreements_parser.add_argument("--sources-lock", type=Path)
+    prepare_agreements_parser.add_argument("--outputs-lock", type=Path)
+    prepare_agreements_parser.add_argument("--fixture-context", action="store_true")
+    prepare_agreements_parser.add_argument(
+        "--output-header", required=True, type=Path
+    )
+
+    prepare_matrix_parser = commands.add_parser("prepare-matrix")
+    _add_profile_argument(prepare_matrix_parser)
+    prepare_matrix_parser.add_argument("--evidence", required=True, type=Path)
+    prepare_matrix_parser.add_argument("--results", required=True, type=Path)
+    prepare_matrix_parser.add_argument("--agreements", required=True, type=Path)
+    prepare_matrix_parser.add_argument("--expect-source-sha")
+    prepare_matrix_parser.add_argument("--expect-workflow-run")
+    prepare_matrix_parser.add_argument("--sources-lock", type=Path)
+    prepare_matrix_parser.add_argument("--outputs-lock", type=Path)
+    prepare_matrix_parser.add_argument("--fixture-context", action="store_true")
+    prepare_matrix_parser.add_argument("--output-header", required=True, type=Path)
+
+    audit = commands.add_parser("audit-run")
+    audit.add_argument("--directory", required=True, type=Path)
+    audit.add_argument("--expect-source-sha", required=True)
+    audit.add_argument("--expect-workflow-run")
+    audit.add_argument("--sources-lock", required=True, type=Path)
+    audit.add_argument("--outputs-lock", required=True, type=Path)
+    audit.add_argument("--expect-nodes", required=True, type=int)
+    audit.add_argument("--expect-pairs", required=True, type=int)
+    audit.add_argument("--expect-named-permits", required=True, type=int)
+    audit.add_argument("--expect-transfers", required=True, type=int)
     return parser
 
 
@@ -1823,6 +3489,23 @@ def main(arguments=None):
             record = validate_provenance(args.file)
             print(
                 f"PROVENANCE PASS node={record['node']} status={record['status']}"
+            )
+        elif args.command == "validate-results":
+            record = validate_results(args.file)
+            print(
+                f"RESULTS PASS consumer={record['consumer']} "
+                f"transfers={len(record['transfers'])}"
+            )
+        elif args.command == "validate-agreements":
+            record = validate_agreements(args.file)
+            print(
+                f"AGREEMENTS PASS profile={record['profile']} "
+                f"pairs={len(record['pairs'])}"
+            )
+        elif args.command == "validate-closure":
+            record = validate_closure(args.file)
+            print(
+                f"CLOSURE PASS profile={record['profile']} status={record['status']}"
             )
         elif args.command == "verify-producer-bundle":
             record = verify_producer_bundle(
@@ -1858,6 +3541,63 @@ def main(arguments=None):
                 workflow_run=args.workflow_run,
                 toolchain_artifact_sha256=args.toolchain_artifact_sha256,
                 output=args.output,
+            )
+        elif args.command == "prepare-consumer":
+            prepare_consumer(
+                profile=args.profile,
+                consumer=args.consumer,
+                evidence=args.evidence,
+                consumer_probe=args.consumer_probe,
+                toolchain_artifact_sha256=args.toolchain_artifact_sha256,
+                expect_source_sha=args.expect_source_sha,
+                expect_workflow_run=args.expect_workflow_run,
+                sources_lock=args.sources_lock,
+                outputs_lock=args.outputs_lock,
+                fixture_context=args.fixture_context,
+                output_header=args.output_header,
+            )
+        elif args.command == "prepare-agreements":
+            prepare_agreements(
+                profile=args.profile,
+                evidence=args.evidence,
+                expect_source_sha=args.expect_source_sha,
+                expect_workflow_run=args.expect_workflow_run,
+                sources_lock=args.sources_lock,
+                outputs_lock=args.outputs_lock,
+                fixture_context=args.fixture_context,
+                output_header=args.output_header,
+            )
+        elif args.command == "prepare-matrix":
+            prepare_matrix(
+                profile=args.profile,
+                evidence=args.evidence,
+                results=args.results,
+                agreements=args.agreements,
+                expect_source_sha=args.expect_source_sha,
+                expect_workflow_run=args.expect_workflow_run,
+                sources_lock=args.sources_lock,
+                outputs_lock=args.outputs_lock,
+                fixture_context=args.fixture_context,
+                output_header=args.output_header,
+            )
+        elif args.command == "audit-run":
+            record = audit_run(
+                directory=args.directory,
+                expect_source_sha=args.expect_source_sha,
+                expect_workflow_run=args.expect_workflow_run,
+                sources_lock=args.sources_lock,
+                outputs_lock=args.outputs_lock,
+                expect_nodes=args.expect_nodes,
+                expect_pairs=args.expect_pairs,
+                expect_named_permits=args.expect_named_permits,
+                expect_transfers=args.expect_transfers,
+            )
+            print(
+                f"AUDIT PASS profile={record['profile']} "
+                f"nodes={record['counts']['nodes']} "
+                f"pairs={record['counts']['pairs']} "
+                f"named_permits={record['counts']['named_permits']} "
+                f"transfers={record['counts']['transfers']}"
             )
     except EvidenceError as error:
         parser.exit(2, f"evidence error: {error}\n")
