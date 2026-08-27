@@ -1,4 +1,5 @@
 #include "agreement.hpp"
+#include "checkpoint.hpp"
 #include "sigs/producer_ok.sig.hpp"
 #include "sigs/producer_packed.sig.hpp"
 #include "world.hpp"
@@ -61,6 +62,15 @@ static_assert(!boost::typelayout::get_layout_signature<EntityRelativePtr>()
 static_assert(std::is_same_v<
               decltype(std::declval<named_agreement>().key),
               std::string_view>);
+
+struct NativePointerEntity {
+    std::uint64_t id;
+    Entity* target;
+};
+
+static_assert(!boost::typelayout::is_admitted_v<
+    NativePointerEntity,
+    boost::typelayout::TransferProfile::whole_region_relocation>);
 
 struct FinalizingTickValue {
     RegionBuilder* builder;
@@ -163,6 +173,31 @@ std::uint32_t encode_offset(std::size_t offset) {
     require(offset < std::numeric_limits<std::uint32_t>::max(),
             "stored offset is not representable");
     return static_cast<std::uint32_t>(offset + 1);
+}
+
+std::uint32_t read_u32_le(std::span<const std::byte> bytes,
+                          std::size_t offset) {
+    require(offset <= bytes.size() && 4 <= bytes.size() - offset,
+            "little-endian read is out of bounds");
+    return static_cast<std::uint32_t>(
+               std::to_integer<unsigned char>(bytes[offset])) |
+        static_cast<std::uint32_t>(
+            std::to_integer<unsigned char>(bytes[offset + 1])) << 8 |
+        static_cast<std::uint32_t>(
+            std::to_integer<unsigned char>(bytes[offset + 2])) << 16 |
+        static_cast<std::uint32_t>(
+            std::to_integer<unsigned char>(bytes[offset + 3])) << 24;
+}
+
+void write_u32_le(std::span<std::byte> bytes,
+                  std::size_t offset,
+                  std::uint32_t value) {
+    require(offset <= bytes.size() && 4 <= bytes.size() - offset,
+            "little-endian write is out of bounds");
+    bytes[offset] = std::byte{static_cast<unsigned char>(value)};
+    bytes[offset + 1] = std::byte{static_cast<unsigned char>(value >> 8)};
+    bytes[offset + 2] = std::byte{static_cast<unsigned char>(value >> 16)};
+    bytes[offset + 3] = std::byte{static_cast<unsigned char>(value >> 24)};
 }
 
 std::string_view read_text(std::span<const std::byte> bytes,
@@ -382,6 +417,111 @@ void test_canonical_typed_access_and_descriptor_provenance() {
     require_throws<std::invalid_argument>([&] {
         static_cast<void>(view.elements(second_world.entities));
     }, "foreign descriptor must be rejected before offset resolution");
+}
+
+void test_relocation_business_mutation_and_reload() {
+    RegionBuilder unvalidated_builder;
+    const auto unvalidated_root =
+        populate_canonical_world(unvalidated_builder);
+    auto unvalidated =
+        std::move(unvalidated_builder).finish(unvalidated_root);
+    require_throws<std::logic_error>([&] {
+        set_world_tick(unvalidated, 43);
+    }, "tick mutation must reject an unvalidated region");
+    require_throws<std::logic_error>([&] {
+        set_entity_hp(unvalidated, boss_id, 250);
+    }, "entity mutation must reject an unvalidated region");
+
+    auto source_a = build_canonical_world();
+    const auto& world_a = world_root(source_a);
+    const auto view_a = source_a.view();
+    const auto entities_a = view_a.elements(world_a.entities);
+    const auto party_a = view_a.elements(world_a.party);
+    require(entities_a.size() == 2 && party_a.size() == 2,
+            "canonical source ranges must contain two elements");
+
+    const std::array<std::uint32_t, 7> expected_offsets{
+        entities_a[0].owner.raw_offset_plus_one(),
+        entities_a[0].target.raw_offset_plus_one(),
+        entities_a[1].owner.raw_offset_plus_one(),
+        entities_a[1].target.raw_offset_plus_one(),
+        party_a[0].raw_offset_plus_one(),
+        party_a[1].raw_offset_plus_one(),
+        world_a.local_player.raw_offset_plus_one(),
+    };
+    const auto offsets_a = capture_world_offsets(source_a);
+    require(offsets_a == expected_offsets,
+            "offset capture must use the documented seven-value order");
+    const auto* base_a = source_a.used_bytes().data();
+    const auto checkpoint_a = save_checkpoint(source_a);
+
+    auto loaded_b = load_checkpoint(checkpoint_a);
+    require(loaded_b.used_bytes().data() != base_a,
+            "loaded region B must use a different base than live source A");
+    require(capture_world_offsets(loaded_b) == offsets_a,
+            "all seven raw offsets must survive A-to-B relocation");
+    require(party_total_hp(loaded_b) == 420,
+            "canonical party HP must total 420");
+    require(canonical_graph_matches(loaded_b),
+            "canonical graph relationships must survive relocation");
+    require(world_root(loaded_b).tick == 42,
+            "loaded world must begin at tick 42");
+    require(find_entity(loaded_b, hero_id).hp == 120,
+            "Hero must begin with 120 HP");
+    require(find_entity(loaded_b, boss_id).hp == 300,
+            "Boss must begin with 300 HP");
+    require_throws<std::out_of_range>([&] {
+        static_cast<void>(find_entity(loaded_b, 9999));
+    }, "missing entity lookup must fail explicitly");
+
+    set_world_tick(loaded_b, 43);
+    set_entity_hp(loaded_b, boss_id, 250);
+    require(world_root(loaded_b).tick == 43,
+            "tick mutation must change only the schema-bound tick");
+    require(find_entity(loaded_b, hero_id).hp == 120,
+            "Boss mutation must not change Hero HP");
+    require(find_entity(loaded_b, boss_id).hp == 250,
+            "Boss mutation must change Boss HP to 250");
+    require(capture_world_offsets(loaded_b) == offsets_a,
+            "schema-bound mutation must not change graph offsets");
+    require(canonical_graph_matches(loaded_b),
+            "schema-bound mutation must preserve graph relationships");
+
+    auto loaded_c = load_checkpoint(save_checkpoint(loaded_b));
+    require(world_root(loaded_c).tick == 43,
+            "reloaded world C must retain tick 43");
+    require(find_entity(loaded_c, hero_id).hp == 120,
+            "reloaded world C must retain Hero HP 120");
+    require(find_entity(loaded_c, boss_id).hp == 250,
+            "reloaded world C must retain Boss HP 250");
+    require(party_total_hp(loaded_c) == 370,
+            "reloaded mutated party HP must total 370");
+    require(capture_world_offsets(loaded_c) == offsets_a,
+            "all seven raw offsets must survive B-to-C reload");
+    require(canonical_graph_matches(loaded_c),
+            "reloaded world C must retain canonical graph relationships");
+}
+
+void test_corrupt_local_player_rejects_at_graph_layer() {
+    auto source = build_canonical_world();
+    auto checkpoint = save_checkpoint(source);
+    const auto root_offset = read_u32_le(checkpoint, 20);
+    const auto local_player_offset = checkpoint_header_size +
+        static_cast<std::size_t>(root_offset) +
+        offsetof(WorldSnapshot, local_player);
+    write_u32_le(checkpoint, local_player_offset, 0xffffffffu);
+
+    bool rejected = false;
+    try {
+        auto unexpected = load_checkpoint(checkpoint);
+        static_cast<void>(unexpected);
+    } catch (const checkpoint_error& error) {
+        rejected = true;
+        require(error.layer() == rejection_layer::graph,
+                "corrupt local_player must reach graph validation");
+    }
+    require(rejected,
+            "corrupt local_player must be rejected before dereference");
 }
 
 void test_builder_capabilities_expire_without_mutation() {
@@ -677,6 +817,8 @@ int main() {
     test_empty_world_validation();
     test_one_entity_empty_name_validation();
     test_canonical_typed_access_and_descriptor_provenance();
+    test_relocation_business_mutation_and_reload();
+    test_corrupt_local_player_rejects_at_graph_layer();
     test_builder_capabilities_expire_without_mutation();
     test_reentrant_set_cannot_mutate_validated_world<RegionBuilder>();
     test_local_agreement();

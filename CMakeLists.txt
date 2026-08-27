@@ -86,6 +86,25 @@ target_link_libraries(relocatable_world_support PUBLIC typelayout)
 target_include_directories(relocatable_world_support PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/example/relocatable_world_demo)
 
+add_executable(relocatable_world_demo
+    example/relocatable_world_demo/demo.cpp)
+target_link_libraries(relocatable_world_demo PRIVATE
+    relocatable_world_support)
+add_test(NAME relocatable_world_demo COMMAND relocatable_world_demo)
+set_tests_properties(relocatable_world_demo PROPERTIES
+    LABELS "typelayout;example;relocatable-world"
+    PASS_REGULAR_EXPRESSION [=[^Admission\[whole_region_relocation\]: PASS
+Agreement\[producer_ok, 4 types\]: MATCH
+Relocation: base changed, raw offsets unchanged
+Graph: null [+] shared [+] cycle [+] pointer container PASS
+Business: party_hp=420, tick=42->43, boss_hp=300->250
+Reload: mutation persisted
+
+Negative\[native pointer\]: Admission FAIL, load skipped
+Negative\[packed Entity\]: Agreement DIFFER, load skipped
+Negative\[corrupt region offset\]: graph REJECT before dereference
+$]=])
+
 add_executable(test_relocatable_world test/test_relocatable_world.cpp)
 target_link_libraries(test_relocatable_world PRIVATE relocatable_world_support)
 add_test(NAME test_relocatable_world COMMAND test_relocatable_world)

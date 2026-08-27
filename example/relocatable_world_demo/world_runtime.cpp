@@ -18,8 +18,31 @@ namespace relocatable_world_demo {
 
 struct WorldRegionAccess {
     static const WorldSnapshot& root(const RegionBuffer& buffer) {
+        require_validated(buffer);
         return *std::launder(reinterpret_cast<const WorldSnapshot*>(
             buffer.storage_->bytes + buffer.root_offset_));
+    }
+
+    static void set_tick(RegionBuffer& buffer, std::uint64_t tick) {
+        require_validated(buffer);
+        auto* root = std::launder(reinterpret_cast<WorldSnapshot*>(
+            buffer.storage_->bytes + buffer.root_offset_));
+        root->tick = tick;
+    }
+
+    static void set_entity_hp(RegionBuffer& buffer,
+                              std::uint64_t id,
+                              std::int32_t hp) {
+        require_validated(buffer);
+        auto& entity = const_cast<Entity&>(find_entity(buffer, id));
+        entity.hp = hp;
+    }
+
+private:
+    static void require_validated(const RegionBuffer& buffer) {
+        if (!buffer.is_validated()) {
+            throw std::logic_error("region buffer has not been validated");
+        }
     }
 };
 
@@ -366,10 +389,104 @@ RegionBuffer build_canonical_world() {
 }
 
 const WorldSnapshot& world_root(const RegionBuffer& buffer) {
-    if (!buffer.is_validated()) {
-        throw std::logic_error("region buffer has not been validated");
-    }
     return WorldRegionAccess::root(buffer);
+}
+
+const Entity& find_entity(const RegionBuffer& buffer, std::uint64_t id) {
+    const auto& world = world_root(buffer);
+    const auto view = buffer.view();
+    const auto index = view.map(world.entity_index);
+    const auto found = index.find(id);
+    if (found == index.end()) {
+        throw std::out_of_range("entity ID was not found");
+    }
+
+    const auto entities = view.elements(world.entities);
+    if (found->value >= entities.size()) {
+        throw std::logic_error("validated entity index is out of range");
+    }
+    return entities[found->value];
+}
+
+std::array<std::uint32_t, 7> capture_world_offsets(
+    const RegionBuffer& buffer) {
+    const auto& world = world_root(buffer);
+    const auto view = buffer.view();
+    const auto party = view.elements(world.party);
+    if (party.size() != 2) {
+        throw std::logic_error("canonical party must contain two entries");
+    }
+
+    const auto& hero = find_entity(buffer, hero_id);
+    const auto& boss = find_entity(buffer, boss_id);
+    return {
+        hero.owner.raw_offset_plus_one(),
+        hero.target.raw_offset_plus_one(),
+        boss.owner.raw_offset_plus_one(),
+        boss.target.raw_offset_plus_one(),
+        party[0].raw_offset_plus_one(),
+        party[1].raw_offset_plus_one(),
+        world.local_player.raw_offset_plus_one(),
+    };
+}
+
+std::int32_t party_total_hp(const RegionBuffer& buffer) {
+    const auto& world = world_root(buffer);
+    const auto view = buffer.view();
+    std::int64_t total = 0;
+    for (const auto& pointer : view.elements(world.party)) {
+        if (const auto* entity = view.resolve(pointer)) {
+            total += entity->hp;
+        }
+    }
+    if (total < std::numeric_limits<std::int32_t>::min() ||
+        total > std::numeric_limits<std::int32_t>::max()) {
+        throw std::overflow_error("party HP total is not representable");
+    }
+    return static_cast<std::int32_t>(total);
+}
+
+void set_world_tick(RegionBuffer& buffer, std::uint64_t tick) {
+    WorldRegionAccess::set_tick(buffer, tick);
+}
+
+void set_entity_hp(RegionBuffer& buffer,
+                   std::uint64_t id,
+                   std::int32_t hp) {
+    WorldRegionAccess::set_entity_hp(buffer, id, hp);
+}
+
+bool canonical_graph_matches(const RegionBuffer& buffer) {
+    const auto& world = world_root(buffer);
+    const auto view = buffer.view();
+    const auto entities = view.elements(world.entities);
+    const auto party = view.elements(world.party);
+    const auto index = view.map(world.entity_index);
+    if (entities.size() != 2 || party.size() != 2 ||
+        world.entity_index.size() != 2) {
+        return false;
+    }
+
+    const auto hero_entry = index.find(hero_id);
+    const auto boss_entry = index.find(boss_id);
+    if (hero_entry == index.end() || boss_entry == index.end() ||
+        hero_entry->value >= entities.size() ||
+        boss_entry->value >= entities.size()) {
+        return false;
+    }
+
+    const auto& hero = entities[hero_entry->value];
+    const auto& boss = entities[boss_entry->value];
+    return hero.id == hero_id && boss.id == boss_id &&
+        hero.kind == EntityKind::player && boss.kind == EntityKind::boss &&
+        view.text(hero.name) == "Hero" && view.text(boss.name) == "Boss" &&
+        view.resolve(hero.owner) == nullptr &&
+        view.resolve(boss.owner) == &hero &&
+        view.resolve(hero.target) == &boss &&
+        view.resolve(boss.target) == &hero &&
+        view.resolve(party[0]) == &hero &&
+        view.resolve(party[1]) == &boss &&
+        view.resolve(world.local_player) == &hero;
 }
 
 } // namespace relocatable_world_demo
