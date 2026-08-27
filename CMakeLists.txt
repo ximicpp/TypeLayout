@@ -70,6 +70,15 @@ add_test(NAME test_core COMMAND test_core)
 set_tests_properties(test_core PROPERTIES
     LABELS "typelayout;core")
 
+add_executable(test_relocatable_region
+    test/test_relocatable_region.cpp)
+target_link_libraries(test_relocatable_region PRIVATE typelayout)
+target_include_directories(test_relocatable_region PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/example/relocatable_world_demo)
+add_test(NAME test_relocatable_region COMMAND test_relocatable_region)
+set_tests_properties(test_relocatable_region PROPERTIES
+    LABELS "typelayout;example;relocatable-world")
+
 set(TYPELAYOUT_XOFFSET_HEADER
     "${CMAKE_CURRENT_SOURCE_DIR}/vendor/XOffsetDatastructure/xoffsetdatastructure.hpp")
 
