@@ -10,6 +10,8 @@
 
 **Speaker-language rule:** the audience is a technical C++ audience, but the speaker is not a native English speaker. Keep the technical content exact. Use short sentences, common words, stable terms, and clear pause points. Avoid contractions, idioms, and long nested clauses.
 
+**Delivery-load rule:** each slide is a speaking map, not a transcript. Every spoken beat should follow a visible title, code line, table cell, formula, or reveal. Prefer about 60–85 spoken words on an ordinary one-minute slide. Use longer scripts only when visible code or data provides the speaking path. Keep necessary technical content, but remove repeated explanation. Include the transition and short pauses in the time budget.
+
 **Communication job:** By the end, C++ engineers should be able to decide when native object bytes may cross a declared boundary, because they understand the separate Admission and Agreement checks and the limited scope of the resulting Permit.
 
 **Source order:**
@@ -39,21 +41,21 @@ The title is the only main content. A short strip of bytes may support it visual
 
 **Speaker script**
 
-Good morning. I want to start with a simple question.
+Good morning. I want to start with one question.
 
-Can I copy this C++ object as bytes across a boundary?
+Can I copy this C++ object as raw bytes across a boundary?
 
-We already do this in shared memory, plugin interfaces, and files. We also do it between different ABIs.
+Native C++ types often become byte formats in shared memory, plugin interfaces, and files.
 
-But when bytes leave the build that made them, local checks are not enough.
+Across a boundary, the build or address space may change. Then local checks are not enough.
 
-Today I will show how C++26 reflection can turn this question into a compile-time decision. The evidence comes from the type itself.
+C++26 reflection lets each build create compile-time evidence. A verification build uses that evidence to decide.
 
 **Transition to Slide 2**
 
 Let us start with a type that looks safe.
 
-### Slide 2 — Would you permit these bytes on all declared builds?
+### Slide 2 — Would you permit these bytes across all declared builds?
 
 **Target time:** 65 seconds
 
@@ -74,22 +76,22 @@ static_assert(std::is_trivially_copyable_v<Measurement>);
 ✓ no ownership
 ✓ no virtual functions
 
-PERMIT?
+PERMIT ACROSS BUILDS?
 ```
 
 **Speaker script**
 
-Here is a small measurement record. It has an integer ID and a `long double` value.
+Here is a small record: a 64-bit unsigned ID and a `long double` value.
 
-It is trivially copyable. It has no pointer. It has no ownership. It has no virtual function.
+The checklist looks good. The type is trivially copyable, with no pointer, ownership, or virtual function.
 
-On this build, it looks safe for a raw byte copy.
+On this build, a raw byte copy looks valid.
 
-Now suppose several builds may write or read these bytes. Would you permit this type on every declared build?
+But several builds may produce or consume these bytes. Should we permit transfer across all of them?
 
-The question is not whether one local `memcpy` compiles. The question is whether these native bytes can become a boundary format.
+A local `memcpy` is not enough. Can these native bytes serve as a format across builds?
 
-For now, the answer is open. Permit, or no permit?
+We do not have the evidence yet. Permit, or reject?
 
 **Transition to Slide 3**
 
@@ -116,17 +118,17 @@ the producer's build or address space.
 
 **Speaker script**
 
-Inside one build, object layout can stay an implementation detail. The compiler chooses it. All code in that build uses the same choice.
+Inside one build, object layout is usually an implementation detail. The compiler chooses it.
 
-At a boundary, another consumer uses the bytes. That consumer may use another build. It may use another address space. It may also read the bytes much later.
+At a boundary, another consumer receives the bytes. It may use another build or address space. It may also read them later.
 
-The object representation is now part of a binary contract.
+Now, the object representation is part of a binary contract.
 
-In this talk, a boundary is any place where the consumer cannot assume the producer's build or address space.
+Here, boundary means the consumer cannot assume the producer's build or address space.
 
-This includes another process, a separate plugin build, a file, or another ABI.
+Examples include another process, a separately built plugin, a file, or a consumer built for another ABI.
 
-Once the representation becomes a contract, we need evidence for it.
+Once representation becomes part of a contract, we need evidence.
 
 **Transition to Slide 4**
 
@@ -140,26 +142,27 @@ We must track two separate assumptions.
 
 | | Same address space | Different address space |
 |---|---|---|
-| **Same build** | local case | Process A / Process B |
-| **Different build** | Plugin / Host | stored bytes / cross-target |
+| **Same build** | local case | same executable, two processes |
+| **Different build** | Plugin / Host | another build reads stored bytes |
 
 ```text
-A boundary may lose either assumption—or both.
+A boundary may change the build,
+the address space, or both.
 ```
 
 **Speaker script**
 
-First, separate build identity from address-space identity.
+First, separate two questions. Is the build the same? Is the address space the same?
 
-The top-left cell is the normal local case. The build is the same. The address space is also the same. Most local language guarantees apply here.
+Top left: both are the same. This is the local case.
 
-Now run the same executable in another process. The build stays the same, but the address space changes.
+Top right: the same build runs in two processes. The address spaces are different.
 
-Next, load a separate plugin build into one process. The address space stays the same, but the build changes.
+Bottom left: a host and plugin share one address space, but come from different builds.
 
-Finally, write native bytes and read them later on another target. Now both assumptions may be gone.
+Bottom right: another build reads stored bytes in another address space.
 
-These cases can fail for different reasons. A pointer problem is not a layout problem. Both can still make the byte transfer unsafe.
+The cases fail for different reasons. Pointers depend on the address space. Object representation may depend on the build. Either difference can reject raw-byte transfer.
 
 **Transition to Slide 5**
 
@@ -185,15 +188,17 @@ address-space identity: lost
 
 **Speaker script**
 
-Imagine two processes running the same executable. The compiler made the same layout in both processes. Layout is not the first problem here.
+Now keep the build and change only the address space.
 
-Now copy a pointer value from Process A to Process B. Every pointer bit survives. The field keeps the same size, alignment, and offset.
+Two processes run the same executable, so the layout is the same.
 
-But the target object belongs to Process A. The same address in Process B may name another object. It may name no object at all.
+Copy a pointer value from Process A to Process B. Every bit survives. The field keeps the same size, alignment, and offset.
 
-The representation is the same, but the value cannot stand alone. Some bits need the context that created them.
+But the target object belongs to Process A. In Process B, the same address may name another object, or no object.
 
-We will name this check later. For now, remember the failure. The bits survived, but the target did not.
+The representation matches, but the value depends on its source address space.
+
+The bits survived. The target did not.
 
 **Transition to Slide 6**
 
@@ -224,15 +229,17 @@ Pointers may still work, but layout Agreement is not automatic.
 
 **Speaker script**
 
-A plugin and its host can share one address space. An agreed pointer may still name the same object.
+Now keep one address space, but change the build.
 
-But the plugin and host can be separate builds. The compiler may differ. Flags, headers, packing, or the standard-library ABI may also differ.
+A plugin and its host can share one process. An agreed pointer may still name the same object.
 
-One address space does not tell us the member offsets. It does not tell us the bit-field layout. It does not tell us the representation of `long double`.
+But they are separate builds. The compiler, flags, headers, packing, or standard-library ABI may differ.
 
-This case is the opposite of the process case. The pointer target may still be valid. The two layouts may still differ.
+A shared address space does not guarantee matching offsets, bit-fields, or `long double` representation.
 
-Later, I will use a stricter profile. It will not depend on a shared address space. Then all three boundary cases can use the same rule.
+The pointer may work while the layouts differ.
+
+Later, one strict profile will cover all three cases without relying on shared addresses.
 
 **Transition to Slide 7**
 
@@ -258,13 +265,15 @@ Other obligations: versioning · trust · crash consistency
 
 **Speaker script**
 
-A file makes the problem clear. Build A writes an object's native bytes today. Build B reads them later. Build B may run on another target.
+A file can lose both assumptions.
 
-The first address space is gone. A process-local reference may no longer work. The first build may also be gone. The new build may use another layout.
+Build A writes native bytes. Build B reads them later, perhaps on another target.
 
-Stored data also needs versioning, trust, durability, and crash consistency. These are important, but they are outside today's main question.
+The first address space is gone, so local references may fail. The build may also change, so the layout may differ.
 
-Today I will focus on object representation. May this type travel as native bytes? Did every declared build produce the same representation?
+Stored data also needs versioning, trust, durability, and crash consistency. Those topics are outside this talk.
+
+Here we ask only two questions. May the type travel as native bytes? Did every declared build produce the same representation?
 
 **Transition to Slide 8**
 
@@ -283,8 +292,8 @@ Stored bytes ─┘
 ```
 
 ```text
-ordinary object copy
-zero fixup
+memcpy-style object transfer
+no fixup or field conversion
 source-address-independent bytes
 finite declared build set
 ```
@@ -297,13 +306,13 @@ Two questions
 
 **Speaker script**
 
-This talk uses one strict transfer profile.
+This talk uses one strict transfer profile for all three cases.
 
-First, we use an ordinary object copy. Second, we do no pointer fixup and no field conversion. Third, the bytes cannot depend on the producer's address space. Fourth, we declare a finite set of builds.
+It uses `memcpy`-style object transfer. There is no fixup and no field conversion. The bytes cannot depend on the source address space. The build set is finite and declared.
 
-Some plugin or shared-memory systems can use a less strict profile. For example, they may support relocation. They may also allow agreed local references. Such a profile needs different evidence.
+Some systems support relocation or agreed local references. They need a different profile and different evidence.
 
-Our strict profile gives all three cases the same two questions. Can the bytes stand on their own? Are they the same on every declared build?
+Under this strict profile, two questions remain. Can the bytes stand on their own? Are they the same on every declared build?
 
 **Transition to Slide 9**
 
@@ -329,9 +338,11 @@ Boundary
 
 This is the full path through the talk.
 
-A boundary creates a representation question. Local checks cannot compare separate builds. So every build must emit the same kind of evidence.
+A boundary creates the question. Local checks cannot compare builds, so each build emits canonical evidence.
 
-We compare that evidence for Agreement. We check Admission separately. Then CI checks the full declared contract.
+We use that evidence to check Agreement. We check Admission separately.
+
+Then CI checks the full declared contract.
 
 Only after every check passes do we issue a narrow Permit.
 
@@ -360,13 +371,13 @@ Two local results do not compare the builds.
 
 **Speaker script**
 
-`std::is_trivially_copyable_v<T>` answers an important local question. It tells us whether the language allows the normal byte-copy operation for this type.
+`std::is_trivially_copyable_v<T>` answers an important local question. It tells us whether this type supports the ordinary byte-copy operation.
 
-Build A checks the trait for itself. Build B does the same. Both results can be true, but the two builds may still use different layouts.
+Build A checks itself. Build B does the same. Both results may be true, but the builds may still use different layouts.
 
-The trait does not compare offsets. It does not compare alignment. It does not compare the representation of `long double`.
+The trait does not compare offsets, alignment, or the representation of `long double`.
 
-We still need this trait. It will be part of Admission. But it cannot prove Agreement between builds.
+We still need it for Admission. But it cannot prove Agreement between builds.
 
 **Transition to Slide 11**
 
@@ -402,15 +413,17 @@ Equal size can hide different offsets and leaf layouts.
 
 **Speaker script**
 
-Different sizes give a clear answer. If one build says sixteen bytes and another says twenty-four, the representations are different.
+Different sizes prove that two representations differ. Equal size does not prove a match.
 
-Equal size does not give the opposite answer. This record has sixteen-byte alignment. With a two-byte `wchar_t`, `code` starts at offset two. `tail` starts at offset four.
+This record has 16-byte alignment, so both builds report a total size of 16.
 
-With a four-byte `wchar_t`, `code` starts at offset four. `tail` starts at offset eight. Both records are still sixteen bytes.
+With a two-byte `wchar_t`, `code` starts at offset two and `tail` at four.
 
-Equal size can hide different offsets, padding, bit layout, alignment, and leaf representation.
+With a four-byte `wchar_t`, `code` starts at four and `tail` at eight.
 
-So different sizes can reject a pair. Equal sizes cannot approve it.
+The total size is equal, but the offsets and leaf representation differ. Equal size can also hide padding, bit layout, or alignment differences.
+
+Size can reject a mismatch. It cannot approve a match.
 
 **Transition to Slide 12**
 
@@ -431,16 +444,16 @@ We need each build to describe the representation it produced.
 
 ```text
 Complete
-Did we record every required representation fact?
+Record every required representation fact.
 
 Canonical form
-Do the same facts produce the same normalized form?
+The same facts produce the same normalized form.
 
 Detect differences
-Does an encoded difference change the certificate?
+A changed fact changes the certificate.
 
 Fail closed
-Does missing evidence stop generation?
+A missing required fact stops generation.
 ```
 
 ```text
@@ -450,19 +463,19 @@ A certificate for one supported representation domain.
 
 **Speaker script**
 
-Before we build a signature, we need four clear rules.
+Before we build a signature, we need four rules.
 
-First, the certificate must be complete. We must record every representation fact that the check needs.
+Complete means every required representation fact is present.
 
-Second, the form must be canonical. The same supported facts must produce the same form.
+Canonical means the same supported facts produce the same form.
 
-Third, the certificate must detect differences. If an encoded fact changes, the certificate must change.
+Detect differences means a changed fact changes the certificate.
 
-Fourth is fail closed. If required evidence is missing, generation must stop. Partial evidence must never look complete.
+Fail closed means generation stops when a required fact is unavailable. Partial evidence must not look complete.
 
-This is not a hash of the type name. The same name can have different layouts. Different names can also have the same layout.
+This is not a hash of the type name. A name does not prove a layout.
 
-The certificate covers representation facts in one supported domain. It does not claim to model every C++ type.
+The certificate covers one supported representation domain. It does not model every C++ type.
 
 **Transition to Slide 13**
 
@@ -504,19 +517,17 @@ ordinary C++ type · no IDL · no generated serialization stubs
 
 **Speaker script**
 
-The declaration tells us which parts exist. It also tells us their types. But it does not give the final byte map for this build.
+The declaration gives us the members and their types. It does not give the final byte map for this build.
 
-For `PacketHeader`, this compiler puts `magic` at offset zero. The two sixteen-bit fields are at offsets four and six. `payload_len` is at eight. `checksum` is at twelve.
+Here, the compiler places `magic` at zero. The two 16-bit fields start at four and six. The last two fields start at eight and twelve.
 
-The full record is sixteen bytes. Its alignment is four.
+The full record is 16 bytes, with alignment four.
 
 These are facts from this build. Another compiler or ABI may make another valid choice.
 
-TypeLayout does not guess these facts from declaration order. It asks the current compiler. Every declared build must therefore generate its own evidence.
+TypeLayout asks the current compiler instead of guessing from declaration order. Each declared build produces its own evidence.
 
-The input is still an ordinary C++ type. We add no second IDL. We generate no serialization stubs. We do no runtime inspection.
-
-The compiler builds the certificate at compile time from the real type.
+The input stays an ordinary C++ type. There is no second IDL, generated serialization stub, or runtime inspection.
 
 **Transition to Slide 14**
 
@@ -551,15 +562,15 @@ TypeLayout: normalization policy
 
 **Speaker script**
 
-C++26 reflection lets a constant-evaluated program inspect the compiler's type.
+C++26 reflection lets constant-evaluated code inspect the compiler's type.
 
-For a record, we list its non-static data members and bases. For each member, we get its type and position. For a bit-field, we also get its bit width.
+For a record, we list its data members and bases. For each member, we read its type and position. For a bit-field, we also read its width.
 
-Then we classify the type. If it contains more structure, we repeat the same process.
+Then we classify the type. If it contains more structure, we recurse.
 
-Reflection gives us compiler facts. TypeLayout decides which facts to record and how to normalize them.
+Reflection supplies compiler facts. TypeLayout chooses which facts to keep and how to normalize them.
 
-Reflection alone does not define compatibility. The recursive policy builds one certificate. Another build can produce the same form, and CI can compare them.
+Reflection alone does not define compatibility. The policy builds a certificate that another build can produce and CI can compare.
 
 **Transition to Slide 15**
 
@@ -587,17 +598,17 @@ There is no “probably compatible” fallback.
 
 **Speaker script**
 
-The dispatcher has a small set of clear results.
+The dispatcher gives one clear result for every supported kind.
 
-A supported leaf becomes a canonical token. We also record its size and alignment.
+A leaf becomes a canonical token with size and alignment.
 
-For an enum, we record the underlying representation. For an array, we record the count and the element representation. For a record or supported union, we record its layout and inspect its parts.
+An enum records its underlying representation. An array records its extent and element representation. A record or supported union records its layout and then recurses.
 
-An opaque type is different. Reflection does not see its hidden details. The application must provide a named trust contract for that region.
+For an opaque type, the application must provide a named trust contract.
 
-An unsupported kind causes a compile-time error. There is no fallback based on a reasonable-looking size.
+An unsupported kind causes a compile-time error. There is no fallback based only on size.
 
-This keeps the fail-closed rule from the last slide.
+That keeps the check fail closed.
 
 **Transition to Slide 16**
 
@@ -622,17 +633,17 @@ member names and typedef spellings are not recorded
 
 **Speaker script**
 
-A leaf token tells us which representation the compiler selected. It does not keep the source spelling.
+A leaf token describes representation, not source spelling.
 
-An alias of `std::uint32_t` still becomes `u32`. A supported IEC 559 `float` becomes `f32`. The extended x86 `long double` becomes `fld80`.
+An alias of `std::uint32_t` still becomes `u32`. A supported 32-bit float becomes `f32`. The x86 extended format becomes `fld80`.
 
-A pointer gets a pointer-like token. Its local size and alignment are also recorded.
+A pointer gets the token `ptr`. Its local size and alignment are recorded too.
 
-The size and alignment stay explicit. The token does not need to carry every layout fact.
+Size and alignment stay explicit beside every token.
 
-We do not record member names or typedef spelling. This check is about representation, not schema identity.
+We do not record member names or typedef spellings. This is representation evidence, not schema identity.
 
-The appendix lists the exact rules for `char`, `bool`, `wchar_t`, and floating-point types.
+The appendix contains the exact rules for the less common leaf types.
 
 **Transition to Slide 17**
 
@@ -665,15 +676,15 @@ but keeps every byte position.
 
 **Speaker script**
 
-The same leaf can appear inside a nested member. It can appear inside a base. It can also appear directly in a flat record.
+A leaf may be nested, inherited from a base, or stored directly in the record.
 
-These source paths are different. But the byte-transfer check needs the position inside the full object.
+Those source paths differ. The byte-transfer check needs the final position inside the complete object.
 
-So the walk adds the offsets. If the parent starts at eight and the child starts at four, the leaf is at absolute offset twelve.
+So we add offsets. A parent at eight plus a child at four gives absolute offset twelve.
 
-We remove the source path, but we keep the byte position.
+We remove the source path, but keep the byte position.
 
-This does not mean the declarations have the same schema or meaning. A protocol that needs names or nesting needs an explicit schema. Our certificate answers only the representation question.
+This does not prove equal schema or meaning. A protocol that needs names or nesting still needs an explicit schema.
 
 **Transition to Slide 18**
 
@@ -704,17 +715,15 @@ Reject missing facts.
 
 **Speaker script**
 
-Virtual inheritance is a useful fail-closed example. Its final representation depends on hidden implementation details. This signature domain does not encode all of them.
+Virtual inheritance is a fail-closed example. Its final representation uses hidden implementation details that this signature does not encode.
 
-We must not record only the visible fields and ignore the missing facts. That would create a certificate that looks complete but is not complete.
+We must not record only the visible fields. That would make partial evidence look complete.
 
-TypeLayout rejects signature generation for this case.
+So TypeLayout rejects signature generation for this type.
 
-This does not mean virtual inheritance can never cross a boundary. It only means this check does not have enough evidence.
+This does not prove that transfer is impossible. It means this check lacks the required evidence.
 
-The rule is simple. Encode visible supported structure. Use a named trust contract for an opaque region. Reject any required fact that the check cannot cover.
-
-The appendix has the full list of difficult cases.
+The rule is simple. Encode supported visible structure. Name an explicit trust contract for an opaque region. Reject any required fact that remains uncovered.
 
 **Transition to Slide 19**
 
@@ -745,21 +754,19 @@ u32[s:4,a:4]     leaf token + leaf layout
 
 **Speaker script**
 
-Here is the full certificate for `PacketHeader`.
+Here is the certificate for `PacketHeader`.
 
-The `[64-le]` prefix records two facts. Pointers are sixty-four bits wide. The target uses little-endian byte order.
+The `[64-le]` prefix records pointer width and endianness. It is not a CPU or ISA name. CI will bind the exact producer identity later.
 
-This prefix is not a CPU name. It is not an ISA name. CI will bind the exact compiler and target later.
+The record header gives the root size and alignment.
 
-The record header says the object is sixteen bytes. Its alignment is four.
+Each entry gives an absolute offset, a canonical token, and the leaf size and alignment.
 
-Each entry has an absolute offset and a canonical leaf token. It also has the leaf size and alignment.
+The certificate stays readable. A hash may help with lookup, but the encoded facts remain the evidence.
 
-This evidence is readable. It is not only a hash. A hash can help with lookup, but CI still needs the encoded facts.
+Because generation stops when a required fact is missing, a completed certificate meets all four rules.
 
-The four rules now hold. Required facts are present. The form is canonical. An encoded difference changes the text. A missing required fact stops generation.
-
-The same walk also gives us facts for Admission. First, let us ask what equal certificates prove.
+This certificate supports Agreement. The same walk also supplies facts for Admission.
 
 **Transition to Slide 20**
 
@@ -801,15 +808,15 @@ same contract key
 
 **Speaker script**
 
-Agreement checks one registered key on one declared build edge.
+Agreement checks one registered key on one declared edge.
 
-The key tells us that both artifacts refer to the same boundary type. The signature tells us what representation each build produced.
+The key says that both artifacts refer to the same boundary type. The signature says what representation each build produced.
 
-Both parts matter. Equal signatures under different keys do not join two application concepts. The same key with different signatures does not hide a layout change.
+Both are required. Equal signatures under different keys do not join two application concepts. One key with different signatures exposes a layout change.
 
-Inside one signature domain and version, exact equality gives Agreement for this edge.
+Within one signature domain and version, exact equality gives Agreement on this edge.
 
-This result covers only Build A and Build B. It does not yet permit the transfer. It also says nothing about the full build set.
+Agreement alone does not permit transfer. It also says nothing about the full build set.
 
 **Transition to Slide 21**
 
@@ -844,15 +851,15 @@ No compatibility score is needed.
 
 **Speaker script**
 
-The certificate is canonical, so the comparison can be exact.
+The certificate is canonical, so the comparison is exact.
 
-If the strings match, every encoded fact matches. If they differ, the text shows where the first useful difference appears.
+If the strings match, every encoded fact matches. If they differ, the text shows the first useful difference.
 
-An offset may move from eight to twelve. A leaf may change from `f64` to `fld80`. An alignment may change from four to eight.
+Here, one build has `f64` at offset eight. The other has `fld80` at offset sixteen.
 
-The compile-time check uses the function shown here. If the two stored signatures differ, the `static_assert` fails.
+The `static_assert` fails when the stored signatures differ.
 
-We do not need a score or a close-enough rule. A hash can make lookup faster. But we still keep the full certificate for a clear diagnostic.
+We do not need a score or a close-enough rule. A hash may speed up lookup, but the full certificate gives the diagnostic.
 
 **Transition to Slide 22**
 
@@ -880,15 +887,15 @@ Matching certificates do not prove that the value can stand alone.
 
 **Speaker script**
 
-Agreement proves exact equality of the encoded certificates in the declared domain.
+Agreement proves equality of the encoded representation in the declared domain.
 
-It does not prove that both builds used the same source declaration. We removed names and source paths when they did not affect the byte map.
+It does not prove source identity. We removed names and source paths when they did not affect the byte map.
 
-It does not prove that the application gives the bits the same meaning. Reflection cannot discover the application's rules.
+It does not prove application meaning. Reflection cannot discover those rules.
 
-It also does not prove that the value can stand alone. A field can have the same representation on every build and still refer to local state.
+It also does not prove that the value can stand alone. Matching bits may still refer to producer-local state.
 
-These limits are important. Agreement proves one exact claim. It does not pretend to prove source identity, meaning, or independence.
+Agreement makes one exact claim, and nothing more.
 
 **Transition to Slide 23**
 
@@ -923,17 +930,17 @@ The pointer bits survived. The target object did not cross the boundary.
 
 **Speaker script**
 
-This `BufferView` can have the same layout on two builds. Both use sixty-four-bit pointers and little-endian byte order. The size field matches. The pointer token, offset, size, and alignment also match.
+`BufferView` can have the same layout on two builds. The size field matches. The pointer token, offset, size, and alignment also match.
 
 Agreement correctly reports a match.
 
-Now move the bytes to another process. The pointer bits survive. But the consumer has no known object at that address.
+Now move the bytes to another process. The pointer bits survive, but the consumer has no known object at that address.
 
-The value depends on the producer's address space. Our strict profile does not allow that dependency.
+The value depends on the producer's address space. Our strict profile rejects that dependency.
 
-Agreement must not report a layout error, because the layouts match. Another check must reject the real problem.
+This is not a layout error. A separate check must reject it.
 
-We call that check Admission. Here, Agreement matches and Admission fails.
+That check is Admission. Here, Agreement matches and Admission fails.
 
 **Transition to Slide 24**
 
@@ -950,7 +957,7 @@ Admission_P(K,B)
 
 K  registered boundary type
 B  one actual build
-P  ordinary copy · zero fixup · source-address-independent
+P  ordinary copy · no fixup · source-address-independent
 ```
 
 ```text
@@ -960,15 +967,17 @@ It is not a universal rule for every possible boundary.
 
 **Speaker script**
 
-Admission checks one registered type, one real build, and one transfer profile.
+Admission checks one registered type, one build, and one transfer profile.
 
-The profile must be part of the input. The phrase “safe to transfer” is too broad without clear rules.
+The profile must be explicit. “Safe to transfer” has no clear meaning without it.
 
-Our profile uses an ordinary object copy. It does no fixup. The bytes cannot depend on the producer's address space.
+Our profile uses `memcpy`-style transfer. It performs no fixup, and the bytes cannot depend on the source address space.
 
-Under this profile, an ordinary pointer fails. Another system may support shared addresses or relocation. That system needs another profile and other evidence.
+An ordinary pointer fails this profile.
 
-TypeLayout is not saying that pointers are always bad. It is saying that pointer-dependent bytes fail this profile.
+Another system may support shared addresses or relocation. It needs another profile and other evidence.
+
+Pointers are not universally invalid. Pointer-dependent bytes simply fail the profile used in this talk.
 
 **Transition to Slide 25**
 
@@ -1000,17 +1009,17 @@ RepresentationEvidenceComplete
 
 **Speaker script**
 
-The first condition is local copy legality. The language must allow the normal byte-copy operation for this type.
+Admission has three conditions under this profile.
 
-The second condition is no detected source-context dependency. A pointer is the clear example. Its value may need the producer's address space.
+First, the local byte-copy operation must be legal.
 
-This is a structural check. It does not prove that no hidden semantic dependency exists.
+Second, the structural check must find no dependency on producer-local context.
 
-The third condition is complete representation evidence. Every required part must be encoded or covered by a named trust contract.
+Third, every required representation fact must be encoded or explicitly trusted.
 
-If a required part is unsupported, signature generation already failed. Admission cannot turn missing evidence into a pass.
+If a required fact is unsupported, signature generation fails. Admission cannot turn missing evidence into a pass.
 
-The three conditions are separate. A type can be trivially copyable but depend on its source process. A simple type can also fall outside the supported signature domain.
+These conditions are independent. They are also structural, so they cannot prove hidden application meaning.
 
 **Transition to Slide 26**
 
@@ -1048,17 +1057,17 @@ is_admitted_v        → the type passes the local profile
 
 **Speaker script**
 
-For the ordinary-copy profile, the implementation checks the full local rule.
+For the ordinary-copy profile, `is_admitted_v` applies the three local conditions.
 
-First, signature generation must succeed. This shows that the required representation evidence is complete.
+The type must be trivially copyable. It must be recursively byte-copy safe. Its source context must be independent.
 
-Next, `is_admitted_v` checks three things. The type must be trivially copyable. It must pass the recursive byte-copy-safe check. It must also be independent of the source context.
+The tree shows why recursion matters. A pointer may be hidden inside a nested record or an array element.
 
-The `FramedPacket` tree shows why recursion matters. A pointer may be hidden inside a nested record. It may also be hidden inside an array element.
+`is_byte_copy_safe_v<T>` is only one part of Admission.
 
-`is_byte_copy_safe_v<T>` alone is not the full Admission rule. It is only one part of the check.
+Signature generation supplies the evidence-completeness condition. It proves that the required representation facts can be encoded.
 
-Together, signature generation and the `static_assert` give us local evidence for `PacketHeader`. We still need Agreement to compare builds.
+Together, the signature and `static_assert` provide local evidence. Agreement must still compare the builds.
 
 **Transition to Slide 27**
 
@@ -1087,13 +1096,15 @@ TypeLayout cannot recognize a handle disguised as an integer.
 
 **Speaker script**
 
-This type contains only a fixed-width integer. Its structure looks self-contained. It may pass trivial copyability, byte-copy safety, and signature generation.
+This type contains one fixed-width integer. Its structure looks self-contained, so structural Admission may pass.
 
-But the application may use `descriptor` as an operating-system file descriptor. Copying the integer to another process does not transfer the open file.
+But the application may use `descriptor` as an operating-system file descriptor.
 
-Reflection cannot learn that meaning from an integer type. Structural Admission may pass, while the application still rejects the field.
+Copying that integer to another process does not transfer the open file.
 
-This is why the talk claims representation compatibility, not semantic compatibility. The application still owns rules that are not visible in the type.
+Reflection cannot learn this meaning from the type. The application may still reject the field.
+
+This is why the talk claims representation compatibility, not semantic compatibility. Application rules remain the application's responsibility.
 
 **Transition to Slide 28**
 
@@ -1124,19 +1135,17 @@ EDGE PASS is not the final Permit.
 
 **Speaker script**
 
-The rule for one edge is simple.
+For one edge, both builds must pass Admission. Their signatures must also agree.
 
-Build A must pass Admission under profile P. Build B must also pass. Then their signatures must match on the declared edge.
+If either Admission fails, matching layouts cannot save the transfer. That is the pointer case.
 
-If either build fails Admission, matching layouts cannot save the transfer. This is the pointer case.
+If Agreement fails, local Admission cannot save it. That will be the `long double` case.
 
-If Agreement fails, local Admission cannot save the transfer. This will be the `long double` case.
+Only the top-left cell gives `EDGE PASS`.
 
-Only the top-left cell gives `EDGE PASS`. Admission passes at both ends, and Agreement matches on the edge.
+The formula assumes valid evidence from the correct builds. CI will check that next.
 
-This formula assumes valid evidence from the correct builds. CI will check that condition.
-
-`EDGE PASS` is not the final Permit. It covers one type on one edge. The full contract may contain more types, builds, and edges.
+`EDGE PASS` is not the final Permit. It covers one type on one edge, not the full contract.
 
 **Transition to Slide 29**
 
@@ -1176,17 +1185,15 @@ It does not prove every present or future build.
 
 **Speaker script**
 
-To move from one edge to a real Permit, we must name the full scope.
+A Permit must name its full scope. We write it as `C = R, V, E, P`.
 
-I write the contract as `C = R, V, E, P`.
+`R` is the registered type keys. `V` is the exact build set. `E` is the required transfer edges. `P` is the transfer profile.
 
-`R` is the set of registered type keys. `V` is the exact set of builds. `E` is the set of required transfer edges. `P` is the transfer profile.
+Each part changes the claim.
 
-Each part changes the claim. Add a type, and CI needs another type decision. Add a build, and CI needs another node. Add an edge, and CI needs another Agreement check.
+A new type needs another type decision. A new build needs another node. A new edge needs another Agreement check. A new profile changes Admission.
 
-Change the profile, and the meaning of Admission changes.
-
-The contract is finite and clear. CI proves this declared set. It does not prove every compiler, every target, or a future ABI.
+CI proves only this finite contract. It does not prove every compiler, target, or future ABI.
 
 **Transition to Slide 30**
 
@@ -1218,13 +1225,13 @@ No build can speak for another build.
 
 **Speaker script**
 
-Each real build compiles the C++ type. It creates its own certificate and checks its own Admission facts.
+Each real build compiles the type. It creates its own signature and runs its own Admission check.
 
-The Linux GCC build cannot predict the Linux Clang result. The Linux Clang build cannot speak for Apple ARM64. The Apple build cannot use a signature copied from another target.
+Linux GCC cannot predict Linux Clang. Linux Clang cannot speak for Apple ARM64. No build may reuse a signature from another target.
 
-The compiler and ABI are part of what we measure. If one machine creates every artifact, we replace evidence with an assumption.
+The compiler and ABI are part of what we measure. One build cannot create evidence for every environment.
 
-All builds can use the same source registration. But each build must run reflection and the local checks in its own environment.
+The builds may share one source registration. But reflection and local checks must run inside each declared build.
 
 **Transition to Slide 31**
 
@@ -1264,17 +1271,15 @@ CI must prove which build produced it.
 
 **Speaker script**
 
-The generated header contains three things. It has the contract key, the layout signature, and a local byte-copy-safe result.
+The generated header contains the contract key, layout signature, and a byte-copy-safe diagnostic fact.
 
-This header is not the full Admission proof. In the same job, signature generation must succeed. The compile-time Admission check must also pass.
+It is not the full Admission proof. In the same job, signature generation must succeed and the ordinary-copy Admission check must pass.
 
-The exporter also rejects a non-trivially-copyable type on this path. But that is only one part of Admission.
+CI consumes both results: the successful local gate and the emitted artifact. It does not rebuild Admission from `TypeEntry` alone.
 
-CI uses both results from each build. It uses the successful local gate and the emitted artifact. It does not rebuild the full Admission decision from `TypeEntry` alone.
+The header also cannot prove who made it. A string cannot prove the compiler, source revision, or build run.
 
-The header still cannot prove who made it. A string can claim any platform name. The file cannot prove the compiler, source revision, or build run.
-
-So we keep two questions separate. What did the build report? Which declared build produced that report?
+So CI asks two questions. What did the build report? Which declared build produced that report?
 
 **Transition to Slide 32**
 
@@ -1308,17 +1313,15 @@ It is not a third compatibility gate.
 
 **Speaker script**
 
-CI ties the artifact and the local gate result to one declared build and one CI run.
+CI ties the artifact and local gate result to one declared build and one CI run.
 
-The full record may include the source revision, compiler version, and target. It may also include headers, ABI flags, TypeLayout version, job identity, build result, and artifact digest.
+The full record may include the source revision, compiler, target, ABI flags, job identity, and artifact digest. The appendix has the full list.
 
-That full list belongs in the appendix. The main idea is simple.
+The main idea is simple. The artifact says what the build observed. CI proves who produced it and when.
 
-The artifact says what the build observed. CI proves who produced it and when.
+CI checks provenance before Admission or Agreement. Provenance is not a third compatibility gate.
 
-CI checks provenance before it uses Admission or Agreement. Provenance is not a third compatibility gate.
-
-Missing or old provenance does not prove a layout difference. It means CI cannot make the decision. We will call that state `INCOMPLETE`.
+Missing or old provenance means CI cannot decide. The result is `INCOMPLETE`.
 
 **Transition to Slide 33**
 
@@ -1355,15 +1358,15 @@ Make a separate decision for every K in R.
 
 This is the one-edge rule applied to the full contract.
 
-For one key `K`, every build in `V` must pass Admission under the same profile. This result comes from the compile-time gate in that build.
+For one key `K`, every build in `V` must pass Admission under the same profile.
 
-Then every required edge in `E` must pass Agreement for the same key.
+Then every required edge in `E` must pass Agreement for that key.
 
 Only the full result gives `ClosedPermit_C(K)`.
 
-If any build may write and any other build may read, every pair is part of the claim. CI may compare all signatures with one reference signature. Equality makes that safe. But the logical requirement still covers every declared edge.
+If every build can communicate with every other build, every pair belongs to the claim. CI may compare each signature with one reference, because equality is transitive.
 
-CI repeats the decision for every key in `R`. One type can receive a Permit while another type is rejected. There is no unclear global Permit for a mixed result.
+CI repeats this decision for every key in `R`. One type may receive a Permit while another is rejected.
 
 **Transition to Slide 34**
 
@@ -1393,21 +1396,19 @@ Next: safe + match · match + not safe · layout difference
 
 **Speaker script**
 
-CI has three possible results. We must keep them separate.
+CI has three results, and we must keep them separate.
 
-If evidence is missing, old, or not tied to the right build, the result is `INCOMPLETE`. CI could not check the full contract. It gives no Permit.
+Missing, old, or untrusted evidence gives `INCOMPLETE`. CI cannot check the full contract, so there is no Permit.
 
-If the evidence is valid but either gate fails, the result is `REJECT`. CI checked the claim, and one gate failed.
+Valid evidence with a failed gate gives `REJECT`.
 
-If valid evidence covers the full graph and both gates pass, the key receives `PERMIT`.
+Valid evidence with a complete passing graph gives `PERMIT`.
 
-For example, suppose the Apple job did not run. The three-build contract does not become a two-build contract. The result is `INCOMPLETE`.
+If the Apple job is skipped, the three-build contract does not become a two-build contract. It is `INCOMPLETE`; the type did not pass or fail.
 
-The type did not pass. It also did not fail.
+A complete run decides each key. A project may require every key to pass, but that is a separate project rule.
 
-A complete run gives each key either Permit or Reject. A project may also require every key to pass. That is a separate project rule, not a new type-level Permit.
-
-The demo will show three clear report shapes. A type can be safe and match. It can match but fail byte-copy safety. Or its layout can differ.
+The demo will show a Permit, an Admission failure, and an Agreement failure.
 
 **Transition to Slide 35**
 
@@ -1455,7 +1456,7 @@ R_capture
   PacketHeader · MeasurementSample · CaptureTrailer · CaptureBlock
 
 P
-  ordinary copy · zero fixup · source-address-independent
+  ordinary copy · no fixup · source-address-independent
 ```
 
 ```text
@@ -1464,19 +1465,19 @@ Can all four native types use one raw-byte path?
 
 **Speaker script**
 
-Here is the full example. It is a fixed-size telemetry capture block.
+The demo is a fixed-size telemetry capture block.
 
-A recorder writes a capture file. Later, an analyzer reads it. Any of the three builds may write or read the file.
+A recorder writes the file. An analyzer reads it later. Any of the three declared builds may write or read.
 
-So the contract needs Agreement between every pair of builds.
+So every pair of builds is a required edge.
 
-The production set has four keys. They are `PacketHeader`, `MeasurementSample`, `CaptureTrailer`, and `CaptureBlock`.
+The registered set has four keys: `PacketHeader`, `MeasurementSample`, `CaptureTrailer`, and `CaptureBlock`.
 
-We use the same strict profile. It allows an ordinary object copy. It does no fixup. The bytes cannot depend on the writer's address space.
+The profile allows ordinary copy, but no fixup or source-address dependency.
 
-The short build names on the slide stand for exact build identities in CI.
+The short names on the slide represent exact build identities in CI.
 
-Now we have a clear question. Can all four native types use one raw-byte path across these three builds?
+Now the question is precise. Can all four types use one raw-byte path across these builds?
 
 **Transition to Slide 36**
 
@@ -1505,7 +1506,7 @@ CaptureBlock · 96 bytes
 
 ```text
 CaptureBlock → whole-object raw write → bytes
-             → raw read into an existing aligned CaptureBlock
+             → raw read into a live, aligned CaptureBlock
 
 no field encoding · no endian conversion · no fixup
 ```
@@ -1517,19 +1518,17 @@ its native bytes as the stored representation.
 
 **Speaker script**
 
-The positive layout is simple. `PacketHeader`, `MeasurementSample`, and `CaptureTrailer` are each sixteen bytes.
+The layout at the top gives the whole block. It has one header, four samples, and one trailer. The total is 96 bytes.
 
-`CaptureBlock` has one header, four samples, and one trailer. Its total size is ninety-six bytes.
+The table shows the decision. Every key passes Admission on every build. Every required edge matches.
 
-Every key passes Admission on all three builds. Every required edge has matching signatures. CI gives four separate Permits.
+CI issues four separate Permits.
 
-The `CaptureBlock` Permit allows one useful operation inside `C_capture`. We may write the full object representation as raw bytes.
+Inside `C_capture`, the `CaptureBlock` Permit allows a whole-object raw write. The bytes may later be copied into a live and correctly aligned `CaptureBlock`.
 
-Later, we may copy those bytes into an existing and correctly aligned `CaptureBlock` object.
+There is no field encoding, endian conversion, or pointer fixup.
 
-This path uses no field encoding, endian conversion, or pointer fixup.
-
-Each key still has its own Permit. The `CaptureBlock` Permit allows the full-block input and output path.
+The Permit applies only to this type inside this contract.
 
 **Transition to Slide 37**
 
@@ -1568,17 +1567,15 @@ Matching pointer bits do not transfer the target object.
 
 **Speaker script**
 
-Suppose the in-memory sample adds a cached metadata pointer. This may be a useful local optimization.
+Now add a cached metadata pointer. It may be useful inside one process.
 
-The full layout can still match on all three builds. Agreement correctly reports `MATCH`.
+The full layout still matches on all three builds, so Agreement reports `MATCH`.
 
-But Admission fails on every build. The copied address depends on the recorder process.
+But Admission fails everywhere. The copied address depends on the recorder's address space.
 
-Our profile allows no fixup and no source-address dependency. So this type cannot enter the raw-byte set.
+Our profile allows no fixup and no source-address dependency. This type cannot enter the raw-byte set.
 
-The report gives the exact reason: layout match, but not byte-copy safe.
-
-We test `UnsafeWithPointer` with the same builds, edges, and profile. It stays outside `R_capture`. The four working types keep their Permits.
+We test it with the same builds, edges, and profile. It stays outside `R_capture`, and the four existing Permits remain unchanged.
 
 **Transition to Slide 38**
 
@@ -1621,19 +1618,17 @@ Bytes can stand alone and still have different representations.
 
 **Speaker script**
 
-Now return to the `Measurement` type from the start. It has no pointer. It passes ordinary-copy Admission on every build.
+Now return to `Measurement`. It has no pointer, so ordinary-copy Admission passes on every build.
 
-But its representations are different.
+But the representations differ.
 
-On Linux x86-64, `long double` uses the extended representation shown here. The value starts at offset sixteen. It uses sixteen bytes of storage.
+On Linux x86-64, the value uses `fld80` at offset 16. The full record is 32 bytes with alignment 16.
 
-The full record is thirty-two bytes, with alignment sixteen.
+On Apple ARM64, the value uses `fld64` at offset eight. The full record is 16 bytes with alignment eight.
 
-On Apple ARM64, `long double` uses the same representation as `double`. The value starts at offset eight. The full record is sixteen bytes, with alignment eight.
+Both signatures begin with `[64-le]`. Pointer width and byte order match, but the leaf representation and record layout do not.
 
-Both signatures start with `[64-le]`. The pointer width and byte order match. But the leaf representation, offset, size, and alignment differ.
-
-Admission passes on every build. The two Linux builds agree. Each Linux build disagrees with Apple. Agreement rejects the candidate.
+The Linux builds agree with each other. Each Linux build disagrees with Apple. Agreement rejects the candidate.
 
 **Transition to Slide 39**
 
@@ -1666,19 +1661,17 @@ Measurement under C_candidate(Measurement)
 
 This matrix shows why we need both gates.
 
-Every production key passes Admission on every build. It also passes Agreement on every required edge. These four keys receive separate Permits.
+Every production key passes Admission and Agreement. The four keys receive separate Permits.
 
-`UnsafeWithPointer` has matching layouts. But Admission rejects its source-dependent address.
+`UnsafeWithPointer` has matching layouts, but Admission rejects its source-dependent address.
 
-`Measurement` passes Admission. But Agreement rejects its different platform representations.
+`Measurement` passes Admission, but Agreement rejects its different platform representations.
 
 Agreement cannot fix source dependence. Admission cannot fix a representation difference.
 
-The demo must show all four Permits and both expected Rejections. Missing evidence is not success. An extra failure is also not the expected result.
+The demo succeeds only when it sees all four Permits and both expected Rejections.
 
-This also answers the question from Slide 2. The type looked safe on one build, but that question had no contract.
-
-Under this candidate contract, the Linux and Apple signatures differ. So `Measurement` cannot enter the production raw-byte set.
+This also answers the question from Slide 2. Under this candidate contract, Linux and Apple disagree, so `Measurement` cannot enter the production raw-byte set.
 
 **Transition to Slide 40**
 
@@ -1714,15 +1707,15 @@ Representation Permit ≠ end-to-end safety
 
 The Permit proves one representation claim inside one declared contract.
 
-It tells us three things. Every declared build passed ordinary-copy Admission. Every required edge passed Agreement. CI also had complete and valid evidence.
+The left column shows that claim. Every build passed Admission. Every required edge passed Agreement. CI had complete, valid evidence.
 
-The Permit does not prove that the application gives the bytes the right meaning. It does not check values or invariants.
+The right column remains with the application.
 
-It does not create object lifetime or aligned storage. It does not synchronize access. It does not validate a file. It does not define a versioning policy.
+The Permit does not prove meaning, values, or invariants. It does not create object lifetime or aligned storage. It does not provide synchronization, validation, trust, or versioning.
 
-These are real safety requirements. But they are not part of this Permit.
+Those requirements are real, but they are outside this Permit.
 
-The Permit is useful because its meaning is small and exact.
+The Permit is useful because its meaning is narrow and exact.
 
 **Transition to Slide 41**
 
@@ -1754,15 +1747,15 @@ Runtime still owns the operation.
 
 The remaining work has three groups.
 
-First are object rules. The application needs valid storage, correct lifetime, and correct alignment. Raw file bytes do not automatically become a live C++ object.
+Object rules cover storage, lifetime, and alignment. File bytes do not automatically become a live C++ object.
 
-Second are concurrency and transport rules. The application must handle publication, synchronization, coherence, and data races.
+Concurrency rules cover publication, synchronization, coherence, and data races.
 
-Third are external-data rules. The application must handle validation, versioning, durability, and failures. Matching representation does not make untrusted bytes safe.
+External-data rules cover validation, versioning, durability, and failure handling. Matching representation does not make untrusted bytes safe.
 
-The exact list depends on the boundary. Shared memory, plugins, files, and devices need different runtime work.
+The exact work depends on the boundary. Shared memory, plugins, files, and devices need different runtime checks.
 
-The appendix has a longer table. The main rule is simple. Compile time checks the representation. Runtime still owns the operation.
+The main rule is simple. Compile time checks representation. Runtime still owns the operation.
 
 **Transition to Slide 42**
 
@@ -1801,17 +1794,15 @@ Use an explicit representation when the set stays open.
 
 A finite change does not always require serialization.
 
-Suppose we add one known build or one required edge. We can generate new evidence. Then we update the contract and run the full check again.
+For one known build or edge, generate fresh evidence. Then update the contract and check the complete set again.
 
-The new result may be Permit or Reject. The method still works because the set is finite.
+The result may be Permit or Reject. The method still works because the set remains finite.
 
-An explicit representation is better when the set cannot stay closed. Examples include unknown future peers, different platform representations, and a required byte order.
+Use an explicit representation for unknown peers, different platform layouts, independent evolution, conversion, or process-local handles.
 
-Other examples are independent schema changes, value conversion, and process-local handles.
+Untrusted input still needs validation. Serialization alone does not make data safe.
 
-Untrusted input is a separate problem. Serialization does not validate data. The application still needs validation.
-
-The key question is not native bytes or serialization. The key question is whether we can declare, check, and keep a closed representation contract.
+The real question is whether we can declare, check, and keep a closed representation contract.
 
 **Transition to Slide 43**
 
@@ -1846,17 +1837,17 @@ Across a boundary, a native C++ type becomes a binary contract.
 
 **Speaker script**
 
-The first question was incomplete.
+The opening question was incomplete.
 
-“Can I `memcpy` this type?” is a local question. `trivially_copyable` and `sizeof` give useful local facts.
+“Can I `memcpy` this type?” asks about one local operation.
 
-“Can I use these native bytes across this boundary?” is a contract question.
+“Can I use these native bytes across this boundary?” asks about a contract.
 
-The bytes must stand without the producer's context. Every declared build must also give them the same representation.
+The bytes must stand without producer-local context. Every declared build must also produce the same representation.
 
-For `Measurement`, the local copy was legal. Admission passed under our candidate contract. But Apple disagreed with both Linux builds. The result was Reject.
+For `Measurement`, local copy was legal and Admission passed. But Apple disagreed with both Linux builds, so the candidate was rejected.
 
-This is not a rule for every use of `Measurement`. It is one exact decision for one type under one contract.
+That is one decision for one type under one contract. It is not a universal rule for `Measurement`.
 
 **Transition to Slide 44**
 
@@ -1894,15 +1885,17 @@ The contract gives those facts a scope.
 
 **Speaker script**
 
-First, declare the contract. Name the registered keys, exact builds, required edges, and transfer profile.
+Follow the chain from the top.
 
-For each key, every build checks local Admission. It also emits a representation signature from reflection.
+First, declare the type keys, builds, edges, and transfer profile.
 
-CI accepts only complete and current evidence from the right build. This checks the input. It is not a third compatibility gate.
+Each build checks Admission and emits a reflection-based signature.
 
-Then CI applies the two gates. Admission must pass on every build. Agreement must pass on every required edge.
+CI accepts only complete, current evidence from the correct build. Missing or invalid input gives `INCOMPLETE`.
 
-CI makes a separate decision for each key. A failed gate gives Reject. Missing evidence gives Incomplete. Only the full passing graph gives `ClosedPermit_C(K)`.
+With valid inputs, CI applies the two gates. Every node must pass Admission. Every required edge must pass Agreement.
+
+A failed gate gives `REJECT`. Only the complete passing graph gives `ClosedPermit_C(K)`.
 
 The compiler gives us the facts. The contract gives those facts a scope.
 
@@ -1952,21 +1945,21 @@ github.com/ximicpp/TypeLayout                    Q&A → Appendix 46
 
 **Speaker script**
 
-Here is the rule I want you to remember.
+Here are the four rules to remember.
 
-Declare the contract before you ask for a decision.
+Declare the contract before asking for a decision.
 
-Check Admission and Agreement separately. They catch different failures.
+Check Admission and Agreement separately.
 
 Keep every Permit with one type and one declared contract.
 
-After a finite change, generate new evidence and check the contract again. If the set cannot stay closed, use an explicit representation.
+After a finite change, generate new evidence and check again. If the contract cannot stay closed, use an explicit representation.
 
-The result is narrow. It proves representation compatibility. It does not prove semantic compatibility or schema evolution.
+This proves representation compatibility, not semantic compatibility or schema evolution.
 
-So, can you `memcpy` this type across a boundary?
+So, can you `memcpy` a type across a boundary?
 
-Only after you name the contract. Only after every declared build provides evidence. And only after both gates pass over the full set.
+Only after the contract is named, every build provides evidence, and both gates pass across the full contract.
 
 Permit native bytes only inside a closed contract.
 
