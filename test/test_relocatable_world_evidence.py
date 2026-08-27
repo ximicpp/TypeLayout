@@ -51,6 +51,45 @@ class EvidenceTests(unittest.TestCase):
                     "compiler_family": "gcc",
                     "compiler_revision": "16.2.0",
                     "flags": "-O3 -fstrict-aliasing",
+                    "source": {
+                        "url": (
+                            "https://ftp.gnu.org/gnu/gcc/gcc-16.2.0/"
+                            "gcc-16.2.0.tar.xz"
+                        ),
+                        "filename": "gcc-16.2.0.tar.xz",
+                        "sha512": "1" * 128,
+                    },
+                    "prerequisites": {
+                        "gmp": {
+                            "version": "6.3.0",
+                            "url": "https://gmplib.org/download/gmp/gmp-6.3.0.tar.xz",
+                            "filename": "gmp-6.3.0.tar.xz",
+                            "sha512": "2" * 128,
+                        },
+                        "mpfr": {
+                            "version": "4.2.2",
+                            "url": "https://www.mpfr.org/mpfr-4.2.2/mpfr-4.2.2.tar.xz",
+                            "filename": "mpfr-4.2.2.tar.xz",
+                            "sha512": "3" * 128,
+                        },
+                        "mpc": {
+                            "version": "1.3.1",
+                            "url": "https://ftp.gnu.org/gnu/mpc/mpc-1.3.1.tar.gz",
+                            "filename": "mpc-1.3.1.tar.gz",
+                            "sha512": "4" * 128,
+                        },
+                        "isl": {
+                            "version": "0.27",
+                            "url": "https://libisl.sourceforge.io/isl-0.27.tar.xz",
+                            "filename": "isl-0.27.tar.xz",
+                            "sha512": "5" * 128,
+                        },
+                    },
+                    "configure_flags": [
+                        "--disable-multilib",
+                        "--disable-nls",
+                        "--enable-languages=c,c++",
+                    ],
                 },
                 "p2996": {
                     "repository": "https://github.com/bloomberg/clang-p2996.git",
@@ -60,22 +99,78 @@ class EvidenceTests(unittest.TestCase):
                         "060be17654102019e14810c3f948ef85a490755f"
                     ),
                     "flags": "-O3 -fstrict-aliasing -stdlib=libc++",
+                    "projects": ["clang"],
+                    "runtimes": ["libcxx", "libcxxabi", "libunwind"],
+                    "llvm_targets": ["X86", "AArch64"],
+                    "cmake_flags": [
+                        "-DCMAKE_BUILD_TYPE=Release",
+                        "-DLLVM_ENABLE_ASSERTIONS=OFF",
+                    ],
                 },
                 "linux": {
                     "platforms": {
-                        "linux/amd64": {"architecture": "x86_64"},
-                        "linux/arm64": {"architecture": "arm64"},
+                        "linux/amd64": {
+                            "architecture": "x86_64",
+                            "runner": "ubuntu-24.04",
+                        },
+                        "linux/arm64": {
+                            "architecture": "arm64",
+                            "runner": "ubuntu-24.04-arm",
+                        },
+                    },
+                    "base_images": {
+                        "gcc_builder": "ubuntu:24.04@sha256:" + "6" * 64,
+                        "gcc_runtime": "ubuntu:24.04@sha256:" + "7" * 64,
+                        "p2996_builder": "ubuntu:24.04@sha256:" + "8" * 64,
+                        "p2996_runtime": "ubuntu:24.04@sha256:" + "9" * 64,
+                    },
+                    "apt": {
+                        "snapshot": "20260827T000000Z",
+                        "suites": ["noble", "noble-updates", "noble-security"],
+                        "components": ["main", "universe"],
+                    },
+                    "packages": {
+                        "gcc_builder": [
+                            "build-essential=12.10ubuntu1",
+                            "xz-utils=5.6.1+really5.4.5-1ubuntu0.2",
+                        ],
+                        "gcc_runtime": ["libstdc++6=16.2.0-1"],
+                        "p2996_builder": [
+                            "cmake=3.28.3-1build7",
+                            "ninja-build=1.11.1-2",
+                        ],
+                        "p2996_runtime": ["libc6=2.39-0ubuntu8.6"],
                     },
                     "docker": {
-                        "client_version": "27.5.1",
-                        "server_version": "27.5.1",
+                        "runner_images_commit": (
+                            "564e58dbe650c507ccba1171f6159c12f26820c8"
+                        ),
+                        "runners": {
+                            "ubuntu-24.04": {
+                                "client_version": "27.5.1",
+                                "server_version": "27.5.1",
+                            },
+                            "ubuntu-24.04-arm": {
+                                "client_version": "27.5.1",
+                                "server_version": "27.5.1",
+                            },
+                        },
                         "buildx_version": "0.24.0",
-                        "buildkit_image": "moby/buildkit@sha256:" + "9" * 64,
+                        "buildkit_image": "moby/buildkit@sha256:" + "a" * 64,
                     },
                 },
                 "macos": {
+                    "runner_images_repository": (
+                        "https://github.com/actions/runner-images.git"
+                    ),
+                    "runner_images_commit": (
+                        "564e58dbe650c507ccba1171f6159c12f26820c8"
+                    ),
                     "nodes": {
                         "arm64_macos_clang": {
+                            "runner": "macos-15",
+                            "architecture": "arm64",
+                            "llvm_target": "AArch64",
                             "flags": (
                                 "-O3 -fstrict-aliasing -stdlib=libc++ "
                                 "-mmacosx-version-min=15.0"
@@ -87,6 +182,9 @@ class EvidenceTests(unittest.TestCase):
                             "deployment_target": "15.0",
                         },
                         "x86_64_macos_clang": {
+                            "runner": "macos-15-intel",
+                            "architecture": "x86_64",
+                            "llvm_target": "X86",
                             "flags": (
                                 "-O3 -fstrict-aliasing -stdlib=libc++ "
                                 "-mmacosx-version-min=15.0"
@@ -97,10 +195,26 @@ class EvidenceTests(unittest.TestCase):
                             "sdk_build": "24F74",
                             "deployment_target": "15.0",
                         },
-                    }
+                    },
                 },
-                "actions": {},
-                "recipes": {},
+                "actions": {
+                    "checkout": "1" * 40,
+                    "upload_artifact": "2" * 40,
+                    "download_artifact": "3" * 40,
+                    "docker_login": "4" * 40,
+                    "setup_buildx": "5" * 40,
+                    "build_push": "6" * 40,
+                    "github_release": "7" * 40,
+                },
+                "recipes": {
+                    ".gitattributes": "1" * 64,
+                    ".github/docker/Dockerfile.gcc16": "2" * 64,
+                    ".github/docker/Dockerfile.p2996": "3" * 64,
+                    ".github/docker/docker-bake.hcl": "4" * 64,
+                    ".github/scripts/build-p2996-macos.sh": "5" * 64,
+                    ".github/scripts/verify-p2996-toolchain.sh": "6" * 64,
+                    ".github/workflows/toolchain-images.yml": "7" * 64,
+                },
             },
         )
 
@@ -653,7 +767,7 @@ class EvidenceTests(unittest.TestCase):
         }
         actual = {}
         for node in expected:
-            policy, _, _ = evidence._load_lock_policy(
+            policy, _, _ = evidence.load_node_toolchain_policy(
                 sources_lock, outputs_lock, node
             )
             self.assertEqual(set(policy), expected_policy_keys)
@@ -667,6 +781,141 @@ class EvidenceTests(unittest.TestCase):
 
         self.assertEqual(actual, expected)
         self.assertEqual(len({entry[3] for entry in actual.values()}), 6)
+
+    def test_lock_rejects_unknown_field_in_unselected_toolchain(self):
+        bundle = self.make_ready_bundle("arm64_linux_gcc")
+        outputs = json.loads(
+            bundle["outputs_lock"].read_text(encoding="utf-8")
+        )
+        outputs["linux"]["p2996"]["platforms"]["linux/amd64"][
+            "unexpected"
+        ] = True
+        self.write_json(bundle["outputs_lock"], outputs)
+
+        with self.assertRaisesRegex(evidence.EvidenceError, "output lock"):
+            self.seal(bundle)
+
+    def test_lock_rejects_missing_field_in_unselected_macos_node(self):
+        bundle = self.make_ready_bundle("arm64_linux_gcc")
+        sources = json.loads(
+            bundle["sources_lock"].read_text(encoding="utf-8")
+        )
+        del sources["macos"]["nodes"]["x86_64_macos_clang"]["sdk_build"]
+        self.write_json(bundle["sources_lock"], sources)
+        outputs = json.loads(
+            bundle["outputs_lock"].read_text(encoding="utf-8")
+        )
+        outputs["sources_sha256"] = self.sha256(bundle["sources_lock"])
+        self.write_json(bundle["outputs_lock"], outputs)
+
+        with self.assertRaisesRegex(evidence.EvidenceError, "source lock"):
+            self.seal(bundle)
+
+    def test_lock_rejects_invalid_type_in_unselected_source_section(self):
+        bundle = self.make_ready_bundle("arm64_linux_gcc")
+        sources = json.loads(
+            bundle["sources_lock"].read_text(encoding="utf-8")
+        )
+        sources["linux"]["docker"]["runners"]["ubuntu-24.04"][
+            "client_version"
+        ] = 27
+        self.write_json(bundle["sources_lock"], sources)
+        outputs = json.loads(
+            bundle["outputs_lock"].read_text(encoding="utf-8")
+        )
+        outputs["sources_sha256"] = self.sha256(bundle["sources_lock"])
+        self.write_json(bundle["outputs_lock"], outputs)
+
+        with self.assertRaisesRegex(evidence.EvidenceError, "source lock"):
+            self.seal(bundle)
+
+    def test_lock_rejects_bad_digest_in_unselected_platform(self):
+        bundle = self.make_ready_bundle("x86_64_linux_gcc")
+        outputs = json.loads(
+            bundle["outputs_lock"].read_text(encoding="utf-8")
+        )
+        outputs["linux"]["gcc"]["platforms"]["linux/arm64"][
+            "manifest_digest"
+        ] = "sha256:not-a-digest"
+        self.write_json(bundle["outputs_lock"], outputs)
+
+        with self.assertRaisesRegex(evidence.EvidenceError, "output lock"):
+            self.seal(bundle)
+
+    def test_lock_rejects_unknown_source_action_entry(self):
+        bundle = self.make_ready_bundle("arm64_linux_gcc")
+        sources = json.loads(
+            bundle["sources_lock"].read_text(encoding="utf-8")
+        )
+        sources["actions"]["unknown_action"] = "mutable"
+        self.write_json(bundle["sources_lock"], sources)
+        outputs = json.loads(
+            bundle["outputs_lock"].read_text(encoding="utf-8")
+        )
+        outputs["sources_sha256"] = self.sha256(bundle["sources_lock"])
+        self.write_json(bundle["outputs_lock"], outputs)
+
+        with self.assertRaisesRegex(evidence.EvidenceError, "source lock"):
+            self.seal(bundle)
+
+    def test_lock_rejects_noncanonical_p2996_projects(self):
+        bundle = self.make_ready_bundle("arm64_linux_gcc")
+        sources = json.loads(
+            bundle["sources_lock"].read_text(encoding="utf-8")
+        )
+        sources["p2996"]["projects"] = ["clang", "clang-tools-extra"]
+        self.write_json(bundle["sources_lock"], sources)
+        outputs = json.loads(
+            bundle["outputs_lock"].read_text(encoding="utf-8")
+        )
+        outputs["sources_sha256"] = self.sha256(bundle["sources_lock"])
+        self.write_json(bundle["outputs_lock"], outputs)
+
+        with self.assertRaisesRegex(evidence.EvidenceError, "projects"):
+            self.seal(bundle)
+
+    def test_lock_rejects_unpinned_package_version(self):
+        bundle = self.make_ready_bundle("arm64_linux_gcc")
+        sources = json.loads(
+            bundle["sources_lock"].read_text(encoding="utf-8")
+        )
+        sources["linux"]["packages"]["p2996_builder"] = ["cmake"]
+        self.write_json(bundle["sources_lock"], sources)
+        outputs = json.loads(
+            bundle["outputs_lock"].read_text(encoding="utf-8")
+        )
+        outputs["sources_sha256"] = self.sha256(bundle["sources_lock"])
+        self.write_json(bundle["outputs_lock"], outputs)
+
+        with self.assertRaisesRegex(evidence.EvidenceError, "packages"):
+            self.seal(bundle)
+
+    def test_lock_rejects_malformed_recipe_digest(self):
+        bundle = self.make_ready_bundle("arm64_linux_gcc")
+        sources = json.loads(
+            bundle["sources_lock"].read_text(encoding="utf-8")
+        )
+        sources["recipes"][".gitattributes"] = "not-a-digest"
+        self.write_json(bundle["sources_lock"], sources)
+        outputs = json.loads(
+            bundle["outputs_lock"].read_text(encoding="utf-8")
+        )
+        outputs["sources_sha256"] = self.sha256(bundle["sources_lock"])
+        self.write_json(bundle["outputs_lock"], outputs)
+
+        with self.assertRaisesRegex(evidence.EvidenceError, "recipes"):
+            self.seal(bundle)
+
+    def test_lock_rejects_duplicate_node_artifact_digest(self):
+        bundle = self.make_ready_bundle("arm64_linux_gcc")
+        outputs = json.loads(
+            bundle["outputs_lock"].read_text(encoding="utf-8")
+        )
+        outputs["macos"]["arm64_macos_clang"]["archive_sha256"] = "a" * 64
+        self.write_json(bundle["outputs_lock"], outputs)
+
+        with self.assertRaisesRegex(evidence.EvidenceError, "artifact digest"):
+            self.seal(bundle)
 
     def test_sealer_rejects_wrong_linux_manifest_digest(self):
         bundle = self.make_ready_bundle("arm64_linux_gcc")
@@ -782,19 +1031,36 @@ class EvidenceTests(unittest.TestCase):
                     self.seal(bundle)
 
     def test_local_workflow_run_uses_distinct_invocation_format(self):
-        bundle = self.make_ready_bundle("arm64_linux_gcc")
-        bundle["profile"] = "local-arm64-macos"
-        bundle["workflow_run"] = (
-            "local-111111111111-20260828T051234Z-4242"
+        accepted_values = (
+            "local-111111111111-20260828T051234Z-4242",
+            "manual-arm64-mac-1",
+            "manual.arm64.v1",
         )
-        self.assertEqual(self.seal(bundle)["status"], "READY")
+        for workflow_run in accepted_values:
+            with self.subTest(workflow_run=workflow_run):
+                bundle = self.make_ready_bundle("arm64_linux_gcc")
+                bundle["profile"] = "local-arm64-macos"
+                bundle["workflow_run"] = workflow_run
+                record = self.seal(bundle)
+                self.assertEqual(
+                    record["build"]["workflow_run"], workflow_run
+                )
 
         invalid_values = (
             "123456789.1",
-            "local-111111111111-20260828T051234Z-0",
-            "local-222222222222-20260828T051234Z-4242",
-            "local-111111111111-20260828T051234Z-4242-extra",
-            "local-111111111111-20260828T051234Z-4242 ",
+            "0.1",
+            "01.1",
+            "123456789.0",
+            "",
+            "manual/arm64",
+            "manual\\arm64",
+            "manual arm64",
+            "manual\narm64",
+            "manual..arm64",
+            ".hidden",
+            "-option",
+            "manual-",
+            "a" * 129,
         )
         for workflow_run in invalid_values:
             with self.subTest(workflow_run=workflow_run):
@@ -805,6 +1071,41 @@ class EvidenceTests(unittest.TestCase):
                     evidence.EvidenceError, "workflow_run"
                 ):
                     self.seal(bundle)
+
+    def test_probe_ctest_defaults_mark_placeholder_macos_sdk_unlocked(self):
+        module = (
+            Path(__file__).resolve().parents[1]
+            / "cmake"
+            / "RelocatableWorldProbeDefaults.cmake"
+        )
+        for system_name, expected in (("Darwin", "false"), ("Linux", "true")):
+            with self.subTest(system_name=system_name):
+                script = self.directory / f"probe-{system_name}.cmake"
+                script.write_text(
+                    "\n".join(
+                        (
+                            f'set(CMAKE_SYSTEM_NAME "{system_name}")',
+                            f'include("{module.as_posix()}")',
+                            "if(NOT TYPELAYOUT_PROBE_SDK_LOCKED "
+                            f'STREQUAL "{expected}")',
+                            "  message(FATAL_ERROR \"wrong sdk lock state\")",
+                            "endif()",
+                            "",
+                        )
+                    ),
+                    encoding="utf-8",
+                )
+                completed = subprocess.run(
+                    ["cmake", "-P", str(script)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(
+                    completed.returncode,
+                    0,
+                    completed.stdout + completed.stderr,
+                )
 
     def test_output_lock_requires_authoritative_workflow_run(self):
         bundle = self.make_ready_bundle()

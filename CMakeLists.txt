@@ -156,6 +156,7 @@ if(TYPELAYOUT_PROBE_ARCH AND TYPELAYOUT_PROBE_OS AND
 endif()
 if(TYPELAYOUT_PROBE_NODE)
     find_package(Python3 QUIET COMPONENTS Interpreter)
+    include(cmake/RelocatableWorldProbeDefaults.cmake)
 
     add_test(NAME relocatable_world_platform_probe
         COMMAND relocatable_world_platform_probe
@@ -163,12 +164,12 @@ if(TYPELAYOUT_PROBE_NODE)
             ${CMAKE_CURRENT_BINARY_DIR}/relocatable-world-platform-probe.json
             --runner local-ctest
             --runner-image local-ctest
-            --xcode-version $<IF:$<PLATFORM_ID:Darwin>,local-xcode-version,none>
-            --xcode-build $<IF:$<PLATFORM_ID:Darwin>,local-xcode-build,none>
-            --sdk-version $<IF:$<PLATFORM_ID:Darwin>,local-sdk-version,none>
-            --sdk-build $<IF:$<PLATFORM_ID:Darwin>,local-sdk-build,none>
-            --deployment-target $<IF:$<PLATFORM_ID:Darwin>,local-target,none>
-            --sdk-locked true)
+            --xcode-version ${TYPELAYOUT_PROBE_XCODE_VERSION}
+            --xcode-build ${TYPELAYOUT_PROBE_XCODE_BUILD}
+            --sdk-version ${TYPELAYOUT_PROBE_SDK_VERSION}
+            --sdk-build ${TYPELAYOUT_PROBE_SDK_BUILD}
+            --deployment-target ${TYPELAYOUT_PROBE_DEPLOYMENT_TARGET}
+            --sdk-locked ${TYPELAYOUT_PROBE_SDK_LOCKED})
     set_tests_properties(relocatable_world_platform_probe PROPERTIES
         LABELS "typelayout;example;relocatable-world;evidence"
         PASS_REGULAR_EXPRESSION

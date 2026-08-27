@@ -17,6 +17,15 @@ NODES = (
     "x86_64_macos_clang",
 )
 
+LINUX_PLATFORMS = ("linux/amd64", "linux/arm64")
+MACOS_NODES = ("arm64_macos_clang", "x86_64_macos_clang")
+LINUX_POLICY_NODES = {
+    ("gcc", "linux/amd64"): "x86_64_linux_gcc",
+    ("p2996", "linux/amd64"): "x86_64_linux_clang",
+    ("gcc", "linux/arm64"): "arm64_linux_gcc",
+    ("p2996", "linux/arm64"): "arm64_linux_clang",
+}
+
 LOCAL_NODES = (
     "x86_64_linux_gcc",
     "x86_64_linux_clang",
@@ -42,6 +51,13 @@ TRANSFER_STATUSES = (
 )
 
 PROFILES = ("authoritative", "local-arm64-macos")
+LOCAL_WORKFLOW_RUN_MAX_LENGTH = 128
+LOCAL_WORKFLOW_RUN_ALPHANUMERIC = (
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+)
+LOCAL_WORKFLOW_RUN_CHARACTERS = (
+    LOCAL_WORKFLOW_RUN_ALPHANUMERIC + "_.-"
+)
 PROBE_KEYS = (
     "char_bit",
     "pointer_bits",
@@ -208,6 +224,12 @@ def _expect_sha256(value, where):
     return value
 
 
+def _expect_sha512(value, where):
+    if not _is_lower_hex(value, 128):
+        raise EvidenceError(f"{where} must be a 128-character lowercase SHA512")
+    return value
+
+
 def _expect_source_sha(value, where):
     if not _is_lower_hex(value, 40):
         raise EvidenceError(f"{where} must be a 40-character lowercase source SHA")
@@ -223,41 +245,52 @@ def _is_canonical_positive_decimal(value):
     )
 
 
+def _is_authoritative_workflow_run(value):
+    if not isinstance(value, str):
+        return False
+    parts = value.split(".")
+    return len(parts) == 2 and all(
+        _is_canonical_positive_decimal(part) for part in parts
+    )
+
+
+def _is_numeric_workflow_run_pair(value):
+    if not isinstance(value, str):
+        return False
+    parts = value.split(".")
+    return len(parts) == 2 and all(
+        part and all(character in "0123456789" for character in part)
+        for part in parts
+    )
+
+
 def _expect_workflow_run(value, profile, source_sha, where):
     _expect_nonempty_string(value, where)
     validate_profile(profile)
     _expect_source_sha(source_sha, f"{where} source SHA")
     if profile == "authoritative":
-        parts = value.split(".")
-        if len(parts) != 2 or not all(
-            _is_canonical_positive_decimal(part) for part in parts
-        ):
+        if not _is_authoritative_workflow_run(value):
             raise EvidenceError(
                 f"{where} must be canonical positive run_id.run_attempt"
             )
         return value
 
-    parts = value.split("-")
-    if len(parts) != 4:
+    if _is_numeric_workflow_run_pair(value):
         raise EvidenceError(
-            f"{where} must be local-<head>-<UTC timestamp>-<pid>"
+            f"{where} must not use authoritative run_id.run_attempt form"
         )
-    prefix, head, timestamp, process_id = parts
-    timestamp_digits = timestamp[:8] + timestamp[9:15]
     if (
-        prefix != "local"
-        or head != source_sha[:12]
-        or len(timestamp) != 16
-        or timestamp[8:9] != "T"
-        or timestamp[15:16] != "Z"
-        or len(timestamp_digits) != 14
+        len(value) > LOCAL_WORKFLOW_RUN_MAX_LENGTH
+        or value[0] not in LOCAL_WORKFLOW_RUN_ALPHANUMERIC
+        or value[-1] not in LOCAL_WORKFLOW_RUN_ALPHANUMERIC
+        or ".." in value
         or not all(
-            character in "0123456789" for character in timestamp_digits
+            character in LOCAL_WORKFLOW_RUN_CHARACTERS for character in value
         )
-        or not _is_canonical_positive_decimal(process_id)
     ):
         raise EvidenceError(
-            f"{where} must be local-<12-hex-head>-<UTC timestamp>-<pid>"
+            f"{where} must be 1-{LOCAL_WORKFLOW_RUN_MAX_LENGTH} safe ASCII "
+            "filename characters, beginning and ending with an alphanumeric"
         )
     return value
 
@@ -545,7 +578,73 @@ def _expect_digest_reference(value, where):
     return _expect_sha256(value[len(prefix):], where)
 
 
-def _load_lock_policy(sources_lock, outputs_lock, node):
+def _expect_digest_qualified_image(value, where):
+    value = _expect_nonempty_string(value, where)
+    repository, separator, digest = value.rpartition("@")
+    if not repository or separator != "@":
+        raise EvidenceError(f"{where} must be an image pinned by digest")
+    _expect_digest_reference(digest, where)
+    return value
+
+
+def _expect_string_array(value, where, *, nonempty=True):
+    if not isinstance(value, list):
+        raise EvidenceError(f"{where} must be a JSON array")
+    if nonempty and not value:
+        raise EvidenceError(f"{where} must not be empty")
+    for index, entry in enumerate(value):
+        _expect_nonempty_string(entry, f"{where}[{index}]")
+    if len(set(value)) != len(value):
+        raise EvidenceError(f"{where} entries must be unique")
+    return value
+
+
+def _expect_https_url(value, where):
+    value = _expect_nonempty_string(value, where)
+    if not value.startswith("https://") or any(
+        ord(character) < 33 or ord(character) > 126 for character in value
+    ):
+        raise EvidenceError(f"{where} must be a printable HTTPS URL")
+    return value
+
+
+def _expect_plain_filename(value, where):
+    value = _expect_nonempty_string(value, where)
+    path = Path(value)
+    if (
+        path.is_absolute()
+        or value in (".", "..")
+        or "/" in value
+        or "\\" in value
+        or path.name != value
+    ):
+        raise EvidenceError(f"{where} must be a plain filename")
+    return value
+
+
+def _expect_locked_packages(value, where):
+    packages = _expect_string_array(value, where)
+    for index, package in enumerate(packages):
+        name, separator, version = package.partition("=")
+        if not name or separator != "=" or not version:
+            raise EvidenceError(
+                f"{where}[{index}] must pin one package as name=version"
+            )
+    return packages
+
+
+def _expect_immutable_archive_url(value, sources_digest, revision, where):
+    value = _expect_https_url(value, where)
+    source_tag = f"/typelayout-toolchains-{sources_digest}/"
+    if source_tag not in value or revision not in value:
+        raise EvidenceError(
+            f"{where} must bind the source digest and compiler revision"
+        )
+    return value
+
+
+def load_node_toolchain_policy(sources_lock, outputs_lock, node):
+    """Validate the complete lock pair and return one normalized node policy."""
     node = validate_node(node)
     sources_lock = Path(sources_lock)
     outputs_lock = Path(outputs_lock)
@@ -573,7 +672,10 @@ def _load_lock_policy(sources_lock, outputs_lock, node):
     if outputs["schema"] != 1 or type(outputs["schema"]) is not int:
         raise EvidenceError("output lock schema must be integer 1")
     sources_digest = _sha256(sources_lock)
-    if outputs["sources_sha256"] != sources_digest:
+    locked_sources_digest = _expect_sha256(
+        outputs["sources_sha256"], "output lock.sources_sha256"
+    )
+    if locked_sources_digest != sources_digest:
         raise EvidenceError("output lock sources_sha256 does not bind the source lock")
     output_source_sha = _expect_source_sha(
         outputs["source_sha"], "output lock.source_sha"
@@ -585,12 +687,20 @@ def _load_lock_policy(sources_lock, outputs_lock, node):
         "output lock.workflow_run",
     )
 
-    gcc_source = _require_fields(
+    gcc_source = _expect_exact_keys(
         sources["gcc"],
-        ("version", "compiler_family", "compiler_revision", "flags"),
+        (
+            "version",
+            "compiler_family",
+            "compiler_revision",
+            "flags",
+            "source",
+            "prerequisites",
+            "configure_flags",
+        ),
         "source lock.gcc",
     )
-    clang_source = _require_fields(
+    clang_source = _expect_exact_keys(
         sources["p2996"],
         (
             "repository",
@@ -598,6 +708,10 @@ def _load_lock_policy(sources_lock, outputs_lock, node):
             "compiler_family",
             "compiler_revision",
             "flags",
+            "projects",
+            "runtimes",
+            "llvm_targets",
+            "cmake_flags",
         ),
         "source lock.p2996",
     )
@@ -611,52 +725,399 @@ def _load_lock_policy(sources_lock, outputs_lock, node):
         "flags",
     ):
         _expect_nonempty_string(clang_source[key], f"source lock.p2996.{key}")
+    _expect_https_url(
+        clang_source["repository"], "source lock.p2996.repository"
+    )
     if gcc_source["compiler_family"] != "gcc":
         raise EvidenceError("source lock.gcc compiler_family must be gcc")
     if clang_source["compiler_family"] != "clang":
         raise EvidenceError("source lock.p2996 compiler_family must be clang")
+    _expect_source_sha(clang_source["commit"], "source lock.p2996.commit")
+    _expect_source_sha(
+        clang_source["compiler_revision"],
+        "source lock.p2996.compiler_revision",
+    )
     if clang_source["commit"] != clang_source["compiler_revision"]:
         raise EvidenceError("source lock.p2996 commit and compiler_revision differ")
 
-    linux_source = _require_fields(
-        sources["linux"], ("platforms", "docker"), "source lock.linux"
+    gcc_download = _expect_exact_keys(
+        gcc_source["source"],
+        ("url", "filename", "sha512"),
+        "source lock.gcc.source",
+    )
+    _expect_https_url(gcc_download["url"], "source lock.gcc.source.url")
+    _expect_plain_filename(
+        gcc_download["filename"], "source lock.gcc.source.filename"
+    )
+    _expect_sha512(gcc_download["sha512"], "source lock.gcc.source.sha512")
+    prerequisites = _expect_exact_keys(
+        gcc_source["prerequisites"],
+        ("gmp", "mpfr", "mpc", "isl"),
+        "source lock.gcc.prerequisites",
+    )
+    for prerequisite in ("gmp", "mpfr", "mpc", "isl"):
+        where = f"source lock.gcc.prerequisites.{prerequisite}"
+        record = _expect_exact_keys(
+            prerequisites[prerequisite],
+            ("version", "url", "filename", "sha512"),
+            where,
+        )
+        _expect_nonempty_string(record["version"], f"{where}.version")
+        _expect_https_url(record["url"], f"{where}.url")
+        _expect_plain_filename(record["filename"], f"{where}.filename")
+        _expect_sha512(record["sha512"], f"{where}.sha512")
+    configure_flags = _expect_string_array(
+        gcc_source["configure_flags"], "source lock.gcc.configure_flags"
+    )
+    if "--disable-nls" not in configure_flags:
+        raise EvidenceError("source lock.gcc.configure_flags must disable NLS")
+    if any("download_prerequisites" in flag for flag in configure_flags):
+        raise EvidenceError(
+            "source lock.gcc.configure_flags must not download prerequisites"
+        )
+
+    projects = _expect_string_array(
+        clang_source["projects"], "source lock.p2996.projects"
+    )
+    if projects != ["clang"]:
+        raise EvidenceError("source lock.p2996.projects must be exactly clang")
+    runtimes = _expect_string_array(
+        clang_source["runtimes"], "source lock.p2996.runtimes"
+    )
+    if runtimes != ["libcxx", "libcxxabi", "libunwind"]:
+        raise EvidenceError(
+            "source lock.p2996.runtimes must be libcxx, libcxxabi, libunwind"
+        )
+    llvm_targets = _expect_string_array(
+        clang_source["llvm_targets"], "source lock.p2996.llvm_targets"
+    )
+    if llvm_targets != ["X86", "AArch64"]:
+        raise EvidenceError(
+            "source lock.p2996.llvm_targets must be X86 and AArch64"
+        )
+    _expect_string_array(
+        clang_source["cmake_flags"], "source lock.p2996.cmake_flags"
+    )
+
+    linux_source = _expect_exact_keys(
+        sources["linux"],
+        ("platforms", "base_images", "apt", "packages", "docker"),
+        "source lock.linux",
     )
     source_platforms = _expect_exact_keys(
         linux_source["platforms"],
-        ("linux/amd64", "linux/arm64"),
+        LINUX_PLATFORMS,
         "source lock.linux.platforms",
     )
-    expected_architectures = {
-        "linux/amd64": "x86_64",
-        "linux/arm64": "arm64",
+    expected_linux_platforms = {
+        "linux/amd64": ("x86_64", "ubuntu-24.04"),
+        "linux/arm64": ("arm64", "ubuntu-24.04-arm"),
     }
-    for platform, architecture in expected_architectures.items():
-        platform_source = _require_fields(
+    for platform, (architecture, runner) in expected_linux_platforms.items():
+        platform_source = _expect_exact_keys(
             source_platforms[platform],
-            ("architecture",),
+            ("architecture", "runner"),
             f"source lock.linux.platforms.{platform}",
+        )
+        _expect_nonempty_string(
+            platform_source["architecture"],
+            f"source lock.linux.platforms.{platform}.architecture",
+        )
+        _expect_nonempty_string(
+            platform_source["runner"],
+            f"source lock.linux.platforms.{platform}.runner",
         )
         if platform_source["architecture"] != architecture:
             raise EvidenceError(
                 f"source lock platform {platform} architecture must be {architecture}"
             )
+        if platform_source["runner"] != runner:
+            raise EvidenceError(
+                f"source lock platform {platform} runner must be {runner}"
+            )
 
-    source_macos = _require_fields(
-        sources["macos"], ("nodes",), "source lock.macos"
+    base_images = _expect_exact_keys(
+        linux_source["base_images"],
+        ("gcc_builder", "gcc_runtime", "p2996_builder", "p2996_runtime"),
+        "source lock.linux.base_images",
     )
+    for image in base_images:
+        _expect_digest_qualified_image(
+            base_images[image], f"source lock.linux.base_images.{image}"
+        )
+
+    apt_source = _expect_exact_keys(
+        linux_source["apt"],
+        ("snapshot", "suites", "components"),
+        "source lock.linux.apt",
+    )
+    _expect_nonempty_string(
+        apt_source["snapshot"], "source lock.linux.apt.snapshot"
+    )
+    _expect_string_array(apt_source["suites"], "source lock.linux.apt.suites")
+    _expect_string_array(
+        apt_source["components"], "source lock.linux.apt.components"
+    )
+
+    packages = _expect_exact_keys(
+        linux_source["packages"],
+        ("gcc_builder", "gcc_runtime", "p2996_builder", "p2996_runtime"),
+        "source lock.linux.packages",
+    )
+    for package_set in packages:
+        _expect_locked_packages(
+            packages[package_set],
+            f"source lock.linux.packages.{package_set}",
+        )
+
+    docker_source = _expect_exact_keys(
+        linux_source["docker"],
+        (
+            "runner_images_commit",
+            "runners",
+            "buildx_version",
+            "buildkit_image",
+        ),
+        "source lock.linux.docker",
+    )
+    _expect_source_sha(
+        docker_source["runner_images_commit"],
+        "source lock.linux.docker.runner_images_commit",
+    )
+    _expect_nonempty_string(
+        docker_source["buildx_version"],
+        "source lock.linux.docker.buildx_version",
+    )
+    _expect_digest_qualified_image(
+        docker_source["buildkit_image"],
+        "source lock.linux.docker.buildkit_image",
+    )
+    docker_runners = _expect_exact_keys(
+        docker_source["runners"],
+        ("ubuntu-24.04", "ubuntu-24.04-arm"),
+        "source lock.linux.docker.runners",
+    )
+    for runner in docker_runners:
+        runner_record = _expect_exact_keys(
+            docker_runners[runner],
+            ("client_version", "server_version"),
+            f"source lock.linux.docker.runners.{runner}",
+        )
+        for key in ("client_version", "server_version"):
+            _expect_nonempty_string(
+                runner_record[key],
+                f"source lock.linux.docker.runners.{runner}.{key}",
+            )
+
+    source_macos = _expect_exact_keys(
+        sources["macos"],
+        ("runner_images_repository", "runner_images_commit", "nodes"),
+        "source lock.macos",
+    )
+    _expect_https_url(
+        source_macos["runner_images_repository"],
+        "source lock.macos.runner_images_repository",
+    )
+    _expect_source_sha(
+        source_macos["runner_images_commit"],
+        "source lock.macos.runner_images_commit",
+    )
+    if (
+        source_macos["runner_images_commit"]
+        != docker_source["runner_images_commit"]
+    ):
+        raise EvidenceError("source lock runner-images commits must match")
     source_macos_nodes = _expect_exact_keys(
         source_macos["nodes"],
-        ("arm64_macos_clang", "x86_64_macos_clang"),
+        MACOS_NODES,
         "source lock.macos.nodes",
     )
+    expected_macos_nodes = {
+        "arm64_macos_clang": ("macos-15", "arm64", "AArch64"),
+        "x86_64_macos_clang": ("macos-15-intel", "x86_64", "X86"),
+    }
+    for macos_node, expected_values in expected_macos_nodes.items():
+        source_node = _expect_exact_keys(
+            source_macos_nodes[macos_node],
+            ("runner", "architecture", "llvm_target", "flags")
+            + APPLE_IDENTITY_KEYS,
+            f"source lock.macos.nodes.{macos_node}",
+        )
+        for key in (
+            "runner",
+            "architecture",
+            "llvm_target",
+            "flags",
+        ) + APPLE_IDENTITY_KEYS:
+            _expect_nonempty_string(
+                source_node[key],
+                f"source lock.macos.nodes.{macos_node}.{key}",
+            )
+        actual_values = tuple(
+            source_node[key] for key in ("runner", "architecture", "llvm_target")
+        )
+        if actual_values != expected_values:
+            raise EvidenceError(
+                f"source lock macOS identity differs for {macos_node}"
+            )
+
+    actions = _expect_exact_keys(
+        sources["actions"],
+        (
+            "checkout",
+            "upload_artifact",
+            "download_artifact",
+            "docker_login",
+            "setup_buildx",
+            "build_push",
+            "github_release",
+        ),
+        "source lock.actions",
+    )
+    for action in actions:
+        _expect_source_sha(actions[action], f"source lock.actions.{action}")
+
+    recipes = _expect_exact_keys(
+        sources["recipes"],
+        (
+            ".gitattributes",
+            ".github/docker/Dockerfile.gcc16",
+            ".github/docker/Dockerfile.p2996",
+            ".github/docker/docker-bake.hcl",
+            ".github/scripts/build-p2996-macos.sh",
+            ".github/scripts/verify-p2996-toolchain.sh",
+            ".github/workflows/toolchain-images.yml",
+        ),
+        "source lock.recipes",
+    )
+    for recipe in recipes:
+        _expect_sha256(recipes[recipe], f"source lock.recipes.{recipe}")
     output_linux = _expect_exact_keys(
         outputs["linux"], ("gcc", "p2996"), "output lock.linux"
     )
     output_macos = _expect_exact_keys(
         outputs["macos"],
-        ("arm64_macos_clang", "x86_64_macos_clang"),
+        MACOS_NODES,
         "output lock.macos",
     )
+
+    artifact_digests = []
+    source_compilers = {"gcc": gcc_source, "p2996": clang_source}
+    for toolchain in ("gcc", "p2996"):
+        output_toolchain = _expect_exact_keys(
+            output_linux[toolchain],
+            (
+                "repository",
+                "index_digest",
+                "compiler_revision",
+                "compiler_version",
+                "stdlib",
+                "platforms",
+            ),
+            f"output lock.linux.{toolchain}",
+        )
+        for key in (
+            "repository",
+            "compiler_revision",
+            "compiler_version",
+            "stdlib",
+        ):
+            _expect_nonempty_string(
+                output_toolchain[key], f"output lock.linux.{toolchain}.{key}"
+            )
+        _expect_digest_reference(
+            output_toolchain["index_digest"],
+            f"output lock.linux.{toolchain}.index_digest",
+        )
+        if (
+            output_toolchain["compiler_revision"]
+            != source_compilers[toolchain]["compiler_revision"]
+        ):
+            raise EvidenceError(
+                f"output lock Linux compiler revision differs for {toolchain}"
+            )
+        platform_outputs = _expect_exact_keys(
+            output_toolchain["platforms"],
+            LINUX_PLATFORMS,
+            f"output lock.linux.{toolchain}.platforms",
+        )
+        for platform in LINUX_PLATFORMS:
+            platform_output = _expect_exact_keys(
+                platform_outputs[platform],
+                ("manifest_digest", "target"),
+                f"output lock.linux.{toolchain}.platforms.{platform}",
+            )
+            _expect_nonempty_string(
+                platform_output["target"],
+                f"output lock.linux.{toolchain}.platforms.{platform}.target",
+            )
+            artifact_digests.append(
+                _expect_digest_reference(
+                    platform_output["manifest_digest"],
+                    f"output lock.linux.{toolchain}.platforms."
+                    f"{platform}.manifest_digest",
+                )
+            )
+
+    for macos_node in MACOS_NODES:
+        output_node = _expect_exact_keys(
+            output_macos[macos_node],
+            (
+                "url",
+                "archive_sha256",
+                "compiler_revision",
+                "compiler_version",
+                "target",
+                "stdlib",
+            )
+            + APPLE_IDENTITY_KEYS
+            + ("observed_runner",),
+            f"output lock.macos.{macos_node}",
+        )
+        for key in (
+            "compiler_revision",
+            "compiler_version",
+            "target",
+            "stdlib",
+        ) + APPLE_IDENTITY_KEYS:
+            _expect_nonempty_string(
+                output_node[key], f"output lock.macos.{macos_node}.{key}"
+            )
+        _expect_immutable_archive_url(
+            output_node["url"],
+            sources_digest,
+            clang_source["compiler_revision"],
+            f"output lock.macos.{macos_node}.url",
+        )
+        artifact_digests.append(
+            _expect_sha256(
+                output_node["archive_sha256"],
+                f"output lock.macos.{macos_node}.archive_sha256",
+            )
+        )
+        observed = _expect_exact_keys(
+            output_node["observed_runner"],
+            ("image_os", "image_version"),
+            f"output lock.macos.{macos_node}.observed_runner",
+        )
+        for key in ("image_os", "image_version"):
+            _expect_nonempty_string(
+                observed[key],
+                f"output lock.macos.{macos_node}.observed_runner.{key}",
+            )
+        if output_node["compiler_revision"] != clang_source["compiler_revision"]:
+            raise EvidenceError(
+                f"output lock macOS compiler revision differs for {macos_node}"
+            )
+        for key in APPLE_IDENTITY_KEYS:
+            if output_node[key] != source_macos_nodes[macos_node][key]:
+                raise EvidenceError(
+                    f"output lock macOS {key} differs from source hard lock "
+                    f"for {macos_node}"
+                )
+
+    if len(set(artifact_digests)) != len(NODES):
+        raise EvidenceError("output lock node artifact digests must be unique")
 
     if _is_macos(node):
         source_node = _require_fields(
@@ -790,6 +1251,10 @@ def _load_lock_policy(sources_lock, outputs_lock, node):
 
     _expect_exact_keys(policy, NODE_POLICY_KEYS, f"normalized policy for {node}")
     return policy, sources_digest, _sha256(outputs_lock)
+
+
+def _load_lock_policy(sources_lock, outputs_lock, node):
+    return load_node_toolchain_policy(sources_lock, outputs_lock, node)
 
 
 def _require_platform_probe_pass(probe):
@@ -1045,7 +1510,7 @@ def seal_producer(
         raise EvidenceError("probe runner does not match --runner")
 
     policy, sources_digest, outputs_digest = (
-        _load_lock_policy(sources_lock, outputs_lock, node)
+        load_node_toolchain_policy(sources_lock, outputs_lock, node)
     )
     if (
         toolchain_artifact_sha256
