@@ -20,6 +20,8 @@ struct CheckpointRegionAccess {
 
     static RegionBuffer copied_buffer(const decoded_checkpoint& decoded) {
         RegionBuffer buffer;
+        // P0593: this distinct-source copy creates the suitable schema objects
+        // in the destination; validation gates every subsequent typed access.
         std::memcpy(buffer.storage_->bytes, decoded.payload.data(),
                     decoded.payload.size());
         buffer.used_bytes_ = static_cast<std::uint32_t>(decoded.payload.size());

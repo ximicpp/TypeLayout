@@ -88,13 +88,11 @@ private:
             reject_region("used payload exceeds region capacity");
         }
 
-        copied_bytes_ =
-            buffer_.state_ == RegionBuffer::state::copied_bytes_unvalidated;
         validate_root();
         validate_root_ranges();
-        start_entities();
-        validate_and_start_names();
-        start_index_and_party();
+        resolve_entities();
+        validate_names();
+        resolve_index_and_party();
         validate_index();
         validate_graph();
         buffer_.state_ = RegionBuffer::state::validated;
@@ -121,12 +119,8 @@ private:
             "root"
         };
         intervals_.push_back(root_interval_);
-        if (copied_bytes_) {
-            root_ = std::start_lifetime_as<WorldSnapshot>(base() + begin);
-        } else {
-            root_ = std::launder(reinterpret_cast<WorldSnapshot*>(
-                base() + begin));
-        }
+        root_ = std::launder(reinterpret_cast<WorldSnapshot*>(
+            base() + begin));
     }
 
     void validate_root_ranges() {
@@ -189,30 +183,25 @@ private:
         return interval;
     }
 
-    void start_entities() {
-        entities_ = start_array<Entity>(entities_interval_,
-                                        root_->entities.size_);
+    void resolve_entities() {
+        entities_ = resolve_array<Entity>(entities_interval_,
+                                          root_->entities.size_);
     }
 
-    void validate_and_start_names() {
+    void validate_names() {
         for (std::uint32_t index = 0;
              index != root_->entities.size_; ++index) {
-            const auto interval = validate_range(
+            static_cast<void>(validate_range(
                 entities_[index].name.data_.raw_offset_plus_one(),
                 entities_[index].name.size_, sizeof(char), alignof(char),
-                "entity name");
-            if (copied_bytes_ && entities_[index].name.size_ != 0) {
-                static_cast<void>(std::start_lifetime_as_array<char>(
-                    base() + interval.begin,
-                    static_cast<std::size_t>(entities_[index].name.size_)));
-            }
+                "entity name"));
         }
     }
 
-    void start_index_and_party() {
-        index_ = start_array<EntityIndexEntry>(
+    void resolve_index_and_party() {
+        index_ = resolve_array<EntityIndexEntry>(
             index_interval_, root_->entity_index.entries_.size_);
-        party_ = start_array<EntityRelativePtr>(
+        party_ = resolve_array<EntityRelativePtr>(
             party_interval_, root_->party.size_);
     }
 
@@ -299,13 +288,9 @@ private:
     }
 
     template <typename T>
-    T* start_array(const OwningInterval& interval, std::uint32_t count) {
+    T* resolve_array(const OwningInterval& interval, std::uint32_t count) {
         if (count == 0) {
             return nullptr;
-        }
-        if (copied_bytes_) {
-            return std::start_lifetime_as_array<T>(
-                base() + interval.begin, static_cast<std::size_t>(count));
         }
         return std::launder(reinterpret_cast<T*>(base() + interval.begin));
     }
@@ -322,7 +307,6 @@ private:
     }
 
     RegionBuffer& buffer_;
-    bool copied_bytes_ = false;
     std::vector<OwningInterval> intervals_;
     OwningInterval root_interval_{};
     OwningInterval entities_interval_{};

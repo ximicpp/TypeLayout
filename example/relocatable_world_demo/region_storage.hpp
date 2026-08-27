@@ -101,6 +101,15 @@ struct alignas(64) RegionStorage {
 static_assert(sizeof(RegionStorage) == region_capacity);
 static_assert(alignof(RegionStorage) == 64);
 
+namespace detail {
+
+// A distinct, fully initialized source for the P0593 memcpy lifetime trigger.
+// The demo's closed stored schema guarantees that all-zero is a valid initial
+// representation; this is not a generic promise for arbitrary admitted types.
+inline constexpr RegionStorage zero_region_storage{};
+
+} // namespace detail
+
 template <typename T>
 class region_array_handle {
 public:
@@ -244,7 +253,7 @@ public:
         ensure_active();
         detail::check_stored_type<T>();
         const auto offset = reserve(sizeof(T), alignof(T));
-        static_cast<void>(std::start_lifetime_as<T>(base() + offset));
+        create_zero_initialized_objects(offset, sizeof(T));
         return region_handle<T>(this, generation_, encode_offset(offset));
     }
 
@@ -258,8 +267,7 @@ public:
         const auto byte_count = detail::checked_multiply(
             static_cast<std::size_t>(count), sizeof(T));
         const auto offset = reserve(byte_count, alignof(T));
-        static_cast<void>(std::start_lifetime_as_array<T>(
-            base() + offset, static_cast<std::size_t>(count)));
+        create_zero_initialized_objects(offset, byte_count);
         return region_array_handle<T>(
             this, generation_, encode_offset(offset), count);
     }
@@ -449,6 +457,12 @@ private:
 
     std::byte* base() noexcept { return buffer_.storage_->bytes; }
     const std::byte* base() const noexcept { return buffer_.storage_->bytes; }
+
+    void create_zero_initialized_objects(std::size_t offset,
+                                         std::size_t byte_count) {
+        static_cast<void>(std::memcpy(
+            base() + offset, detail::zero_region_storage.bytes, byte_count));
+    }
 
     std::size_t reserve(std::size_t byte_count, std::size_t alignment) {
         const auto offset = detail::checked_align_up(cursor_, alignment);
