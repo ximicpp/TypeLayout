@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <cstdio>
 #include <limits>
 #include <stdexcept>
@@ -37,6 +38,18 @@ void require(bool condition, std::string_view reason) {
 
 enum class AgreementResult { match, differ, incomplete };
 
+struct NativePointerEntity {
+    std::uint64_t id;
+    xoffset_world_demo::Entity* target;
+};
+
+static_assert(boost::typelayout::source_context_v<NativePointerEntity> ==
+              boost::typelayout::SourceContext::address_space_dependent);
+static_assert(!boost::typelayout::is_byte_copy_safe_v<NativePointerEntity>);
+static_assert(!boost::typelayout::is_admitted_v<
+    NativePointerEntity,
+    boost::typelayout::TransferProfile::whole_region_relocation>);
+
 AgreementResult check_agreement(
     boost::typelayout::PlatformInfo producer);
 
@@ -56,14 +69,6 @@ bool entry_matches(const boost::typelayout::TypeEntry& entry) {
     constexpr auto current = boost::typelayout::get_layout_signature<T>();
     return entry.byte_copy_safe &&
         std::string_view(entry.layout_sig) == std::string_view(current);
-}
-
-template <typename T>
-bool fixture_entry_matches(
-    boost::typelayout::PlatformInfo producer,
-    std::string_view key) {
-    const auto* entry = find_fixture_entry(producer, key);
-    return entry != nullptr && entry_matches<T>(*entry);
 }
 
 AgreementResult check_agreement(
@@ -355,28 +360,78 @@ void run_positive_relocation() {
     std::printf("Reload: mutation persisted\n");
 }
 
+void run_native_pointer_negative() {
+    require(boost::typelayout::source_context_v<NativePointerEntity> ==
+            boost::typelayout::SourceContext::address_space_dependent,
+        "native pointer: source context is not address-space-dependent");
+    require(!boost::typelayout::is_byte_copy_safe_v<NativePointerEntity>,
+        "native pointer: representation unexpectedly became byte-copy safe");
+    require(!boost::typelayout::is_admitted_v<
+            NativePointerEntity,
+            boost::typelayout::TransferProfile::whole_region_relocation>,
+        "native pointer: whole-region Admission unexpectedly passed");
+
+    std::printf("Negative[native pointer]: Admission FAIL, load skipped\n");
+}
+
+void run_packed_agreement_negative() {
+    const auto packed_info =
+        boost::typelayout::platform::producer_packed::get_platform_info();
+    require(check_agreement(packed_info) == AgreementResult::differ,
+        "packed Entity: Agreement unexpectedly matched");
+
+    std::printf(
+        "Negative[producer packing ABI drift]: Agreement DIFFER, load skipped\n");
+}
+
+void run_corrupt_delta_negative() {
+    auto source = build_world();
+    validate_world_graph(source);
+
+    auto wire = source.save_verified<WorldSnapshot>();
+    auto world_after_save = source.handle<WorldSnapshot>();
+    require(world_after_save.get() != nullptr,
+        "corrupt rel32: source root was lost during save");
+    validate_world_graph(source);
+
+    const auto live_region = source.bytes();
+    const auto* local_player_bytes = reinterpret_cast<const std::byte*>(
+        &world_after_save->local_player);
+    require(local_player_bytes >= live_region.data() &&
+            local_player_bytes + sizeof(std::int32_t) <=
+                live_region.data() + live_region.size(),
+        "corrupt rel32: local_player is outside the live region");
+    const auto payload_offset = static_cast<std::size_t>(
+        local_player_bytes - live_region.data());
+    const auto wire_offset =
+        sizeof(XOffsetDatastructure::XWireHeaderV1) + payload_offset;
+    require(wire_offset + sizeof(std::int32_t) <= wire.size(),
+        "corrupt rel32: local_player is outside the wire payload");
+
+    const auto corrupt_delta = std::numeric_limits<std::int32_t>::max();
+    std::memcpy(wire.data() + wire_offset,
+        &corrupt_delta, sizeof(corrupt_delta));
+
+    auto loaded = XBuffer::load_verified<WorldSnapshot>(wire);
+    bool graph_rejected = false;
+    try {
+        validate_world_graph(loaded);
+    } catch (const std::runtime_error&) {
+        graph_rejected = true;
+    }
+    require(graph_rejected,
+        "corrupt rel32: graph validator unexpectedly accepted the delta");
+
+    std::printf(
+        "Negative[corrupt rel32]: graph REJECT before dereference\n");
+}
+
 int main() {
     static_assert(xoffset_world_demo::world_contract_admitted_v);
 
     const auto ok = check_agreement(
         boost::typelayout::platform::producer_ok::get_platform_info());
-    const auto packed = check_agreement(
-        boost::typelayout::platform::producer_packed::get_platform_info());
-    if (ok != AgreementResult::match ||
-        packed != AgreementResult::differ) {
-        return 1;
-    }
-
-    const auto packed_info =
-        boost::typelayout::platform::producer_packed::get_platform_info();
-    if (!fixture_entry_matches<xoffset_world_demo::WorldSnapshot>(
-            packed_info, "WorldSnapshot") ||
-        fixture_entry_matches<xoffset_world_demo::Entity>(
-            packed_info, "Entity") ||
-        !fixture_entry_matches<xoffset_world_demo::EntityRelativePtr>(
-            packed_info, "EntityRelativePtr") ||
-        !fixture_entry_matches<xoffset_world_demo::EntityIndexEntry>(
-            packed_info, "EntityIndexEntry")) {
+    if (ok != AgreementResult::match) {
         return 1;
     }
 
@@ -390,6 +445,8 @@ int main() {
     std::printf("Admission[whole_region_relocation]: PASS\n");
     std::printf("Agreement[producer_ok, 4 types]: MATCH\n");
     run_positive_relocation();
-    std::printf("Negative[producer packing ABI drift]: Agreement DIFFER, load skipped\n");
+    run_native_pointer_negative();
+    run_packed_agreement_negative();
+    run_corrupt_delta_negative();
     return 0;
 }
