@@ -587,7 +587,7 @@ Add definitions for:
 31. `The emitted header contains evidence—not provenance`
 32. `CI binds evidence to an exact producer`
 33. `CI quantifies the same two gates over the declared graph`
-34. `A closed run rejects every missing fact`
+34. `Missing evidence makes the run incomplete—not passing`
 
 - [ ] **Step 3: Implement the pointer counterexample and profile-aware Admission**
 
@@ -611,7 +611,7 @@ Slide 31 shows only the current artifact fields needed by the decision—contrac
 
 - [ ] **Step 8: Close the graph without inventing an API**
 
-Slide 33 uses the declared build graph and actual node-local Admission state, then generalizes slide 28's edge decision for one registered key: `ClosedPermit_C(K) = Admission_P(K,B) for every B ∈ V ∧ Agreement(K,A,B) for every (A,B) ∈ E`. State that CI repeats this closed decision for every `K ∈ R`; it must not collapse mixed per-type outcomes into one ambiguous Permit. Do not teach equality transitivity or spanning-tree comparison reduction on the main slide; those are appendix or speaker-note optimizations. Slide 34 reduces the per-key decision to two outcomes: any missing, stale, unattributable, Admission-failing, or Agreement-failing required fact means no Permit for that key; all its required facts valid and passing establishes `ClosedPermit_C(K)`. Preview the reporter's three diagnostic shapes—`byte-copy safe + layout match`, `Layout match (not byte-copy safe)`, and `Layout mismatch`—and defer the full report to appendix slide 57. The run is complete only after every declared key has a closed decision; an optional all-types-must-pass workflow policy belongs in notes or the appendix. Use current primitive composition or `CompatReporter`; do not show `TYPELAYOUT_ASSERT_TRANSFER_SAFE`.
+Slide 33 uses the declared build graph and actual node-local Admission state, then generalizes slide 28's edge decision for one registered key: `ClosedPermit_C(K) = Admission_P(K,B) for every B ∈ V ∧ Agreement(K,A,B) for every (A,B) ∈ E`. State that CI repeats this closed decision for every `K ∈ R`; it must not collapse mixed per-type outcomes into one ambiguous Permit. Do not teach equality transitivity or spanning-tree comparison reduction on the main slide; those are appendix or speaker-note optimizations. Slide 34 shows three states: missing, stale, or unattributable evidence gives `INCOMPLETE / NO PERMIT`; valid evidence plus an Admission or Agreement failure gives `REJECT / NO PERMIT`; valid evidence plus both gates passing over the complete graph gives `PERMIT`. The run is complete only when every declared key has a `PERMIT / REJECT` decision. Preview the reporter's three diagnostic shapes—`byte-copy safe + layout match`, `Layout match (not byte-copy safe)`, and `Layout mismatch`—and defer the full report to appendix slide 57. Keep the detailed failure taxonomy in diagnostics or notes. Use current primitive composition or `CompatReporter`; do not show `TYPELAYOUT_ASSERT_TRANSFER_SAFE`.
 
 - [ ] **Step 9: Add repository and CI sources to notes**
 
@@ -619,7 +619,7 @@ At minimum cite `include/boost/typelayout/admission.hpp`, `include/boost/typelay
 
 - [ ] **Step 10: Validate, build, and inspect through slide 34**
 
-Confirm Agreement uses edge color/text, Admission uses node color/text, slides 20–28 read `how the two gates decide one edge`, and slides 29–34 read `how CI closes each key over the finite contract`. Confirm slide 28 says `EDGE PASS`, not `PERMIT`; provenance is visibly an input-validity condition; and no per-key Permit is inferred from a single edge, macro, or skipped CI job. Correct all slide-scoped QA findings before Task 7.
+Confirm Agreement uses edge color/text, Admission uses node color/text, slides 20–28 read `how the two gates decide one edge`, and slides 29–34 read `how CI closes each key over the finite contract`. Confirm slide 28 says `EDGE PASS`, not `PERMIT`; provenance is visibly an input-validity condition; slide 34 distinguishes `INCOMPLETE`, `REJECT`, and `PERMIT`; and no per-key Permit is inferred from a single edge, macro, or skipped CI job. Correct all slide-scoped QA findings before Task 7.
 
 ### Task 7: Author and review slides 35–45 — apply the model, bound the Permit, and close with a complete takeaway
 
@@ -653,7 +653,7 @@ Add definitions for:
 39. `Four permits and two rejections exercise both gates`
 40. `A representation permit is deliberately narrow`
 41. `Runtime obligations depend on the boundary`
-42. `Serialize when the required contract is broader`
+42. `Re-close finite changes; convert when the contract cannot stay closed`
 43. `` The real question is not “can I memcpy?”—it is “under which contract?” ``
 44. `Reflection derives representation evidence; CI closes the decision`
 45. `Permit native bytes only inside a closed contract`
@@ -676,13 +676,13 @@ Cite the completed demo's retained artifacts, the x86-64 psABI, and Apple's ARM6
 
 - [ ] **Step 7: Close Stage 5, bound its result in Stage 6, and build the three-part Stage 7 recap**
 
-Slide 39 closes Stage 5 with three rows: every key in `R_capture` receives its own Permit, candidate `UnsafeWithPointer` is rejected only by Admission, and candidate `Measurement` is rejected only by Agreement. Keep the workflow success condition in notes. Stage 6 then stays deliberately brief: slide 40 separates what TypeLayout proves from application-owned obligations; slide 41 lists boundary-specific runtime obligations; slide 42 explains when the closed native-byte path is appropriate and when explicit conversion is required.
+Slide 39 closes Stage 5 with three rows: every key in `R_capture` receives its own Permit, candidate `UnsafeWithPointer` is rejected only by Admission, and candidate `Measurement` is rejected only by Agreement. Keep the workflow success condition in notes. Stage 6 then stays deliberately brief: slide 40 separates what TypeLayout proves from application-owned obligations; slide 41 groups runtime work into object, concurrency/transport, and external-data obligations while deferring the per-boundary matrix to appendix slide 49; slide 42 states that a finite change to `V` or `E` requires fresh evidence and a newly closed decision, while open-ended peers, representation divergence, or requirements beyond representation compatibility need an explicit representation/conversion layer. It must also state that serialization alone does not make untrusted input safe.
 
-Stage 7 has three distinct recap jobs. Slide 43 returns to the opening `Measurement` question, distinguishes the local-copy question from the cross-boundary contract question, and states that the original unqualified question was incomplete. It must repeat the compact result `Measurement under C_candidate(Measurement) → Agreement DIFFER → REJECT`, but not the `long double` signature or ABI proof. Slide 44 compresses the method into one chain: declare `C = (R,V,E,P)` and contract key `K` → every `B ∈ V` evaluates `Admission_P(K,B)` and emits `Signature_B(K)` → CI validates the evidence inputs → Admission on every declared node plus Agreement of signatures on every required edge closes `K` over `C` → `ClosedPermit_C(K)` or `REJECT`. Evidence presence, attribution, and freshness remain evidence-input validation preconditions, not a third gate. Slide 45 gives the four-item design-review checklist, states that Permit is per-type and contract-scoped, directs broader requirements to explicit conversion, and ends with the exact operating rule from spec section 4.8. Do not replay signature grammar, ABI fragments, artifact fields, the demo matrix, or the full serialization comparison in Stage 7.
+Stage 7 has three distinct recap jobs. Slide 43 returns to the opening `Measurement` question, distinguishes the local-copy question from the cross-boundary contract question, and states that the original unqualified question was incomplete. It must repeat the compact result `Measurement under C_candidate(Measurement) → Agreement DIFFER → REJECT`, but not the `long double` signature or ABI proof. Slide 44 compresses the method into one chain: declare `C = (R,V,E,P)` and contract key `K` → every `B ∈ V` evaluates `Admission_P(K,B)` and emits `Signature_B(K)` → CI validates the evidence inputs → Admission on every declared node plus Agreement of signatures on every required edge closes `K` over `C` → `ClosedPermit_C(K)` or `REJECT`. Evidence presence, attribution, and freshness remain evidence-input validation preconditions, not a third gate. Slide 45 gives the four-item design-review checklist, states that Permit is per-type and contract-scoped, distinguishes re-closing a finite contract change from introducing an explicit representation when the contract cannot stay closed, and ends with the exact operating rule from spec section 4.8. Do not replay signature grammar, ABI fragments, artifact fields, the demo matrix, or the full Stage 6 comparison in Stage 7.
 
 - [ ] **Step 8: Validate, build, and inspect through slide 45**
 
-Confirm slides 35–39 read as one causal story—real boundary → declared contract → useful permitted set → Admission failure → Agreement failure → resolved matrix—without detouring into implementation mechanics. Confirm slides 40–42 form the short boundary chain—Permit obtained → proof boundary → application obligations → serialize when broader. Confirm slides 43–45 form a visibly separate conclusion—problem recap → method recap → actionable takeaway—without adding new proof obligations. Slide 45 must contain the GitHub URL and a Q&A cue to appendix slide 46 in the inherited footer, and must not become a generic thank-you slide.
+Confirm slides 35–39 read as one causal story—real boundary → declared contract → useful permitted set → Admission failure → Agreement failure → resolved matrix—without detouring into implementation mechanics. Confirm slides 40–42 form the short boundary chain—Permit obtained → proof boundary → application obligations → re-close finite changes or use an explicit representation when the contract cannot stay closed. Confirm slides 43–45 form a visibly separate conclusion—problem recap → method recap → actionable takeaway—without adding new proof obligations. Slide 45 must contain the GitHub URL and a Q&A cue to appendix slide 46 in the inherited footer, and must not become a generic thank-you slide.
 
 ### Task 8: Author and review appendix slides 46–61 and complete speaker-note sources
 
@@ -731,6 +731,8 @@ Slide 46's Q&A map must use the new appendix destinations 47–61; do not retain
 - [ ] **Step 3: Keep appendix material additive**
 
 For every appendix definition, compare it with its main-deck dependency. Remove any repeated conclusion and retain only deeper wording, full grammar, complete encodings, complete tables, diagnostic anatomy, or standards-status detail.
+
+Appendix slide 49 owns the full per-boundary runtime-obligations matrix removed from slide 41.
 
 Appendix slide 58 owns the complete artifact and provenance field lists and the `.sig.hpp` versus external-attestation distinction. Equality-transitivity and spanning-tree comparison reduction may remain in speaker notes or be reached through the Q&A map; they must not return to the main causal spine.
 
@@ -796,12 +798,13 @@ Run the validator and builder through slide 61. Inspect slides 46–61 individua
 - slides 20, 24, 28, 33, and 40 keep Agreement, Admission, EdgePass, per-key closed-contract Permit, and application obligations distinct;
 - slide 28 contains `EDGE PASS` and does not label its single-edge result `PERMIT`;
 - slides 29–34 never present provenance as a third compatibility gate;
+- slide 34 labels missing/stale/unattributable input `INCOMPLETE`, valid evidence with either gate failing `REJECT`, and valid evidence with the complete graph passing `PERMIT`;
 - slides 35–39 preserve the sequence real boundary → declared contract → permitted set → Admission rejection → Agreement rejection → final matrix;
-- slides 40–42 preserve the brief Stage 6 sequence Permit obtained → proof boundary → application obligations → serialize when broader, without introducing a new gate, mechanism, or demo;
+- slides 40–42 preserve the brief Stage 6 sequence Permit obtained → proof boundary → compressed application obligations → re-close finite changes or use an explicit representation when the contract cannot stay closed, without introducing a new gate, mechanism, or demo;
 - slides 43–45 form the explicit Stage 7 conclusion in the order problem recap → method recap → actionable takeaway, without introducing a new proof obligation;
 - slide 43 distinguishes the local-copy question from the cross-boundary contract question and contains `Measurement under C_candidate(Measurement) → Agreement DIFFER → REJECT` without replaying the `long double` proof;
 - slide 44 declares `C` before evidence generation, then shows every build evaluating Admission and emitting its representation signature, CI validating those inputs, Agreement on all required edges, and the claim closing for `K` over `C`, ending in `ClosedPermit_C(K) or REJECT`; provenance remains evidence-input validation rather than a third gate;
-- slide 45 contains all four design-review checklist items—declare `C = (R,V,E,P)`, check Admission and Agreement separately, keep Permit per-type and contract-scoped, and convert explicitly when the required contract is broader—ends with the exact operating rule, preserves the GitHub/Q&A footer, and contains no generic thank-you message;
+- slide 45 contains all four design-review checklist items—declare `C = (R,V,E,P)`, check Admission and Agreement separately, keep Permit per-type and contract-scoped, and re-close finite changes or use an explicit representation when `C` cannot stay closed—ends with the exact operating rule, preserves the GitHub/Q&A footer, and contains no generic thank-you message;
 - slide 36 presents four per-key Permits rather than inventing one aggregate Permit;
 - slide 21 contains the real Agreement `static_assert`, and slide 26 contains the combined ordinary-copy Admission `static_assert`;
 - slide 34 previews CI diagnostic shapes, slide 37 shows `Layout match (not byte-copy safe)`, and slide 38 shows a `[DIFFER]` layout diagnostic;

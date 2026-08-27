@@ -73,7 +73,7 @@ Relocation remains an appendix-only, separate contract. The deck must not imply 
 
 6. **Closed CI**
 
-   > CI closes each registered type's claim over a finite build contract: every declared build emits evidence; CI accepts it only when it is fresh and attributable; and that type receives a Permit only when Admission passes on every node and Agreement is established on every required transfer edge.
+   > CI closes each registered type's claim over a finite build contract: every declared build emits evidence; CI accepts it only when it is fresh and attributable; and that type receives a Permit only when Admission passes on every node and Agreement is established on every required transfer edge. Invalid or missing input leaves the claim incomplete; a gate failure rejects it.
 
 7. **Operating boundary**
 
@@ -109,7 +109,7 @@ The main deck contains 45 slides. The appendix contains 16 slides, for 61 slides
 | Admission | 23–28 | 7–8 min | Define the profile-aware node predicate and structural limits |
 | Closed CI | 29–34 | 7–8 min | Produce provenance-bound per-key decisions over the finite build graph |
 | Apply | 35–39 | 5–6 min | Enable one useful raw-byte contract, reject one Admission failure and one Agreement failure, and resolve the opening example |
-| Operating boundary | 40–42 | 3 min | State what the Permit proves, what remains application-owned, and when to serialize |
+| Operating boundary | 40–42 | 3 min | State what the Permit proves, what remains application-owned, when to re-close, and when to use an explicit representation |
 | Conclusion and takeaway | 43–45 | 3 min | Restate the problem, compress the complete method, and leave one actionable decision rule |
 
 ### 4.1 Narrative Layers and Detail Admission
@@ -141,47 +141,56 @@ Stages 1–7 preserve exactly two compatibility gates: Admission on build nodes 
 
 ### 4.2 Stage 1 — Why Evidence Is Needed (Slides 1–11)
 
-**Communication job:** put the audience in the reviewer's chair and establish that a cross-boundary permit requires evidence that local checks do not provide.
+**Job:** explain why direct byte transfer needs evidence that local checks do not provide.
 
-The main causal spine is:
+Tell the story in this order:
 
 ```text
-native bytes cross a boundary
-→ build identity, address-space identity, or both may be lost
-→ select one strict transfer profile over a finite declared set
-→ two independent proof obligations arise
-→ local traits and total size cannot satisfy both
-→ each build must describe what it actually produced
+We move native C++ bytes across a boundary.
+→ The receiver may use a different build, a different address space, or both.
+→ We limit the claim to one strict transfer profile and a finite build set.
+→ That creates two separate questions.
+→ Local traits and total size cannot answer both questions.
+→ Each build must describe the representation it actually produced.
 ```
 
-Keep in the main deck:
+Start with one type and ask whether the audience would approve its bytes across every supported build. Do not answer yet.
 
-- one opening type and one unanswered `PERMIT?` decision;
-- the build-identity × address-space-identity matrix;
-- one compact example for each lost assumption and one combined stored-bytes case;
-- the strict profile: ordinary copy, zero fixup, source-address-independent bytes, finite declared build set;
-- the two natural-language questions: whether the bytes may stand independently and whether declared builds produce matching representation evidence;
-- one `trivially_copyable` counterargument and one equal-`sizeof` counterexample.
+Use the build-identity × address-space-identity matrix to show what a boundary can change. Give one short example for each lost assumption, then combine them in the stored-bytes case.
 
-The cumulative chain on slide 9 is a brief orientation beat, not a technical agenda. It may preview the remaining inference, but it must not explain downstream formulas, APIs, or CI machinery before the local-check gap has been established.
+State the exact profile used by the talk:
 
-Compress or defer:
+- ordinary object copy;
+- no fixup;
+- bytes must not depend on the producer's address space;
+- the participating build set is finite and declared in advance.
 
-- exhaustive compiler/flag/header/ABI drift lists;
-- operational details of IPC, plugins, and storage;
-- versioning, trust, framing, lifetime, synchronization, and crash consistency beyond one boundary footer.
+This profile creates two questions:
 
-The stage exits with:
+1. May these native bytes stand on their own after they cross the boundary?
+2. Did every declared build produce the same object representation?
+
+Then show why familiar checks are not enough:
+
+- `trivially_copyable` covers local byte-copy legality, not the complete cross-boundary claim;
+- equal `sizeof` does not prove equal member types, offsets, alignment, bit-fields, or other representation facts;
+- code review does not produce repeatable evidence for every declared build.
+
+Slide 9 may preview the rest of the argument, but it must not introduce formulas, APIs, or CI details yet.
+
+Keep long compiler/flag/header/ABI inventories, IPC mechanics, versioning, trust, framing, lifetime, synchronization, and crash consistency out of this stage. A short boundary footer is enough.
+
+End with:
 
 > `Each build must describe the representation it actually produced.`
 
-The next question is: `How can one build produce trustworthy representation evidence?`
+Then ask: `How can one build produce trustworthy representation evidence?`
 
 ### 4.3 Stage 2 — How One Build Produces Evidence (Slides 12–19)
 
-**Communication job:** establish a qualified per-build certificate, not merely display a generated string.
+**Job:** show how one build produces a representation certificate with clear limits, not just a generated string.
 
-The stage contract is:
+State the input, output, and failure rule:
 
 ```text
 Input:  ordinary C++ type T compiled by build B
@@ -189,25 +198,25 @@ Output: Signature_B(T) within the explicitly supported signature domain
 Failure: compile-time rejection
 ```
 
-The main causal spine is:
+Tell the story in this order:
 
 ```text
-define what a trustworthy signature requires
-→ obtain the compiler's actual layout facts through reflection
-→ recursively normalize the supported representation
-→ encode exposed structure, name explicit trust, reject hidden unsupported machinery
-→ assemble one inspectable consteval certificate
-→ audit the certificate against the trust requirements
+First say what the certificate must guarantee.
+→ Use reflection to obtain the layout facts produced by this compiler.
+→ Normalize the supported representation recursively.
+→ Encode visible structure, name explicit trust, and reject unsupported hidden structure.
+→ Build one inspectable consteval certificate.
+→ Check the result against the original requirements.
 ```
 
-Introduce the four requirements before the implementation sequence, using audience-facing questions:
+Before showing any implementation, ask four simple questions:
 
-- **Coverage:** did we record every representation fact used by this proof?
-- **Canonicality:** do the same supported facts produce the same normalized form?
+- **Coverage:** did we record every representation fact needed by this check?
+- **Canonicality:** do the same supported facts always produce the same normalized form?
 - **Discrimination:** does every encoded difference change the certificate?
-- **Fail-closed behavior:** if TypeLayout cannot completely encode a fact required by this proof, does signature generation fail instead of producing partial evidence?
+- **Fail closed:** if a required fact cannot be encoded completely, does generation fail instead of returning partial evidence?
 
-Maintain these distinctions throughout the stage:
+Keep the responsibilities separate:
 
 ```text
 compiler + reflection → layout facts
@@ -216,76 +225,84 @@ FixedString           → per-build certificate
 later CI stages       → export, freshness, and provenance
 ```
 
-Keep in the main deck:
+Show one declaration beside the byte map produced by the compiler. Explain only this reflection path:
 
-- one declaration beside the compiler-produced byte map;
-- only the reflection operations necessary to explain enumerate → type → position → classify → recurse;
-- the category policy at one-action granularity;
-- canonical leaf tokens, size/alignment, and root-relative absolute offsets;
-- the Sched abstract's `architecture and endianness` wording mapped precisely to the implementation: the signature prefix records pointer width plus endianness, not CPU architecture identity, while exact target identity belongs to provenance;
-- one compact encode / explicit-trust / reject policy;
-- one concrete fail-closed rejection, with virtual inheritance preferred;
-- one complete, decoded `PacketHeader` certificate.
+```text
+enumerate → get type → get position → classify → recurse
+```
 
-Compress or defer:
+The certificate records canonical leaf tokens, sizes, alignments, and root-relative absolute offsets. It also covers the supported array, nested-record, bit-field, and pointer-like cases.
 
-- the complete primitive-token table and platform assumptions;
-- full array/enum/union/bit-field/EBO/`no_unique_address` rules;
-- opaque macro variants and relocation contracts;
-- the complete signature grammar and recursive engine pseudocode.
+Be precise about architecture information. The signature prefix records pointer width and endianness. Exact compiler and target identity belongs to build provenance, not to the type signature itself.
 
-Opaque is not presented as fully reflected structure: it is an explicitly named trust contract. The stage must not claim that the certificate describes every compiler fact or every C++ type. It certifies the encoded facts within the declared signature domain.
+Use one small policy table:
 
-The stage exits with:
+- supported visible structure: encode it;
+- explicitly trusted opaque structure: record the named trust contract;
+- unsupported structure with no trust contract: reject it at compile time.
+
+Virtual inheritance is the preferred fail-closed example. End with one complete, decoded `PacketHeader` certificate.
+
+Do not show the full primitive-token table, complete category rules, opaque macro variants, relocation contracts, signature grammar, or recursive pseudocode here.
+
+An opaque type is not described as fully reflected. It is covered by an explicit trust contract. The certificate covers the encoded facts in the declared signature domain; it does not claim to describe every compiler fact or every C++ type. Field names and source-level meaning are not part of the certificate.
+
+End with:
 
 > `Each build now has its own inspectable representation certificate.`
 
-The certificate supplies Agreement evidence. The same recursive inspection also supplies the per-build structural facts used later by Admission; the Admission policy itself remains in Stage 3.
+The certificate supplies the evidence used by Agreement. The same recursive inspection also supplies the local structural facts used by Admission, but Admission itself starts in Stage 3.
 
-The next question is: `What does exact equality between two certificates establish—and what does it not establish?`
+Then ask: `What does exact equality between two certificates establish—and what does it not establish?`
 
 ### 4.4 Stage 3 — How the Two Gates Decide One Edge (Slides 20–28)
 
-**Communication job:** distinguish a build-edge relation from a build-node predicate and derive the decision rule for one declared edge without claiming that the whole build set is already closed.
+**Job:** separate the node check from the edge check, then derive the rule for one declared transfer edge. Do not call this a final Permit.
 
-The audience model is:
+Use this picture:
 
 ```text
 Build A node ───── Agreement edge ───── Build B node
   Admission                              Admission
 ```
 
-The main causal spine is:
+Tell the story in this order:
 
 ```text
-contract-key equality + certificate equality
-→ Agreement on one declared build edge
-→ a matching-pointer counterexample exposes Agreement's limit
-→ profile-aware structural Admission judges each build node
-→ an integer-handle counterexample exposes Admission's semantic limit
-→ Admission on both nodes + Agreement on the edge
-→ that one declared edge satisfies the two-gate decision rule
+The registered contract key and both certificates match.
+→ Agreement holds on this declared edge.
+→ A pointer example shows why Agreement is not permission.
+→ Admission checks each endpoint under the selected transfer profile.
+→ An integer-handle example shows what structural Admission cannot know.
+→ Both endpoint Admissions and the edge Agreement must pass.
+→ Only this one declared edge now passes.
 ```
 
-Keep in the main deck:
+Define Agreement first. For the same registered contract key and signature-domain version, exact certificate equality establishes Agreement on one declared edge. Show one readable match and one readable difference.
 
-- the registered-contract-key plus exact-signature Agreement predicate;
-- one readable signature match and one readable divergence;
-- one compact statement of the three Agreement limits: source identity, application meaning, and source-context independence;
-- one staged pointer counterexample;
-- the strict profile reminder and the three conceptual Admission conditions;
-- the ordinary-copy composition `std::is_trivially_copyable_v<T> && is_byte_copy_safe_v<T>`;
-- one compact integer-disguised-handle warning;
-- the node/edge decision matrix and one-edge decision formula.
+State its three limits plainly. Agreement does not prove:
 
-Compress or defer:
+- that both sides came from the same source declaration;
+- that both sides give the bytes the same application meaning;
+- that the value is independent of the producer's context.
 
-- exhaustive pointer-like-token lists;
-- the full recursive Admission algorithm;
-- opaque relocation API variants;
-- parser, reporter, and exported-artifact implementation.
+Use a pointer as the counterexample: the certificates can match while the copied address still depends on the producer process. This gives `Agreement MATCH / Admission FAIL`.
 
-Use `NoDetectedStructuralContextDependency`, not an unqualified claim of context independence. `RepresentationEvidenceComplete` means every reachable component is encoded or covered by an explicitly named trust contract; it does not mean opaque internals were reflected. If a required component is unsupported, Stage 2 rejects signature generation, so Admission and `EdgePass` cannot be established. Agreement is equality of encoded representation certificates within the declared signature domain, not a proof of source identity or semantics.
+Then define Admission for one type, one build, and one transfer profile. Under the talk's strict profile it requires:
+
+1. ordinary byte-copy legality;
+2. `NoDetectedStructuralContextDependency`;
+3. `RepresentationEvidenceComplete`.
+
+For the ordinary-copy path, show:
+
+```cpp
+std::is_trivially_copyable_v<T> && is_byte_copy_safe_v<T>
+```
+
+Say “no detected structural dependency,” not “proven context-independent.” Complete evidence means that every reachable component is encoded or covered by a named trust contract. It does not mean that opaque internals were reflected. If a required component is unsupported, Stage 2 rejects generation, so Admission and `EdgePass` cannot be established.
+
+Use an integer-disguised handle to show the other limit. Structural Admission may pass, but the application may still reject the value because TypeLayout does not know its meaning.
 
 For one contract key and one build edge, define:
 
@@ -296,61 +313,59 @@ EdgePass_P(K,A,B)
   and Agreement(K,A,B)
 ```
 
-`EdgePass` is a scoped decision predicate under the assumption that both input artifacts are valid and correctly attributed. It is not the final per-key Permit over the complete declared build graph.
+Keep the node/edge decision matrix on screen. Move exhaustive pointer-token lists, the full recursive Admission algorithm, relocation API variants, parser details, reporter details, and artifact implementation to the appendix.
 
-The stage exits with:
+`EdgePass` assumes that both evidence artifacts are valid and correctly attributed. It covers one edge only. It is not the final Permit for the complete build graph.
+
+End with:
 
 > `One declared edge can satisfy both gates. That does not yet close the declared build set.`
 
-The next question is: `How does CI close the claim over every declared type, build node, and required edge?`
+Then ask: `How does CI check every declared type, build node, and required edge?`
 
 ### 4.5 Stage 4 — How CI Closes the Finite Contract (Slides 29–34)
 
-**Communication job:** quantify the Stage 3 node and edge predicates for every registered contract key over one explicitly declared finite build contract, while establishing that every input artifact belongs to the build it claims to describe.
+**Job:** extend the one-edge rule to every registered type, declared build, and required transfer edge. Also verify that every evidence artifact came from the build and run it claims to describe.
 
-The stage contract is:
+State the input and the possible results:
 
 ```text
 Input:  C = (R,V,E,P) plus evidence emitted by every declared build
-Output: one closed PERMIT / REJECT decision for every K in R
-Failure: CI verification cannot complete and issues no permit when required evidence is missing or invalid
+Output: one closed PERMIT / REJECT decision for every evaluable K in R
+Incomplete: missing, stale, or unattributable required evidence leaves the claim INCOMPLETE and issues no Permit
 ```
 
-Here `R` is the registered contract-key set, `V` is the exact participating build set, `E` is the required transfer-edge set, and `P` is the transfer profile. The set is finite and explicit; this stage makes no claim about an unnamed compiler, target, configuration, or future build.
+Explain the four parts without a set-theory detour:
 
-The main causal spine is:
+- `R`: the registered boundary-type keys;
+- `V`: the exact participating builds;
+- `E`: the transfer edges that must work;
+- `P`: the transfer profile.
+
+The set is finite and explicit. Nothing here covers an unnamed compiler, target, configuration, or future build.
+
+Tell the story in this order:
 
 ```text
-one edge-level decision does not cover the declared build set
-→ declare the finite contract C = (R,V,E,P)
-→ every actual build independently emits its own evidence
-→ CI binds each artifact to its exact producer and run
-→ for each K, check Admission on every declared build node
-→ for each K, establish Agreement on every required transfer edge
-→ any missing, invalid, or failing fact prevents a Permit for that K
-→ all required facts for K pass, so ClosedPermit_C(K) is established
-→ repeat until every K in R has a closed decision
+One passing edge does not cover the full build set.
+→ Declare C = (R,V,E,P).
+→ Every real build emits its own evidence.
+→ CI verifies who produced each artifact and when.
+→ For each K, check Admission on every build node.
+→ For each K, check Agreement on every required edge.
+→ Missing, stale, or unattributable evidence gives INCOMPLETE and no Permit.
+→ Valid evidence plus a failed gate gives REJECT and no Permit.
+→ If every required check passes, K receives ClosedPermit_C(K).
+→ The run is complete only when every K in R has PERMIT or REJECT.
 ```
 
-Keep in the main deck:
+Show one build graph. Every node must visibly emit its own signature and Admission-related evidence. State the division of work clearly:
 
-- the four parts of the finite contract, preferably as a small visual rather than a set-theory detour;
-- one build graph in which every node visibly emits its own signature and Admission-related evidence;
-- the distinction `artifact says what was observed; CI establishes who produced it and when`;
-- provenance explicitly framed as evidence validation before the two gates, not as a third gate;
-- Admission on every declared node and Agreement on every required transfer edge;
-- the per-key closed-contract formula;
-- one missing-required-build example showing that an absent fact never counts as a pass.
+> `The artifact says what the build observed. CI establishes who produced it and when.`
 
-Compress or defer:
+Provenance validates the input before the two gates run. It is not a third compatibility gate.
 
-- the complete `TypeEntry` and platform-metadata field lists;
-- the full provenance envelope and the choice between `.sig.hpp` fields and an external attestation;
-- equality transitivity, spanning-tree comparison reduction, and other graph optimizations;
-- the full diagnostic taxonomy for missing, stale, unattributable, Admission-failing, and Agreement-failing evidence;
-- reporter APIs and convenience-macro discussion.
-
-Under the precondition that all required evidence is present, fresh, and attributable, define:
+When all required evidence is present, fresh, and attributable, define:
 
 ```text
 ClosedPermit_C(K)
@@ -358,26 +373,40 @@ ClosedPermit_C(K)
   and Agreement(K,A,B) for every (A,B) in E
 ```
 
-Evidence validity is not conjoined as a third compatibility predicate: invalid evidence prevents CI from evaluating the two-gate claim in the first place. In the main narrative, every missing, stale, unattributable, or failing required fact has the same operational result for the affected key: CI verification does not issue a Permit. A project may additionally require every `K` in `R` to receive a Permit before the overall workflow passes, but that aggregate policy is distinct from the per-type Permit shown in the examples and belongs in notes or the appendix.
+Use one missing-build example. A skipped required job never counts as a pass.
 
-The stage exits with:
+Keep the three states separate:
 
-> `Every declared type receives a closed decision over the exact build set; only types that pass every required node and edge receive a Permit.`
+- `INCOMPLETE`: required evidence is missing, stale, or cannot be attributed;
+- `REJECT`: evidence is valid, but Admission or Agreement fails;
+- `PERMIT`: valid evidence covers the complete graph and both gates pass everywhere required.
 
-The next question is: `Can this closed model authorize a useful raw-byte type set—and reject nearby designs that violate either gate?`
+Both `INCOMPLETE` and `REJECT` issue no Permit, but they mean different things and need different diagnostics.
+
+The Permit belongs to one key `K`. A project may separately require every key in `R` to receive a Permit before the workflow passes. That is an aggregate project policy, not a new compatibility predicate.
+
+Move complete metadata fields, the full provenance envelope, graph-comparison optimizations, the detailed diagnostic taxonomy, reporter APIs, and convenience macros to notes or the appendix.
+
+End with:
+
+> `A complete run gives every declared type PERMIT or REJECT; incomplete evidence remains INCOMPLETE and never produces a Permit.`
+
+Then ask: `Can this model permit one useful raw-byte type set and reject nearby designs that fail either gate?`
 
 ### 4.6 Stage 5 — Apply the Model to a Real Raw-Byte Contract (Slides 35–39)
 
-**Communication job:** turn the closed-decision model into one recognizable engineering outcome: a coherent set of native C++ types may cross a declared persistent-storage boundary without field-by-field serialization, while two plausible nearby designs are rejected for independent reasons.
+**Job:** apply the model to one practical result. A useful set of native C++ types crosses a declared storage boundary without field-by-field serialization. Two nearby designs fail for different reasons.
 
-The stage contract is:
+State the input and expected result:
 
 ```text
 Input:  the closed two-gate model plus one completed portable-capture demonstration
 Output: four per-key Permits, one Admission rejection, and one Agreement rejection
 ```
 
-The positive example is a fixed-size telemetry capture block written and read by any build in the declared set:
+Use a fixed-size telemetry capture block. Any declared recorder build may write it, and any declared analyzer build may read it.
+
+Declare the production type set:
 
 ```text
 R_capture = {
@@ -386,7 +415,11 @@ R_capture = {
   CaptureTrailer,
   CaptureBlock
 }
+```
 
+Declare the builds, edges, and profile:
+
+```text
 V = {
   Linux x86-64 / GCC 16,
   Linux x86-64 / Clang P2996,
@@ -399,99 +432,141 @@ P = ordinary object copy, zero fixup, source-address-independent bytes
 C_capture = (R_capture, V, E, P)
 ```
 
-The three displayed build names are audience labels for the exact build identities already established in Stage 4. `PacketHeader`, `MeasurementSample`, and `CaptureTrailer` each occupy 16 bytes in the demo; `CaptureBlock` contains the header, four samples, and the trailer. The boundary model uses only fixed-width integer leaves, fixed extents, and nested records.
+These build names are short audience labels for the exact build identities established in Stage 4. All three pairwise edges are required because either endpoint may write or read.
 
-The main causal spine is:
+`PacketHeader`, `MeasurementSample`, and `CaptureTrailer` are each 16 bytes. `CaptureBlock` contains the header, four samples, and the trailer. The positive set uses fixed-width integer leaves, fixed extents, nested records, and deliberately padding-free layouts.
+
+Tell the story in this order:
 
 ```text
-the closed-decision rule is still abstract
-→ instantiate one persistent-storage boundary and declare C_capture
-→ the complete run establishes four independent per-key Permits for R_capture
-→ ClosedPermit_C(CaptureBlock) authorizes native object representation for the whole-block raw-I/O path
-→ adding a cached pointer yields Agreement MATCH but Admission FAIL
-→ replacing the fixed-width value with long double yields Admission PASS but Agreement DIFFER
-→ one working contract and the two candidate failures demonstrate why both gates are necessary
+The decision rule is still abstract.
+→ Declare one storage boundary as C_capture.
+→ The complete run gives four independent Permits for R_capture.
+→ ClosedPermit_C(CaptureBlock) permits whole-block raw I/O.
+→ Add a cached pointer: Agreement MATCH, Admission FAIL.
+→ Replace a fixed-width value with long double: Admission PASS, Agreement DIFFER.
+→ The working set and both failures show why both gates are required.
 ```
 
-Here “without serialization” has a deliberately narrow meaning: the demonstrated path copies the complete object representation with `memcpy` or an equivalent raw binary write/read; it performs no per-field encoding, endian conversion, fixup, or semantic transformation. It is authorized only for the declared types and builds. It is not a universal file format and does not establish schema evolution, semantic meaning, runtime validity, or support for an undeclared ABI.
+Say exactly what “without serialization” means here. The demo copies the complete object representation with `memcpy` or equivalent raw binary I/O. It does not perform per-field encoding, endian conversion, fixup, or semantic conversion.
 
-Keep in the main deck:
+Show the practical path:
 
-- one recorder build → capture file/persistent bytes → later analyzer build scenario;
-- the four positive boundary types as one coherent capture-block composition;
-- the exact three-build set and the fact that all writer/reader edges are required;
-- one compact result: every positive key passes every required node and edge;
-- one whole-object raw write/read line as the practical consequence of `ClosedPermit_C(CaptureBlock)`;
-- `UnsafeWithPointer` as a nearby in-memory convenience type rejected by Admission;
-- `Measurement { uint64_t id; long double value; }` as a nearby high-precision type rejected by Agreement;
-- one final matrix that contrasts the permitted set with the two independent failure modes.
+```text
+CaptureBlock
+→ whole-object memcpy or raw write
+→ persistent bytes
+→ whole-object raw read or memcpy into an existing, correctly aligned object
+→ CaptureBlock value
+```
 
-Compress or defer:
+This path is permitted only for the declared types and builds. It is not a universal file format. It does not prove schema evolution, semantic meaning, runtime validity, or support for an undeclared ABI.
 
-- complete declarations, generated signatures, CMake targets, artifact filenames, and CI commands;
-- deterministic fixture construction, byte dumps, hashes, and field-by-field round-trip assertions;
-- provenance-manifest fields and artifact-retention mechanics;
-- padding analysis beyond stating that the demo deliberately chooses padding-free positive layouts;
-- alternative sample counts, framing formats, checksums, and domain-specific telemetry semantics.
+Keep negative candidates outside `R_capture`. For each candidate `K`, check `C_candidate(K) = (R_capture ∪ {K}, V, E, P)` under the same builds, edges, and profile.
 
-The positive production set and the negative fixtures have different roles. `R_capture` contains only the four intended native-byte boundary types. For a proposed candidate key `K`, define `C_candidate(K) = (R_capture ∪ {K}, V, E, P)`. `UnsafeWithPointer` and `Measurement` are checked separately as candidates under that same `V`, `E`, and `P`; their closed decisions fail, so neither enters the production allowlist. Demo CI succeeds because the four positive decisions and both exact negative-result shapes are observed.
+Use two candidates:
 
-The stage exits with:
+- `UnsafeWithPointer`: a useful in-memory type with a cached pointer. Agreement matches on every required edge, but Admission fails on every node because the address depends on the producer process.
+- `Measurement { uint64_t id; long double value; }`: Admission passes on every node. The two Linux builds match, but the Linux–Apple edges differ, so Agreement fails.
+
+Neither candidate enters the production allowlist. Demo CI succeeds only when it sees all four positive Permits and both expected rejection shapes.
+
+End with one matrix:
+
+```text
+R_capture types       Admission PASS   Agreement MATCH   PERMIT
+UnsafeWithPointer     Admission FAIL   Agreement MATCH   REJECT
+Measurement           Admission PASS   Agreement DIFFER  REJECT
+```
+
+Move complete declarations, generated signatures, build targets, artifact names, CI commands, deterministic fixture construction, byte dumps, hashes, full round-trip checks, provenance fields, retention mechanics, detailed padding analysis, and telemetry-domain choices to the appendix or implementation notes.
+
+End with:
 
 > `Inside C_capture, CaptureBlock may use native bytes as its representation layer; both non-conforming candidates stay off that path.`
 
-The next question is: `What exactly does that representation Permit authorize—and what remains the application's responsibility?`
+Then ask: `What exactly does that Permit authorize, and what still belongs to the application?`
 
 ### 4.7 Stage 6 — Bound the Permit (Slides 40–42)
 
-**Communication job:** prevent the Stage 5 Permit from being overgeneralized and identify when the native-byte path is no longer the right tool.
+**Job:** stop the audience from applying the Stage 5 Permit more broadly than the evidence allows. Also explain when native bytes stop being the right representation.
 
-The main causal spine is:
+Tell the story in this order:
 
 ```text
-Stage 5 establishes a representation Permit inside one closed contract
-→ the Permit proves representation compatibility, not complete I/O correctness
-→ lifetime, storage, synchronization, and failure handling remain application obligations
-→ semantic compatibility, schema evolution, or a broader build set requires explicit conversion
+Stage 5 gives a representation Permit inside one declared contract.
+→ It proves representation compatibility, not complete I/O correctness.
+→ The application still owns lifetime, storage, synchronization, validation, and failures.
+→ A finite change to V or E needs fresh evidence and a new decision.
+→ Open peers, different representations, or broader requirements need an explicit representation and conversion policy.
 ```
 
-Keep this stage short. Slide 40 separates what the Permit proves from what it does not prove. Slide 41 names only the runtime obligations needed to prevent unsafe overreach. Slide 42 presents the decision boundary between the closed native-byte path and serialization.
+Keep this stage short, but keep all three boundaries clear.
 
-Do not reopen signature generation, CI mechanics, or demo internals. This stage introduces no new gate and no new technical mechanism; it only bounds the conclusion already established. It must not carry the burden of the final recap.
+Slide 40 separates what the Permit proves from what it does not prove. The Permit proves the representation claim for the declared contract. It does not prove semantic compatibility, schema evolution, or complete runtime correctness.
 
-The stage exits with:
+Slide 41 groups application-owned work into three parts:
 
-> `A representation Permit is useful only within its declared operating boundary.`
+- object obligations: storage, lifetime, and alignment;
+- concurrency and transport obligations: publication, synchronization, and coherence;
+- external-data obligations: validation, versioning, durability, and failure handling.
 
-The next question is: `What problem did we solve, how did we solve it, and what rule should the audience carry into its next design review?`
+The detailed boundary matrix belongs on appendix slide 49.
+
+Slide 42 separates two kinds of change:
+
+- If a finite build or edge set changes, generate fresh evidence and close the revised contract again.
+- If peers are open-ended, representations differ, canonical bytes are required, or meaning and schema must evolve independently, use an explicit representation and conversion layer.
+
+Untrusted input still needs validation. Serialization alone does not make it safe.
+
+Do not reopen signature generation, CI mechanics, or demo internals. This stage adds no new gate. It only limits the Permit already established.
+
+End with:
+
+> `Re-close finite contract changes; use an explicit representation when the required contract cannot stay closed.`
+
+Then ask: `What problem did we solve, how did we solve it, and what rule should the audience remember?`
 
 ### 4.8 Stage 7 — Summarize the Problem, Method, and Takeaway (Slides 43–45)
 
-**Communication job:** restore the positive result after the limitations, reconnect it to the opening question, and leave the audience with a complete but compact mental model it can use in the next design review.
+**Job:** return to the positive result after the limitations. Answer the opening question and leave one complete decision rule that the audience can reuse.
 
-The main causal spine is:
+Tell the story in this order:
 
 ```text
-return to “Can I memcpy this type across a boundary?”
-→ reveal that the question is incomplete until the boundary contract is named
-→ declare C and K, then restate the two independent obligations: transportable bytes and matching representations
-→ every declared build evaluates Admission and emits a reflection-derived representation signature
-→ CI accepts only complete, fresh, attributable evidence inputs
-→ Admission on V plus Agreement on E closes the claim for K over C
-→ state the reusable rule: Permit native bytes only inside C; convert explicitly when the required contract is broader
+Return to “Can I memcpy this type across a boundary?”
+→ The question is incomplete until the boundary contract is named.
+→ Declare C and K.
+→ Check the two separate questions: may the bytes travel, and do the representations match?
+→ Every declared build evaluates Admission and emits a reflection-derived signature.
+→ CI accepts only complete, fresh, attributable evidence.
+→ Admission on every node and Agreement on every required edge decide K over C.
+→ Permit native bytes only inside C. Re-check finite changes. Use an explicit representation when C cannot stay closed.
 ```
 
-Use three slides because the conclusion has three distinct jobs:
+Use three slides because the conclusion has three jobs:
 
-- **Slide 43 — problem recap:** distinguish the local operation question from the cross-boundary contract question, and reconnect the opening `Measurement` result to the missing contract dimensions.
-- **Slide 44 — method recap:** show one uninterrupted chain from declared `C` and `K` through per-build Admission/signature evidence, Agreement, and CI closure to `ClosedPermit_C(K)` or rejection.
-- **Slide 45 — actionable takeaway:** give the design-review checklist and final operating rule.
+- **Slide 43 — restate the problem:** local `memcpy` legality is not the same as cross-boundary permission. Return to the opening `Measurement` and show which contract dimensions were missing.
+- **Slide 44 — restate the method:** show one uninterrupted path from `C` and `K`, through per-build Admission and signature evidence, through Agreement and CI, to `ClosedPermit_C(K)` or rejection.
+- **Slide 45 — give the rule:** show the design-review checklist and the final operating rule.
 
-This is a rhetorical summary, not another proof stage. Do not repeat signature grammar, demo layouts, ABI numbers, reporter output, or CI artifact mechanics. Each item in the recap must point back to an inference already established in Stages 1–6.
+The checklist is:
 
-The talk exits with:
+1. Declare `C = (R,V,E,P)`.
+2. Check Admission and Agreement separately.
+3. Keep every Permit per-type and limited to that contract.
+4. Re-check finite changes; use an explicit representation when the required contract cannot stay closed.
 
-> `Permit native bytes only inside a closed contract; convert explicitly when the required contract is broader.`
+Keep the scope statement visible:
+
+> `Representation compatibility—not semantic compatibility or schema evolution.`
+
+This is a summary, not a new proof stage. Do not repeat signature grammar, demo layouts, ABI numbers, reporter output, or artifact mechanics. Every conclusion here must point back to something already established in Stages 1–6.
+
+End the talk with:
+
+> `Permit native bytes only inside a closed contract. Re-close finite changes; use an explicit representation when the contract cannot stay closed.`
 
 ## 5. Main Deck: Slide-by-Slide Design
 
@@ -780,16 +855,17 @@ Each slide has one narrative job and one primary claim. Titles are audience-faci
 - Move equality transitivity and spanning-tree comparison reduction to the appendix or speaker notes; they are optimizations, not part of the causal spine.
 - Do not display the nonexistent `TYPELAYOUT_ASSERT_TRANSFER_SAFE` macro.
 
-### 34. A closed run rejects every missing fact
+### 34. Missing evidence makes the run incomplete—not passing
 
-- Show two operational outcomes for each registered key:
-  - any required evidence is missing, stale, unattributable, or fails Admission/Agreement: no Permit for that key;
-  - every required fact for that key is valid and passes: `ClosedPermit_C(K)`.
-- State that the run is complete only after every declared key has a closed decision; an optional all-types-must-pass workflow policy belongs in notes or the appendix.
-- Keep the finer failure taxonomy in diagnostics, notes, or the appendix.
+- Show three operational states for each registered key:
+  - missing, stale, or unattributable required evidence: `INCOMPLETE / NO PERMIT`;
+  - valid evidence plus Admission or Agreement failure: `REJECT / NO PERMIT`;
+  - valid evidence plus both gates passing over the complete graph: `PERMIT`.
+- State that the run is complete only after every declared key has a `PERMIT / REJECT` decision; `INCOMPLETE` means the requested closed claim was not evaluated.
+- Keep the detailed failure taxonomy in diagnostics, notes, or appendix slide 57.
 - Use actual primitive composition or current `CompatReporter`, not a fabricated API.
 - Preview the reporter's three audience-relevant diagnostic shapes—`byte-copy safe + layout match`, `Layout match (not byte-copy safe)`, and `Layout mismatch`—without explaining their implementation. Stage 5 attaches one concrete type to each shape; appendix slide 57 owns the full report.
-- Visible statement: `A skipped macOS job does not pass a three-build contract.`
+- Visible statement: `A skipped macOS job makes the three-build claim INCOMPLETE; it does not pass or reject the type.`
 
 ### 35. A real contract starts with bytes every supported build must read
 
@@ -849,19 +925,21 @@ Each slide has one narrative job and one primary claim. Titles are audience-faci
 
 ### 41. Runtime obligations depend on the boundary
 
-- Show a compact table:
-  - shared memory: lifetime, alignment, publication, memory ordering, torn reads;
-  - Plugin/Host: unload safety, borrowed lifetimes, allocator, call surface;
-  - stored bytes: versioning, durability, crash consistency, padding leakage;
-  - network/device: validation, framing, coherence, open-ended peers.
+- Show three application-owned categories:
+  - object obligations: storage, lifetime, and alignment;
+  - concurrency/transport obligations: publication, synchronization, and coherence;
+  - external-data obligations: validation, versioning, durability, and failure handling.
+- Move the complete shared-memory / plugin / stored-bytes / network-device matrix to appendix slide 49.
 - Visible statement: `Compile time decides whether the representation is admitted; runtime still owns the operation.`
 
-### 42. Serialize when the required contract is broader
+### 42. Re-close finite changes; convert when the contract cannot stay closed
 
 - Contrast controlled native bytes with serialization or explicit conversion.
 - Native bytes fit closed, controlled, performance-sensitive, continuously verified contracts.
-- Serialize/convert for independent evolution, untrusted input, canonical bytes, open targets, endian conversion, semantic transformation, or process-local handles.
-- Visible statement: `A failed gate identifies where an explicit representation layer belongs.`
+- If a finite declared build or edge set changes, regenerate the evidence and close the revised contract again; expansion alone does not force serialization.
+- Use an explicit representation/conversion layer for open-ended peers, representation divergence, canonical bytes, endian conversion, independent evolution, semantic transformation, or process-local handles.
+- Untrusted input additionally requires validation; serialization alone does not make it safe.
+- Visible statement: `Finite changes can be re-closed; contracts that cannot stay closed need an explicit representation.`
 
 ### 43. The real question is not “can I memcpy?”—it is “under which contract?”
 
@@ -900,11 +978,11 @@ Each slide has one narrative job and one primary claim. Titles are audience-faci
   1. Declare C = (R,V,E,P).
   2. Check Admission and Agreement separately.
   3. Keep every Permit per-type and contract-scoped.
-  4. Need a broader contract? Convert explicitly.
+  4. Re-close finite changes; use an explicit representation when C cannot stay closed.
   ```
 
 - Scope note: `Representation compatibility—not semantic compatibility or schema evolution.`
-- Final statement: `Permit native bytes only inside a closed contract; convert explicitly when the required contract is broader.`
+- Final statement: `Permit native bytes only inside a closed contract. Re-close finite changes; use an explicit representation when the contract cannot stay closed.`
 - Keep the GitHub URL and a Q&A cue to appendix slide 46 in the footer.
 - Do not end on a generic “Thank you” slide.
 
@@ -1170,7 +1248,7 @@ The redesigned deck is complete when:
 - the three boundary scenarios each state which assumption is retained and which is lost;
 - stages 1–7 each preserve one causal spine and defer non-essential inventories, variants, and optimizations;
 - Stage 5 applies the model to one coherent persistent-storage contract, shows four per-key Permits with `CaptureBlock` authorizing native representation for the whole-object raw-byte path, and uses the pointer and `long double` alternatives to expose the two independent rejection modes;
-- Stage 6 briefly bounds that Permit, preserves application-owned runtime obligations, and directs broader semantic or evolution requirements to explicit conversion;
+- Stage 6 briefly bounds that Permit, compresses application-owned runtime obligations, re-closes finite build/edge changes, and directs open-ended or representation-broader requirements to an explicit representation layer;
 - Stage 7 uses three distinct slides to restate the problem, compress the complete method, and deliver an actionable takeaway rather than leaving the audience on a list of limitations;
 - slides 21 and 26 fulfill the promised compile-time checks with current `layout_match` and Admission primitives, while slides 34 and 36–38 expose the corresponding CI diagnostic shapes;
 - Agreement, Admission, and Permit are visually and verbally distinct;
@@ -1193,9 +1271,10 @@ The approved design has been reviewed for placeholders, contradictions, ambiguit
 - Trivial copyability is consistently local and belongs to ordinary Admission.
 - Signature generation, Agreement, Admission, edge-level decision, CI closure, and application obligations have non-overlapping responsibilities.
 - Stage 3 does not issue the final Permit; Stage 4 is the only stage that closes each registered key over the finite contract.
+- Stage 4 distinguishes `INCOMPLETE` input evidence from an evaluated `REJECT`; neither state issues a Permit.
 - Provenance establishes whether evidence may enter the two-gate decision and is never presented as a third gate.
 - Stage 5 preserves per-key decisions: the permitted set is four independently permitted keys, not a new aggregate compatibility predicate.
-- Stage 6 introduces no new gate or mechanism; it only limits the conclusion established by Stage 5.
+- Stage 6 introduces no new gate or mechanism; it limits the conclusion established by Stage 5 and does not treat finite contract expansion as an automatic serialization requirement.
 - Stage 7 introduces no new proof obligation; slides 43–45 form the explicit chain problem recap → method recap → actionable takeaway.
 - The production `R_capture` set contains only positive boundary types; pointer and `long double` alternatives are separate expected-rejection fixtures under the same build graph and profile.
 - The recorded portable-capture implementation work remains separate from the completed-demo narrative used to design Stage 5.
