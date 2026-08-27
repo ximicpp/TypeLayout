@@ -3177,7 +3177,12 @@ def prepare_matrix(
 def _require_flat_run_directory(directory, profile):
     root = _canonical_directory(directory, "audit run")
     nodes = profile_nodes(profile)
-    expected_names = {"agreements.json", "closure.json"}
+    expected_names = {
+        "agreements.json",
+        "closure.json",
+        "source-sha.txt",
+        "workflow-run.txt" if profile == "authoritative" else "run-id.txt",
+    }
     for node in nodes:
         expected_names.update(
             {
@@ -3187,10 +3192,6 @@ def _require_flat_run_directory(directory, profile):
                 f"{node}.results.json",
             }
         )
-    metadata_names = {
-        "source-sha.txt",
-        "workflow-run.txt" if profile == "authoritative" else "run-id.txt",
-    }
     observed = set()
     for entry in root.iterdir():
         if entry.is_symlink() or not entry.is_file():
@@ -3199,7 +3200,7 @@ def _require_flat_run_directory(directory, profile):
             raise EvidenceError(f"audit run contains duplicate filename {entry.name}")
         observed.add(entry.name)
     missing = expected_names - observed
-    unexpected = observed - expected_names - metadata_names
+    unexpected = observed - expected_names
     if missing:
         raise EvidenceError(
             "audit run is missing fixed files: " + ", ".join(sorted(missing))
@@ -3212,21 +3213,16 @@ def _require_flat_run_directory(directory, profile):
     return root
 
 
-def _validate_optional_run_metadata(
+def _validate_required_run_metadata(
     root, profile, expect_source_sha, expect_workflow_run
 ):
     names = (
         "source-sha.txt",
         "workflow-run.txt" if profile == "authoritative" else "run-id.txt",
     )
-    paths = [root / name for name in names]
-    present = [path.exists() for path in paths]
-    if any(present) and not all(present):
-        raise EvidenceError("run metadata files must be present as a complete pair")
-    if not any(present):
-        return
     expected = (expect_source_sha, expect_workflow_run)
-    for path, expected_value in zip(paths, expected):
+    for name, expected_value in zip(names, expected):
+        path = root / name
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeError) as error:
@@ -3277,7 +3273,7 @@ def audit_run(
         if first["status"] == "INCOMPLETE":
             raise EvidenceError("cannot infer workflow run from incomplete provenance")
         expect_workflow_run = first["build"]["workflow_run"]
-    _validate_optional_run_metadata(
+    _validate_required_run_metadata(
         root, profile, expect_source_sha, expect_workflow_run
     )
     context = _load_context(

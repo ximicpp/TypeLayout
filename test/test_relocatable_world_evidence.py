@@ -1216,12 +1216,23 @@ class EvidenceTests(unittest.TestCase):
             },
         )
 
-    def make_complete_matrix_run(self):
-        run_directory = self.directory / "matrix run with spaces"
+    def make_complete_matrix_run(self, profile="authoritative"):
+        nodes = evidence.profile_nodes(profile)
+        source_sha = "1" * 40
+        workflow_run = (
+            "123456789.1"
+            if profile == "authoritative"
+            else "local-111111111111-20260828T051234Z-4242"
+        )
+        run_directory = self.directory / f"{profile} matrix run with spaces"
         run_directory.mkdir()
         provenance = {}
-        for node in evidence.NODES:
+        for node in nodes:
             bundle = self.make_ready_bundle(node)
+            bundle["profile"] = profile
+            bundle["workflow_run"] = workflow_run
+            if profile == "local-arm64-macos" and node.startswith("x86_64_"):
+                bundle["execution"] = "emulated"
             record = self.seal(bundle)
             for suffix in (".provenance.json", ".sig.hpp", ".region"):
                 shutil.copy2(
@@ -1230,8 +1241,6 @@ class EvidenceTests(unittest.TestCase):
                 )
             provenance[node] = record
 
-        source_sha = "1" * 40
-        workflow_run = "123456789.1"
         sources_lock = self.directory / "toolchain-sources.lock"
         outputs_lock = self.directory / "toolchains.lock"
         run_identity = {
@@ -1242,16 +1251,16 @@ class EvidenceTests(unittest.TestCase):
         }
         provenance_digests = {
             node: self.sha256(run_directory / f"{node}.provenance.json")
-            for node in evidence.NODES
+            for node in nodes
         }
         region_digests = {
             node: provenance[node]["artifacts"]["region"]["sha256"]
-            for node in evidence.NODES
+            for node in nodes
         }
 
         pairs = []
-        for left_index, left in enumerate(evidence.NODES):
-            for right in evidence.NODES[left_index + 1:]:
+        for left_index, left in enumerate(nodes):
+            for right in nodes[left_index + 1:]:
                 pairs.append(
                     {
                         "left": left,
@@ -1268,7 +1277,7 @@ class EvidenceTests(unittest.TestCase):
                 )
         agreements = {
             "schema": 1,
-            "profile": "authoritative",
+            "profile": profile,
             "producer_provenance_sha256": provenance_digests,
             "pairs": pairs,
         }
@@ -1278,7 +1287,7 @@ class EvidenceTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-        for consumer in evidence.NODES:
+        for consumer in nodes:
             producer_build = provenance[consumer]["build"]
             compiler = provenance[consumer]["compiler"]
             locks = provenance[consumer]["locks"]
@@ -1308,7 +1317,7 @@ class EvidenceTests(unittest.TestCase):
             }
             results = {
                 "schema": 1,
-                "profile": "authoritative",
+                "profile": profile,
                 "consumer": consumer,
                 "consumer_provenance_sha256": provenance_digests[consumer],
                 "build": build,
@@ -1320,7 +1329,7 @@ class EvidenceTests(unittest.TestCase):
                         "producer_provenance_sha256": provenance_digests[producer],
                         "region_sha256": region_digests[producer],
                     }
-                    for producer in evidence.NODES
+                    for producer in nodes
                     if producer != consumer
                 ],
             }
@@ -1343,32 +1352,32 @@ class EvidenceTests(unittest.TestCase):
         ]
         transfers = [
             {"consumer": consumer, "producer": producer}
-            for consumer in evidence.NODES
-            for producer in evidence.NODES
+            for consumer in nodes
+            for producer in nodes
             if consumer != producer
         ]
         identities = {
-            "nodes": list(evidence.NODES),
+            "nodes": list(nodes),
             "pairs": pair_identities,
             "named_decisions": named_identities,
-            "consumers": list(evidence.NODES),
+            "consumers": list(nodes),
             "transfers": transfers,
         }
         closure = {
             "schema": 1,
-            "profile": "authoritative",
-            "authoritative": True,
+            "profile": profile,
+            "authoritative": profile == "authoritative",
             "run": run_identity,
             "agreements_sha256": self.sha256(agreements_path),
             "expected": identities,
             "counts": {
-                "nodes": 6,
-                "pairs": 15,
-                "named_decisions": 60,
-                "named_permits": 60,
-                "consumers": 6,
-                "transfers": 30,
-                "passes": 30,
+                "nodes": len(nodes),
+                "pairs": len(pairs),
+                "named_decisions": len(named_identities),
+                "named_permits": len(named_identities),
+                "consumers": len(nodes),
+                "transfers": len(transfers),
+                "passes": len(transfers),
             },
             "missing": {key: [] for key in identities},
             "duplicates": {key: [] for key in identities},
@@ -1379,7 +1388,17 @@ class EvidenceTests(unittest.TestCase):
             json.dumps(closure, indent=2, sort_keys=False) + "\n",
             encoding="utf-8",
         )
+        (run_directory / "source-sha.txt").write_text(
+            source_sha + "\n", encoding="utf-8"
+        )
+        run_metadata_name = (
+            "workflow-run.txt" if profile == "authoritative" else "run-id.txt"
+        )
+        (run_directory / run_metadata_name).write_text(
+            workflow_run + "\n", encoding="utf-8"
+        )
         return {
+            "profile": profile,
             "directory": run_directory,
             "sources_lock": sources_lock,
             "outputs_lock": outputs_lock,
@@ -1431,9 +1450,32 @@ class EvidenceTests(unittest.TestCase):
         generated = self.directory / "generated"
         for directory in (empty_producers, empty_results, fallback, generated):
             directory.mkdir()
+        repository = Path(__file__).resolve().parents[1]
+        tool = repository / "tools" / "relocatable_world_evidence.py"
+
+        def run_cli(*arguments):
+            completed = subprocess.run(
+                [sys.executable, str(tool), *map(str, arguments)],
+                cwd=repository,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(
+                completed.returncode,
+                0,
+                completed.stdout + completed.stderr,
+            )
+
         agreements = fallback / "agreements.json"
-        evidence.write_fallback_agreements(
-            "authoritative", "fixture has no producers", agreements
+        run_cli(
+            "fallback-agreements",
+            "--profile",
+            "authoritative",
+            "--reason",
+            "fixture has no producers",
+            "--output",
+            agreements,
         )
 
         consumer_header = generated / "relocatable_world_consumer_input.hpp"
@@ -1452,13 +1494,19 @@ class EvidenceTests(unittest.TestCase):
             fixture_context=True,
             output_header=agreement_header,
         )
-        evidence.prepare_matrix(
-            profile="authoritative",
-            evidence=empty_producers,
-            results=empty_results,
-            agreements=agreements,
-            fixture_context=True,
-            output_header=matrix_header,
+        run_cli(
+            "prepare-matrix",
+            "--profile",
+            "authoritative",
+            "--evidence",
+            empty_producers,
+            "--results",
+            empty_results,
+            "--agreements",
+            agreements,
+            "--fixture-context",
+            "--output-header",
+            matrix_header,
         )
         for header in (consumer_header, agreement_header, matrix_header):
             text = header.read_text(encoding="utf-8")
@@ -1668,26 +1716,6 @@ class EvidenceTests(unittest.TestCase):
                 expect_transfers=30,
             )
 
-        (fixture["directory"] / "source-sha.txt").write_text(
-            fixture["source_sha"] + "\n", encoding="utf-8"
-        )
-        (fixture["directory"] / "workflow-run.txt").write_text(
-            fixture["workflow_run"] + "\n", encoding="utf-8"
-        )
-        self.assertEqual(
-            evidence.audit_run(
-                directory=fixture["directory"],
-                expect_source_sha=fixture["source_sha"],
-                expect_workflow_run=fixture["workflow_run"],
-                sources_lock=fixture["sources_lock"],
-                outputs_lock=fixture["outputs_lock"],
-                expect_nodes=6,
-                expect_pairs=15,
-                expect_named_permits=60,
-                expect_transfers=30,
-            )["status"],
-            "PASS",
-        )
         (fixture["directory"] / "workflow-run.txt").write_text(
             fixture["workflow_run"] + "\nextra\n", encoding="utf-8"
         )
@@ -1720,6 +1748,71 @@ class EvidenceTests(unittest.TestCase):
                 expect_named_permits=60,
                 expect_transfers=30,
             )
+
+    def test_task3_audit_requires_profile_specific_run_metadata(self):
+        profile_counts = {
+            "authoritative": (6, 15, 60, 30),
+            "local-arm64-macos": (5, 10, 40, 20),
+        }
+        for profile, counts in profile_counts.items():
+            fixture = self.make_complete_matrix_run(profile)
+            run_name = (
+                "workflow-run.txt"
+                if profile == "authoritative"
+                else "run-id.txt"
+            )
+            forbidden_run_name = (
+                "run-id.txt"
+                if profile == "authoritative"
+                else "workflow-run.txt"
+            )
+
+            def audit(directory):
+                return evidence.audit_run(
+                    directory=directory,
+                    expect_source_sha=fixture["source_sha"],
+                    expect_workflow_run=fixture["workflow_run"],
+                    sources_lock=fixture["sources_lock"],
+                    outputs_lock=fixture["outputs_lock"],
+                    expect_nodes=counts[0],
+                    expect_pairs=counts[1],
+                    expect_named_permits=counts[2],
+                    expect_transfers=counts[3],
+                )
+
+            self.assertEqual(audit(fixture["directory"])["status"], "PASS")
+            cases = {
+                "missing-both": "missing fixed files",
+                "missing-source": "missing fixed files",
+                "missing-run": "missing fixed files",
+                "wrong-source": "metadata",
+                "wrong-run": "metadata",
+                "forbidden-run-name": "unexpected flat files",
+            }
+            for case, error_pattern in cases.items():
+                with self.subTest(profile=profile, case=case):
+                    directory = self.directory / f"{profile}-{case}"
+                    shutil.copytree(fixture["directory"], directory)
+                    if case in ("missing-both", "missing-source"):
+                        (directory / "source-sha.txt").unlink()
+                    if case in ("missing-both", "missing-run"):
+                        (directory / run_name).unlink()
+                    if case == "wrong-source":
+                        (directory / "source-sha.txt").write_text(
+                            "2" * 40 + "\n", encoding="utf-8"
+                        )
+                    if case == "wrong-run":
+                        (directory / run_name).write_text(
+                            "wrong-run\n", encoding="utf-8"
+                        )
+                    if case == "forbidden-run-name":
+                        (directory / forbidden_run_name).write_text(
+                            fixture["workflow_run"] + "\n", encoding="utf-8"
+                        )
+                    with self.assertRaisesRegex(
+                        evidence.EvidenceError, error_pattern
+                    ):
+                        audit(directory)
 
     def test_task3_audit_rejects_each_cross_artifact_mismatch(self):
         fixture = self.make_complete_matrix_run()
