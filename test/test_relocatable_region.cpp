@@ -62,6 +62,21 @@ struct NontrivialAssignmentFixture {
     NontrivialAssignmentTarget target;
 };
 
+struct SameTypeNontrivialAssignmentTarget {
+    std::uint32_t value;
+
+    template <typename Source>
+        requires std::is_same_v<Source, SameTypeNontrivialAssignmentTarget>
+    SameTypeNontrivialAssignmentTarget& operator=(Source& source) noexcept {
+        value = source.value;
+        return *this;
+    }
+};
+
+struct SameTypeNontrivialAssignmentFixture {
+    SameTypeNontrivialAssignmentTarget target;
+};
+
 namespace boost::typelayout::v1 {
 template <>
 struct source_context_traits<::DisabledRegionElement>
@@ -141,6 +156,25 @@ static_assert(std::is_assignable_v<NontrivialAssignmentTarget&,
                                    NontrivialAssignmentValue&&>);
 static_assert(!std::is_trivially_assignable_v<NontrivialAssignmentTarget&,
                                               NontrivialAssignmentValue&&>);
+static_assert(std::is_standard_layout_v<SameTypeNontrivialAssignmentTarget>);
+static_assert(std::is_trivially_copyable_v<SameTypeNontrivialAssignmentTarget>);
+static_assert(is_admitted_v<SameTypeNontrivialAssignmentTarget,
+    TransferProfile::ordinary_copy>);
+static_assert(std::is_same_v<
+    std::remove_cvref_t<SameTypeNontrivialAssignmentTarget&>,
+    SameTypeNontrivialAssignmentTarget>);
+static_assert(std::is_assignable_v<SameTypeNontrivialAssignmentTarget&,
+                                   SameTypeNontrivialAssignmentTarget&>);
+static_assert(!std::is_trivially_assignable_v<
+    SameTypeNontrivialAssignmentTarget&,
+    SameTypeNontrivialAssignmentTarget&>);
+static_assert(std::is_trivially_assignable_v<
+    SameTypeNontrivialAssignmentTarget&,
+    const SameTypeNontrivialAssignmentTarget&>);
+static_assert(!std::is_same_v<std::remove_cvref_t<std::uint16_t>,
+                              std::remove_cv_t<std::uint32_t>>);
+static_assert(std::is_trivially_assignable_v<std::uint32_t&,
+                                             std::uint16_t&&>);
 static_assert(region_capacity == 4096);
 static_assert(source_context_v<relative_ptr<std::uint32_t>> ==
               SourceContext::same_region);
@@ -263,6 +297,30 @@ concept accepts_converting_array_element_set = requires(
 };
 
 template <typename Builder>
+concept accepts_arithmetic_conversion_object_member_set = requires(
+    Builder& builder,
+    region_handle<RegionFixture> destination,
+    std::uint16_t value) {
+    builder.set(destination, &RegionFixture::scalar, std::move(value));
+};
+
+template <typename Builder>
+concept accepts_arithmetic_conversion_array_member_set = requires(
+    Builder& builder,
+    region_array_handle<RegionFixture> destination,
+    std::uint16_t value) {
+    builder.set(destination, 0, &RegionFixture::scalar, std::move(value));
+};
+
+template <typename Builder>
+concept accepts_arithmetic_conversion_array_element_set = requires(
+    Builder& builder,
+    region_array_handle<std::uint32_t> destination,
+    std::uint16_t value) {
+    builder.set(destination, 0, std::move(value));
+};
+
+template <typename Builder>
 concept accepts_nontrivial_object_member_assignment = requires(
     Builder& builder,
     region_handle<NontrivialAssignmentFixture> destination,
@@ -277,6 +335,32 @@ concept accepts_nontrivial_array_element_assignment = requires(
     region_array_handle<NontrivialAssignmentTarget> destination,
     NontrivialAssignmentValue value) {
     builder.set(destination, 0, std::move(value));
+};
+
+template <typename Builder>
+concept accepts_same_type_nontrivial_object_member_assignment = requires(
+    Builder& builder,
+    region_handle<SameTypeNontrivialAssignmentFixture> destination,
+    SameTypeNontrivialAssignmentTarget value) {
+    builder.set(destination, &SameTypeNontrivialAssignmentFixture::target,
+                value);
+};
+
+template <typename Builder>
+concept accepts_same_type_nontrivial_array_member_assignment = requires(
+    Builder& builder,
+    region_array_handle<SameTypeNontrivialAssignmentFixture> destination,
+    SameTypeNontrivialAssignmentTarget value) {
+    builder.set(destination, 0,
+                &SameTypeNontrivialAssignmentFixture::target, value);
+};
+
+template <typename Builder>
+concept accepts_same_type_nontrivial_array_element_assignment = requires(
+    Builder& builder,
+    region_array_handle<SameTypeNontrivialAssignmentTarget> destination,
+    SameTypeNontrivialAssignmentTarget value) {
+    builder.set(destination, 0, value);
 };
 
 template <typename Builder>
@@ -324,8 +408,17 @@ static_assert(!ordinarily_sets_descriptor_element<RegionBuilder>);
 static_assert(!accepts_converting_object_member_set<RegionBuilder>);
 static_assert(!accepts_converting_array_member_set<RegionBuilder>);
 static_assert(!accepts_converting_array_element_set<RegionBuilder>);
+static_assert(!accepts_arithmetic_conversion_object_member_set<RegionBuilder>);
+static_assert(!accepts_arithmetic_conversion_array_member_set<RegionBuilder>);
+static_assert(!accepts_arithmetic_conversion_array_element_set<RegionBuilder>);
 static_assert(!accepts_nontrivial_object_member_assignment<RegionBuilder>);
 static_assert(!accepts_nontrivial_array_element_assignment<RegionBuilder>);
+static_assert(!accepts_same_type_nontrivial_object_member_assignment<
+              RegionBuilder>);
+static_assert(!accepts_same_type_nontrivial_array_member_assignment<
+              RegionBuilder>);
+static_assert(!accepts_same_type_nontrivial_array_element_assignment<
+              RegionBuilder>);
 static_assert(!directly_binds_stack_pointer<RegionBuilder>);
 static_assert(!directly_binds_stack_vector<RegionBuilder>);
 static_assert(!directly_assigns_stack_string<RegionBuilder>);
