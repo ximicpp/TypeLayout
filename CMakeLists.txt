@@ -84,6 +84,22 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         add_test(NAME xoffset_world_demo COMMAND xoffset_world_demo)
         set_tests_properties(xoffset_world_demo PROPERTIES
             LABELS "typelayout;example;xoffset")
+
+        add_executable(xoffset_world_export_ok EXCLUDE_FROM_ALL
+            example/xoffset_world_demo/export_signatures.cpp)
+        target_link_libraries(xoffset_world_export_ok PRIVATE typelayout)
+        target_include_directories(xoffset_world_export_ok PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/example/xoffset_world_demo
+            ${CMAKE_CURRENT_SOURCE_DIR}/vendor/XOffsetDatastructure)
+
+        add_executable(xoffset_world_export_packed EXCLUDE_FROM_ALL
+            example/xoffset_world_demo/export_signatures.cpp)
+        target_link_libraries(xoffset_world_export_packed PRIVATE typelayout)
+        target_include_directories(xoffset_world_export_packed PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/example/xoffset_world_demo
+            ${CMAKE_CURRENT_SOURCE_DIR}/vendor/XOffsetDatastructure)
+        target_compile_definitions(xoffset_world_export_packed PRIVATE
+            TYPELAYOUT_XOFFSET_PACKED_ENTITY=1)
     else()
         message(STATUS
             "Skipping xoffset_world_demo: initialize vendor/XOffsetDatastructure")
