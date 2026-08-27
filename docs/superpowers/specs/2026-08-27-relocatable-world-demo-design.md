@@ -228,7 +228,7 @@ The validator requires keys to be strictly increasing and therefore unique. Afte
 
 These are practical region containers, not reduced spellings of inline fixed arrays: their element and character counts are encoded at runtime and their payloads live elsewhere in the same region.
 
-All four descriptor families keep trivial copy construction so their representations remain trivially copyable, but their copy and move assignment operators are inaccessible to callers. Trusted view/validator friends never assign them; only `RegionBuilder` writes topology. Consequently a caller holding the builder's mutable construction reference cannot overwrite a bound descriptor, an `Entity`, or a `WorldSnapshot` with descriptor bytes copied from another builder. Ordinary scalar and map-entry initialization remains available where it carries no region link.
+All four descriptor families keep trivial copy construction so their representations remain trivially copyable, but their copy and move assignment operators are inaccessible to callers. Trusted view/validator friends never assign them; only `RegionBuilder` writes topology. The builder never exposes a mutable construction reference, so callers cannot overwrite a bound descriptor, an `Entity`, or a `WorldSnapshot` with descriptor bytes copied from another builder. Ordinary scalar and map-entry initialization remains available only through the checked Admission-constrained `set` operations where it carries no region link.
 
 ## 8. Region Construction and Lifetime
 
@@ -245,11 +245,12 @@ Loading allocates a fresh aligned storage object and copies the envelope-checked
 `RegionBuilder` is not stored in the payload. It returns construction-only `region_handle<T>` values containing checked payload offsets and provides only:
 
 - aligned allocation and lifetime start for one object or one actual contiguous array;
-- in-place initialization of a destination `region_string` from bytes;
-- in-place initialization of a destination `region_vector<T>` and its final array;
-- in-place initialization of a destination `region_flat_map<K, V>` and its sorted final array;
-- checked binding of a destination `relative_ptr<T>` to a same-builder construction handle;
-- finalization of the root offset and used byte count.
+- Admission-constrained ordinary field and array-element writes addressed by construction handle plus pointer-to-member, returning no reference or pointer;
+- handle/member initialization of a `region_string`, `region_vector<T>`, or `region_flat_map<K, V>` and its final storage;
+- handle/member binding of a `relative_ptr<T>` to a same-builder construction handle, including party array elements;
+- schema-bound finalization from `region_handle<WorldSnapshot>` only, recording the root offset and used byte count.
+
+No mutable typed reference, pointer, or span leaves the builder. Native pointers and region descriptors are not eligible for the ordinary-write path; descriptors and links use only their dedicated checked operations. Every member operation rejects a null pointer-to-member before dereference, and every operation rechecks that the builder is active and that all destination and non-null source handles belong to it. Retaining construction handles is harmless because finalization permanently closes the builder before validation.
 
 The demo uses a 4096-byte initial capacity. Exceeding it is an error; the underlying region never reallocates.
 
@@ -258,9 +259,9 @@ The demo uses a 4096-byte initial capacity. Exceeding it is an error; the underl
 Construction order is strict:
 
 1. allocate the region and root;
-2. allocate and populate entities, names, index entries, and party entries;
-3. reacquire all final addresses;
-4. set every relative pointer;
+2. allocate and populate entities, names, index entries, and party entries through handle/member operations;
+3. obtain checked element handles after all final-location allocation;
+4. bind every relative pointer through those handles;
 5. validate the complete region;
 6. freeze topology.
 

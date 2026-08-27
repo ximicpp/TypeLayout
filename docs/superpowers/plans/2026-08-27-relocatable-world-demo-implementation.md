@@ -390,12 +390,11 @@ git commit -m "feat: add self-contained relocatable region types"
 
 - [ ] **Step 1: Add failing builder and view tests**
 
-Extend `test_relocatable_region.cpp` with a stored fixture and runtime assertions:
+Extend `test_relocatable_region.cpp` with a stored fixture and Release-active checks:
 
 ```cpp
 #include "region_storage.hpp"
 
-#include <cassert>
 #include <string_view>
 
 struct RegionFixture {
@@ -406,35 +405,27 @@ struct RegionFixture {
 
 void test_builder_and_view() {
     RegionBuilder builder;
-    const auto root = builder.make_object<RegionFixture>();
-    const auto* initial_root = &builder.get(root);
+    const auto root = builder.make_object<WorldSnapshot>();
+    const auto fixture = builder.make_object<RegionFixture>();
     const auto values = builder.make_array<std::uint32_t>(3);
-    builder.at(values, 0) = 7;
-    builder.at(values, 1) = 11;
-    builder.at(values, 2) = 13;
-    builder.bind(builder.get(root).values, values);
-    builder.assign(builder.get(root).name, "Hero");
-    builder.bind(builder.get(root).selected,
+    builder.set(values, 0, std::uint32_t{7});
+    builder.set(values, 1, std::uint32_t{11});
+    builder.set(values, 2, std::uint32_t{13});
+    builder.bind(fixture, &RegionFixture::values, values);
+    builder.assign(fixture, &RegionFixture::name, "Hero");
+    builder.bind(fixture, &RegionFixture::selected,
                  builder.element_handle(values, 1));
-    assert(&builder.get(root) == initial_root);
-    assert(builder.get(root).selected.raw_offset_plus_one() != 0);
 
     auto buffer = std::move(builder).finish(root);
-    assert(buffer.used_bytes().data() ==
-           reinterpret_cast<const std::byte*>(initial_root));
-    assert(reinterpret_cast<std::uintptr_t>(buffer.used_bytes().data()) % 64 == 0);
-    assert(!buffer.is_validated());
-    try {
-        static_cast<void>(buffer.view());
-        assert(false && "an unvalidated buffer exposed a RegionView");
-    } catch (const std::logic_error&) {
-    }
+    require(!buffer.is_validated());
+    require_throws<std::logic_error>([&] { buffer.view(); });
+    // Inspect descriptor and element representations through used_bytes().
 }
 ```
 
 Also add tests that `make_array<T>(0)` binds null/zero, a 4097-byte request throws `std::length_error`, a maximal public array count is rejected as over-capacity before cursor movement, and a second allocation never changes the storage base. Exercise the three checked arithmetic helpers directly with `std::numeric_limits<std::size_t>::max()` to prove multiplication, addition, and align-up overflow rejection; the public `std::uint32_t` counts cannot overflow 64-bit `std::size_t` on the declared nodes. Call all tests from `main()`.
 
-Create a second builder and prove that `first_builder.bind(first_fixture.selected, second_handle)` throws `std::invalid_argument`; also prove that binding a stack `relative_ptr` through either builder throws. Retain one valid handle across `finish()` and prove every subsequent builder bind throws `std::logic_error`. Add compile-time checks that `RegionFixture`, every descriptor, and later `Entity`/`WorldSnapshot` are not publicly copy- or move-assignable, closing the direct `builder.get(root).descriptor = foreign_descriptor` and whole-object assignment paths. These are construction-boundary tests, not payload state.
+Create a second builder and prove that handle/member `bind`, `assign`, and `set` reject foreign destination or source handles. Add Release-active negative tests proving that null pointer-to-members are rejected before either an ordinary write or topology bind can dereference them. Prove at compile time that direct stack-destination bind/assign calls are not expressible, mutable `get`/`at` do not exist, ordinary `set` rejects descriptors and native pointers, and `finish` rejects every root handle type except `WorldSnapshot`. Retain valid handles across `finish()` and prove every subsequent builder operation throws `std::logic_error`. Add compile-time checks that `RegionFixture`, every descriptor, and later `Entity`/`WorldSnapshot` are not publicly copy- or move-assignable. These are construction-boundary tests, not payload state.
 
 Add `static_assert` checks that `RegionBuilder` is neither copy- nor move-constructible/assignable. Its address is the construction-handle provenance token, so moving it while handles exist is forbidden by design.
 
@@ -504,35 +495,55 @@ public:
     template <typename T>
     region_array_handle<T> make_array(std::uint32_t count);
 
-    template <typename T>
-    T& get(region_handle<T> handle);
+    template <typename Owner, typename Member, typename Value>
+        requires ordinary_copy_admitted<Member>
+    void set(region_handle<Owner> destination,
+             Member Owner::* member,
+             Value&& value);
 
-    template <typename T>
-    T& at(region_array_handle<T> handle, std::uint32_t index);
+    template <typename Owner, typename Member, typename Value>
+        requires ordinary_copy_admitted<Member>
+    void set(region_array_handle<Owner> destination,
+             std::uint32_t index,
+             Member Owner::* member,
+             Value&& value);
+
+    template <typename T, typename Value>
+        requires ordinary_copy_admitted<T>
+    void set(region_array_handle<T> destination,
+             std::uint32_t index,
+             Value&& value);
 
     template <typename T>
     region_handle<T> element_handle(
         region_array_handle<T> handle,
         std::uint32_t index) const;
 
-    template <typename T>
-    void bind(region_vector<T>& destination, region_array_handle<T> source);
+    // Dedicated object and array-element handle/member overload families
+    // exist for region_vector, region_flat_map, and relative_ptr.
+    template <typename Owner, typename T>
+    void bind(region_handle<Owner>,
+              region_vector<T> Owner::*,
+              region_array_handle<T>);
 
     template <typename T>
-    void bind(relative_ptr<T>& destination, region_handle<T> source);
+    void bind(region_array_handle<relative_ptr<T>>,
+              std::uint32_t index,
+              region_handle<T>);
 
-    void assign(region_string& destination, std::string_view text);
+    template <typename Owner>
+    void assign(region_handle<Owner>,
+                region_string Owner::*,
+                std::string_view);
 
-    template <typename K, typename V>
-    void bind(region_flat_map<K, V>& destination,
-              region_array_handle<region_key_value<K, V>> source);
+    // Matching array-element member overloads carry a checked index; map and
+    // relative-pointer members follow the same handle/member form.
 
-    template <typename Root>
-    RegionBuffer finish(region_handle<Root> root) &&;
+    RegionBuffer finish(region_handle<WorldSnapshot> root) &&;
 };
 ```
 
-`region_array_handle<T>` carries the same issuing-builder provenance plus checked first-element offset and count; it is construction-only and never stored. Every `bind`/`assign` operation verifies that its destination object lies wholly inside the active builder's storage, and every non-null source handle belongs to that builder. `finish()` rejects a null or foreign root handle, records that exact root offset and the checked cursor, and permanently closes the builder. Implement allocation with checked `align_up`, checked multiplication, and checked cursor addition. Call `std::start_lifetime_as<T>` for a single object and `std::start_lifetime_as_array<T>` once for a non-empty array. Zero storage first, populate objects only at their final addresses, and reject every operation after `finish()`.
+`region_array_handle<T>` carries the same issuing-builder provenance plus checked first-element offset and count; it is construction-only and never stored. No public builder operation returns a mutable typed reference, pointer, or span. Ordinary `set` accepts only an assignable member or whole array element admitted for `ordinary_copy`, explicitly excluding native pointers and region descriptors. Dedicated `bind`/`assign` overloads take a destination handle, optional checked array index, and pointer-to-member; they reject a null pointer-to-member before dereference, verify destination and source provenance internally, and return `void`, so stack destinations are not expressible. `finish()` accepts only a null-or-owned `region_handle<WorldSnapshot>`, rejects null or foreign handles, records that exact root offset and checked cursor, and permanently closes the builder. Implement allocation with checked `align_up`, checked multiplication, and checked cursor addition. Call `std::start_lifetime_as<T>` for a single object and `std::start_lifetime_as_array<T>` once for a non-empty array. Zero storage first, populate objects only at their final addresses, and reject every operation after `finish()`.
 
 Implement both `RegionBuffer` move operations explicitly: transfer storage and metadata, then reset the source to an empty non-validated state. `used_bytes()` on a moved-from buffer returns an empty span, while `view()` and the later schema-bound root accessor reject it. Extend the runtime test to move a finished buffer once and check both the preserved destination base and the inert source.
 
@@ -565,7 +576,7 @@ Before using a descriptor, every method checks that the complete descriptor obje
 wsl -e bash -lc 'cd /mnt/e/workspace/TypeLayout/.worktrees/cppcon2026-deck && export LD_LIBRARY_PATH=/root/clang-p2996-install/lib && cmake --build build-relocatable-world --target test_relocatable_region -j2 && ctest --test-dir build-relocatable-world -R "^test_relocatable_region$" --output-on-failure'
 ```
 
-Expected: PASS, including alignment, overflow, empty/non-empty, non-reallocation, raw relative encoding, and rejection of typed access before validation. Positive `RegionView` access is deliberately deferred to Task 5, where the schema validator can establish the required trust boundary without a test-only validation bypass.
+Expected: PASS, including alignment, overflow, empty/non-empty, non-reallocation, raw relative encoding, compile-time rejection of wrong root types and ordinary descriptor/native-pointer writes, active rejection of null pointer-to-members, absence of mutable `get`/`at`, and rejection of typed access before validation. Positive `RegionView` access is deliberately deferred to Task 5, where the schema validator can establish the required trust boundary without a test-only validation bypass.
 
 - [ ] **Step 6: Commit storage and view behavior**
 
@@ -642,15 +653,12 @@ static_assert(!boost::typelayout::get_layout_signature<EntityRelativePtr>()
 int main() {
     RegionBuilder builder;
     const auto root = populate_canonical_world(builder);
-    const auto& world = builder.get(root);
-    assert(world.tick == 42);
-    assert(world.entities.size() == 2);
-    assert(world.entity_index.size() == 2);
-    assert(world.party.size() == 2);
-    assert(world.local_player.raw_offset_plus_one() != 0);
     auto buffer = std::move(builder).finish(root);
-    assert(!buffer.is_validated());
-    assert(buffer.used_bytes().size() <= region_capacity);
+    require(!buffer.is_validated());
+    require(buffer.used_bytes().size() <= region_capacity);
+    // Read the trivially-copyable representation from used_bytes() to verify
+    // tick, descriptors, entities, names, index entries, and graph offsets;
+    // no mutable construction reference is exposed.
 }
 ```
 
@@ -749,12 +757,12 @@ Implement `populate_canonical_world()` with this strict sequence:
 ```text
 make WorldSnapshot object
 make Entity[2], EntityIndexEntry[2], EntityRelativePtr[2]
-bind the three root descriptors
-populate Hero and Boss scalar members in their final Entity elements
-assign Hero and Boss names into final region storage
-populate sorted index entries {1001,0}, {2001,1}
+bind the three root descriptors by root handle plus pointer-to-member
+populate Hero and Boss scalar members through Admission-constrained array/member set operations
+assign Hero and Boss names through array handle, index, and pointer-to-member
+populate sorted index entries {1001,0}, {2001,1} through whole-element ordinary set
 obtain entity element handles after every allocation is complete
-bind owner/target/party/local_player from those handles through the builder
+bind owner/target/party/local_player from those handles without exposing a mutable reference
 return the root handle to the caller
 ```
 
@@ -910,9 +918,9 @@ entry key different from entities[value].id
 one entity missing from index coverage
 ```
 
-Add graph-layer cases for a non-null offset outside the region, a misaligned entity offset, and an offset into the middle of an entity. Only the out-of-region `local_player` case will later be printed by the demo.
+Add graph-layer cases for a non-null offset outside the region, a misaligned entity offset, and an offset into the middle of an entity. Only the out-of-region `local_player` case will later be printed by the demo. The incomplete-root fixture uses the largest aligned offset below the payload end and asserts the extent-specific rejection. The duplicate-value fixture asserts the explicit duplicate-coverage reason before key/ID agreement is checked; the following coverage scan still preserves the missing-value invariant.
 
-Also add the first positive typed-access tests here. A default root with null/zero entity, index, and party descriptors validates as an empty world. A one-entity fixture with an empty name validates the empty-string rule while exercising non-empty vector/map ranges; explicitly assert that character payload alignment is vacuous because `alignof(char) == 1`. Finally, call `build_canonical_world()`, require `is_validated()`, then use only `world_root(buffer)` and its bound read-only `RegionView` to check both non-empty names, all three stored ranges, selected relationships, and binary-search lookup. Pass the view a descriptor copied to the stack and one belonging to a second validated buffer; both must throw before offset resolution. These cases replace the deliberately unavailable positive view test from Task 2.
+Also add the first positive typed-access tests here. A default root with null/zero entity, index, and party descriptors validates as an empty world. A one-entity fixture with an empty name validates the empty-string rule while exercising non-empty vector/map ranges; explicitly assert that character payload alignment is vacuous because `alignof(char) == 1`. Finally, call `build_canonical_world()`, require `is_validated()`, then use only `world_root(buffer)` and its bound read-only `RegionView` to check both non-empty names, all three stored ranges, selected relationships, and binary-search lookup. Pass the view a descriptor copied to the stack and one belonging to a second validated buffer; both must throw before offset resolution. Retain every construction handle through finish and validation, attempt every surviving builder operation category, and require `std::logic_error`, byte-for-byte unchanged payload, and an unchanged valid typed world. These cases replace the deliberately unavailable positive view test from Task 2.
 
 - [ ] **Step 2: Run and verify malformed cases are not yet rejected correctly**
 

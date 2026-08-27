@@ -1,15 +1,16 @@
 #include "region.hpp"
 #include "region_storage.hpp"
+#include "world.hpp"
 
 #include <boost/typelayout.hpp>
 
-#include <array>
-#include <bit>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
+#include <span>
 #include <stdexcept>
-#include <string_view>
 #include <type_traits>
 #include <utility>
 
@@ -21,6 +22,7 @@ struct DisabledRegionElement {
 };
 
 struct RegionFixture {
+    std::uint32_t scalar;
     region_string name;
     region_vector<std::uint32_t> values;
     relative_ptr<std::uint32_t> selected;
@@ -28,6 +30,10 @@ struct RegionFixture {
 
 struct MapFixture {
     region_flat_map<std::uint64_t, std::uint32_t> index;
+};
+
+struct NativePointerFixture {
+    std::uint32_t* pointer;
 };
 
 namespace boost::typelayout::v1 {
@@ -118,6 +124,124 @@ static_assert(!is_admitted_v<
 static_assert(!is_admitted_v<region_vector<DisabledRegionElement>,
     TransferProfile::whole_region_relocation>);
 
+template <typename Builder>
+concept exposes_mutable_get = requires(
+    Builder& builder, region_handle<std::uint32_t> handle) {
+    builder.get(handle);
+};
+
+template <typename Builder>
+concept exposes_mutable_at = requires(
+    Builder& builder, region_array_handle<std::uint32_t> handle) {
+    builder.at(handle, 0);
+};
+
+template <typename Builder>
+concept accepts_wrong_root = requires(
+    Builder& builder, region_handle<std::uint64_t> handle) {
+    std::move(builder).finish(handle);
+};
+
+template <typename Builder>
+concept accepts_world_root = requires(
+    Builder& builder, region_handle<WorldSnapshot> handle) {
+    std::move(builder).finish(handle);
+};
+
+template <typename Builder>
+concept ordinarily_sets_descriptor = requires(
+    Builder& builder,
+    region_handle<WorldSnapshot> handle,
+    region_vector<Entity> descriptor) {
+    builder.set(handle, &WorldSnapshot::entities, descriptor);
+};
+
+template <typename Builder>
+concept ordinarily_sets_native_pointer = requires(
+    Builder& builder,
+    region_handle<NativePointerFixture> handle,
+    std::uint32_t* pointer) {
+    builder.set(handle, &NativePointerFixture::pointer, pointer);
+};
+
+template <typename Builder>
+concept ordinarily_sets_string_descriptor = requires(
+    Builder& builder,
+    region_handle<Entity> handle,
+    region_string descriptor) {
+    builder.set(handle, &Entity::name, descriptor);
+};
+
+template <typename Builder>
+concept ordinarily_sets_pointer_descriptor = requires(
+    Builder& builder,
+    region_handle<Entity> handle,
+    relative_ptr<Entity> descriptor) {
+    builder.set(handle, &Entity::target, descriptor);
+};
+
+template <typename Builder>
+concept ordinarily_sets_map_descriptor = requires(
+    Builder& builder,
+    region_handle<WorldSnapshot> handle,
+    region_flat_map<std::uint64_t, std::uint32_t> descriptor) {
+    builder.set(handle, &WorldSnapshot::entity_index, descriptor);
+};
+
+template <typename Builder>
+concept ordinarily_sets_descriptor_element = requires(
+    Builder& builder,
+    region_array_handle<relative_ptr<std::uint32_t>> destination,
+    relative_ptr<std::uint32_t> value) {
+    builder.set(destination, 0, value);
+};
+
+template <typename Builder>
+concept directly_binds_stack_pointer = requires(
+    Builder& builder,
+    relative_ptr<std::uint32_t>& destination,
+    region_handle<std::uint32_t> source) {
+    builder.bind(destination, source);
+};
+
+template <typename Builder>
+concept directly_binds_stack_vector = requires(
+    Builder& builder,
+    region_vector<std::uint32_t>& destination,
+    region_array_handle<std::uint32_t> source) {
+    builder.bind(destination, source);
+};
+
+template <typename Builder>
+concept directly_assigns_stack_string = requires(
+    Builder& builder, region_string& destination) {
+    builder.assign(destination, "outside");
+};
+
+template <typename Builder>
+concept directly_binds_stack_map = requires(
+    Builder& builder,
+    region_flat_map<std::uint64_t, std::uint32_t>& destination,
+    region_array_handle<region_key_value<
+        std::uint64_t, std::uint32_t>> source) {
+    builder.bind(destination, source);
+};
+
+static_assert(!exposes_mutable_get<RegionBuilder>);
+static_assert(!exposes_mutable_at<RegionBuilder>);
+static_assert(!accepts_wrong_root<RegionBuilder>);
+static_assert(accepts_world_root<RegionBuilder>);
+static_assert(!ordinarily_sets_descriptor<RegionBuilder>);
+static_assert(!ordinarily_sets_native_pointer<RegionBuilder>);
+static_assert(!ordinarily_sets_string_descriptor<RegionBuilder>);
+static_assert(!ordinarily_sets_pointer_descriptor<RegionBuilder>);
+static_assert(!ordinarily_sets_map_descriptor<RegionBuilder>);
+static_assert(!ordinarily_sets_descriptor_element<RegionBuilder>);
+static_assert(!directly_binds_stack_pointer<RegionBuilder>);
+static_assert(!directly_binds_stack_vector<RegionBuilder>);
+static_assert(!directly_assigns_stack_string<RegionBuilder>);
+static_assert(!directly_binds_stack_map<RegionBuilder>);
+
 namespace {
 
 void expect(bool condition) {
@@ -136,9 +260,23 @@ void expect_throws(Function&& function) {
     std::abort();
 }
 
-std::array<std::uint32_t, 2> raw_vector_words(
-    const region_vector<std::uint32_t>& value) {
-    return std::bit_cast<std::array<std::uint32_t, 2>>(value);
+template <typename Exception, typename Function>
+bool throws_exception(Function&& function) {
+    try {
+        std::forward<Function>(function)();
+    } catch (const Exception&) {
+        return true;
+    }
+    return false;
+}
+
+std::uint32_t read_u32(std::span<const std::byte> bytes,
+                       std::size_t offset) {
+    expect(offset <= bytes.size() && sizeof(std::uint32_t) <=
+                                      bytes.size() - offset);
+    std::uint32_t result = 0;
+    std::memcpy(&result, bytes.data() + offset, sizeof(result));
+    return result;
 }
 
 void test_checked_arithmetic() {
@@ -163,24 +301,34 @@ void test_checked_arithmetic() {
 
 void test_builder_and_view_gate() {
     RegionBuilder builder;
-    const auto root = builder.make_object<RegionFixture>();
-    const auto* initial_root = &builder.get(root);
+    const auto root = builder.make_object<WorldSnapshot>();
+    const auto fixture = builder.make_object<RegionFixture>();
     const auto values = builder.make_array<std::uint32_t>(3);
-    builder.at(values, 0) = 7;
-    builder.at(values, 1) = 11;
-    builder.at(values, 2) = 13;
-    builder.bind(builder.get(root).values, values);
-    builder.assign(builder.get(root).name, "Hero");
+    builder.set(values, 0, std::uint32_t{7});
+    builder.set(values, 1, std::uint32_t{11});
+    builder.set(values, 2, std::uint32_t{13});
+    builder.set(fixture, &RegionFixture::scalar, std::uint32_t{17});
+    builder.bind(fixture, &RegionFixture::values, values);
+    builder.assign(fixture, &RegionFixture::name, "Hero");
     const auto selected = builder.element_handle(values, 1);
-    builder.bind(builder.get(root).selected, selected);
-    expect(&builder.get(root) == initial_root);
-    expect(builder.get(root).selected.raw_offset_plus_one() ==
-           values.raw_offset_plus_one() + sizeof(std::uint32_t));
+    builder.bind(fixture, &RegionFixture::selected, selected);
 
     auto buffer = std::move(builder).finish(root);
     const auto* finished_base = buffer.used_bytes().data();
-    expect(finished_base == reinterpret_cast<const std::byte*>(initial_root));
-    expect(reinterpret_cast<std::uintptr_t>(finished_base) % 64 == 0);
+    const auto fixture_offset = fixture.raw_offset_plus_one() - 1;
+    const auto values_offset = values.raw_offset_plus_one() - 1;
+    expect(read_u32(buffer.used_bytes(), fixture_offset) == 17);
+    expect(read_u32(buffer.used_bytes(),
+                    fixture_offset + offsetof(RegionFixture, values)) ==
+           values.raw_offset_plus_one());
+    expect(read_u32(buffer.used_bytes(),
+                    fixture_offset + offsetof(RegionFixture, values) + 4) == 3);
+    expect(read_u32(buffer.used_bytes(),
+                    fixture_offset + offsetof(RegionFixture, selected)) ==
+           values.raw_offset_plus_one() + sizeof(std::uint32_t));
+    expect(read_u32(buffer.used_bytes(), values_offset) == 7);
+    expect(read_u32(buffer.used_bytes(), values_offset + 4) == 11);
+    expect(read_u32(buffer.used_bytes(), values_offset + 8) == 13);
     expect(!buffer.is_validated());
     expect_throws<std::logic_error>([&] {
         static_cast<void>(buffer.view());
@@ -207,12 +355,15 @@ void test_builder_and_view_gate() {
 
 void test_empty_and_capacity_boundaries() {
     RegionBuilder empty_builder;
-    const auto empty_root = empty_builder.make_object<RegionFixture>();
+    const auto root = empty_builder.make_object<WorldSnapshot>();
+    const auto fixture = empty_builder.make_object<RegionFixture>();
     const auto empty = empty_builder.make_array<std::uint32_t>(0);
-    empty_builder.bind(empty_builder.get(empty_root).values, empty);
-    expect(empty_builder.get(empty_root).values.size() == 0);
-    expect(raw_vector_words(empty_builder.get(empty_root).values) ==
-           std::array<std::uint32_t, 2>{0, 0});
+    empty_builder.bind(fixture, &RegionFixture::values, empty);
+    auto buffer = std::move(empty_builder).finish(root);
+    const auto vector_offset = fixture.raw_offset_plus_one() - 1 +
+        offsetof(RegionFixture, values);
+    expect(read_u32(buffer.used_bytes(), vector_offset) == 0);
+    expect(read_u32(buffer.used_bytes(), vector_offset + 4) == 0);
 
     RegionBuilder too_large_builder;
     expect_throws<std::length_error>([&] {
@@ -230,83 +381,105 @@ void test_empty_and_capacity_boundaries() {
     expect(after.raw_offset_plus_one() == 2);
 }
 
-void test_handle_and_destination_provenance() {
+void test_handle_provenance() {
     RegionBuilder first_builder;
     const auto first_fixture = first_builder.make_object<RegionFixture>();
     const auto first_value = first_builder.make_object<std::uint32_t>();
+    const auto first_values = first_builder.make_array<std::uint32_t>(1);
+    const auto first_map = first_builder.make_object<MapFixture>();
 
     RegionBuilder second_builder;
+    const auto second_fixture = second_builder.make_object<RegionFixture>();
     const auto second_value = second_builder.make_object<std::uint32_t>();
     const auto second_values = second_builder.make_array<std::uint32_t>(1);
+    const auto second_entries = second_builder.make_array<
+        region_key_value<std::uint64_t, std::uint32_t>>(0);
+    const auto second_map = second_builder.make_object<MapFixture>();
 
     expect_throws<std::invalid_argument>([&] {
-        static_cast<void>(first_builder.get(region_handle<std::uint32_t>{}));
+        first_builder.set(region_handle<RegionFixture>{},
+                          &RegionFixture::scalar, std::uint32_t{1});
     });
     expect_throws<std::invalid_argument>([&] {
-        static_cast<void>(first_builder.get(second_value));
+        first_builder.set(second_fixture,
+                          &RegionFixture::scalar, std::uint32_t{1});
     });
 
     const region_array_handle<std::uint32_t> null_array;
     expect_throws<std::invalid_argument>([&] {
-        static_cast<void>(first_builder.at(null_array, 0));
+        first_builder.set(null_array, 0, std::uint32_t{1});
     });
     expect_throws<std::invalid_argument>([&] {
         static_cast<void>(first_builder.element_handle(null_array, 0));
     });
     expect_throws<std::invalid_argument>([&] {
-        static_cast<void>(first_builder.at(second_values, 0));
+        first_builder.set(second_values, 0, std::uint32_t{1});
     });
     expect_throws<std::invalid_argument>([&] {
         static_cast<void>(first_builder.element_handle(second_values, 0));
     });
     expect_throws<std::out_of_range>([&] {
-        static_cast<void>(second_builder.at(second_values, 1));
+        second_builder.set(second_values, 1, std::uint32_t{1});
     });
     expect_throws<std::out_of_range>([&] {
         static_cast<void>(second_builder.element_handle(second_values, 1));
     });
 
     expect_throws<std::invalid_argument>([&] {
-        first_builder.bind(first_builder.get(first_fixture).selected,
+        first_builder.bind(first_fixture, &RegionFixture::selected,
                            second_value);
     });
     expect_throws<std::invalid_argument>([&] {
-        first_builder.bind(first_builder.get(first_fixture).values,
+        first_builder.bind(second_fixture, &RegionFixture::selected,
+                           first_value);
+    });
+    expect_throws<std::invalid_argument>([&] {
+        first_builder.bind(first_fixture, &RegionFixture::values,
                            second_values);
     });
+    expect_throws<std::invalid_argument>([&] {
+        first_builder.bind(second_fixture, &RegionFixture::values,
+                           first_values);
+    });
+    expect_throws<std::invalid_argument>([&] {
+        first_builder.assign(second_fixture, &RegionFixture::name, "outside");
+    });
+    expect_throws<std::invalid_argument>([&] {
+        first_builder.bind(second_map, &MapFixture::index, second_entries);
+    });
+    expect_throws<std::invalid_argument>([&] {
+        first_builder.bind(first_map, &MapFixture::index, second_entries);
+    });
+}
 
-    relative_ptr<std::uint32_t> stack_pointer;
-    expect_throws<std::invalid_argument>([&] {
-        first_builder.bind(stack_pointer, first_value);
-    });
-    expect_throws<std::invalid_argument>([&] {
-        second_builder.bind(stack_pointer, second_value);
+void test_null_member_pointer_rejection() {
+    RegionBuilder set_builder;
+    const auto set_fixture = set_builder.make_object<RegionFixture>();
+    std::uint32_t RegionFixture::* null_scalar = nullptr;
+    const auto set_rejected = throws_exception<std::invalid_argument>([&] {
+        set_builder.set(set_fixture, null_scalar, std::uint32_t{1});
     });
 
-    region_vector<std::uint32_t> stack_vector;
-    region_string stack_string;
-    region_flat_map<std::uint64_t, std::uint32_t> stack_map;
-    const auto second_entries = second_builder.make_array<
-        region_key_value<std::uint64_t, std::uint32_t>>(0);
-    expect_throws<std::invalid_argument>([&] {
-        second_builder.bind(stack_vector, second_values);
+    RegionBuilder bind_builder;
+    const auto bind_fixture = bind_builder.make_object<RegionFixture>();
+    const auto values = bind_builder.make_array<std::uint32_t>(1);
+    region_vector<std::uint32_t> RegionFixture::* null_values = nullptr;
+    const auto bind_rejected = throws_exception<std::invalid_argument>([&] {
+        bind_builder.bind(bind_fixture, null_values, values);
     });
-    expect_throws<std::invalid_argument>([&] {
-        second_builder.assign(stack_string, "outside");
-    });
-    expect_throws<std::invalid_argument>([&] {
-        second_builder.bind(stack_map, second_entries);
-    });
+
+    expect(set_rejected && bind_rejected);
 }
 
 void test_finish_closes_builder() {
     RegionBuilder builder;
-    const auto root = builder.make_object<RegionFixture>();
+    const auto root = builder.make_object<WorldSnapshot>();
+    const auto fixture = builder.make_object<RegionFixture>();
     const auto values = builder.make_array<std::uint32_t>(1);
     const auto selected = builder.element_handle(values, 0);
+    const auto map = builder.make_object<MapFixture>();
     const auto entries = builder.make_array<
         region_key_value<std::uint64_t, std::uint32_t>>(0);
-    auto* fixture = &builder.get(root);
     auto buffer = std::move(builder).finish(root);
     static_cast<void>(buffer);
 
@@ -317,41 +490,41 @@ void test_finish_closes_builder() {
         static_cast<void>(builder.make_array<std::uint32_t>(1));
     });
     expect_throws<std::logic_error>([&] {
-        static_cast<void>(builder.get(root));
+        builder.set(fixture, &RegionFixture::scalar, std::uint32_t{1});
     });
     expect_throws<std::logic_error>([&] {
-        static_cast<void>(builder.at(values, 0));
+        builder.set(values, 0, std::uint32_t{1});
     });
     expect_throws<std::logic_error>([&] {
         static_cast<void>(builder.element_handle(values, 0));
     });
     expect_throws<std::logic_error>([&] {
-        builder.bind(fixture->values, values);
+        builder.bind(fixture, &RegionFixture::values, values);
     });
     expect_throws<std::logic_error>([&] {
-        builder.bind(fixture->selected, selected);
+        builder.bind(fixture, &RegionFixture::selected, selected);
     });
     expect_throws<std::logic_error>([&] {
-        builder.assign(fixture->name, "closed");
+        builder.assign(fixture, &RegionFixture::name, "closed");
     });
-    MapFixture stack_map_fixture;
     expect_throws<std::logic_error>([&] {
-        builder.bind(stack_map_fixture.index, entries);
+        builder.bind(map, &MapFixture::index, entries);
     });
     expect_throws<std::logic_error>([&] {
         static_cast<void>(std::move(builder).finish(root));
     });
 }
 
-void test_finish_rejects_invalid_roots() {
+void test_finish_rejects_invalid_world_roots() {
     RegionBuilder builder;
     expect_throws<std::invalid_argument>([&] {
-        static_cast<void>(std::move(builder).finish(region_handle<int>{}));
+        static_cast<void>(
+            std::move(builder).finish(region_handle<WorldSnapshot>{}));
     });
 
     RegionBuilder first;
     RegionBuilder second;
-    const auto foreign_root = second.make_object<int>();
+    const auto foreign_root = second.make_object<WorldSnapshot>();
     expect_throws<std::invalid_argument>([&] {
         static_cast<void>(std::move(first).finish(foreign_root));
     });
@@ -363,7 +536,8 @@ int main() {
     test_checked_arithmetic();
     test_builder_and_view_gate();
     test_empty_and_capacity_boundaries();
-    test_handle_and_destination_provenance();
+    test_handle_provenance();
+    test_null_member_pointer_rejection();
     test_finish_closes_builder();
-    test_finish_rejects_invalid_roots();
+    test_finish_rejects_invalid_world_roots();
 }

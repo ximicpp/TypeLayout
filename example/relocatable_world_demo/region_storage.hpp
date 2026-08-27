@@ -25,6 +25,7 @@
 namespace relocatable_world_demo {
 
 inline constexpr std::size_t region_capacity = 4096;
+struct WorldSnapshot;
 
 namespace detail {
 
@@ -65,6 +66,30 @@ constexpr void check_stored_type() {
     static_assert(alignof(T) <= 64,
                   "region object alignment exceeds storage alignment");
 }
+
+template <typename T>
+struct is_region_descriptor : std::false_type {};
+
+template <typename T>
+struct is_region_descriptor<relative_ptr<T>> : std::true_type {};
+
+template <>
+struct is_region_descriptor<region_string> : std::true_type {};
+
+template <typename T>
+struct is_region_descriptor<region_vector<T>> : std::true_type {};
+
+template <typename K, typename V>
+struct is_region_descriptor<region_flat_map<K, V>> : std::true_type {};
+
+template <typename T>
+inline constexpr bool ordinary_writable_v =
+    boost::typelayout::is_admitted_v<
+        std::remove_cv_t<T>,
+        boost::typelayout::TransferProfile::ordinary_copy> &&
+    !is_region_descriptor<std::remove_cv_t<T>>::value &&
+    !std::is_pointer_v<std::remove_cv_t<T>> &&
+    !std::is_member_pointer_v<std::remove_cv_t<T>>;
 
 } // namespace detail
 
@@ -233,26 +258,36 @@ public:
         return region_array_handle<T>(this, encode_offset(offset), count);
     }
 
-    template <typename T>
-    T& get(region_handle<T> handle) {
-        ensure_active();
-        require_handle(handle);
-        return *std::launder(reinterpret_cast<T*>(
-            base() + decode_offset(handle.offset_plus_one_)));
+    template <typename Owner, typename Member, typename Value>
+        requires (detail::ordinary_writable_v<Member> &&
+                  std::is_assignable_v<Member&, Value&&>)
+    void set(region_handle<Owner> destination,
+             Member Owner::* member,
+             Value&& value) {
+        require_member(member);
+        auto& object = checked_object(destination);
+        object.*member = std::forward<Value>(value);
     }
 
-    template <typename T>
-    T& at(region_array_handle<T> handle, std::uint32_t index) {
-        ensure_active();
-        require_array_handle(handle);
-        if (index >= handle.count_) {
-            throw std::out_of_range("region array index is out of range");
-        }
-        const auto element_offset = detail::checked_add(
-            decode_offset(handle.offset_plus_one_),
-            detail::checked_multiply(static_cast<std::size_t>(index),
-                                     sizeof(T)));
-        return *std::launder(reinterpret_cast<T*>(base() + element_offset));
+    template <typename Owner, typename Member, typename Value>
+        requires (detail::ordinary_writable_v<Member> &&
+                  std::is_assignable_v<Member&, Value&&>)
+    void set(region_array_handle<Owner> destination,
+             std::uint32_t index,
+             Member Owner::* member,
+             Value&& value) {
+        require_member(member);
+        auto& object = checked_element(destination, index);
+        object.*member = std::forward<Value>(value);
+    }
+
+    template <typename T, typename Value>
+        requires (detail::ordinary_writable_v<T> &&
+                  std::is_assignable_v<T&, Value&&>)
+    void set(region_array_handle<T> destination,
+             std::uint32_t index,
+             Value&& value) {
+        checked_element(destination, index) = std::forward<Value>(value);
     }
 
     template <typename T>
@@ -270,68 +305,91 @@ public:
         return region_handle<T>(this, encode_offset(element_offset));
     }
 
-    template <typename T>
-    void bind(region_vector<T>& destination,
+    template <typename Owner, typename T>
+    void bind(region_handle<Owner> destination,
+              region_vector<T> Owner::* member,
               region_array_handle<T> source) {
-        ensure_active();
-        require_destination(destination);
-        if (source.count_ == 0) {
-            destination.data_.reset_unchecked(region_handle<T>{});
-            destination.size_ = 0;
-            return;
-        }
-        require_array_handle(source);
-        destination.data_.reset_unchecked(
-            region_handle<T>(this, source.offset_plus_one_));
-        destination.size_ = source.count_;
+        require_member(member);
+        auto& object = checked_object(destination);
+        bind_vector(object.*member, source);
+    }
+
+    template <typename Owner, typename T>
+    void bind(region_array_handle<Owner> destination,
+              std::uint32_t index,
+              region_vector<T> Owner::* member,
+              region_array_handle<T> source) {
+        require_member(member);
+        auto& object = checked_element(destination, index);
+        bind_vector(object.*member, source);
+    }
+
+    template <typename Owner, typename K, typename V>
+    void bind(region_handle<Owner> destination,
+              region_flat_map<K, V> Owner::* member,
+              region_array_handle<region_key_value<K, V>> source) {
+        require_member(member);
+        auto& object = checked_object(destination);
+        bind_map(object.*member, source);
+    }
+
+    template <typename Owner, typename K, typename V>
+    void bind(region_array_handle<Owner> destination,
+              std::uint32_t index,
+              region_flat_map<K, V> Owner::* member,
+              region_array_handle<region_key_value<K, V>> source) {
+        require_member(member);
+        auto& object = checked_element(destination, index);
+        bind_map(object.*member, source);
+    }
+
+    template <typename Owner, typename T>
+    void bind(region_handle<Owner> destination,
+              relative_ptr<T> Owner::* member,
+              region_handle<T> source) {
+        require_member(member);
+        auto& object = checked_object(destination);
+        bind_relative(object.*member, source);
+    }
+
+    template <typename Owner, typename T>
+    void bind(region_array_handle<Owner> destination,
+              std::uint32_t index,
+              relative_ptr<T> Owner::* member,
+              region_handle<T> source) {
+        require_member(member);
+        auto& object = checked_element(destination, index);
+        bind_relative(object.*member, source);
     }
 
     template <typename T>
-    void bind(relative_ptr<T>& destination, region_handle<T> source) {
-        ensure_active();
-        require_destination(destination);
-        if (!source.is_null() && source.owner_ != this) {
-            throw std::invalid_argument(
-                "region handle belongs to another builder");
-        }
-        destination.reset_unchecked(source);
+    void bind(region_array_handle<relative_ptr<T>> destination,
+              std::uint32_t index,
+              region_handle<T> source) {
+        auto& pointer = checked_element(destination, index);
+        bind_relative(pointer, source);
     }
 
-    void assign(region_string& destination, std::string_view text) {
-        ensure_active();
-        require_destination(destination);
-        const auto characters = make_array<char>(
-            checked_public_count(text.size()));
-        if (!text.empty()) {
-            std::memcpy(base() + decode_offset(characters.offset_plus_one_),
-                        text.data(), text.size());
-        }
-        destination.data_.reset_unchecked(text.empty()
-            ? region_handle<char>{}
-            : region_handle<char>(this, characters.offset_plus_one_));
-        destination.size_ = characters.count_;
+    template <typename Owner>
+    void assign(region_handle<Owner> destination,
+                region_string Owner::* member,
+                std::string_view text) {
+        require_member(member);
+        auto& object = checked_object(destination);
+        assign_string(object.*member, text);
     }
 
-    template <typename K, typename V>
-    void bind(region_flat_map<K, V>& destination,
-              region_array_handle<region_key_value<K, V>> source) {
-        ensure_active();
-        require_destination(destination);
-        if (source.count_ == 0) {
-            destination.entries_.data_.reset_unchecked(
-                region_handle<region_key_value<K, V>>{});
-            destination.entries_.size_ = 0;
-            return;
-        }
-        require_array_handle(source);
-        destination.entries_.data_.reset_unchecked(
-            region_handle<region_key_value<K, V>>(
-                this, source.offset_plus_one_));
-        destination.entries_.size_ = source.count_;
+    template <typename Owner>
+    void assign(region_array_handle<Owner> destination,
+                std::uint32_t index,
+                region_string Owner::* member,
+                std::string_view text) {
+        require_member(member);
+        auto& object = checked_element(destination, index);
+        assign_string(object.*member, text);
     }
 
-    template <typename Root>
-    RegionBuffer finish(region_handle<Root> root) && {
+    RegionBuffer finish(region_handle<WorldSnapshot> root) && {
         ensure_active();
         if (root.is_null() || root.owner_ != this) {
             throw std::invalid_argument("region root handle is null or foreign");
@@ -409,18 +467,100 @@ private:
     }
 
     template <typename T>
-    void require_destination(const T& destination) const {
-        const auto* storage_begin = base();
-        const auto* storage_end = storage_begin + cursor_;
-        const auto* object_begin = reinterpret_cast<const std::byte*>(
-            std::addressof(destination));
-        const auto* object_end = object_begin + sizeof(T);
-        std::less<const std::byte*> less;
-        if (less(object_begin, storage_begin) ||
-            less(storage_end, object_end)) {
-            throw std::invalid_argument(
-                "region destination is outside this builder");
+    void require_array_source(region_array_handle<T> handle) const {
+        if (handle.owner_ != this ||
+            ((handle.count_ == 0) != (handle.offset_plus_one_ == 0))) {
+            throw std::invalid_argument("region array handle is foreign");
         }
+    }
+
+    template <typename T>
+    void require_nullable_source(region_handle<T> handle) const {
+        if (!handle.is_null() && handle.owner_ != this) {
+            throw std::invalid_argument(
+                "region handle belongs to another builder");
+        }
+    }
+
+    template <typename Owner, typename Member>
+    void require_member(Member Owner::* member) const {
+        ensure_active();
+        if (member == nullptr) {
+            throw std::invalid_argument("region member pointer is null");
+        }
+    }
+
+    template <typename T>
+    T& checked_object(region_handle<T> handle) {
+        ensure_active();
+        require_handle(handle);
+        return *std::launder(reinterpret_cast<T*>(
+            base() + decode_offset(handle.offset_plus_one_)));
+    }
+
+    template <typename T>
+    T& checked_element(region_array_handle<T> handle,
+                       std::uint32_t index) {
+        ensure_active();
+        require_array_handle(handle);
+        if (index >= handle.count_) {
+            throw std::out_of_range("region array index is out of range");
+        }
+        const auto element_offset = detail::checked_add(
+            decode_offset(handle.offset_plus_one_),
+            detail::checked_multiply(static_cast<std::size_t>(index),
+                                     sizeof(T)));
+        return *std::launder(reinterpret_cast<T*>(base() + element_offset));
+    }
+
+    template <typename T>
+    void bind_vector(region_vector<T>& destination,
+                     region_array_handle<T> source) {
+        require_array_source(source);
+        if (source.count_ == 0) {
+            destination.data_.reset_unchecked(region_handle<T>{});
+            destination.size_ = 0;
+            return;
+        }
+        destination.data_.reset_unchecked(
+            region_handle<T>(this, source.offset_plus_one_));
+        destination.size_ = source.count_;
+    }
+
+    template <typename K, typename V>
+    void bind_map(region_flat_map<K, V>& destination,
+                  region_array_handle<region_key_value<K, V>> source) {
+        require_array_source(source);
+        if (source.count_ == 0) {
+            destination.entries_.data_.reset_unchecked(
+                region_handle<region_key_value<K, V>>{});
+            destination.entries_.size_ = 0;
+            return;
+        }
+        destination.entries_.data_.reset_unchecked(
+            region_handle<region_key_value<K, V>>(
+                this, source.offset_plus_one_));
+        destination.entries_.size_ = source.count_;
+    }
+
+    template <typename T>
+    void bind_relative(relative_ptr<T>& destination,
+                       region_handle<T> source) {
+        require_nullable_source(source);
+        destination.reset_unchecked(source);
+    }
+
+    void assign_string(region_string& destination, std::string_view text) {
+        const auto characters = make_array<char>(
+            checked_public_count(text.size()));
+        if (!text.empty()) {
+            std::memcpy(base() + decode_offset(characters.offset_plus_one_),
+                        text.data(), text.size());
+        }
+        destination.data_.reset_unchecked(text.empty()
+            ? region_handle<char>{}
+            : region_handle<char>(this, characters.offset_plus_one_));
+        destination.size_ = characters.count_;
     }
 
     RegionBuffer buffer_;

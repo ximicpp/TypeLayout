@@ -221,9 +221,6 @@ private:
             if (value >= entity_count) {
                 reject_region("index value is outside the entity array");
             }
-            if (index_[index].key != entities_[value].id) {
-                reject_region("index key differs from the referenced entity ID");
-            }
             if (covered[value] != 0) {
                 reject_region("entity appears more than once in the index");
             }
@@ -232,6 +229,12 @@ private:
         for (const auto entry : covered) {
             if (entry == 0) {
                 reject_region("entity is missing from index coverage");
+            }
+        }
+        for (std::uint32_t index = 0; index != index_count; ++index) {
+            const auto value = index_[index].value;
+            if (index_[index].key != entities_[value].id) {
+                reject_region("index key differs from the referenced entity ID");
             }
         }
     }
@@ -317,40 +320,38 @@ region_handle<WorldSnapshot> populate_canonical_world(RegionBuilder& builder) {
     const auto index_entries = builder.make_array<EntityIndexEntry>(2);
     const auto party = builder.make_array<EntityRelativePtr>(2);
 
-    builder.bind(builder.get(root).entities, entities);
-    builder.bind(builder.get(root).entity_index, index_entries);
-    builder.bind(builder.get(root).party, party);
+    builder.bind(root, &WorldSnapshot::entities, entities);
+    builder.bind(root, &WorldSnapshot::entity_index, index_entries);
+    builder.bind(root, &WorldSnapshot::party, party);
 
-    builder.get(root).tick = 42;
+    builder.set(root, &WorldSnapshot::tick, std::uint64_t{42});
 
-    auto& hero = builder.at(entities, 0);
-    hero.id = hero_id;
-    hero.kind = EntityKind::player;
-    hero.position = {10, 20};
-    hero.hp = 120;
+    builder.set(entities, 0, &Entity::id, hero_id);
+    builder.set(entities, 0, &Entity::kind, EntityKind::player);
+    builder.set(entities, 0, &Entity::position, Position{10, 20});
+    builder.set(entities, 0, &Entity::hp, std::int32_t{120});
 
-    auto& boss = builder.at(entities, 1);
-    boss.id = boss_id;
-    boss.kind = EntityKind::boss;
-    boss.position = {30, 40};
-    boss.hp = 300;
+    builder.set(entities, 1, &Entity::id, boss_id);
+    builder.set(entities, 1, &Entity::kind, EntityKind::boss);
+    builder.set(entities, 1, &Entity::position, Position{30, 40});
+    builder.set(entities, 1, &Entity::hp, std::int32_t{300});
 
-    builder.assign(hero.name, "Hero");
-    builder.assign(boss.name, "Boss");
+    builder.assign(entities, 0, &Entity::name, "Hero");
+    builder.assign(entities, 1, &Entity::name, "Boss");
 
-    builder.at(index_entries, 0) = {hero_id, 0};
-    builder.at(index_entries, 1) = {boss_id, 1};
+    builder.set(index_entries, 0, EntityIndexEntry{hero_id, 0});
+    builder.set(index_entries, 1, EntityIndexEntry{boss_id, 1});
 
     const auto hero_handle = builder.element_handle(entities, 0);
     const auto boss_handle = builder.element_handle(entities, 1);
 
-    builder.bind(hero.owner, region_handle<Entity>{});
-    builder.bind(boss.owner, hero_handle);
-    builder.bind(hero.target, boss_handle);
-    builder.bind(boss.target, hero_handle);
-    builder.bind(builder.at(party, 0), hero_handle);
-    builder.bind(builder.at(party, 1), boss_handle);
-    builder.bind(builder.get(root).local_player, hero_handle);
+    builder.bind(entities, 0, &Entity::owner, region_handle<Entity>{});
+    builder.bind(entities, 1, &Entity::owner, hero_handle);
+    builder.bind(entities, 0, &Entity::target, boss_handle);
+    builder.bind(entities, 1, &Entity::target, hero_handle);
+    builder.bind(party, 0, hero_handle);
+    builder.bind(party, 1, boss_handle);
+    builder.bind(root, &WorldSnapshot::local_player, hero_handle);
 
     return root;
 }

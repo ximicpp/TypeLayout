@@ -3,6 +3,7 @@
 
 #include <boost/typelayout.hpp>
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cstddef>
@@ -14,6 +15,7 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 using namespace relocatable_world_demo;
 
@@ -232,23 +234,22 @@ void test_one_entity_empty_name_validation() {
     const auto index_entries = builder.make_array<EntityIndexEntry>(1);
     const auto party = builder.make_array<EntityRelativePtr>(1);
 
-    builder.bind(builder.get(root).entities, entities);
-    builder.bind(builder.get(root).entity_index, index_entries);
-    builder.bind(builder.get(root).party, party);
+    builder.bind(root, &WorldSnapshot::entities, entities);
+    builder.bind(root, &WorldSnapshot::entity_index, index_entries);
+    builder.bind(root, &WorldSnapshot::party, party);
 
-    auto& entity = builder.at(entities, 0);
-    entity.id = hero_id;
-    entity.kind = EntityKind::player;
-    entity.position = {1, 2};
-    entity.hp = 3;
-    builder.assign(entity.name, "");
-    builder.bind(entity.owner, region_handle<Entity>{});
-    builder.bind(entity.target, region_handle<Entity>{});
-    builder.at(index_entries, 0) = {hero_id, 0};
+    builder.set(entities, 0, &Entity::id, hero_id);
+    builder.set(entities, 0, &Entity::kind, EntityKind::player);
+    builder.set(entities, 0, &Entity::position, Position{1, 2});
+    builder.set(entities, 0, &Entity::hp, std::int32_t{3});
+    builder.assign(entities, 0, &Entity::name, "");
+    builder.bind(entities, 0, &Entity::owner, region_handle<Entity>{});
+    builder.bind(entities, 0, &Entity::target, region_handle<Entity>{});
+    builder.set(index_entries, 0, EntityIndexEntry{hero_id, 0});
 
     const auto entity_handle = builder.element_handle(entities, 0);
-    builder.bind(builder.at(party, 0), entity_handle);
-    builder.bind(builder.get(root).local_player, entity_handle);
+    builder.bind(party, 0, entity_handle);
+    builder.bind(root, &WorldSnapshot::local_player, entity_handle);
 
     auto buffer = std::move(builder).finish(root);
     validate_and_freeze_world(buffer);
@@ -320,6 +321,108 @@ void test_canonical_typed_access_and_descriptor_provenance() {
     }, "foreign descriptor must be rejected before offset resolution");
 }
 
+void test_builder_capabilities_expire_without_mutation() {
+    RegionBuilder builder;
+    const auto root = builder.make_object<WorldSnapshot>();
+    const auto entities = builder.make_array<Entity>(2);
+    const auto index_entries = builder.make_array<EntityIndexEntry>(2);
+    const auto party = builder.make_array<EntityRelativePtr>(2);
+
+    builder.bind(root, &WorldSnapshot::entities, entities);
+    builder.bind(root, &WorldSnapshot::entity_index, index_entries);
+    builder.bind(root, &WorldSnapshot::party, party);
+    builder.set(root, &WorldSnapshot::tick, std::uint64_t{42});
+
+    builder.set(entities, 0, &Entity::id, hero_id);
+    builder.set(entities, 0, &Entity::kind, EntityKind::player);
+    builder.set(entities, 0, &Entity::position, Position{10, 20});
+    builder.set(entities, 0, &Entity::hp, std::int32_t{120});
+    builder.assign(entities, 0, &Entity::name, "Hero");
+
+    builder.set(entities, 1, &Entity::id, boss_id);
+    builder.set(entities, 1, &Entity::kind, EntityKind::boss);
+    builder.set(entities, 1, &Entity::position, Position{30, 40});
+    builder.set(entities, 1, &Entity::hp, std::int32_t{300});
+    builder.assign(entities, 1, &Entity::name, "Boss");
+
+    builder.set(index_entries, 0, EntityIndexEntry{hero_id, 0});
+    builder.set(index_entries, 1, EntityIndexEntry{boss_id, 1});
+    const auto hero = builder.element_handle(entities, 0);
+    const auto boss = builder.element_handle(entities, 1);
+    builder.bind(entities, 0, &Entity::owner, region_handle<Entity>{});
+    builder.bind(entities, 1, &Entity::owner, hero);
+    builder.bind(entities, 0, &Entity::target, boss);
+    builder.bind(entities, 1, &Entity::target, hero);
+    builder.bind(party, 0, hero);
+    builder.bind(party, 1, boss);
+    builder.bind(root, &WorldSnapshot::local_player, hero);
+
+    auto buffer = std::move(builder).finish(root);
+    validate_and_freeze_world(buffer);
+    const std::vector<std::byte> before(buffer.used_bytes().begin(),
+                                        buffer.used_bytes().end());
+
+    require_throws<std::logic_error>([&] {
+        builder.set(root, &WorldSnapshot::tick, std::uint64_t{99});
+    }, "expired builder must reject ordinary root writes");
+    require_throws<std::logic_error>([&] {
+        builder.set(entities, 0, &Entity::hp, std::int32_t{999});
+    }, "expired builder must reject ordinary entity writes");
+    require_throws<std::logic_error>([&] {
+        builder.set(index_entries, 0, EntityIndexEntry{boss_id, 0});
+    }, "expired builder must reject ordinary index writes");
+    require_throws<std::logic_error>([&] {
+        builder.assign(entities, 0, &Entity::name, "Mutated");
+    }, "expired builder must reject name writes");
+    require_throws<std::logic_error>([&] {
+        builder.bind(entities, 0, &Entity::target, hero);
+    }, "expired builder must reject entity-link writes");
+    require_throws<std::logic_error>([&] {
+        builder.bind(root, &WorldSnapshot::local_player, boss);
+    }, "expired builder must reject root-link writes");
+    require_throws<std::logic_error>([&] {
+        builder.bind(party, 0, boss);
+    }, "expired builder must reject party-link writes");
+    require_throws<std::logic_error>([&] {
+        builder.bind(root, &WorldSnapshot::entities, entities);
+    }, "expired builder must reject vector descriptor writes");
+    require_throws<std::logic_error>([&] {
+        builder.bind(root, &WorldSnapshot::entity_index, index_entries);
+    }, "expired builder must reject map descriptor writes");
+
+    require(buffer.used_bytes().size() == before.size() &&
+                std::equal(before.begin(), before.end(),
+                           buffer.used_bytes().begin()),
+            "expired builder operations must leave payload bytes unchanged");
+
+    const auto& world = world_root(buffer);
+    const auto view = buffer.view();
+    const auto entity_view = view.elements(world.entities);
+    const auto party_view = view.elements(world.party);
+    const auto index_view = view.map(world.entity_index);
+    require(world.tick == 42 && entity_view.size() == 2 &&
+                entity_view[0].id == hero_id &&
+                entity_view[0].hp == 120 &&
+                entity_view[1].id == boss_id &&
+                entity_view[1].hp == 300,
+            "expired builder operations must leave scalar values valid");
+    require(view.text(entity_view[0].name) == "Hero" &&
+                view.text(entity_view[1].name) == "Boss",
+            "expired builder operations must leave names valid");
+    require(index_view.find(hero_id) != index_view.end() &&
+                index_view.find(hero_id)->value == 0 &&
+                index_view.find(boss_id) != index_view.end() &&
+                index_view.find(boss_id)->value == 1,
+            "expired builder operations must leave the index valid");
+    require(party_view.size() == 2 &&
+                view.resolve(party_view[0]) == &entity_view[0] &&
+                view.resolve(party_view[1]) == &entity_view[1] &&
+                view.resolve(entity_view[0].target) == &entity_view[1] &&
+                view.resolve(entity_view[1].target) == &entity_view[0] &&
+                view.resolve(world.local_player) == &entity_view[0],
+            "expired builder operations must leave graph links valid");
+}
+
 } // namespace
 
 int main() {
@@ -327,4 +430,5 @@ int main() {
     test_empty_world_validation();
     test_one_entity_empty_name_validation();
     test_canonical_typed_access_and_descriptor_provenance();
+    test_builder_capabilities_expire_without_mutation();
 }

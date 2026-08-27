@@ -175,6 +175,23 @@ void require_mutated_rejection(rejection_layer expected,
     throw std::runtime_error(message);
 }
 
+template <typename Mutator>
+void require_mutated_rejection_reason(rejection_layer expected,
+                                      std::string_view expected_reason,
+                                      Mutator&& mutate,
+                                      const char* message) {
+    auto artifact = save_checkpoint(build_canonical_world());
+    std::forward<Mutator>(mutate)(artifact);
+    try {
+        static_cast<void>(load_checkpoint(artifact));
+    } catch (const checkpoint_error& error) {
+        require(error.layer() == expected, message);
+        require(error.what() == expected_reason, message);
+        return;
+    }
+    throw std::runtime_error(message);
+}
+
 void test_exact_v1_envelope() {
     std::array<std::byte, 64> payload{};
     payload[7] = std::byte{0x5a};
@@ -319,10 +336,19 @@ void test_root_region_rejections() {
         write_u32_le(artifact, 20, 1);
     }, "misaligned root must be a region rejection");
 
-    require_mutated_rejection(rejection_layer::region, [](auto& artifact) {
-        write_u32_le(artifact, 20,
-                     static_cast<std::uint32_t>(payload_size(artifact) - 1));
-    }, "incomplete root extent must be a region rejection");
+    require_mutated_rejection_reason(
+        rejection_layer::region,
+        "world root is outside the used payload",
+        [](auto& artifact) {
+            const auto last_payload_byte = payload_size(artifact) - 1;
+            const auto incomplete_root = last_payload_byte -
+                last_payload_byte % alignof(WorldSnapshot);
+            require(incomplete_root % alignof(WorldSnapshot) == 0,
+                    "incomplete-root fixture must remain aligned");
+            write_u32_le(artifact, 20,
+                         static_cast<std::uint32_t>(incomplete_root));
+        },
+        "incomplete root extent must reach the extent rejection");
 }
 
 void test_entity_range_rejections() {
@@ -487,12 +513,17 @@ void test_index_semantic_rejections() {
                      1000);
     }, "index key differing from entity ID must be a region rejection");
 
-    require_mutated_rejection(rejection_layer::region, [](auto& artifact) {
-        write_u32_le(artifact,
-                     payload_field(index_payload_offset(artifact, 1) +
-                                   offsetof(EntityIndexEntry, value)),
-                     0);
-    }, "entity missing from index coverage must be a region rejection");
+    require_mutated_rejection_reason(
+        rejection_layer::region,
+        "entity appears more than once in the index",
+        [](auto& artifact) {
+            write_u32_le(artifact,
+                         payload_field(index_payload_offset(artifact, 1) +
+                                       offsetof(EntityIndexEntry, value)),
+                         0);
+        },
+        "duplicate/missing index coverage must be rejected before key/ID "
+        "agreement");
 }
 
 void test_graph_rejections() {
