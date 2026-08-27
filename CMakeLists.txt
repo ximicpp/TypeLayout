@@ -12,6 +12,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(BOOST_TYPELAYOUT_CONSTEXPR_STEPS "5000000" CACHE STRING
     "Constexpr evaluation step limit")
+set(TYPELAYOUT_TOOLCHAIN_REVISION "${CMAKE_CXX_COMPILER_VERSION}" CACHE STRING
+    "Immutable compiler source revision recorded by evidence probes")
 option(TYPELAYOUT_BUILD_COMPAT_CI
     "Build the green-path compatibility reference targets"
     ON)
@@ -104,6 +106,65 @@ Negative\[native pointer\]: Admission FAIL, load skipped
 Negative\[packed Entity\]: Agreement DIFFER, load skipped
 Negative\[corrupt region offset\]: graph REJECT before dereference
 $]=])
+
+execute_process(
+    COMMAND ${CMAKE_CXX_COMPILER} -dumpmachine
+    OUTPUT_VARIABLE TYPELAYOUT_COMPILER_TARGET
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+if(NOT TYPELAYOUT_COMPILER_TARGET)
+    set(TYPELAYOUT_COMPILER_TARGET "${CMAKE_SYSTEM_PROCESSOR}-${CMAKE_SYSTEM_NAME}")
+endif()
+
+add_executable(relocatable_world_platform_probe
+    example/relocatable_world_demo/platform_probe.cpp)
+target_link_libraries(relocatable_world_platform_probe PRIVATE
+    relocatable_world_support)
+target_compile_definitions(relocatable_world_platform_probe PRIVATE
+    TYPELAYOUT_TOOLCHAIN_REVISION="${TYPELAYOUT_TOOLCHAIN_REVISION}"
+    TYPELAYOUT_COMPILER_TARGET="${TYPELAYOUT_COMPILER_TARGET}")
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(relocatable_world_platform_probe PRIVATE
+        -O3 -fstrict-aliasing)
+endif()
+
+set(TYPELAYOUT_PROBE_NODE "")
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+    set(TYPELAYOUT_PROBE_ARCH "x86_64")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+    set(TYPELAYOUT_PROBE_ARCH "arm64")
+endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(TYPELAYOUT_PROBE_OS "linux")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(TYPELAYOUT_PROBE_OS "macos")
+endif()
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    set(TYPELAYOUT_PROBE_COMPILER "gcc")
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    set(TYPELAYOUT_PROBE_COMPILER "clang")
+endif()
+if(TYPELAYOUT_PROBE_ARCH AND TYPELAYOUT_PROBE_OS AND
+   TYPELAYOUT_PROBE_COMPILER)
+    set(TYPELAYOUT_PROBE_NODE
+        "${TYPELAYOUT_PROBE_ARCH}_${TYPELAYOUT_PROBE_OS}_${TYPELAYOUT_PROBE_COMPILER}")
+endif()
+if(TYPELAYOUT_PROBE_NODE)
+    add_test(NAME relocatable_world_platform_probe
+        COMMAND relocatable_world_platform_probe
+            ${TYPELAYOUT_PROBE_NODE}
+            ${CMAKE_CURRENT_BINARY_DIR}/relocatable-world-platform-probe.json
+            --runner local-ctest
+            --runner-image local-ctest
+            --xcode $<IF:$<PLATFORM_ID:Darwin>,local-xcode,none>
+            --sdk $<IF:$<PLATFORM_ID:Darwin>,local-sdk,none>
+            --deployment-target $<IF:$<PLATFORM_ID:Darwin>,local-target,none>
+            --sdk-locked true)
+    set_tests_properties(relocatable_world_platform_probe PROPERTIES
+        LABELS "typelayout;example;relocatable-world;evidence"
+        PASS_REGULAR_EXPRESSION
+            "TOOLCHAIN PROBE PASS node=${TYPELAYOUT_PROBE_NODE}")
+endif()
 
 add_executable(test_relocatable_world test/test_relocatable_world.cpp)
 target_link_libraries(test_relocatable_world PRIVATE relocatable_world_support)
