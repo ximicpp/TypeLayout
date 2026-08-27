@@ -71,6 +71,14 @@ bool entry_matches(const boost::typelayout::TypeEntry& entry) {
         std::string_view(entry.layout_sig) == std::string_view(current);
 }
 
+template <typename T>
+bool fixture_entry_matches(
+    boost::typelayout::PlatformInfo producer,
+    std::string_view key) {
+    const auto* entry = find_fixture_entry(producer, key);
+    return entry != nullptr && entry_matches<T>(*entry);
+}
+
 AgreementResult check_agreement(
     boost::typelayout::PlatformInfo producer) {
     bool saw_missing = false;
@@ -379,6 +387,16 @@ void run_packed_agreement_negative() {
         boost::typelayout::platform::producer_packed::get_platform_info();
     require(check_agreement(packed_info) == AgreementResult::differ,
         "packed Entity: Agreement unexpectedly matched");
+    require(
+        fixture_entry_matches<xoffset_world_demo::WorldSnapshot>(
+            packed_info, "WorldSnapshot") &&
+        !fixture_entry_matches<xoffset_world_demo::Entity>(
+            packed_info, "Entity") &&
+        fixture_entry_matches<xoffset_world_demo::EntityRelativePtr>(
+            packed_info, "EntityRelativePtr") &&
+        fixture_entry_matches<xoffset_world_demo::EntityIndexEntry>(
+            packed_info, "EntityIndexEntry"),
+        "packed Entity: Agreement difference pattern is not Entity-only");
 
     std::printf(
         "Negative[producer packing ABI drift]: Agreement DIFFER, load skipped\n");
