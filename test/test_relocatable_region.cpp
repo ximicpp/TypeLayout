@@ -78,6 +78,20 @@ static_assert(!std::is_copy_assignable_v<RegionFixture>);
 static_assert(!std::is_move_assignable_v<RegionFixture>);
 static_assert(!std::is_copy_assignable_v<MapFixture>);
 static_assert(!std::is_move_assignable_v<MapFixture>);
+static_assert(!std::is_trivially_copyable_v<region_handle<std::uint32_t>>);
+static_assert(std::is_copy_constructible_v<region_handle<std::uint32_t>>);
+static_assert(!std::is_trivially_copyable_v<
+    region_array_handle<std::uint32_t>>);
+static_assert(std::is_copy_constructible_v<
+    region_array_handle<std::uint32_t>>);
+static_assert(!std::is_trivially_copyable_v<RegionView>);
+static_assert(std::is_copy_constructible_v<RegionView>);
+using RegionMapView = basic_region_flat_map_view<
+    std::uint64_t,
+    std::uint32_t,
+    const region_key_value<std::uint64_t, std::uint32_t>>;
+static_assert(!std::is_trivially_copyable_v<RegionMapView>);
+static_assert(std::is_copy_constructible_v<RegionMapView>);
 static_assert(!std::is_copy_constructible_v<RegionBuffer>);
 static_assert(!std::is_copy_assignable_v<RegionBuffer>);
 static_assert(std::is_move_constructible_v<RegionBuffer>);
@@ -160,7 +174,8 @@ void test_builder_and_view_gate() {
     const auto selected = builder.element_handle(values, 1);
     builder.bind(builder.get(root).selected, selected);
     expect(&builder.get(root) == initial_root);
-    expect(builder.get(root).selected.raw_offset_plus_one() != 0);
+    expect(builder.get(root).selected.raw_offset_plus_one() ==
+           values.raw_offset_plus_one() + sizeof(std::uint32_t));
 
     auto buffer = std::move(builder).finish(root);
     const auto* finished_base = buffer.used_bytes().data();
@@ -223,6 +238,33 @@ void test_handle_and_destination_provenance() {
     RegionBuilder second_builder;
     const auto second_value = second_builder.make_object<std::uint32_t>();
     const auto second_values = second_builder.make_array<std::uint32_t>(1);
+
+    expect_throws<std::invalid_argument>([&] {
+        static_cast<void>(first_builder.get(region_handle<std::uint32_t>{}));
+    });
+    expect_throws<std::invalid_argument>([&] {
+        static_cast<void>(first_builder.get(second_value));
+    });
+
+    const region_array_handle<std::uint32_t> null_array;
+    expect_throws<std::invalid_argument>([&] {
+        static_cast<void>(first_builder.at(null_array, 0));
+    });
+    expect_throws<std::invalid_argument>([&] {
+        static_cast<void>(first_builder.element_handle(null_array, 0));
+    });
+    expect_throws<std::invalid_argument>([&] {
+        static_cast<void>(first_builder.at(second_values, 0));
+    });
+    expect_throws<std::invalid_argument>([&] {
+        static_cast<void>(first_builder.element_handle(second_values, 0));
+    });
+    expect_throws<std::out_of_range>([&] {
+        static_cast<void>(second_builder.at(second_values, 1));
+    });
+    expect_throws<std::out_of_range>([&] {
+        static_cast<void>(second_builder.element_handle(second_values, 1));
+    });
 
     expect_throws<std::invalid_argument>([&] {
         first_builder.bind(first_builder.get(first_fixture).selected,

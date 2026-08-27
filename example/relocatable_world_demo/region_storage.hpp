@@ -79,6 +79,7 @@ template <typename T>
 class region_array_handle {
 public:
     constexpr region_array_handle() noexcept = default;
+    constexpr ~region_array_handle() noexcept {}
     constexpr bool is_null() const noexcept { return count_ == 0; }
     constexpr std::uint32_t raw_offset_plus_one() const noexcept {
         return offset_plus_one_;
@@ -104,6 +105,8 @@ class basic_region_flat_map_view {
 public:
     using value_type = std::remove_const_t<Entry>;
     using const_iterator = const value_type*;
+
+    constexpr ~basic_region_flat_map_view() noexcept {}
 
     const_iterator begin() const noexcept { return entries_.data(); }
     const_iterator end() const noexcept {
@@ -431,6 +434,8 @@ constexpr region_handle<T>::region_handle(const RegionBuilder* owner,
 
 class RegionView {
 public:
+    constexpr ~RegionView() noexcept {}
+
     template <typename T>
     const T* resolve(const relative_ptr<T>& pointer) const {
         require_descriptor(pointer);

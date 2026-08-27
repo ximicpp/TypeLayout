@@ -23,6 +23,7 @@ template <typename T>
 class region_handle {
 public:
     constexpr region_handle() noexcept = default;
+    constexpr ~region_handle() noexcept {}
     constexpr bool is_null() const noexcept { return offset_plus_one_ == 0; }
     constexpr std::uint32_t raw_offset_plus_one() const noexcept {
         return offset_plus_one_;
