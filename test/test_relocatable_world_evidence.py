@@ -237,6 +237,42 @@ class EvidenceTests(unittest.TestCase):
         ):
             self.seal(bundle)
 
+    def test_producer_artifact_validator_checks_exact_ready_bundle(self):
+        bundle = self.make_ready_bundle()
+
+        record = evidence.validate_producer_artifacts(
+            bundle["node"], self.directory
+        )
+
+        self.assertEqual(record["node"], bundle["node"])
+        self.assertEqual(set(record["admission"]), set(evidence.KEYS))
+        self.assertEqual(set(record["signatures"]), set(evidence.KEYS))
+        self.assertGreater(bundle["region"].stat().st_size, 0)
+
+    def test_producer_artifact_validator_rejects_wrong_signature_namespace(self):
+        bundle = self.make_ready_bundle()
+        text = bundle["signature"].read_text(encoding="utf-8")
+        bundle["signature"].write_text(
+            text.replace(
+                f"namespace {bundle['node']} {{", "namespace wrong_node {"
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(evidence.EvidenceError, "namespace"):
+            evidence.validate_producer_artifacts(
+                bundle["node"], self.directory
+            )
+
+    def test_producer_artifact_validator_rejects_empty_region(self):
+        bundle = self.make_ready_bundle()
+        bundle["region"].write_bytes(b"")
+
+        with self.assertRaisesRegex(evidence.EvidenceError, "region.*empty"):
+            evidence.validate_producer_artifacts(
+                bundle["node"], self.directory
+            )
+
     def test_ready_provenance_requires_exact_contract_keys(self):
         bundle = self.make_ready_bundle()
         self.seal(bundle)

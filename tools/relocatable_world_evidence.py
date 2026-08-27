@@ -4,6 +4,7 @@
 import argparse
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 
@@ -568,6 +569,121 @@ def _read_generated_signature_header(path, node):
     return signatures, byte_copy_safe
 
 
+def validate_producer_artifacts(node, directory):
+    node = validate_node(node)
+    directory = Path(directory)
+    if not directory.is_dir():
+        raise EvidenceError("producer artifact directory is unavailable")
+
+    anchor = directory / f"{node}.provenance.json"
+    facts_path = _require_bundle_artifact(
+        directory / f"{node}.producer-facts.json",
+        anchor,
+        f"{node}.producer-facts.json",
+        "producer facts",
+    )
+    signature_path = _require_bundle_artifact(
+        directory / f"{node}.sig.hpp",
+        anchor,
+        f"{node}.sig.hpp",
+        "producer signature",
+    )
+    region_path = _require_bundle_artifact(
+        directory / f"{node}.region",
+        anchor,
+        f"{node}.region",
+        "producer region",
+    )
+    facts = _validate_facts(facts_path)
+    if facts["node"] != node:
+        raise EvidenceError("producer facts node does not match requested node")
+    if not all(facts["admission"][key] for key in KEYS):
+        raise EvidenceError("producer integration bundle is not READY")
+
+    if region_path.stat().st_size == 0:
+        raise EvidenceError("producer region artifact is empty")
+
+    signatures, byte_copy_safe = _read_generated_signature_header(
+        signature_path, node
+    )
+    for key in KEYS:
+        if signatures[key] != facts["signatures"][key]:
+            raise EvidenceError(f"producer {key} signature disagrees with facts")
+        if byte_copy_safe[key] != facts["admission"][key]:
+            raise EvidenceError(f"producer {key} Admission disagrees with signature")
+    return facts
+
+
+def _run_evidence_program(program, arguments, description):
+    program = Path(program)
+    try:
+        resolved_program = program.resolve(strict=True)
+    except OSError as error:
+        raise EvidenceError(
+            f"{description} executable is unavailable: {error}"
+        ) from error
+    if not resolved_program.is_file():
+        raise EvidenceError(f"{description} executable is not a regular file")
+    try:
+        return subprocess.run(
+            [str(resolved_program), *(str(argument) for argument in arguments)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as error:
+        raise EvidenceError(f"cannot run {description}: {error}") from error
+
+
+def verify_producer_bundle(node, directory, producer, exporter):
+    node = validate_node(node)
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    for suffix in (".producer-facts.json", ".region", ".sig.hpp"):
+        artifact = directory / f"{node}{suffix}"
+        if artifact.exists():
+            if not artifact.is_file():
+                raise EvidenceError(
+                    f"producer output is not a regular file: {artifact}"
+                )
+            artifact.unlink()
+
+    produced = _run_evidence_program(
+        producer, (node, directory), "relocatable-world producer"
+    )
+    expected_stdout = (
+        f"PRODUCER READY node={node} admission=4/4 region={node}.region"
+    )
+    if produced.returncode != 0 or produced.stdout.strip() != expected_stdout:
+        raise EvidenceError(
+            "producer did not emit its READY contract: "
+            f"exit={produced.returncode}, stdout={produced.stdout!r}, "
+            f"stderr={produced.stderr!r}"
+        )
+
+    exported = _run_evidence_program(
+        exporter, (directory, node), "relocatable-world exporter"
+    )
+    if exported.returncode != 0:
+        raise EvidenceError(
+            "exporter failed: "
+            f"exit={exported.returncode}, stdout={exported.stdout!r}, "
+            f"stderr={exported.stderr!r}"
+        )
+    facts = validate_producer_artifacts(node, directory)
+
+    invalid_node = "invalid_matrix_node"
+    rejected_producer = _run_evidence_program(
+        producer, (invalid_node, directory), "relocatable-world producer"
+    )
+    rejected_exporter = _run_evidence_program(
+        exporter, (directory, invalid_node), "relocatable-world exporter"
+    )
+    if rejected_producer.returncode == 0 or rejected_exporter.returncode == 0:
+        raise EvidenceError("producer and exporter must reject an invalid node")
+    return facts
+
+
 def _require_bundle_artifact(path, output, expected_name, where):
     path = Path(path)
     output = Path(output)
@@ -881,6 +997,12 @@ def _build_parser():
     validate = commands.add_parser("validate-provenance")
     validate.add_argument("file", type=Path)
 
+    verify_producer = commands.add_parser("verify-producer-bundle")
+    verify_producer.add_argument("--node", required=True)
+    verify_producer.add_argument("--directory", required=True, type=Path)
+    verify_producer.add_argument("--producer", required=True, type=Path)
+    verify_producer.add_argument("--exporter", required=True, type=Path)
+
     fallback_provenance = commands.add_parser("fallback-provenance")
     fallback_provenance.add_argument("--node", required=True)
     fallback_provenance.add_argument("--reason", required=True)
@@ -928,6 +1050,14 @@ def main(arguments=None):
             print(
                 f"PROVENANCE PASS node={record['node']} status={record['status']}"
             )
+        elif args.command == "verify-producer-bundle":
+            record = verify_producer_bundle(
+                args.node,
+                args.directory,
+                args.producer,
+                args.exporter,
+            )
+            print(f"PRODUCER BUNDLE PASS node={record['node']}")
         elif args.command == "fallback-provenance":
             write_fallback_provenance(args.node, args.reason, args.output)
         elif args.command == "fallback-results":

@@ -155,6 +155,8 @@ if(TYPELAYOUT_PROBE_ARCH AND TYPELAYOUT_PROBE_OS AND
         "${TYPELAYOUT_PROBE_ARCH}_${TYPELAYOUT_PROBE_OS}_${TYPELAYOUT_PROBE_COMPILER}")
 endif()
 if(TYPELAYOUT_PROBE_NODE)
+    find_package(Python3 QUIET COMPONENTS Interpreter)
+
     add_test(NAME relocatable_world_platform_probe
         COMMAND relocatable_world_platform_probe
             ${TYPELAYOUT_PROBE_NODE}
@@ -170,14 +172,30 @@ if(TYPELAYOUT_PROBE_NODE)
         PASS_REGULAR_EXPRESSION
             "TOOLCHAIN PROBE PASS node=${TYPELAYOUT_PROBE_NODE}")
 
-    add_test(NAME test_relocatable_world_producer
-        COMMAND relocatable_world_producer
-            ${TYPELAYOUT_PROBE_NODE}
-            ${CMAKE_CURRENT_BINARY_DIR}/relocatable-world-producer)
-    set_tests_properties(test_relocatable_world_producer PROPERTIES
-        LABELS "typelayout;example;relocatable-world;evidence"
-        PASS_REGULAR_EXPRESSION
-            "PRODUCER READY node=${TYPELAYOUT_PROBE_NODE} admission=4/4 region=${TYPELAYOUT_PROBE_NODE}.region")
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME test_relocatable_world_producer_exporter_build
+            COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR}
+                --target relocatable_world_export_ok
+                --config $<CONFIG>)
+        set_tests_properties(
+            test_relocatable_world_producer_exporter_build PROPERTIES
+            FIXTURES_SETUP relocatable_world_producer_exporter
+            LABELS "typelayout;example;relocatable-world;evidence")
+
+        add_test(NAME test_relocatable_world_producer
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tools/relocatable_world_evidence.py
+                verify-producer-bundle
+                --node ${TYPELAYOUT_PROBE_NODE}
+                --directory ${CMAKE_CURRENT_BINARY_DIR}/relocatable-world-producer
+                --producer $<TARGET_FILE:relocatable_world_producer>
+                --exporter $<TARGET_FILE:relocatable_world_export_ok>)
+        set_tests_properties(test_relocatable_world_producer PROPERTIES
+            FIXTURES_REQUIRED relocatable_world_producer_exporter
+            LABELS "typelayout;example;relocatable-world;evidence"
+            PASS_REGULAR_EXPRESSION
+                "PRODUCER BUNDLE PASS node=${TYPELAYOUT_PROBE_NODE}")
+    endif()
 endif()
 
 add_executable(test_relocatable_world test/test_relocatable_world.cpp)

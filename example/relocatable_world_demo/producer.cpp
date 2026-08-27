@@ -203,6 +203,14 @@ int main(int argc, char** argv) {
         } else {
             const auto checkpoint = relocatable_world_demo::save_checkpoint(
                 relocatable_world_demo::build_canonical_world());
+            const auto loaded = relocatable_world_demo::load_checkpoint(
+                checkpoint);
+            if (!relocatable_world_demo::canonical_graph_matches(loaded) ||
+                relocatable_world_demo::world_root(loaded).tick != 42 ||
+                relocatable_world_demo::party_total_hp(loaded) != 420) {
+                throw std::runtime_error(
+                    "generated region failed canonical loader validation");
+            }
             write_region(
                 output_directory / (std::string(node) + ".region"),
                 checkpoint);
