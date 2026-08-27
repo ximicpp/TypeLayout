@@ -1,29 +1,29 @@
 # XOffset World Checkpoint Demo Design
 
-**Status:** Approved design
+**Status:** Base demo approved and implemented; six-node extension approved in chat and awaiting final written-spec review
 
 **Date:** 2026-08-27
 
 **TypeLayout worktree:** `cppcon2026-deck`
 
-**XOffset baseline:** `next_cpp26` at `2233004983cd42664e3d6084ec09092b2968ad4e`
+**XOffset baseline:** `next_cpp26` at `2233004983cd42664e3d6084ec09092b2968ad4e`; implementation first ports this branch to GCC and then pins the resulting upstream commit
 
 ## 1. Purpose
 
-Add one small, practical TypeLayout demo built on XOffsetDatastructure. The demo models a game-server world checkpoint that can be saved, loaded at a different region base address, queried, modified, and saved again without pointer fixups.
+Add one small, practical TypeLayout demo built on XOffsetDatastructure. The demo models a game-server world checkpoint that can be saved, transferred to another supported 64-bit little-endian build, loaded at a different region base address, queried, modified, and saved again without pointer fixups.
 
 The demo must prove two separate conditions before loading application data:
 
 1. **Admission:** every declared representation is suitable for the selected whole-region relocation profile.
 2. **Agreement:** every declared representation has the same TypeLayout signature as the producer evidence.
 
-The demo then relies on XOffset's verified wire loader for its container and allocator structure and adds a narrow validator for application-defined relative pointers.
+The demo then relies on XOffset's verified wire loader for its container and allocator structure and adds a narrow validator for application-defined relative pointers. A six-node native matrix turns the local demonstration into evidence: every node produces one signature and one checkpoint, every other node consumes that checkpoint, and an always-running closure job distinguishes complete agreement from missing evidence.
 
 This is the smallest scenario that still has practical meaning and demonstrates why movable pointer representations matter: one `relative_ptr<T>` makes null links, shared targets, cycles, and pointer-containing containers possible inside a relocated region.
 
 ## 2. Success Criteria
 
-The implementation is complete when one executable demonstrates all of the following:
+The local demo is complete when one executable demonstrates all of the following:
 
 - a world with two entities, dynamic strings, a dynamic entity array, an ID index, and a vector of relative pointers;
 - null, non-null, shared, cyclic, and container-stored relative links;
@@ -35,6 +35,15 @@ The implementation is complete when one executable demonstrates all of the follo
 - rejection of a native-pointer alternative by Admission;
 - rejection of a real packing variant by Agreement;
 - rejection of one corrupted relative delta by the graph validator.
+
+The cross-platform extension is complete when it additionally demonstrates:
+
+- six native producer nodes covering Linux and macOS, x86-64 and ARM64, and both accepted P2996 compiler families where available;
+- six native consumer nodes, each loading the other five producers' checkpoints, for 30 directed cross-loads;
+- all 15 unordered producer pairs agreeing on the four-type TypeLayout contract;
+- provenance that records and binds the actual architecture, operating system, compiler, standard library, toolchain revision, source revisions, and generated artifacts used by every producer;
+- a final closure job that runs even after upstream failures and reports missing evidence as `INCOMPLETE`, never as compatibility success;
+- a one-command ARM64 Mac workflow that covers five of the six nodes locally, while reserving the authoritative six-node result for native GitHub-hosted runners.
 
 No deck file is changed in this phase. Deck-facing observations can be recorded after the working demo exists.
 
@@ -50,6 +59,10 @@ No deck file is changed in this phase. Deck-facing observations can be recorded 
 - XOffset `save_verified<T>()` and `load_verified<T>()` for wire, allocator, and container validation.
 - A demo-specific relative-pointer and ID-index validator.
 - Compile-time and runtime regression coverage for the positive and three negative cases.
+- A proper GCC 16.2 port on XOffset's `next_cpp26` branch, followed by an exact TypeLayout submodule update.
+- Six native producer/consumer nodes and a deterministic matrix closure report.
+- Two pinned multi-architecture Linux toolchain images and pinned native macOS P2996 toolchain archives.
+- A repository-local one-command launcher for the ARM64 Mac development workflow.
 
 ### 3.2 Explicit Non-Goals
 
@@ -63,10 +76,15 @@ No deck file is changed in this phase. Deck-facing observations can be recorded 
 - Use of `XCompactor` after links have been established.
 - A general claim that arbitrary non-trivially-copyable C++ objects may be relocated with `memcpy`.
 - Additional domain features such as items, inventories, attributes, achievements, sets, shards, or parent hierarchies.
+- Treating Docker-on-macOS as macOS ABI evidence; containers supply Linux evidence only.
+- Treating x86-64 emulation on the ARM64 Mac as authoritative native evidence.
+- Requiring a personal MacBook to remain online as a self-hosted GitHub Actions runner.
+- Checking compiler or toolchain binaries into Git.
+- Adding Windows, mobile targets, big-endian targets, or 32-bit targets to this demo matrix.
 
 ## 4. Practical Scenario
 
-The scenario is a trusted, same-system game-server checkpoint used for process takeover. A server builds a compact world region, proves that its declared native representations are admitted and agree with producer evidence, saves the region, and loads it into a second live buffer at another base address. The receiving process can immediately follow in-region relationships, query party health, update the tick and boss health, and checkpoint the updated state.
+The scenario is a trusted game-server checkpoint exchanged under one application and schema contract for process takeover. A server builds a compact world region, proves that its declared native representations are admitted and agree with producer evidence, saves the region, and loads it into a second live buffer at another base address. The receiving process can immediately follow in-region relationships, query party health, update the tick and boss health, and checkpoint the updated state.
 
 The two entities are `Hero` and `Boss`:
 
@@ -281,6 +299,45 @@ The demo uses a small local Agreement helper, not `CompatReporter`. For each of 
 
 No packed object graph is instantiated or loaded. Its sole purpose is evidence that byte-copy eligibility does not imply representation Agreement.
 
+### 7.2 Native Matrix Evidence
+
+The checked-in `producer_ok` and `producer_packed` fixtures remain the compact local demo. They are not presented as six-platform evidence. The native matrix uses the same four Agreement keys but gives every real producer a stable platform ID:
+
+| Node ID | Native host | GitHub runner | Toolchain |
+|---|---|---|---|
+| `x86_64_linux_gcc` | Linux x86-64 | `ubuntu-24.04` | GCC 16.2 and its matching libstdc++ |
+| `x86_64_linux_clang` | Linux x86-64 | `ubuntu-24.04` | pinned Bloomberg Clang P2996 and matching libc++ |
+| `arm64_linux_gcc` | Linux ARM64 | `ubuntu-24.04-arm` | GCC 16.2 and its matching libstdc++ |
+| `arm64_linux_clang` | Linux ARM64 | `ubuntu-24.04-arm` | pinned Bloomberg Clang P2996 and matching libc++ |
+| `arm64_macos_clang` | macOS ARM64 | `macos-15` | pinned Bloomberg Clang P2996 and matching libc++ |
+| `x86_64_macos_clang` | macOS x86-64 | `macos-15-intel` | pinned Bloomberg Clang P2996 and matching libc++ |
+
+The `clang` suffix always means the pinned Bloomberg P2996 fork in this matrix. It never means Apple Clang or upstream Clang. Every node must pass a compiled reflection probe and runtime assertions for 64-bit pointers and little-endian byte order before it may emit evidence.
+
+Every node first builds a small probe that can evaluate the four Admission results without instantiating save/load operations. It always emits `<node>.provenance.json` when the compiler can evaluate the contract. A node whose Admission result is `REJECT` records that complete decision and intentionally emits no checkpoint; a compiler or reflection failure that prevents the probe from producing valid provenance is `INCOMPLETE`.
+
+Every admitted producer then emits the remaining two files, giving a successful node this evidence triplet:
+
+```text
+<node>.sig.hpp
+<node>.xbuf
+<node>.provenance.json
+```
+
+The signature artifact contains the four-type Agreement contract. The XOffset buffer contains the same canonical world at `tick == 42`. Provenance records the four Admission decisions, node ID, target triple, OS and architecture, pointer width and endian result, compiler version and immutable revision, standard-library identity, compile and link flags, relevant CMake options, macOS SDK and deployment target when applicable, runner image identity, workflow run and attempt, toolchain lock hash, TypeLayout commit, and XOffset commit. For an admitted producer it also records SHA256 hashes of the signature and XOffset buffer so that those artifacts are bound to the provenance record. The matrix does not infer any of these facts merely from a runner label.
+
+After all producers finish, six native consumers each download all producer evidence and evaluate the other five nodes. In the permitting case they load all five checkpoints, producing exactly 30 directed cross-loads; same-node round trips remain ordinary local tests and do not count toward 30. A separate matrix checker emits exactly 15 Agreement-edge decisions, one for every unordered node pair, and joins entries by the four stable evidence keys rather than relying on registry position. If either endpoint has a recorded Admission rejection, that pair gets a complete `REJECT at Admission prerequisite; Agreement skipped` decision instead of disappearing. Likewise, a directed edge involving a rejected producer gets `REJECT at producer Admission; load skipped`.
+
+Every consumer emits `<consumer>.results.json` containing its own probe/provenance fields and exactly five directed-edge records, even when a gate prevents the loader from running. The file records the consumer toolchain and source identities plus the SHA256 hashes of every producer signature, checkpoint, and provenance file it evaluated. Each edge record is `PERMIT`, `REJECT` with the rejecting layer, or `INCOMPLETE`. Consumer-local Admission failure produces five complete `REJECT` records at the Admission layer. An Agreement mismatch is recorded as `REJECT` with diagnostic reason `Agreement DIFFER; load skipped`, so it is a completed edge decision rather than missing evidence. Failure to evaluate consumer Admission or identity is `INCOMPLETE`.
+
+The final closure job runs with `if: always()`, gathers producer and consumer results, and applies this strict precedence:
+
+1. `INCOMPLETE` if any required decision cannot be evaluated, any artifact required by an admitted producer is missing or invalid, or any of the 15 Agreement and 30 directed-edge records is absent;
+2. otherwise `REJECT` if any evaluated producer Admission, Agreement, or directed-edge decision rejects, retaining diagnostics such as `Admission REJECT; payload omitted`, `Agreement DIFFER`, `XOffset REJECT`, or `graph REJECT before dereference`;
+3. otherwise `PERMIT` when all six producers, all 15 Agreement edges, and all 30 directed cross-loads pass.
+
+A skipped or failed upstream matrix job can therefore never shrink the declared world and produce a misleading permit.
+
 ## 8. Construction and Relocation Invariants
 
 A self-relative pointer remains valid only when its own storage and its target receive the same displacement. XOffset container growth can move one allocation without moving another, so graph construction follows a strict order:
@@ -298,7 +355,7 @@ After linking, allowed application changes are in-place scalar updates such as `
 
 ## 9. Validation Layers and Trust Boundary
 
-The demo accepts trusted same-system checkpoints, not arbitrary hostile input. Three distinct checks retain separate responsibilities:
+The demo accepts trusted checkpoints under the same application and schema contract, not arbitrary hostile input. Three distinct checks retain separate responsibilities:
 
 1. **TypeLayout Admission and Agreement** run before the loader is called. A failed gate follows a normal `if` branch and prints that loading was skipped.
 2. **XOffset `load_verified<WorldSnapshot>()`** validates the v1 envelope, root type and schema hash, allocator state, container deltas, capacities, owned ranges, and nested XOffset structure.
@@ -386,30 +443,136 @@ Negative[corrupt rel32]: graph REJECT before dereference
 
 Exact punctuation and numeric values may follow the implemented constants, but the three layers and all three skip/reject outcomes must remain visible.
 
-## 13. Files and Build Integration
+## 13. Repository Boundaries and Build Integration
 
-In addition to the already-prepared `.gitmodules` and `vendor/XOffsetDatastructure` submodule entries, the demo implementation change set is limited to:
+### 13.1 XOffset Upstream Port
+
+GCC support belongs in the XOffsetDatastructure repository, not in a TypeLayout-side compatibility shim. Work starts from XOffset's `next_cpp26` branch and keeps its public API and wire-format v1 contract stable. The minimum port must:
+
+- select the correct P2996 standard-library header for GCC and Bloomberg Clang;
+- isolate compiler-specific reflection and expansion flags;
+- stop forcing libc++ and Clang installation paths in GCC builds;
+- compile the actual reflection-based construction, transfer, save, and load paths rather than a reduced substitute;
+- run XOffset's existing tests with GCC 16.2 and the pinned Bloomberg fork on both Linux architectures;
+- preserve the existing 64-bit little-endian runtime precondition.
+
+Any real compiler semantic difference discovered during the port is resolved in XOffset and covered there by a focused test. TypeLayout updates `vendor/XOffsetDatastructure` only after the upstream port is green, pinning the exact resulting `next_cpp26` commit. The parent repository does not carry an unreviewed patch on top of the submodule.
+
+### 13.2 TypeLayout Components
+
+The existing local demo remains the talk-sized path and retains the checked-in normal and packed fixtures. The cross-platform extension adds only three executable responsibilities:
+
+1. **Producer:** evaluate and record Admission in `<node>.provenance.json`; only when permitted, construct the canonical world, save `<node>.xbuf`, and export `<node>.sig.hpp`.
+2. **Consumer:** compile against the downloaded producer signature headers, require local Admission and producer Agreement before loading, then run XOffset structural verification and `validate_world_graph()` for each of the other five buffers.
+3. **Matrix checker:** join the four evidence keys, count all six nodes, 15 Agreement edges, and 30 directed load results, and emit the final closure status.
+
+Common world construction, validation, and business assertions are shared with the existing demo rather than copied. The packed `Entity` fixture remains a single ABI-setting negative and is not counted as a seventh platform.
+
+TypeLayout's CMake integration enables these targets for GCC 16.2 and the pinned Bloomberg P2996 Clang, and rejects unrelated Clang installations that do not pass the reflection probe. Matrix configurations require the submodule explicitly and fail configuration when it is absent; they cannot reuse the current optional-vendor behavior that silently omits the demo. Every relevant workflow initializes the submodule recursively.
+
+The expected TypeLayout-side change surface is:
 
 ```text
-include/boost/typelayout/admission.hpp
-test/test_core.cpp
-example/xoffset_world_demo/world.hpp
-example/xoffset_world_demo/export_signatures.cpp
-example/xoffset_world_demo/demo.cpp
-example/xoffset_world_demo/sigs/producer_ok.sig.hpp
-example/xoffset_world_demo/sigs/producer_packed.sig.hpp
+vendor/XOffsetDatastructure                         # exact submodule update
+example/xoffset_world_demo/                         # shared world logic and 3 matrix roles
+example/xoffset_world_demo/sigs/                    # existing local fixtures
+tools/run-xoffset-world.sh                          # ARM64 Mac one-command path
+.github/docker/Dockerfile.gcc16                     # linux/amd64 + linux/arm64
+.github/docker/Dockerfile.p2996                     # linux/amd64 + linux/arm64
+.github/docker/docker-bake.hcl
+.github/docker/toolchain-sources.lock
+.github/docker/toolchains.lock
+.github/scripts/build-p2996-macos.sh
+.github/scripts/verify-p2996-toolchain.sh
+.github/workflows/toolchain-images.yml
+.github/workflows/xoffset-world-matrix.yml
 CMakeLists.txt
 ```
 
-The existing `vendor/XOffsetDatastructure` submodule remains on `next_cpp26`; its source is not modified. The demo includes its public header directly and does not add the vendor project with `add_subdirectory()`.
+Exact source-file factoring inside `example/xoffset_world_demo/` is left to the implementation plan, but it must preserve these three responsibilities and avoid adding a general artifact framework.
 
-The demo and exporter targets are enabled only for the repository's P2996-capable Clang configuration so existing GCC and compatibility pipelines are not made dependent on XOffset's current Clang-oriented implementation. The successful demo executable is also registered as a CTest test in that configuration.
+The existing `docs/superpowers/plans/2026-08-27-xoffset-world-demo-implementation.md` records the already-completed local demo and does not govern this extension. After this revised specification is approved in writing, a new matrix implementation plan must supersede its old Clang-only and no-vendor-edit assumptions for the remaining work.
 
-## 14. Verification and Acceptance Tests
+## 14. Toolchain Provisioning
 
-### 14.1 Core TypeLayout Assertions
+The main verification path never builds a compiler. Toolchains are prepared separately and addressed immutably:
 
-`test_core.cpp` adds compile-time checks for:
+- `gcc16` is exactly GCC 16.2 with matching libstdc++;
+- `p2996` is one exact Bloomberg fork commit with the matching libc++;
+- each Linux image has one multi-platform manifest for `linux/amd64` and `linux/arm64`;
+- Linux images are published to GHCR and consumed by digest;
+- native macOS ARM64 and x86-64 toolchains are published as architecture-specific GitHub Release assets with SHA256 checksums;
+- `toolchain-sources.lock` records immutable source revisions, source checksums, build inputs, and expected probe results;
+- `toolchains.lock` records the resulting image digests, release asset URLs, and archive checksums.
+
+The specification intentionally does not invent artifact digests before the toolchains have been built. Provisioning uses a two-phase bootstrap and seal:
+
+1. `toolchain-images.yml` builds immutable candidates from the Dockerfiles and `toolchain-sources.lock`, publishes them, verifies their probes, and uploads a candidate output lock;
+2. that candidate is reviewed and committed as `toolchains.lock`, which seals the exact outputs consumed by local and matrix workflows.
+
+Only recipe or `toolchain-sources.lock` changes trigger a rebuild; sealing `toolchains.lock` does not. The populated output lock must be committed before `xoffset-world-matrix.yml` is enabled. Empty values, branch-only references, mutable tags such as `latest`, and unverified archives are configuration errors.
+
+Linux compiler images are built on matching native GitHub architectures and then combined into multi-platform manifests; compiler builds do not run under QEMU. macOS archives are likewise built on their matching native macOS runners. The P2996 archives contain the compiler and standard library from the same fork revision.
+
+Every producer, consumer, and local launcher invocation verifies the immutable digest or checksum and runs the same compile-and-execute probe before configuring TypeLayout. The probe checks P2996 reflection, target triple, `sizeof(void*) == 8`, and `std::endian::native == std::endian::little`. A version string without a working probe is insufficient evidence.
+
+Only recipes, scripts, and locks are committed. Container layers and compiler archives stay in GHCR or release storage.
+
+## 15. Developer and CI Workflows
+
+### 15.1 ARM64 Mac One-Command Path
+
+The supported local entry point is:
+
+```bash
+./tools/run-xoffset-world.sh
+```
+
+It checks Docker Desktop and Xcode command-line prerequisites, downloads and caches the pinned macOS ARM64 P2996 archive when absent, pulls the immutable Linux images, and uses one shared artifact directory. It runs:
+
+- macOS ARM64 / Bloomberg Clang natively;
+- Linux ARM64 / GCC and Bloomberg Clang in native ARM64 containers;
+- Linux x86-64 / GCC and Bloomberg Clang through Docker's x86-64 emulation.
+
+It then evaluates the five available producers and consumers and prints `LOCAL COVERAGE 5/6: 3 native-architecture + 2 Docker-emulated; Agreement 10/10; directed loads 20/20; authoritative closure unavailable`. It must also state that native macOS x86-64 evidence is absent and that full closure has not been asserted. Rosetta-based macOS x86-64 execution is not added to the minimum workflow.
+
+The personal MacBook is not registered as a required self-hosted runner. Local emulation is a development convenience; it is not used in the authoritative matrix.
+
+### 15.2 GitHub Actions Native Matrix
+
+`xoffset-world-matrix.yml` is the authoritative workflow and is available both for relevant pull-request/push changes and manual dispatch. It has four stages:
+
+1. six native producer jobs;
+2. six native consumer jobs after all producer jobs complete;
+3. the 15-edge Agreement checker;
+4. one `if: always()` closure job.
+
+The consumer stage and Agreement checker also declare the producer stage as a dependency and use `if: always()`. They download whatever evidence is available, emit explicit `INCOMPLETE` records for unavailable inputs, and upload their result files with an always-running artifact step. This preserves the expected 15 and 30 decision slots even when a producer fails; the closure job is not forced to infer which edge disappeared.
+
+Linux x86-64 and ARM64 jobs run their matching architecture from the pinned multi-platform container images. macOS ARM64 and Intel jobs run natively on the corresponding GitHub-hosted macOS runners and download the matching P2996 archive. Container jobs are never used as macOS evidence.
+
+The workflow uploads all available payloads, all six node provenance files when Admission was evaluable, and all six consumer result files even when a gate rejects. The closure job can therefore explain the difference between `PERMIT`, `REJECT`, and `INCOMPLETE` and retain `Agreement DIFFER` as a rejection reason. The workflow summary lists every node, all missing or invalid evidence, all differing type keys, and every rejected directed edge. The closure job fails unless the status is `PERMIT`.
+
+## 16. Failure Handling
+
+There are no silent skips:
+
+- an unavailable or non-reflecting compiler that prevents the node probe from evaluating Admission causes final `INCOMPLETE`;
+- an evaluated producer or consumer Admission failure is `REJECT`; an unsafe producer intentionally omits its signature and checkpoint after recording `Admission REJECT; payload omitted` in valid provenance;
+- a wrong target architecture, pointer width, endianness, standard library, digest, checksum, or artifact hash is invalid evidence and causes `INCOMPLETE`;
+- a missing signature entry from an admitted producer is `INCOMPLETE`, while an unequal present signature produces a complete `REJECT` decision whose diagnostic reason is `Agreement DIFFER; load skipped`;
+- a failed XOffset envelope or structural check is `REJECT`;
+- a failed application relative-pointer or ID-index check is `REJECT before dereference`;
+- an absent consumer result or matrix edge is `INCOMPLETE`;
+- the existing native-pointer, packed-`Entity`, and corrupt-relative-delta negatives must still fail at their intended Admission, Agreement, and graph-validation layers.
+
+`INCOMPLETE` dominates `REJECT`, and `REJECT` dominates `PERMIT`. Both `INCOMPLETE` and `REJECT` return a non-zero result in authoritative CI.
+
+## 17. Verification and Acceptance Tests
+
+### 17.1 Core TypeLayout Assertions
+
+`test_core.cpp` keeps compile-time checks for:
 
 - independent fixed-width values;
 - address-space-dependent raw pointers;
@@ -420,13 +583,13 @@ The demo and exporter targets are enabled only for the repository's P2996-capabl
 
 `world.hpp` additionally requires at compile time that `relative_ptr<Entity>` is standard-layout, trivially copyable, exactly four bytes with four-byte alignment, has a generatable TypeLayout signature, and that the signature contains no opaque `O(...)` token.
 
-### 14.2 Demo Assertions
+### 17.2 Local Demo Assertions
 
-The demo executable fails with a non-zero exit code unless all of these hold:
+The existing demo executable continues to fail with a non-zero exit code unless:
 
-- the four declared types pass whole-region Admission;
+- all four declared types pass whole-region Admission;
 - the normal producer fixture contains and matches all four entries;
-- the packed fixture differs;
+- the packed fixture differs on `Entity`;
 - source and loaded bases differ while sampled raw deltas remain equal;
 - graph validation succeeds before every positive dereference;
 - null, sharing, cycle, and party-container relationships are correct;
@@ -435,12 +598,24 @@ The demo executable fails with a non-zero exit code unless all of these hold:
 - the native pointer alternative is rejected without loading;
 - the corrupted delta reaches XOffset verified load but is rejected by graph validation.
 
-The full existing TypeLayout test suite must also pass on the supported compiler. No test requires modifying the XOffset submodule.
+### 17.3 Cross-Platform Acceptance
 
-## 15. Claim Boundary
+The authoritative workflow is accepted only when:
+
+- all existing TypeLayout tests pass on every applicable compiler;
+- the XOffset upstream test suite passes on the four Linux compiler/architecture nodes before the submodule is advanced;
+- all six provenance probes report 64-bit little-endian native targets and the locked toolchains;
+- exactly six signature artifacts and six checkpoint artifacts are present;
+- all 15 pairwise four-type Agreement comparisons match;
+- all 30 directed loads pass Admission, Agreement, XOffset structural validation, graph validation, and canonical-world assertions;
+- the closure status is exactly `PERMIT`.
+
+The test report must retain node identities and edge directions so a passing count cannot hide a duplicate or omitted node.
+
+## 18. Claim Boundary
 
 The demonstrated claim is deliberately narrow:
 
-> For the explicitly declared four-type contract, a trusted XOffset v1 region produced from the pinned `next_cpp26` baseline may be relocated as one unit when every type passes whole-region Admission, producer and consumer TypeLayout signatures agree, XOffset structural verification succeeds, and every application relative pointer validates inside that region.
+> For the explicitly declared four-type contract, a trusted XOffset v1 region produced by any of the six locked 64-bit little-endian nodes may be relocated as one unit and loaded by any other declared node when every declared type passes whole-region Admission on both producer and consumer builds, producer and consumer TypeLayout signatures agree, XOffset structural verification succeeds, and every application relative pointer validates inside that region.
 
-TypeLayout does not replace XOffset's wire validation, and XOffset does not establish cross-build TypeLayout Agreement. Neither one proves application semantics or general C++ object relocation. The demo is valuable because the combined contract enables a realistic cyclic object graph while keeping each proof obligation visible and independently rejectable.
+TypeLayout does not replace XOffset's wire validation, and XOffset does not establish cross-build TypeLayout Agreement. Neither one proves application semantics, schema evolution, arbitrary C++ object relocation, unlisted targets, or compatibility with a different toolchain revision. The demo is valuable because the combined contract enables a realistic cyclic object graph while keeping each proof obligation visible and independently rejectable.
