@@ -133,42 +133,6 @@ target_include_directories(relocatable_world_export_packed PRIVATE
 target_compile_definitions(relocatable_world_export_packed PRIVATE
     TYPELAYOUT_RELOCATABLE_WORLD_PACKED_ENTITY=1)
 
-set(TYPELAYOUT_XOFFSET_HEADER
-    "${CMAKE_CURRENT_SOURCE_DIR}/vendor/XOffsetDatastructure/xoffsetdatastructure.hpp")
-
-if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    if(EXISTS "${TYPELAYOUT_XOFFSET_HEADER}")
-        add_executable(xoffset_world_demo
-            example/xoffset_world_demo/demo.cpp)
-        target_link_libraries(xoffset_world_demo PRIVATE typelayout)
-        target_include_directories(xoffset_world_demo PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/example/xoffset_world_demo
-            ${CMAKE_CURRENT_SOURCE_DIR}/vendor/XOffsetDatastructure)
-        add_test(NAME xoffset_world_demo COMMAND xoffset_world_demo)
-        set_tests_properties(xoffset_world_demo PROPERTIES
-            LABELS "typelayout;example;xoffset")
-
-        add_executable(xoffset_world_export_ok EXCLUDE_FROM_ALL
-            example/xoffset_world_demo/export_signatures.cpp)
-        target_link_libraries(xoffset_world_export_ok PRIVATE typelayout)
-        target_include_directories(xoffset_world_export_ok PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/example/xoffset_world_demo
-            ${CMAKE_CURRENT_SOURCE_DIR}/vendor/XOffsetDatastructure)
-
-        add_executable(xoffset_world_export_packed EXCLUDE_FROM_ALL
-            example/xoffset_world_demo/export_signatures.cpp)
-        target_link_libraries(xoffset_world_export_packed PRIVATE typelayout)
-        target_include_directories(xoffset_world_export_packed PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/example/xoffset_world_demo
-            ${CMAKE_CURRENT_SOURCE_DIR}/vendor/XOffsetDatastructure)
-        target_compile_definitions(xoffset_world_export_packed PRIVATE
-            TYPELAYOUT_XOFFSET_PACKED_ENTITY=1)
-    else()
-        message(STATUS
-            "Skipping xoffset_world_demo: initialize vendor/XOffsetDatastructure")
-    endif()
-endif()
-
 # Negative compile test: add_relocatable must reject a type whose opaque
 # member hides a pointer. The target is excluded from the normal build;
 # the test builds it on demand and passes only when the compiler emits
