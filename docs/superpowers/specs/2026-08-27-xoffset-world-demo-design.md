@@ -1,6 +1,6 @@
 # XOffset World Checkpoint Demo Design
 
-**Status:** Written design awaiting review
+**Status:** Approved design
 
 **Date:** 2026-08-27
 
@@ -154,6 +154,9 @@ enum class TransferProfile {
     ordinary_copy,
     whole_region_relocation
 };
+
+constexpr SourceContext join_source_context(
+    SourceContext lhs, SourceContext rhs) noexcept;
 
 template <typename T>
 struct source_context_traits {
