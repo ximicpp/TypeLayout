@@ -1,0 +1,5 @@
+.github/docker/** text eol=lf
+.github/scripts/** text eol=lf
+.github/workflows/** text eol=lf
+tools/*.py text eol=lf
+tools/*.sh text eol=lf

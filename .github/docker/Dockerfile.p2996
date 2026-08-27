@@ -1,97 +1,197 @@
-# Bloomberg P2996 Clang Docker Image for TypeLayout CI
-#
-# This Dockerfile builds a custom Clang/LLVM with P2996 (Static Reflection)
-# support from Bloomberg's fork.
-#
-# Build locally (optional):
-#   docker build -t ghcr.io/OWNER/typelayout-p2996:latest -f Dockerfile.p2996 .
-#
-# Copyright (c) 2024-2026 TypeLayout Development Team
-# Distributed under the Boost Software License, Version 1.0.
+# syntax=docker/dockerfile:1.7
 
-FROM ubuntu:24.04 AS builder
+# Native Bloomberg P2996 Clang image. The compiler and its libc++ runtime are
+# built together from one immutable LLVM commit on the target architecture.
+ARG DEBIAN_IMAGE=docker.io/library/debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
+FROM ${DEBIAN_IMAGE} AS builder
 
-# Prevent interactive prompts during package installation
+ARG TARGETARCH
+ARG DEBIAN_SNAPSHOT=https://snapshot.debian.org/archive/debian/20260824T000000Z/
 ENV DEBIAN_FRONTEND=noninteractive
+RUN set -eu; \
+    case "${TARGETARCH}" in \
+        amd64) ninja_package='ninja-build:amd64=1.12.1-1' ;; \
+        arm64) ninja_package='ninja-build:arm64=1.12.1-1+b1' ;; \
+        *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    printf 'deb [check-valid-until=no] %s trixie main\n' "${DEBIAN_SNAPSHOT}" \
+        > /etc/apt/sources.list; \
+    rm -f /etc/apt/sources.list.d/debian.sources; \
+    apt-get -o Acquire::Check-Valid-Until=false update; \
+    apt-get install -y --no-install-recommends \
+        build-essential=12.12 \
+        ca-certificates=20250419 \
+        cmake=3.31.6-2 \
+        curl=8.14.1-2+deb13u4 \
+        git=1:2.47.3-0+deb13u1 \
+        libncurses-dev=6.5+20250216-2 \
+        libxml2-dev=2.12.7+dfsg+really2.9.14-2.1+deb13u3 \
+        libzstd-dev=1.5.7+dfsg-1 \
+        "${ninja_package}" \
+        python3=3.13.5-1 \
+        tar=1.35+dfsg-3.1 \
+        zlib1g-dev=1:1.3.dfsg+really1.3.1-1+b1 \
+        zstd=1.5.7+dfsg-1; \
+    rm -rf /var/lib/apt/lists/*
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    cmake \
-    ninja-build \
-    git \
-    python3 \
-    python3-pip \
-    wget \
-    curl \
-    ca-certificates \
-    libstdc++-14-dev \
-    zlib1g-dev \
-    libtinfo-dev \
-    libxml2-dev \
-    && rm -rf /var/lib/apt/lists/*
+ARG P2996_REPOSITORY=https://github.com/bloomberg/clang-p2996.git
+ARG P2996_COMMIT=060be17654102019e14810c3f948ef85a490755f
+WORKDIR /opt/llvm-p2996
+RUN git init . \
+    && git remote add origin "${P2996_REPOSITORY}" \
+    && git fetch --depth=1 origin "${P2996_COMMIT}" \
+    && git checkout --detach FETCH_HEAD \
+    && test "$(git rev-parse HEAD)" = "${P2996_COMMIT}"
 
-# Clone Bloomberg's LLVM fork with P2996 reflection support
-WORKDIR /opt
-RUN git clone --depth 1 --branch p2996 https://github.com/bloomberg/clang-p2996.git llvm-p2996
+RUN set -eu; \
+    case "${TARGETARCH}" in \
+        amd64) llvm_target=X86 ;; \
+        arm64) llvm_target=AArch64 ;; \
+        *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    cmake -S llvm -B build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/opt/p2996-toolchain \
+        -DLLVM_ENABLE_PROJECTS="clang" \
+        -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi;libunwind" \
+        -DLLVM_TARGETS_TO_BUILD="${llvm_target}" \
+        -DLLVM_INCLUDE_TESTS=OFF \
+        -DCLANG_INCLUDE_TESTS=OFF \
+        -DLLVM_INCLUDE_EXAMPLES=OFF \
+        -DLLVM_INCLUDE_BENCHMARKS=OFF \
+        -DLLVM_INCLUDE_DOCS=OFF \
+        -DCLANG_BUILD_EXAMPLES=OFF \
+        -DCLANG_DEFAULT_CXX_STDLIB=libc++ \
+        -DLLVM_INSTALL_TOOLCHAIN_ONLY=ON \
+        -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON \
+        -DLLVM_PARALLEL_LINK_JOBS=1
 
-# Build LLVM/Clang with P2996 support
-WORKDIR /opt/llvm-p2996/build
-RUN cmake -G Ninja \
-    -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra" \
-    -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi;libunwind" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DLLVM_TARGETS_TO_BUILD="X86" \
-    -DLLVM_ENABLE_ASSERTIONS=OFF \
-    -DCLANG_DEFAULT_CXX_STDLIB=libc++ \
-    -DCMAKE_INSTALL_PREFIX=/opt/p2996-toolchain \
-    ../llvm
+# Bound compiler concurrency to one job per 2 GiB of available memory.
+RUN set -eu; \
+    threads="$(nproc)"; \
+    available="$(awk '/MemAvailable:/ { printf "%.0f\\n", $2 * 1024 }' /proc/meminfo)"; \
+    if [ -r /sys/fs/cgroup/memory.max ]; then \
+        limit="$(cat /sys/fs/cgroup/memory.max)"; \
+        if [ "${limit}" != max ] && [ "${limit}" -lt "${available}" ]; then \
+            available="${limit}"; \
+        fi; \
+    fi; \
+    memory_jobs="$(( available / 2147483648 ))"; \
+    [ "${memory_jobs}" -ge 1 ] || memory_jobs=1; \
+    jobs="${threads}"; \
+    [ "${jobs}" -le "${memory_jobs}" ] || jobs="${memory_jobs}"; \
+    cmake --build build --parallel "${jobs}"; \
+    cmake --install build --strip; \
+    test -x /opt/p2996-toolchain/bin/clang; \
+    test -x /opt/p2996-toolchain/bin/clang++; \
+    test -f /opt/p2996-toolchain/include/c++/v1/vector; \
+    runtime_triple="$(/opt/p2996-toolchain/bin/clang++ -dumpmachine)"; \
+    runtime_dir="/opt/p2996-toolchain/lib/${runtime_triple}"; \
+    test -d "${runtime_dir}"; \
+    find "${runtime_dir}" -name 'libc++.*' -print -quit | grep -q .; \
+    find "${runtime_dir}" -name 'libc++abi.*' -print -quit | grep -q .; \
+    find "${runtime_dir}" -name 'libunwind.*' -print -quit | grep -q .
 
-# Build with limited parallelism to avoid OOM
-RUN ninja -j4 && ninja install
+ARG DEBIAN_IMAGE
+FROM ${DEBIAN_IMAGE} AS runtime
 
-# Final runtime image
-FROM ubuntu:24.04
-
+ARG TARGETARCH
+ARG DEBIAN_SNAPSHOT=https://snapshot.debian.org/archive/debian/20260824T000000Z/
 ENV DEBIAN_FRONTEND=noninteractive
+RUN set -eu; \
+    case "${TARGETARCH}" in \
+        amd64) ninja_package='ninja-build:amd64=1.12.1-1' ;; \
+        arm64) ninja_package='ninja-build:arm64=1.12.1-1+b1' ;; \
+        *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    printf 'deb [check-valid-until=no] %s trixie main\n' "${DEBIAN_SNAPSHOT}" \
+        > /etc/apt/sources.list; \
+    rm -f /etc/apt/sources.list.d/debian.sources; \
+    apt-get -o Acquire::Check-Valid-Until=false update; \
+    apt-get install -y --no-install-recommends \
+        ca-certificates=20250419 \
+        cmake=3.31.6-2 \
+        git=1:2.47.3-0+deb13u1 \
+        libtinfo6=6.5+20250216-2 \
+        libxml2=2.12.7+dfsg+really2.9.14-2.1+deb13u3 \
+        libzstd1=1.5.7+dfsg-1 \
+        "${ninja_package}" \
+        python3=3.13.5-1 \
+        zlib1g=1:1.3.dfsg+really1.3.1-1+b1 \
+        zstd=1.5.7+dfsg-1; \
+    rm -rf /var/lib/apt/lists/*
 
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    cmake \
-    ninja-build \
-    git \
-    python3 \
-    wget \
-    curl \
-    ca-certificates \
-    libstdc++-14-dev \
-    zlib1g-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy the built toolchain
 COPY --from=builder /opt/p2996-toolchain /opt/p2996-toolchain
 
-# Install Boost (for Boost.Test)
-RUN apt-get update && apt-get install -y \
-    libboost-all-dev \
-    && rm -rf /var/lib/apt/lists/*
+ENV PATH=/opt/p2996-toolchain/bin:${PATH}
+ENV LD_LIBRARY_PATH=/opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu:/opt/p2996-toolchain/lib/aarch64-unknown-linux-gnu:/opt/p2996-toolchain/lib
+ENV CC=/opt/p2996-toolchain/bin/clang
+ENV CXX=/opt/p2996-toolchain/bin/clang++
 
-# Set up environment
-ENV PATH="/opt/p2996-toolchain/bin:${PATH}"
-ENV LD_LIBRARY_PATH="/opt/p2996-toolchain/lib:${LD_LIBRARY_PATH}"
-ENV CC="/opt/p2996-toolchain/bin/clang"
-ENV CXX="/opt/p2996-toolchain/bin/clang++"
+RUN <<'EOF'
+set -eu
+test -x /opt/p2996-toolchain/bin/clang
+test -x /opt/p2996-toolchain/bin/clang++
+test -f /opt/p2996-toolchain/include/c++/v1/vector
+clang++ --version
+runtime_triple="$(clang++ -dumpmachine)"
+case "${TARGETARCH}" in
+    amd64) [ "${runtime_triple}" = x86_64-unknown-linux-gnu ] ;;
+    arm64) [ "${runtime_triple}" = aarch64-unknown-linux-gnu ] ;;
+esac
+runtime_dir="/opt/p2996-toolchain/lib/${runtime_triple}"
+test -d "${runtime_dir}"
+cat >/tmp/toolchain-probe.cpp <<'CPP'
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <meta>
+#include <span>
+#include <type_traits>
 
-# Verify installation
-RUN clang++ --version && echo "P2996 Clang ready!"
+using reflected_int = [: ^^int :];
+static_assert(std::is_same_v<reflected_int, int>);
 
-# Default working directory
+__attribute__((noinline)) void* copy_distinct(
+    void* destination, const void* source, std::size_t count) {
+    return std::memcpy(destination, source, count);
+}
+
+int main(int argc, char**) {
+    std::uint32_t source = 7;
+    alignas(std::uint32_t) std::byte storage[sizeof(source)]{};
+    auto* object = static_cast<std::uint32_t*>(
+        copy_distinct(storage, &source, sizeof(source)));
+    *object += 5;
+
+    std::array<std::uint32_t, 3> input{11, 13, 17};
+    alignas(std::uint32_t) std::byte array_storage[sizeof(input)]{};
+    const std::size_t count = argc == 1 ? input.size() : 0;
+    auto* values = static_cast<std::uint32_t*>(copy_distinct(
+        array_storage, input.data(), count * sizeof(std::uint32_t)));
+    std::span<std::uint32_t> view(values, count);
+    view[1] += *object;
+
+    alignas(std::uint32_t) std::byte relocated_storage[sizeof(input)]{};
+    auto* relocated = static_cast<std::uint32_t*>(copy_distinct(
+        relocated_storage, array_storage, count * sizeof(std::uint32_t)));
+    return source == 7 && *object == 12 && relocated[0] == 11 &&
+            relocated[1] == 25 && relocated[2] == 17 &&
+            relocated + count - relocated == 3 ? 0 : 1;
+}
+CPP
+clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ \
+    -O3 -fstrict-aliasing \
+    -nostdinc++ -isystem /opt/p2996-toolchain/include/c++/v1 \
+    -L "${runtime_dir}" -Wl,-rpath,"${runtime_dir}" \
+    /tmp/toolchain-probe.cpp -o /tmp/toolchain-probe
+ldd /tmp/toolchain-probe | grep -F "${runtime_dir}/libc++.so"
+/tmp/toolchain-probe
+EOF
+
 WORKDIR /workspace
-
-# Labels for GHCR
-LABEL org.opencontainers.image.source="https://github.com/YourOrg/TypeLayout"
-LABEL org.opencontainers.image.description="C++26 P2996 Clang for TypeLayout CI"
+LABEL org.opencontainers.image.source="https://github.com/ximicpp/TypeLayout"
+LABEL org.opencontainers.image.description="Native Bloomberg P2996 Clang with matching libc++ for TypeLayout"
 LABEL org.opencontainers.image.licenses="BSL-1.0"
-
 CMD ["/bin/bash"]

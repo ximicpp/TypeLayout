@@ -1,0 +1,223 @@
+{
+  "actions": {
+    "build_push": "10e90e3645eae34f1e60eeb005ba3a3d33f178e8",
+    "checkout": "11d5960a326750d5838078e36cf38b85af677262",
+    "docker_login": "c94ce9fb468520275223c153574b00df6fe4bcc9",
+    "download_artifact": "d3f86a106a0bac45b974a628896c90dbdf5c8093",
+    "github_release": "3bb12739c298aeb8a4eeaf626c5b8d85266b0e65",
+    "setup_buildx": "8d2750c68a42422c14e847fe6c8ac0403b4cbd6f",
+    "upload_artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02"
+  },
+  "gcc": {
+    "compiler_family": "gcc",
+    "compiler_revision": "16.2.0",
+    "configure_flags": [
+      "--enable-languages=c,c++",
+      "--disable-bootstrap",
+      "--disable-multilib",
+      "--disable-nls",
+      "--enable-checking=release"
+    ],
+    "flags": "-std=c++26 -freflection -O3 -fstrict-aliasing",
+    "prerequisites": {
+      "gmp": {
+        "filename": "gmp-6.3.0.tar.bz2",
+        "sha512": "3b684c9bcb9ede2b7e54d0ba4c9764bfa17c20d4f3000017c553b6f1e135b536949580ff37341680c25dc236cfe0ba1db8cfdfe619ce013656189ef0871b89f8",
+        "url": "https://gcc.gnu.org/pub/gcc/infrastructure/gmp-6.3.0.tar.bz2",
+        "version": "6.3.0"
+      },
+      "isl": {
+        "filename": "isl-0.24.tar.bz2",
+        "sha512": "aab3bddbda96b801d0f56d2869f943157aad52a6f6e6a61745edd740234c635c38231af20bc3f1a08d416a5e973a90e18249078ed8e4ae2f1d5de57658738e95",
+        "url": "https://gcc.gnu.org/pub/gcc/infrastructure/isl-0.24.tar.bz2",
+        "version": "0.24"
+      },
+      "mpc": {
+        "filename": "mpc-1.3.1.tar.gz",
+        "sha512": "4bab4ef6076f8c5dfdc99d810b51108ced61ea2942ba0c1c932d624360a5473df20d32b300fc76f2ba4aa2a97e1f275c9fd494a1ba9f07c4cb2ad7ceaeb1ae97",
+        "url": "https://gcc.gnu.org/pub/gcc/infrastructure/mpc-1.3.1.tar.gz",
+        "version": "1.3.1"
+      },
+      "mpfr": {
+        "filename": "mpfr-4.2.2.tar.bz2",
+        "sha512": "0176e50808dcc07afbf5bc3e38bf9b7b21918e5f194aa0bfd860d99b00c470630aef149776c4be814a61c44269c3a5b9a4b0b1c0fcd4c9feb1459d8466452da8",
+        "url": "https://gcc.gnu.org/pub/gcc/infrastructure/mpfr-4.2.2.tar.bz2",
+        "version": "4.2.2"
+      }
+    },
+    "source": {
+      "filename": "gcc-16.2.0.tar.xz",
+      "sha512": "c51c30ca7422d0cbecf504b2e0f33c3aca31e0f90a76b65217f465163fa6fa17b3f5de39e145c47e5bab90ac0ce7fff3b03c8d553ae36e01faaea5a50f8648d1",
+      "url": "https://gcc.gnu.org/pub/gcc/releases/gcc-16.2.0/gcc-16.2.0.tar.xz"
+    },
+    "version": "16.2.0"
+  },
+  "linux": {
+    "apt": {
+      "components": [
+        "main"
+      ],
+      "snapshot": "https://snapshot.debian.org/archive/debian/20260824T000000Z/",
+      "suites": [
+        "trixie"
+      ]
+    },
+    "base_images": {
+      "gcc_builder": "docker.io/library/debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132",
+      "gcc_runtime": "docker.io/library/debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132",
+      "p2996_builder": "docker.io/library/debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132",
+      "p2996_runtime": "docker.io/library/debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132"
+    },
+    "docker": {
+      "buildkit_image": "docker.io/moby/buildkit@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8",
+      "buildx_version": "0.36.1",
+      "runner_images_commit": "564e58dbe650c507ccba1171f6159c12f26820c8",
+      "runners": {
+        "ubuntu-24.04": {
+          "client_version": "28.0.4",
+          "server_version": "28.0.4"
+        },
+        "ubuntu-24.04-arm": {
+          "client_version": "28.0.4",
+          "server_version": "28.0.4"
+        }
+      }
+    },
+    "packages": {
+      "gcc_builder": [
+        "build-essential=12.12",
+        "bison=2:3.8.2+dfsg-1+b2",
+        "ca-certificates=20250419",
+        "curl=8.14.1-2+deb13u4",
+        "flex=2.6.4-8.2+b4",
+        "mawk=1.3.4.20250131-1",
+        "gzip=1.13-1",
+        "make=4.4.1-2",
+        "patch=2.8-2",
+        "tar=1.35+dfsg-3.1",
+        "xz-utils=5.8.1-1+deb13u1",
+        "bzip2=1.0.8-6",
+        "zlib1g-dev=1:1.3.dfsg+really1.3.1-1+b1",
+        "libzstd-dev=1.5.7+dfsg-1"
+      ],
+      "gcc_runtime": [
+        "ca-certificates=20250419",
+        "cmake=3.31.6-2",
+        "git=1:2.47.3-0+deb13u1",
+        "ninja-build:amd64=1.12.1-1",
+        "ninja-build:arm64=1.12.1-1+b1",
+        "python3=3.13.5-1",
+        "zlib1g=1:1.3.dfsg+really1.3.1-1+b1",
+        "libzstd1=1.5.7+dfsg-1"
+      ],
+      "p2996_builder": [
+        "build-essential=12.12",
+        "ca-certificates=20250419",
+        "cmake=3.31.6-2",
+        "curl=8.14.1-2+deb13u4",
+        "git=1:2.47.3-0+deb13u1",
+        "libncurses-dev=6.5+20250216-2",
+        "libxml2-dev=2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+        "libzstd-dev=1.5.7+dfsg-1",
+        "ninja-build:amd64=1.12.1-1",
+        "ninja-build:arm64=1.12.1-1+b1",
+        "python3=3.13.5-1",
+        "tar=1.35+dfsg-3.1",
+        "zlib1g-dev=1:1.3.dfsg+really1.3.1-1+b1",
+        "zstd=1.5.7+dfsg-1"
+      ],
+      "p2996_runtime": [
+        "ca-certificates=20250419",
+        "cmake=3.31.6-2",
+        "git=1:2.47.3-0+deb13u1",
+        "libtinfo6=6.5+20250216-2",
+        "libxml2=2.12.7+dfsg+really2.9.14-2.1+deb13u3",
+        "libzstd1=1.5.7+dfsg-1",
+        "ninja-build:amd64=1.12.1-1",
+        "ninja-build:arm64=1.12.1-1+b1",
+        "python3=3.13.5-1",
+        "zlib1g=1:1.3.dfsg+really1.3.1-1+b1",
+        "zstd=1.5.7+dfsg-1"
+      ]
+    },
+    "platforms": {
+      "linux/amd64": {
+        "architecture": "x86_64",
+        "runner": "ubuntu-24.04"
+      },
+      "linux/arm64": {
+        "architecture": "arm64",
+        "runner": "ubuntu-24.04-arm"
+      }
+    }
+  },
+  "macos": {
+    "nodes": {
+      "arm64_macos_clang": {
+        "architecture": "arm64",
+        "deployment_target": "15.0",
+        "flags": "-std=c++26 -freflection -freflection-latest -stdlib=libc++ -O3 -fstrict-aliasing -nostdinc++ -isystem ${TOOLCHAIN_ROOT}/include/c++/v1 -isysroot ${SDKROOT} -mmacosx-version-min=15.0 -L ${TOOLCHAIN_ROOT}/lib -Wl,-rpath,${TOOLCHAIN_ROOT}/lib",
+        "llvm_target": "AArch64",
+        "runner": "macos-15",
+        "sdk_build": "24F74",
+        "sdk_version": "15.5",
+        "xcode_build": "16F6",
+        "xcode_version": "16.4"
+      },
+      "x86_64_macos_clang": {
+        "architecture": "x86_64",
+        "deployment_target": "15.0",
+        "flags": "-std=c++26 -freflection -freflection-latest -stdlib=libc++ -O3 -fstrict-aliasing -nostdinc++ -isystem ${TOOLCHAIN_ROOT}/include/c++/v1 -isysroot ${SDKROOT} -mmacosx-version-min=15.0 -L ${TOOLCHAIN_ROOT}/lib -Wl,-rpath,${TOOLCHAIN_ROOT}/lib",
+        "llvm_target": "X86",
+        "runner": "macos-15-intel",
+        "sdk_build": "24F74",
+        "sdk_version": "15.5",
+        "xcode_build": "16F6",
+        "xcode_version": "16.4"
+      }
+    },
+    "runner_images_commit": "564e58dbe650c507ccba1171f6159c12f26820c8",
+    "runner_images_repository": "https://github.com/actions/runner-images.git"
+  },
+  "p2996": {
+    "cmake_flags": [
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DLLVM_INCLUDE_TESTS=OFF",
+      "-DCLANG_INCLUDE_TESTS=OFF",
+      "-DLLVM_INCLUDE_EXAMPLES=OFF",
+      "-DLLVM_INCLUDE_BENCHMARKS=OFF",
+      "-DLLVM_INCLUDE_DOCS=OFF",
+      "-DCLANG_BUILD_EXAMPLES=OFF",
+      "-DCLANG_DEFAULT_CXX_STDLIB=libc++",
+      "-DLLVM_INSTALL_TOOLCHAIN_ONLY=ON",
+      "-DLLVM_PARALLEL_LINK_JOBS=1"
+    ],
+    "commit": "060be17654102019e14810c3f948ef85a490755f",
+    "compiler_family": "clang",
+    "compiler_revision": "060be17654102019e14810c3f948ef85a490755f",
+    "flags": "-std=c++26 -freflection -freflection-latest -stdlib=libc++ -O3 -fstrict-aliasing -nostdinc++ -isystem ${TOOLCHAIN_ROOT}/include/c++/v1 -L ${TOOLCHAIN_ROOT}/lib/${TARGET_TRIPLE} -Wl,-rpath,${TOOLCHAIN_ROOT}/lib/${TARGET_TRIPLE}",
+    "llvm_targets": [
+      "X86",
+      "AArch64"
+    ],
+    "projects": [
+      "clang"
+    ],
+    "repository": "https://github.com/bloomberg/clang-p2996.git",
+    "runtimes": [
+      "libcxx",
+      "libcxxabi",
+      "libunwind"
+    ]
+  },
+  "recipes": {
+    ".gitattributes": "d471ccadeb965783788919164e493fa383f7eae3fb1a1dfcdfb1fa72b914789d",
+    ".github/docker/Dockerfile.gcc16": "ee43a9c504f60f1c8e1d1a5e0b7f1b51e3ffd344f234afaaa75a8cc8c4a752e6",
+    ".github/docker/Dockerfile.p2996": "fea24708f0f285d3e0827f5b07a08f1062d612b6d8df41b2f6fb94b4cfdc635d",
+    ".github/docker/docker-bake.hcl": "ec7978e3b34056c46745623579889d416db0f5c6faa9df8a86bb933633e7f18b",
+    ".github/scripts/build-p2996-macos.sh": "baee1cb12794ce95e750749e320b8fb8832b4720b71ab2bcd6dd5213e1761320",
+    ".github/scripts/verify-p2996-toolchain.sh": "6ce5e9997cbc814268472766e8f8832bcf5cb2ed83d75d060dc9936e5731f284",
+    ".github/workflows/toolchain-images.yml": "9dbf5be728557ec5b9f75b15b1407f0f5a4e7b30a5dc5b60e73dece6f7943317"
+  },
+  "schema": 1
+}

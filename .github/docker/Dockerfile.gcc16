@@ -1,47 +1,189 @@
-# GCC 16 (trunk) Docker Image for TypeLayout CI
-#
-# Uses pre-built GCC snapshot with C++26 static reflection (P2996) support.
-# GCC trunk merged P2996 on 2026-01-15.
-#
-# Build:
-#   docker build -t typelayout-gcc16:latest -f Dockerfile.gcc16 .
-#
-# Usage:
-#   docker run --rm -v $(pwd):/workspace -w /workspace typelayout-gcc16:latest \
-#     bash -c 'cmake -B build && cmake --build build -j$(nproc) && ctest --test-dir build --output-on-failure'
-#
-# Copyright (c) 2024-2026 TypeLayout Development Team
-# Distributed under the Boost Software License, Version 1.0.
+# syntax=docker/dockerfile:1.7
 
-FROM debian:13-slim AS base
+# Native GCC 16.2.0 image. Every network and package input below is mirrored in
+# toolchain-sources.lock; changing this recipe also changes that lock's digest.
+ARG DEBIAN_IMAGE=docker.io/library/debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
+FROM ${DEBIAN_IMAGE} AS builder
 
+ARG TARGETARCH
+ARG DEBIAN_SNAPSHOT=https://snapshot.debian.org/archive/debian/20260824T000000Z/
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install build dependencies and pre-built GCC 16 snapshot
-RUN apt-get update && apt-get install -y \
-    cmake \
-    ninja-build \
-    wget \
-    ca-certificates \
+RUN printf 'deb [check-valid-until=no] %s trixie main\n' "${DEBIAN_SNAPSHOT}" \
+        > /etc/apt/sources.list \
+    && rm -f /etc/apt/sources.list.d/debian.sources \
+    && apt-get -o Acquire::Check-Valid-Until=false update \
+    && apt-get install -y --no-install-recommends \
+        build-essential=12.12 \
+        bison=2:3.8.2+dfsg-1+b2 \
+        ca-certificates=20250419 \
+        curl=8.14.1-2+deb13u4 \
+        flex=2.6.4-8.2+b4 \
+        mawk=1.3.4.20250131-1 \
+        gzip=1.13-1 \
+        make=4.4.1-2 \
+        patch=2.8-2 \
+        tar=1.35+dfsg-3.1 \
+        xz-utils=5.8.1-1+deb13u1 \
+        bzip2=1.0.8-6 \
+        zlib1g-dev=1:1.3.dfsg+really1.3.1-1+b1 \
+        libzstd-dev=1.5.7+dfsg-1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install pre-built GCC 16 snapshot (jwakely's packages)
-RUN wget -q https://kayari.org/gcc-latest/gcc-latest.deb \
-    && dpkg -i gcc-latest.deb \
-    && rm gcc-latest.deb
+ARG GCC_URL=https://gcc.gnu.org/pub/gcc/releases/gcc-16.2.0/gcc-16.2.0.tar.xz
+ARG GCC_FILE=gcc-16.2.0.tar.xz
+ARG GCC_SHA512=c51c30ca7422d0cbecf504b2e0f33c3aca31e0f90a76b65217f465163fa6fa17b3f5de39e145c47e5bab90ac0ce7fff3b03c8d553ae36e01faaea5a50f8648d1
+ARG GMP_URL=https://gcc.gnu.org/pub/gcc/infrastructure/gmp-6.3.0.tar.bz2
+ARG GMP_FILE=gmp-6.3.0.tar.bz2
+ARG GMP_SHA512=3b684c9bcb9ede2b7e54d0ba4c9764bfa17c20d4f3000017c553b6f1e135b536949580ff37341680c25dc236cfe0ba1db8cfdfe619ce013656189ef0871b89f8
+ARG MPFR_URL=https://gcc.gnu.org/pub/gcc/infrastructure/mpfr-4.2.2.tar.bz2
+ARG MPFR_FILE=mpfr-4.2.2.tar.bz2
+ARG MPFR_SHA512=0176e50808dcc07afbf5bc3e38bf9b7b21918e5f194aa0bfd860d99b00c470630aef149776c4be814a61c44269c3a5b9a4b0b1c0fcd4c9feb1459d8466452da8
+ARG MPC_URL=https://gcc.gnu.org/pub/gcc/infrastructure/mpc-1.3.1.tar.gz
+ARG MPC_FILE=mpc-1.3.1.tar.gz
+ARG MPC_SHA512=4bab4ef6076f8c5dfdc99d810b51108ced61ea2942ba0c1c932d624360a5473df20d32b300fc76f2ba4aa2a97e1f275c9fd494a1ba9f07c4cb2ad7ceaeb1ae97
+ARG ISL_URL=https://gcc.gnu.org/pub/gcc/infrastructure/isl-0.24.tar.bz2
+ARG ISL_FILE=isl-0.24.tar.bz2
+ARG ISL_SHA512=aab3bddbda96b801d0f56d2869f943157aad52a6f6e6a61745edd740234c635c38231af20bc3f1a08d416a5e973a90e18249078ed8e4ae2f1d5de57658738e95
 
-# Set up environment for GCC 16
-ENV PATH="/opt/gcc-latest/bin:${PATH}"
-ENV LD_LIBRARY_PATH="/opt/gcc-latest/lib64:${LD_LIBRARY_PATH}"
-ENV CC="/opt/gcc-latest/bin/gcc"
-ENV CXX="/opt/gcc-latest/bin/g++"
+WORKDIR /opt/sources
+RUN set -eu; \
+    fetch() { \
+        url="$1"; file="$2"; digest="$3"; \
+        curl --fail --location --proto '=https' --tlsv1.2 \
+            --retry 3 --output "${file}" "${url}"; \
+        printf '%s  %s\n' "${digest}" "${file}" | sha512sum --check --strict -; \
+    }; \
+    fetch "${GCC_URL}" "${GCC_FILE}" "${GCC_SHA512}"; \
+    fetch "${GMP_URL}" "${GMP_FILE}" "${GMP_SHA512}"; \
+    fetch "${MPFR_URL}" "${MPFR_FILE}" "${MPFR_SHA512}"; \
+    fetch "${MPC_URL}" "${MPC_FILE}" "${MPC_SHA512}"; \
+    fetch "${ISL_URL}" "${ISL_FILE}" "${ISL_SHA512}"; \
+    tar -xf "${GCC_FILE}"; \
+    tar -xf "${GMP_FILE}"; \
+    tar -xf "${MPFR_FILE}"; \
+    tar -xf "${MPC_FILE}"; \
+    tar -xf "${ISL_FILE}"; \
+    ln -s /opt/sources/gmp-6.3.0 /opt/sources/gcc-16.2.0/gmp; \
+    ln -s /opt/sources/mpfr-4.2.2 /opt/sources/gcc-16.2.0/mpfr; \
+    ln -s /opt/sources/mpc-1.3.1 /opt/sources/gcc-16.2.0/mpc; \
+    ln -s /opt/sources/isl-0.24 /opt/sources/gcc-16.2.0/isl
 
-# Verify installation supports reflection
-RUN g++ --version && echo "GCC 16 ready!"
+WORKDIR /opt/build-gcc
+RUN /opt/sources/gcc-16.2.0/configure \
+        --prefix=/opt/gcc-16.2.0 \
+        --enable-languages=c,c++ \
+        --disable-bootstrap \
+        --disable-multilib \
+        --disable-nls \
+        --enable-checking=release
+
+# Bound compiler concurrency to one job per 2 GiB of available memory.
+RUN set -eu; \
+    threads="$(nproc)"; \
+    available="$(awk '/MemAvailable:/ { printf "%.0f\\n", $2 * 1024 }' /proc/meminfo)"; \
+    if [ -r /sys/fs/cgroup/memory.max ]; then \
+        limit="$(cat /sys/fs/cgroup/memory.max)"; \
+        if [ "${limit}" != max ] && [ "${limit}" -lt "${available}" ]; then \
+            available="${limit}"; \
+        fi; \
+    fi; \
+    memory_jobs="$(( available / 2147483648 ))"; \
+    [ "${memory_jobs}" -ge 1 ] || memory_jobs=1; \
+    jobs="${threads}"; \
+    [ "${jobs}" -le "${memory_jobs}" ] || jobs="${memory_jobs}"; \
+    make -j"${jobs}"; \
+    make install-strip
+
+ARG DEBIAN_IMAGE
+FROM ${DEBIAN_IMAGE} AS runtime
+
+ARG TARGETARCH
+ARG DEBIAN_SNAPSHOT=https://snapshot.debian.org/archive/debian/20260824T000000Z/
+ENV DEBIAN_FRONTEND=noninteractive
+RUN set -eu; \
+    case "${TARGETARCH}" in \
+        amd64) ninja_package='ninja-build:amd64=1.12.1-1' ;; \
+        arm64) ninja_package='ninja-build:arm64=1.12.1-1+b1' ;; \
+        *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    printf 'deb [check-valid-until=no] %s trixie main\n' "${DEBIAN_SNAPSHOT}" \
+        > /etc/apt/sources.list; \
+    rm -f /etc/apt/sources.list.d/debian.sources; \
+    apt-get -o Acquire::Check-Valid-Until=false update; \
+    apt-get install -y --no-install-recommends \
+        ca-certificates=20250419 \
+        cmake=3.31.6-2 \
+        git=1:2.47.3-0+deb13u1 \
+        "${ninja_package}" \
+        python3=3.13.5-1 \
+        zlib1g=1:1.3.dfsg+really1.3.1-1+b1 \
+        libzstd1=1.5.7+dfsg-1; \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /opt/gcc-16.2.0 /opt/gcc-16.2.0
+
+ENV PATH=/opt/gcc-16.2.0/bin:${PATH}
+ENV LD_LIBRARY_PATH=/opt/gcc-16.2.0/lib64:/opt/gcc-16.2.0/lib
+ENV CC=/opt/gcc-16.2.0/bin/gcc
+ENV CXX=/opt/gcc-16.2.0/bin/g++
+
+RUN <<'EOF'
+set -eu
+gcc --version | grep -F '16.2.0'
+target="$(gcc -dumpmachine)"
+case "${TARGETARCH}" in
+    amd64) [ "${target%%-*}" = x86_64 ] ;;
+    arm64) [ "${target%%-*}" = aarch64 ] ;;
+esac
+cat >/tmp/toolchain-probe.cpp <<'CPP'
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <meta>
+#include <span>
+#include <type_traits>
+
+using reflected_int = [: ^^int :];
+static_assert(std::is_same_v<reflected_int, int>);
+
+__attribute__((noinline)) void* copy_distinct(
+    void* destination, const void* source, std::size_t count) {
+    return std::memcpy(destination, source, count);
+}
+
+int main(int argc, char**) {
+    static_assert(__GLIBCXX__ >= 20260807);
+    std::uint32_t source = 7;
+    alignas(std::uint32_t) std::byte storage[sizeof(source)]{};
+    auto* object = static_cast<std::uint32_t*>(
+        copy_distinct(storage, &source, sizeof(source)));
+    *object += 5;
+
+    std::array<std::uint32_t, 3> input{11, 13, 17};
+    alignas(std::uint32_t) std::byte array_storage[sizeof(input)]{};
+    const std::size_t count = argc == 1 ? input.size() : 0;
+    auto* values = static_cast<std::uint32_t*>(copy_distinct(
+        array_storage, input.data(), count * sizeof(std::uint32_t)));
+    std::span<std::uint32_t> view(values, count);
+    view[1] += *object;
+
+    alignas(std::uint32_t) std::byte relocated_storage[sizeof(input)]{};
+    auto* relocated = static_cast<std::uint32_t*>(copy_distinct(
+        relocated_storage, array_storage, count * sizeof(std::uint32_t)));
+    return source == 7 && *object == 12 && relocated[0] == 11 &&
+            relocated[1] == 25 && relocated[2] == 17 &&
+            relocated + count - relocated == 3 ? 0 : 1;
+}
+CPP
+g++ -std=c++26 -freflection -O3 -fstrict-aliasing \
+    /tmp/toolchain-probe.cpp -o /tmp/toolchain-probe
+/tmp/toolchain-probe
+EOF
 
 WORKDIR /workspace
-
-LABEL org.opencontainers.image.description="GCC 16 with C++26 P2996 reflection for TypeLayout CI"
+LABEL org.opencontainers.image.source="https://github.com/ximicpp/TypeLayout"
+LABEL org.opencontainers.image.description="Native GCC 16.2.0 C++26 P2996 toolchain for TypeLayout"
 LABEL org.opencontainers.image.licenses="BSL-1.0"
-
 CMD ["/bin/bash"]
