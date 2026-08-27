@@ -4,9 +4,9 @@
 
 **Goal:** Replace the XOffset-backed example with the smallest self-contained C++26 game-world checkpoint demo that proves whole-region Admission, four-key Agreement, validated no-fixup relocation, useful read/write behavior, and three layer-specific rejections.
 
-**Architecture:** Keep every stored representation in one fixed 4096-byte region and encode every stored link as a four-byte offset from that region's base. Construction uses builder-issued handles and final-location lifetime start; loading validates a canonical 40-byte envelope, establishes object lifetimes in a staged non-overlapping order, and exposes data only through a validated `RegionView`. TypeLayout's existing profile-aware Admission API remains unchanged; the demo adds only local traits, four stable Agreement keys, and schema-specific validation.
+**Architecture:** Keep every stored representation in one fixed 4096-byte region and encode every stored link as a four-byte offset from that region's base. Construction uses builder-issued handles and one whole-range implicit-object-creating `std::memcpy` per final-location object or array; loading validates a canonical 40-byte envelope, performs one distinct-source whole-payload `std::memcpy`, and stages typed access behind non-overlapping byte-range checks before exposing a validated `RegionView`. TypeLayout's existing profile-aware Admission API remains unchanged; the demo adds only local traits, four stable Agreement keys, and schema-specific validation.
 
-**Tech Stack:** C++26 P2996 static reflection, Boost.TypeLayout headers, `std::start_lifetime_as`, `std::start_lifetime_as_array`, CMake, CTest, GCC 16.2, and Bloomberg Clang P2996.
+**Tech Stack:** C++26 P2996 static reflection, Boost.TypeLayout headers, P0593 `std::memcpy` implicit object creation, CMake, CTest, GCC 16.2, and Bloomberg Clang P2996.
 
 **Spec:** `docs/superpowers/specs/2026-08-27-relocatable-world-demo-design.md`
 
@@ -23,7 +23,7 @@
 - All stored types are standard-layout, trivially copyable, and implicit-lifetime. Dynamic arrays have real array lifetimes before indexing or iteration.
 - `RegionBuffer` owns exactly one `alignas(64)` 4096-byte storage allocation and never reallocates.
 - The checkpoint envelope is exactly the 40-byte little-endian v1 layout in spec section 9; artifact length is exactly `40 + used_payload_bytes`.
-- Only a successfully validated buffer may create a public `RegionView`. Validation uses private byte-level access and starts no lifetime before bounds, alignment, and non-overlap checks pass.
+- Only a successfully validated buffer may create a public `RegionView`. The loader copy implicitly creates a suitable object set; validation uses private byte-level access and performs no typed access to a candidate range before its bounds, alignment, and non-overlap checks pass.
 - The four Agreement keys are exactly `WorldSnapshot`, `Entity`, `EntityRelativePtr`, and `EntityIndexEntry`, joined by key rather than registry position.
 - The talk executable prints exactly three negative demonstrations: native pointer at Admission, packed `Entity` at Agreement, and corrupt region offset at graph validation. Additional malformed-input tests remain silent CTests.
 - `Entity` IDs are 1001 and 2001. Initial state is tick 42, Hero HP 120, Boss HP 300; the mutation is tick 43 and Boss HP 250.
@@ -47,7 +47,7 @@
 - `example/relocatable_world_demo/sigs/producer_ok.sig.hpp`: generated normal local evidence.
 - `example/relocatable_world_demo/sigs/producer_packed.sig.hpp`: generated packed-`Entity` local evidence.
 - `test/test_relocatable_region.cpp`: compile-time representation/Admission closure plus builder/view runtime tests.
-- `test/test_relocatable_checkpoint.cpp`: exact envelope, staged lifetime, range, overlap, and corruption tests.
+- `test/test_relocatable_checkpoint.cpp`: exact envelope, memcpy-created lifetime, staged typed-access, range, overlap, and corruption tests.
 - `test/test_relocatable_world.cpp`: canonical graph, index semantics, relocation, mutation, Agreement, and negative-layer tests.
 - `CMakeLists.txt`: support library, three focused CTests, demo/export targets, and removal of the old guarded XOffset block.
 
@@ -552,7 +552,7 @@ public:
 };
 ```
 
-`region_array_handle<T>` carries the same issuing-builder owner-and-generation provenance plus checked first-element offset and count; it is construction-only and never stored. Issue generations with a monotonic atomic compare/exchange sequence that transitions permanently to exhaustion instead of wrapping, so no builder generation can repeat during the process lifetime. No public builder operation returns a mutable typed reference, pointer, or span. Ordinary `set` accepts only a member or whole array element admitted for `ordinary_copy`, explicitly excluding native pointers and region descriptors; its value must have the exact cvref-stripped target type and the selected assignment must be trivial, so conversion or custom assignment cannot reenter the builder. Dedicated `bind`/`assign` overloads take a destination handle, optional checked array index, and pointer-to-member; they reject a null pointer-to-member and complete every active-state, destination owner/generation/index, and source owner/generation/null/count check before typed destination resolution. Empty array sources still require current owner-and-generation provenance, while a default null object handle remains valid where null is allowed. These operations return `void`, so stack destinations are not expressible. `finish()` accepts only a current owner-and-generation `region_handle<WorldSnapshot>`, rejects null, foreign, or stale handles, records that exact root offset and checked cursor, and permanently closes the builder. Implement allocation with checked `align_up`, checked multiplication, and checked cursor addition. Call `std::start_lifetime_as<T>` for a single object and `std::start_lifetime_as_array<T>` once for a non-empty array. Zero storage first, populate objects only at their final addresses, and reject every operation after `finish()`.
+`region_array_handle<T>` carries the same issuing-builder owner-and-generation provenance plus checked first-element offset and count; it is construction-only and never stored. Issue generations with a monotonic atomic compare/exchange sequence that transitions permanently to exhaustion instead of wrapping, so no builder generation can repeat during the process lifetime. No public builder operation returns a mutable typed reference, pointer, or span. Ordinary `set` accepts only a member or whole array element admitted for `ordinary_copy`, explicitly excluding native pointers and region descriptors; its value must have the exact cvref-stripped target type and the selected assignment must be trivial, so conversion or custom assignment cannot reenter the builder. Dedicated `bind`/`assign` overloads take a destination handle, optional checked array index, and pointer-to-member; they reject a null pointer-to-member and complete every active-state, destination owner/generation/index, and source owner/generation/null/count check before typed destination resolution. Empty array sources still require current owner-and-generation provenance, while a default null object handle remains valid where null is allowed. These operations return `void`, so stack destinations are not expressible. `finish()` accepts only a current owner-and-generation `region_handle<WorldSnapshot>`, rejects null, foreign, or stale handles, records that exact root offset and checked cursor, and permanently closes the builder. Implement allocation with checked `align_up`, checked multiplication, and checked cursor addition. Copy from a distinct, fully initialized zero-byte source into a single-object range with one `std::memcpy`, and into the complete range of each non-empty array with one `std::memcpy`; P0593 implicit creation then supplies the suitable object or actual runtime-bound array. All demo schema types must have valid all-zero initial representations. Never substitute `memset`, `std::copy`, a hand-written loop, or per-element copies for this lifetime trigger. Populate objects only at their final addresses, and reject every operation after `finish()`.
 
 Implement both `RegionBuffer` move operations explicitly: transfer storage and metadata, then reset the source to an empty non-validated state. `used_bytes()` on a moved-from buffer returns an empty span, while `view()` and the later schema-bound root accessor reject it. Extend the runtime test to move a finished buffer once and check both the preserved destination base and the inert source.
 
@@ -939,7 +939,7 @@ wsl -e bash -lc 'cd /mnt/e/workspace/TypeLayout/.worktrees/cppcon2026-deck && ex
 
 Expected: FAIL first because the newly declared build/save/load/validation functions are undefined. After adding only enough orchestration to link, the malformed cases must still fail until the staged validator is complete.
 
-- [ ] **Step 3: Implement byte-level interval validation before lifetime start**
+- [ ] **Step 3: Implement byte-level interval validation before typed access**
 
 Use an external interval list:
 
@@ -952,18 +952,18 @@ struct OwningInterval {
 };
 ```
 
-Every candidate range must pass checked `count * sizeof(T)`, checked `offset + extent`, payload bounds, alignment, null-if-and-only-if-zero, and pairwise non-overlap. A copied-byte buffer begins in `copied_bytes_unvalidated`; no candidate in that path is passed to `std::start_lifetime_as` or `std::start_lifetime_as_array` before these byte checks. A builder result begins in `constructed_unvalidated`; its lifetimes already exist from final-location construction, so validation checks the same intervals and semantics but never starts them a second time.
+Every candidate range must pass checked `count * sizeof(T)`, checked `offset + extent`, payload bounds, alignment, null-if-and-only-if-zero, and pairwise non-overlap. A copied-byte buffer begins in `copied_bytes_unvalidated`; its distinct-source payload `std::memcpy` is the lifetime trigger on which loading relies, but no candidate range is accessed through its proposed type before these byte checks. A builder result begins in `constructed_unvalidated`; its suitable objects and arrays already exist from final-location whole-range copies, so validation checks the same intervals and semantics and never restarts their lifetimes.
 
 - [ ] **Step 4: Implement the exact staged order**
 
-Implement the private `WorldRegionValidator` in this order. Each "start" is conditional on `copied_bytes_unvalidated`; the constructed path advances through the identical validation stages using its already-live objects:
+Implement the private `WorldRegionValidator` in this order. Both the copied and constructed paths advance through the same byte-validation gates before obtaining typed pointers:
 
 ```text
-1. validate and reserve root interval; start WorldSnapshot lifetime
-2. read live root descriptors; validate entity/index/party ranges pairwise and against root; reserve all three
-3. start Entity[] lifetime
-4. read each live Entity.name descriptor; validate against every reserved range and prior name; reserve and start each char[]
-5. start EntityIndexEntry[] and EntityRelativePtr[] lifetimes
+1. validate and reserve root interval; obtain the WorldSnapshot pointer
+2. read checked root descriptors; validate entity/index/party ranges pairwise and against root; reserve all three
+3. obtain the Entity[] pointer
+4. read each checked Entity.name descriptor; validate against every reserved range and prior name; reserve each char[] before character access
+5. obtain the EntityIndexEntry[] and EntityRelativePtr[] pointers
 6. validate strict sorted unique index and full one-to-one ID mapping
 7. validate every owner, target, party, and local_player raw offset against exact Entity element starts
 8. mark the buffer validated and expose RegionView

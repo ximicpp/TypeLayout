@@ -236,15 +236,17 @@ All four descriptor families keep trivial copy construction so their representat
 
 `RegionBuffer` owns an `alignas(64)` storage object containing a 4096-element `std::byte` array. That array provides storage for all nested region objects and gives validation and resolution one well-defined base for byte-offset arithmetic. Every stored type must have alignment no greater than 64. The buffer exposes a byte span for validation and serialization; only the schema-bound `world_root(const RegionBuffer&)` adapter exposes the typed root after successful validation. There is no public arbitrary `root<T>()` cast.
 
-The payload is zero-initialized before objects are constructed so untouched storage does not expose previous memory contents. Agreement covers the location and extent of any padding, but the demo does not interpret padding bytes or require their values to be canonical. The builder establishes every single object directly in its final aligned location and populates its members in place.
+The payload is zero-initialized before objects are populated so untouched storage does not expose previous memory contents. Agreement covers the location and extent of any padding, but the demo does not interpret padding bytes or require their values to be canonical. The builder establishes every single object directly in its final aligned location and populates its members in place.
 
-Loading allocates a fresh aligned storage object and copies the envelope-checked payload with `std::memcpy`, never `std::copy` or a hand-written byte loop. Typed access does not depend on which implicit objects that copy might create. The loader first checks root bounds and alignment through the byte view, explicitly establishes the `WorldSnapshot` lifetime with `std::start_lifetime_as<WorldSnapshot>`, and then establishes each dynamic array lifetime with `std::start_lifetime_as_array<T>` in the staged order below. No array indexing, iteration, or member access occurs before the corresponding lifetime exists. Support for both lifetime-start operations is part of the toolchain probe. No destructor traversal is required.
+Loading allocates a fresh aligned storage object and copies the envelope-checked payload with one real, non-overlapping `std::memcpy`, never `std::copy`, a hand-written byte loop, or a same-source-and-destination lifetime shim. Under [P0593R6](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2020/p0593r6.html) and the current `[cstring.syn]`/`[intro.object]` wording, that call implicitly creates the suitable implicit-lifetime object set in the destination immediately before copying. For a valid payload, the set includes the actual runtime-bound `Entity[]`, `EntityIndexEntry[]`, `EntityRelativePtr[]`, and `char[]` arrays required by subsequent indexing and `std::span` use, not merely adjacent unrelated elements.
+
+The loader first checks root bounds and alignment through the byte view. It then stages every first typed access behind the byte-level extent, alignment, and non-overlap checks below. `std::launder` is retained only when obtaining a pointer to an already-created object; it never serves as a lifetime-start operation. A malformed payload is rejected before typed access to the malformed candidate range. No destructor traversal is required.
 
 ### 8.2 `RegionBuilder`
 
 `RegionBuilder` is not stored in the payload. It returns construction-only `region_handle<T>` values containing checked payload offsets plus private issuing-builder owner and generation provenance, and provides only:
 
-- aligned allocation and lifetime start for one object or one actual contiguous array;
+- aligned allocation and one whole-range implicit-object-creating `std::memcpy` for one object or one actual contiguous array;
 - Admission-constrained ordinary field and array-element writes addressed by construction handle plus pointer-to-member, returning no reference or pointer;
 - handle/member initialization of a `region_string`, `region_vector<T>`, or `region_flat_map<K, V>` and its final storage;
 - handle/member binding of a `relative_ptr<T>` to a same-builder construction handle, including party array elements;
@@ -254,7 +256,7 @@ No mutable typed reference, pointer, or span leaves the builder. Native pointers
 
 The demo uses a 4096-byte initial capacity. Exceeding it is an error; the underlying region never reallocates.
 
-`align_up`, `count * sizeof(T)`, cursor advancement, and capacity conversion are overflow-checked before storage is reserved. Construction uses `std::start_lifetime_as<T>` for single objects and `std::start_lifetime_as_array<T>` for arrays, so every dynamic collection is an actual C++ array object. Stored descriptors and already-linked entities or party entries are populated only in their final locations; they are not copied from linked temporaries.
+`align_up`, `count * sizeof(T)`, cursor advancement, and capacity conversion are overflow-checked before storage is reserved. Construction copies from a distinct, fully initialized zero-byte source into each single-object range with one `std::memcpy` and into each complete non-empty array range with one `std::memcpy`. Every stored schema type has a valid all-zero initial representation. Each copy implicitly creates the suitable object or actual C++ array object before the builder populates it; `memset`, `std::copy`, and hand-written byte loops are not substitutes for this lifetime trigger. An array is never established through independent element copies followed by cross-element pointer arithmetic. Stored descriptors and already-linked entities or party entries are populated only in their final locations; they are not copied from linked temporaries.
 
 Construction order is strict:
 
@@ -390,18 +392,18 @@ Envelope and region validation require:
 
 The owning-range disjointness rule is intentionally strict: the demo does not support string interning or overlapping collection storage. Application relative pointers are non-owning and may target exact elements inside the entity array.
 
-Validation is staged. Before any lifetime-start operation, byte-level checks prove the candidate range's count, extent, alignment, and non-overlap with every owning range already known or reserved by an earlier descriptor. A rejected range never has its typed lifetime started. The order is:
+Validation is staged. The payload `std::memcpy` is the lifetime trigger on which loading relies for schema objects; validation does not attempt to restart any lifetime. Before the first typed access to a candidate range, byte-level checks prove its count, extent, alignment, and non-overlap with every owning range already known or reserved by an earlier descriptor. A rejected candidate range is never accessed through its proposed typed pointer. The order is:
 
-1. decode the envelope; validate the root bounds and alignment; reserve its owning interval; then establish the root;
-2. read only the now-live root descriptors; validate the entity, index-entry, and party ranges against one another and the root; reserve all three intervals; then establish the entity array;
-3. read each now-live entity's name descriptor; validate each name range against every reserved interval and all earlier name ranges; reserve it; then establish that name byte array;
-4. establish the already-validated index-entry and party-pointer arrays;
+1. decode the envelope; validate the root bounds and alignment; reserve its owning interval; then obtain the root pointer;
+2. read only the checked root descriptors; validate the entity, index-entry, and party ranges against one another and the root; reserve all three intervals; then obtain the entity-array pointer;
+3. read each checked entity's name descriptor; validate each name range against every reserved interval and all earlier name ranges; reserve it; then permit that name's character access;
+4. obtain pointers to the already-validated index-entry and party-pointer arrays;
 5. check index semantics;
 6. validate every application graph link.
 
-This two-stage handling of names is required because their descriptors cannot be read until the entity array exists, while their target ranges must be proved disjoint before the character-array lifetimes begin.
+This two-stage handling of names is required because their descriptors cannot be read until the entity range is safe for typed access, while their target ranges must be proved disjoint before character access begins.
 
-Public container iteration and `RegionView::resolve` remain unavailable until the complete sequence succeeds. Each public view operation additionally rejects a descriptor object that is not physically inside its bound buffer, preventing a descriptor from another validated region from being resolved against the wrong base. The schema validator uses private checked offset access while establishing the stages.
+Public container iteration and `RegionView::resolve` remain unavailable until the complete sequence succeeds. Each public view operation additionally rejects a descriptor object that is not physically inside its bound buffer, preventing a descriptor from another validated region from being resolved against the wrong base. The schema validator uses private checked offset access while advancing the stages.
 
 Graph validation reads raw offset-plus-one values first and performs checked byte-offset arithmetic within the `RegionBuffer` storage extent. It does not round-trip pointers through integers. A non-null entity link must:
 
@@ -477,7 +479,7 @@ The authoritative matrix is:
 | `arm64_macos_clang` | macOS ARM64 | `macos-15` | pinned Bloomberg Clang P2996 plus matching libc++ |
 | `x86_64_macos_clang` | macOS x86-64 | `macos-15-intel` | pinned Bloomberg Clang P2996 plus matching libc++ |
 
-Every node first compiles and runs the same reflection/platform probe. It requires `CHAR_BIT == 8`, `sizeof(void*) == 8`, little-endian native byte order, a working P2996 reflection expression, and usable `std::start_lifetime_as` plus `std::start_lifetime_as_array`. The node then emits `<node>.provenance.json` with the probe results, four Admission decisions, and verified toolchain, target, standard-library, runner, source, flags, and build identities. Every admitted producer additionally emits:
+Every node first compiles and runs the same optimized reflection/platform probe. It requires `CHAR_BIT == 8`, `sizeof(void*) == 8`, little-endian native byte order, a working P2996 reflection expression, and working distinct-source `std::memcpy` implicit creation for both one object and a runtime-bound array. The array case performs indexed reads, writes, and pointer arithmetic after one whole-range copy, and the probe repeats the operation after relocation to fresh storage. This directly exercises the lifetime mechanism used by the demo without requiring the C++23 explicit-lifetime library facilities. The node then emits `<node>.provenance.json` with the probe results, four Admission decisions, and verified toolchain, target, standard-library, runner, source, flags, and build identities. Every admitted producer additionally emits:
 
 ```text
 <node>.sig.hpp
@@ -599,7 +601,7 @@ Runtime tests require:
 Matrix acceptance additionally requires:
 
 - six valid node provenance files;
-- all six probes report eight-bit bytes, 64-bit pointers, little-endian order, working P2996 reflection, and usable `std::start_lifetime_as` plus `std::start_lifetime_as_array`;
+- all six probes report eight-bit bytes, 64-bit pointers, little-endian order, working P2996 reflection, and successful optimized distinct-source `std::memcpy` object and runtime-array lifetime cases;
 - six signature and six region artifacts in a permitting run;
 - one source commit, one workflow invocation, and one committed source/output lock pair across every artifact in the closure;
 - exactly 15 Agreement records containing 60 named TypeLayout `PERMIT` decisions;

@@ -23,7 +23,7 @@
   - `x86_64_macos_clang`
 - The runner labels are `ubuntu-24.04`, `ubuntu-24.04-arm`, `macos-15`, and `macos-15-intel`; revalidate their availability before enabling a required check.
 - GCC is exactly release 16.2.0. Bloomberg Clang starts from the reviewed `p2996` commit `060be17654102019e14810c3f948ef85a490755f`, and hosted-runner inventory starts from reviewed `actions/runner-images` commit `564e58dbe650c507ccba1171f6159c12f26820c8`; changing either requires a new source-lock review and complete evidence regeneration.
-- Every node must prove `CHAR_BIT == 8`, 64-bit pointers, little-endian native order, working P2996 reflection, usable `std::start_lifetime_as`, and usable `std::start_lifetime_as_array`.
+- Every node must prove `CHAR_BIT == 8`, 64-bit pointers, little-endian native order, working P2996 reflection, and optimized distinct-source `std::memcpy` implicit creation for both one object and one runtime-bound array.
 - Linux images must contain native `linux/amd64` and `linux/arm64` manifests built on matching native runners. QEMU may run local demo builds but may not produce authoritative toolchains or native evidence.
 - macOS ARM64 and x86-64 archives must be built on matching native GitHub runners and bundle the compiler with its matching libc++, libc++abi, and libunwind. The archive cannot silently adopt a different host SDK: authoritative jobs select and verify the output-lock Xcode/SDK/deployment target and compile with explicit `DEVELOPER_DIR`/`-isysroot`; local use records the actual identities and whether they match the lock.
 - `toolchain-sources.lock` contains only exact sources and build inputs. `toolchains.lock` contains only verified output digests/URLs/checksums and is committed in a separate review after candidate publication.
@@ -49,7 +49,7 @@
 | `schema` | integer `1` |
 | `node` | one member of the fixed six-node tuple |
 | `status` | `READY`, `REJECT`, or `INCOMPLETE` |
-| `probe` | exactly `char_bit`, `pointer_bits`, `endian`, `reflection`, `start_lifetime_as`, `start_lifetime_as_array`; a READY node requires `8`, `64`, `little`, and three `true` feature gates |
+| `probe` | exactly `char_bit`, `pointer_bits`, `endian`, `reflection`, `memcpy_object_lifetime`, `memcpy_array_lifetime`; a READY node requires `8`, `64`, `little`, and three `true` feature gates |
 | `admission` | exactly the four stable keys mapped to JSON booleans |
 | `signatures` | exactly the four stable keys mapped to non-empty strings copied byte-for-byte from `get_layout_signature<T>()` |
 | `compiler` | exactly `family`, `revision`, `version`, `target`, `stdlib`, `xcode`, `sdk`, `deployment_target`, and `sdk_locked`; string values are non-empty, the revision matches the node's source lock, Linux uses literal `none` for the three Apple fields and `sdk_locked: true`, authoritative macOS values exactly match the output lock with `sdk_locked: true`, and local macOS records actual values with a truthful boolean |
@@ -186,7 +186,7 @@ TRANSFER_STATUSES = (
 
 Use `json`, `hashlib`, `pathlib`, and `argparse` only. Reject unknown top-level keys, non-canonical node/key sets, absolute or parent-traversal artifact names, duplicate JSON object keys through `object_pairs_hook`, and any digest not matching `[0-9a-f]{64}`. Each fallback command writes every identity required by its profile with `INCOMPLETE` status and null unavailable digests, so failure cannot shrink a graph. `seal-producer` requires probe node/Admission facts to equal the producer facts, verifies compiler family/revision/flags and profile-specific execution mapping against both locks, validates the supplied 40-hex TypeLayout source SHA, and only then writes provenance. For macOS it also validates actual Xcode, SDK, explicit deployment target, and runner-image identity: authoritative evidence must match the output lock with `sdk_locked: true`; local evidence records the personal Mac's actual values and may set the boolean false without becoming authoritative. When all Admission values are true it requires both optional artifact arguments, parses the deterministic generated-header format, requires its node namespace, four keys, signatures, and byte-copy flags to agree exactly with the facts, and hashes both artifacts. When any Admission value is false it rejects either artifact argument and writes an empty `artifacts` object. The authoritative profile requires the exact native GitHub runner for every node; the local profile permits only the Task 7 ARM64 Mac mapping and records its two x86-64 Linux nodes as emulated.
 
-- [ ] **Step 4: Add the hard P2996/lifetime probe**
+- [ ] **Step 4: Add the hard P2996/memcpy-lifetime probe**
 
 The probe must compile only when all required features exist. Its required environment arguments are emitted by the locked Docker wrapper or macOS verifier; it records them verbatim beside compiler-derived version/target/stdlib facts so the Python validator can compare them with the node/profile lock policy:
 
@@ -197,7 +197,9 @@ The probe must compile only when all required features exist. Its required envir
 #include <climits>
 #include <cstddef>
 #include <cstdint>
-#include <memory>
+#include <array>
+#include <cstring>
+#include <span>
 
 static_assert(CHAR_BIT == 8);
 static_assert(sizeof(void*) == 8);
@@ -207,19 +209,32 @@ constexpr auto reflected_int =
 static_assert(reflected_int.length() != 0);
 
 int main(int argc, char** argv) {
-    alignas(std::uint32_t) std::byte one_storage[sizeof(std::uint32_t)]{};
-    alignas(std::uint32_t) std::byte array_storage[sizeof(std::uint32_t) * 2]{};
-    auto* one = std::start_lifetime_as<std::uint32_t>(one_storage);
-    *one = 7;
-    auto* two = std::start_lifetime_as_array<std::uint32_t>(array_storage, 2);
-    two[0] = 11;
-    two[1] = 13;
-    return write_probe_json(
-        argc, argv, *one == 7 && two[0] == 11 && two[1] == 13);
+    std::uint32_t one_source = argc == 0 ? 0u : 7u;
+    alignas(std::uint32_t) std::byte one_storage[sizeof(one_source)]{};
+    auto* one = static_cast<std::uint32_t*>(
+        std::memcpy(one_storage, &one_source, sizeof(one_source)));
+    *one += 5;
+
+    std::array<std::uint32_t, 3> array_source{11, 13, 17};
+    alignas(std::uint32_t)
+        std::byte array_storage[sizeof(array_source)]{};
+    auto* values = static_cast<std::uint32_t*>(
+        std::memcpy(array_storage, array_source.data(), sizeof(array_source)));
+    std::span<std::uint32_t> view(values, array_source.size());
+    view[1] += *one;
+
+    alignas(std::uint32_t)
+        std::byte relocated_storage[sizeof(array_source)]{};
+    auto* relocated = static_cast<std::uint32_t*>(std::memcpy(
+        relocated_storage, array_storage, sizeof(array_storage)));
+    const bool object_ok = *one == 12;
+    const bool array_ok = relocated[0] == 11 && relocated[1] == 25 &&
+        relocated[2] == 17 && relocated + 3 - relocated == 3;
+    return write_probe_json(argc, argv, object_ok, array_ok);
 }
 ```
 
-The JSON records node, compiler version/revision macro, target triple, standard-library identity, all six boolean/numeric gates, and the four local Admission decisions. `evidence_json.hpp` emits object keys in the declared order and escapes quotes, reverse solidus, control characters, and compiler-version newlines; it implements no parser. CMake injects the locked compiler revision into the probe target; the verifier rejects a runtime compiler family, target, standard-library selection, or revision that disagrees with the node's lock mapping. Runner, repository source SHA, workflow identity, and the exact locked flags are added by `seal-producer`, not trusted from compiler-generated JSON.
+Build and run this probe with the locked optimized flags, including `-O3 -fstrict-aliasing`; use a no-inline copy boundary in the implementation so both calls remain genuine source-to-distinct-destination copies without relying on a same-buffer trick. P0593 has no feature-test macro, so provenance records these behavioral results and must not claim a fabricated named compiler feature. The JSON records node, compiler version/revision macro, target triple, standard-library identity, all six boolean/numeric gates, and the four local Admission decisions. `evidence_json.hpp` emits object keys in the declared order and escapes quotes, reverse solidus, control characters, and compiler-version newlines; it implements no parser. CMake injects the locked compiler revision into the probe target; the verifier rejects a runtime compiler family, target, standard-library selection, or revision that disagrees with the node's lock mapping. Runner, repository source SHA, workflow identity, and the exact locked flags are added by `seal-producer`, not trusted from compiler-generated JSON.
 
 - [ ] **Step 5: Register and run probe plus evidence tests**
 
@@ -490,7 +505,7 @@ Do not emit the committed lock yet: Steps 3-6 must first finish the recipe bytes
 
 - [ ] **Step 3: Rewrite GCC image for native 16.2 source builds**
 
-Remove the unchecked rolling `.deb`. Install build packages only from the locked snapshot repository, verify every compiler/prerequisite archive against the source lock before extraction, build GCC and matching libstdc++ on the current native architecture, and make `gcc --version`, target triple, `__GLIBCXX__`, P2996 reflection, and both lifetime-start operations part of the final image probe.
+Remove the unchecked rolling `.deb`. Install build packages only from the locked snapshot repository, verify every compiler/prerequisite archive against the source lock before extraction, build GCC and matching libstdc++ on the current native architecture, and make `gcc --version`, target triple, `__GLIBCXX__`, P2996 reflection, and both optimized `std::memcpy` lifetime cases part of the final image probe.
 
 - [ ] **Step 4: Rewrite P2996 image for native X86/AArch64 builds**
 
