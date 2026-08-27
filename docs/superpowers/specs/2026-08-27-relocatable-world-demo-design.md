@@ -487,7 +487,7 @@ Every node first compiles and runs the same optimized reflection/platform probe.
 <node>.region
 ```
 
-The provenance binds these two files by SHA256. Each independently compiled consumer emits `<consumer>.results.json` with its own verified compiler/runner/SDK facts, the hashes of evidence it evaluated, and exactly five directed-edge decisions. One closure may use only records from one source commit, one workflow invocation, and one committed source/output lock pair; mixing individually valid artifacts from different runs or borrowing a producer's environment identity for a separate consumer job is incomplete evidence.
+The provenance binds these two files by SHA256 and records the exact selected toolchain artifact digest: the node's Linux per-platform OCI manifest or macOS archive SHA256. Each independently compiled consumer emits `<consumer>.results.json` with its own verified toolchain-artifact/compiler/runner/SDK facts, the hashes of evidence it evaluated, and exactly five directed-edge decisions. One closure may use only records from one source commit, one workflow attempt, and one committed source/output lock pair. GitHub workflow identity is `<run_id>.<run_attempt>`, so rerun artifacts cannot mix with the first attempt; mixing individually valid artifacts from different runs/attempts or borrowing a producer's environment identity for a separate consumer job is incomplete evidence.
 
 Every unordered build pair gets one of exactly 15 Agreement records. Each record contains four named TypeLayout decisions, one for each contract key:
 
@@ -514,7 +514,9 @@ Consumer and Agreement jobs depend on producer completion but use `if: always()`
 
 ## 15. Toolchains and Developer Experience
 
-Linux uses two pinned multi-platform images, each supporting `linux/amd64` and `linux/arm64`. macOS uses pinned native Bloomberg P2996 archives for ARM64 and x86-64. Because those archives do not redistribute an Apple SDK, authoritative macOS jobs must select the output-lock Xcode/SDK/deployment identity and pass its sysroot explicitly; a personal Mac records its actual SDK and remains non-authoritative when it differs. `toolchain-sources.lock` contains exact source revisions, checksums, and build-recipe hashes; its changes trigger native toolchain builds. The build publishes immutable candidates and emits a candidate `toolchains.lock`. That output lock is separately reviewed and committed with image digests, release URLs, and archive checksums; sealing it does not trigger another candidate build.
+Linux uses two private pinned multi-platform images, each containing exactly one `linux/amd64` and one `linux/arm64` manifest. Their per-platform and index digests are sealed, and Buildx provenance/SBOM descriptors are disabled so no third manifest can masquerade as a platform. macOS uses checksum-pinned native Bloomberg P2996 archives for ARM64 and x86-64. Because those archives do not redistribute an Apple SDK, authoritative macOS jobs must select the hard-locked Xcode version/build, SDK version/build, and deployment target and pass the sysroot explicitly. They also prove that compilation uses the archive's libc++ headers and that link, rpath, `otool`, and actual `DYLD` loading resolve to its bundled libc++/libc++abi. A personal Mac records its actual Apple identities and remains non-authoritative when they differ. Hosted `ImageOS`/`ImageVersion` are diagnostic observations only and never lock or gate evidence.
+
+`toolchain-sources.lock` contains exact source revisions/checksums, GCC prerequisites and `--disable-nls` configuration without `download_prerequisites`, the `clang`-only P2996 project/runtimes, immutable base and BuildKit digests, exact Docker client/server/Buildx versions, Action pins, Apple hard-lock inputs, and normalized-LF recipe hashes including the toolchain publication workflow. Its changes trigger native toolchain builds. Builds use stripped installs, memory-bounded compile concurrency, and one LLVM link job; macOS archives must remain below 2 GiB. The build publishes immutable candidates and emits a candidate `toolchains.lock` with both per-platform manifest digests, index digests, immutable release URLs, archive checksums, hard Apple identities, and the producing `<run_id>.<run_attempt>`. That output lock is separately reviewed and committed; sealing it does not trigger another candidate build. GHCR remains private: CI uses least package permissions and the ARM Mac launcher authenticates through `gh` or a PAT with `read:packages` via `docker login --password-stdin`; neither path changes package visibility.
 
 The matrix and local launcher refuse to run until the sealed output lock is complete. Empty values, branch-only Bloomberg references, mutable tags such as `latest`, and unverified archives are errors.
 
@@ -526,7 +528,7 @@ The ARM64 Mac entry point is:
 
 With no arguments it derives the exact current `HEAD` and a unique local invocation ID before doing any work. Advanced/repeatable invocation may pass `--source-sha SHA --run-id ID`; an explicitly supplied source SHA must still equal the current `HEAD`.
 
-It runs:
+After authenticating to private GHCR and proving Docker's x86-64 emulation with both locked images, it runs:
 
 - macOS ARM64 / Bloomberg Clang natively;
 - Linux ARM64 / GCC and Bloomberg Clang in native-architecture Docker containers;
@@ -604,7 +606,8 @@ Matrix acceptance additionally requires:
 - six valid node provenance files;
 - all six probes report eight-bit bytes, 64-bit pointers, little-endian order, working P2996 reflection, and successful optimized distinct-source `std::memcpy` object and runtime-array lifetime cases;
 - six signature and six region artifacts in a permitting run;
-- one source commit, one workflow invocation, and one committed source/output lock pair across every artifact in the closure;
+- every producer and consumer records the node's exact locked per-platform manifest or macOS archive digest;
+- one source commit, one workflow attempt (`<run_id>.<run_attempt>` on GitHub), and one committed source/output lock pair across every artifact in the closure;
 - exactly 15 Agreement records containing 60 named TypeLayout `PERMIT` decisions;
 - exactly 30 directed cross-load records with status `PASS`;
 - final workflow closure status `PASS`.
