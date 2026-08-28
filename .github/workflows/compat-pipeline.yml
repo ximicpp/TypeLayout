@@ -15,7 +15,6 @@ on:
 
 permissions:
   contents: read
-  packages: read
 
 env:
   CLANG_LD_LIBRARY_PATH: /opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu
@@ -23,12 +22,19 @@ env:
 jobs:
   export_linux_gcc16:
     name: Export Linux GCC16 Signatures
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     container:
       image: ghcr.io/ximicpp/typelayout-gcc16:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Configure exporter
         run: cmake -S . -B build-gcc16 -G Ninja
@@ -40,7 +46,7 @@ jobs:
         run: ./build-gcc16/compat_ci_export "$RUNNER_TEMP/sigs"
 
       - name: Upload Linux GCC16 signatures
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: compat-sigs-linux-gcc16
           path: ${{ runner.temp }}/sigs/x86_64_linux_gcc.sig.hpp
@@ -48,14 +54,21 @@ jobs:
 
   export_linux_clang_p2996:
     name: Export Linux Clang P2996 Signatures
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     container:
       image: ghcr.io/ximicpp/typelayout-p2996:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     env:
       LD_LIBRARY_PATH: /opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Configure exporter
         run: cmake -S . -B build-clang -G Ninja
@@ -67,7 +80,7 @@ jobs:
         run: ./build-clang/compat_ci_export "$RUNNER_TEMP/sigs"
 
       - name: Upload Linux Clang signatures
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: compat-sigs-linux-clang
           path: ${{ runner.temp }}/sigs/x86_64_linux_clang.sig.hpp
@@ -75,26 +88,33 @@ jobs:
 
   compat_linux:
     name: Aggregate Linux Compat Check
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     needs:
       - export_linux_gcc16
       - export_linux_clang_p2996
     container:
       image: ghcr.io/ximicpp/typelayout-p2996:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     env:
       LD_LIBRARY_PATH: /opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Download Linux GCC16 signatures
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: compat-sigs-linux-gcc16
           path: ${{ runner.temp }}/compat-sigs
 
       - name: Download Linux Clang signatures
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: compat-sigs-linux-clang
           path: ${{ runner.temp }}/compat-sigs
@@ -113,15 +133,15 @@ jobs:
         run: cmake --build build-compat-linux --target compat_ci_check_linux --parallel
 
       - name: Run aggregate checker
-        run: ctest --test-dir build-compat-linux -R compat_ci_check_linux --output-on-failure
+        run: ctest --test-dir build-compat-linux -R '^compat_ci_check_linux$' --output-on-failure --no-tests=error
 
   export_macos_clang_p2996:
     name: Export macOS Clang P2996 Signatures
-    if: ${{ vars.TYPELAYOUT_ENABLE_MACOS_COMPAT == '1' || (github.event_name == 'workflow_dispatch' && inputs.run_macos_cross_target == true) }}
+    if: ${{ (github.event_name == 'push' && vars.TYPELAYOUT_ENABLE_MACOS_COMPAT == '1') || (github.event_name == 'workflow_dispatch' && (vars.TYPELAYOUT_ENABLE_MACOS_COMPAT == '1' || inputs.run_macos_cross_target == true)) }}
     runs-on: [self-hosted, macOS, ARM64, p2996]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Verify macOS P2996 toolchain
         run: |
@@ -141,7 +161,7 @@ jobs:
         run: ./build-macos/compat_ci_export "$RUNNER_TEMP/sigs"
 
       - name: Upload macOS Clang signatures
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: compat-sigs-macos-clang
           path: ${{ runner.temp }}/sigs/arm64_macos_clang.sig.hpp
@@ -149,27 +169,33 @@ jobs:
 
   compat_cross_target:
     name: Aggregate Cross-Target Compat Check
-    if: ${{ vars.TYPELAYOUT_ENABLE_MACOS_COMPAT == '1' || (github.event_name == 'workflow_dispatch' && inputs.run_macos_cross_target == true) }}
+    if: ${{ (github.event_name == 'push' && vars.TYPELAYOUT_ENABLE_MACOS_COMPAT == '1') || (github.event_name == 'workflow_dispatch' && (vars.TYPELAYOUT_ENABLE_MACOS_COMPAT == '1' || inputs.run_macos_cross_target == true)) }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     needs:
       - export_linux_clang_p2996
       - export_macos_clang_p2996
     container:
       image: ghcr.io/ximicpp/typelayout-p2996:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     env:
       LD_LIBRARY_PATH: /opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Download Linux Clang signatures
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: compat-sigs-linux-clang
           path: ${{ runner.temp }}/compat-sigs-cross
 
       - name: Download macOS Clang signatures
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: compat-sigs-macos-clang
           path: ${{ runner.temp }}/compat-sigs-cross
@@ -188,18 +214,25 @@ jobs:
         run: cmake --build build-compat-cross --target compat_ci_check --parallel
 
       - name: Run cross-target checker
-        run: ctest --test-dir build-compat-cross -R compat_ci_check --output-on-failure
+        run: ctest --test-dir build-compat-cross -R '^compat_ci_check$' --output-on-failure --no-tests=error
 
   compat_demo_negative:
     name: Negative Demo Compat Check
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     container:
       image: ghcr.io/ximicpp/typelayout-p2996:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     env:
       LD_LIBRARY_PATH: /opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Configure negative demo checker
         run: cmake -S . -B build-demo-negative -G Ninja

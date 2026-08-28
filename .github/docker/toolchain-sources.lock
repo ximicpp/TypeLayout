@@ -12,6 +12,7 @@
     "compiler_family": "gcc",
     "compiler_revision": "16.2.0",
     "configure_flags": [
+      "--prefix=/opt/gcc-16.2.0",
       "--enable-languages=c,c++",
       "--disable-bootstrap",
       "--disable-multilib",
@@ -71,6 +72,7 @@
     "docker": {
       "buildkit_image": "docker.io/moby/buildkit@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8",
       "buildx_version": "0.36.1",
+      "dockerfile_frontend": "docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e",
       "runner_images_commit": "564e58dbe650c507ccba1171f6159c12f26820c8",
       "runners": {
         "ubuntu-24.04": {
@@ -101,9 +103,11 @@
         "libzstd-dev=1.5.7+dfsg-1"
       ],
       "gcc_runtime": [
+        "binutils=2.44-3",
         "ca-certificates=20250419",
         "cmake=3.31.6-2",
         "git=1:2.47.3-0+deb13u1",
+        "libc6-dev=2.41-12+deb13u3",
         "ninja-build:amd64=1.12.1-1",
         "ninja-build:arm64=1.12.1-1+b1",
         "python3=3.13.5-1",
@@ -127,9 +131,11 @@
         "zstd=1.5.7+dfsg-1"
       ],
       "p2996_runtime": [
+        "binutils=2.44-3",
         "ca-certificates=20250419",
         "cmake=3.31.6-2",
         "git=1:2.47.3-0+deb13u1",
+        "libc6-dev=2.41-12+deb13u3",
         "libtinfo6=6.5+20250216-2",
         "libxml2=2.12.7+dfsg+really2.9.14-2.1+deb13u3",
         "libzstd1=1.5.7+dfsg-1",
@@ -182,6 +188,8 @@
   "p2996": {
     "cmake_flags": [
       "-DCMAKE_BUILD_TYPE=Release",
+      "-DLLVM_ENABLE_PROJECTS=clang",
+      "-DLLVM_ENABLE_RUNTIMES=libcxx;libcxxabi;libunwind",
       "-DLLVM_INCLUDE_TESTS=OFF",
       "-DCLANG_INCLUDE_TESTS=OFF",
       "-DLLVM_INCLUDE_EXAMPLES=OFF",
@@ -200,6 +208,34 @@
       "X86",
       "AArch64"
     ],
+    "platform_cmake_flags": {
+      "linux/amd64": [
+        "-DCMAKE_INSTALL_PREFIX=/opt/p2996-toolchain",
+        "-DLLVM_TARGETS_TO_BUILD=X86",
+        "-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON"
+      ],
+      "linux/arm64": [
+        "-DCMAKE_INSTALL_PREFIX=/opt/p2996-toolchain",
+        "-DLLVM_TARGETS_TO_BUILD=AArch64",
+        "-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON"
+      ],
+      "macos/arm64": [
+        "-DCMAKE_INSTALL_PREFIX=${TOOLCHAIN_ROOT}",
+        "-DCMAKE_OSX_ARCHITECTURES=arm64",
+        "-DCMAKE_OSX_SYSROOT=${SDKROOT}",
+        "-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0",
+        "-DLLVM_TARGETS_TO_BUILD=AArch64",
+        "-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF"
+      ],
+      "macos/x86_64": [
+        "-DCMAKE_INSTALL_PREFIX=${TOOLCHAIN_ROOT}",
+        "-DCMAKE_OSX_ARCHITECTURES=x86_64",
+        "-DCMAKE_OSX_SYSROOT=${SDKROOT}",
+        "-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0",
+        "-DLLVM_TARGETS_TO_BUILD=X86",
+        "-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF"
+      ]
+    },
     "projects": [
       "clang"
     ],
@@ -212,12 +248,12 @@
   },
   "recipes": {
     ".gitattributes": "d471ccadeb965783788919164e493fa383f7eae3fb1a1dfcdfb1fa72b914789d",
-    ".github/docker/Dockerfile.gcc16": "ee43a9c504f60f1c8e1d1a5e0b7f1b51e3ffd344f234afaaa75a8cc8c4a752e6",
-    ".github/docker/Dockerfile.p2996": "fea24708f0f285d3e0827f5b07a08f1062d612b6d8df41b2f6fb94b4cfdc635d",
+    ".github/docker/Dockerfile.gcc16": "9568ddbf9232b744135d7d58c29e89cfe09b91b244a4a72ef5ccd73535232989",
+    ".github/docker/Dockerfile.p2996": "423e10c979b4a49a7ee091b43b660aa067a00ee8c90211c9138937072c42ad10",
     ".github/docker/docker-bake.hcl": "ec7978e3b34056c46745623579889d416db0f5c6faa9df8a86bb933633e7f18b",
-    ".github/scripts/build-p2996-macos.sh": "baee1cb12794ce95e750749e320b8fb8832b4720b71ab2bcd6dd5213e1761320",
-    ".github/scripts/verify-p2996-toolchain.sh": "6ce5e9997cbc814268472766e8f8832bcf5cb2ed83d75d060dc9936e5731f284",
-    ".github/workflows/toolchain-images.yml": "9dbf5be728557ec5b9f75b15b1407f0f5a4e7b30a5dc5b60e73dece6f7943317"
+    ".github/scripts/build-p2996-macos.sh": "07001c96ae7235a69b5d938f2f33ace1457fab99aedb1a07ef30cefde2f741fd",
+    ".github/scripts/verify-p2996-toolchain.sh": "bea411c7367438b9e603a1a3208de0e0f830582a5716c5429e5306da2161540f",
+    ".github/workflows/toolchain-images.yml": "1a1e62e98f9a1b43de5263e70ea04f38326caaec1d99f6cdfa35d4001e9de433"
   },
   "schema": 1
 }

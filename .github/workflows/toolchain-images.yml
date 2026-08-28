@@ -1,103 +1,3875 @@
 name: Toolchain Images
 
 on:
+  workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - main
     paths:
+      - .gitattributes
       - .github/docker/Dockerfile.gcc16
       - .github/docker/Dockerfile.p2996
+      - .github/docker/docker-bake.hcl
+      - .github/docker/toolchain-sources.lock
+      - .github/docker/toolchains.lock
+      - .github/scripts/bootstrap-toolchain-sources.py
+      - .github/scripts/build-p2996-macos.sh
+      - .github/scripts/validate-toolchain-locks.py
+      - .github/scripts/verify-p2996-toolchain.sh
       - .github/workflows/toolchain-images.yml
-  workflow_dispatch:
 
 permissions:
   contents: read
-  packages: write
+
+concurrency:
+  group: typelayout-toolchain-publication
+  queue: max
+  cancel-in-progress: false
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAMESPACE: ximicpp
+  REGISTRY: ghcr.io/ximicpp
+  GCC_REPOSITORY: ghcr.io/ximicpp/typelayout-gcc16
+  P2996_REPOSITORY: ghcr.io/ximicpp/typelayout-p2996
 
 jobs:
-  build_gcc16:
-    name: Publish GCC16 Image
-    runs-on: ubuntu-latest
-
+  initialize_candidate_batch:
+    name: Initialize or recover the immutable candidate batch
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    outputs:
+      candidate_artifact_id: ${{ steps.select_artifact.outputs.artifact_id }}
+      candidate_batch_id: ${{ steps.manifest.outputs.candidate_batch_id }}
+      workflow_run: ${{ steps.manifest.outputs.workflow_run }}
+    permissions:
+      actions: read
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - name: Check out the candidate commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          registry: ${{ env.REGISTRY }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate the committed source lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/validate-toolchain-locks.py \
+            --sources .github/docker/toolchain-sources.lock \
+            --recipe-root .
+
+      - name: Find an existing immutable batch manifest for this run
+        id: lookup
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/candidate-batch-lookup
+          gh api --paginate --slurp \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100&name=candidate-batch-manifest" \
+            > build/candidate-batch-lookup/pages.json
+          python3 - build/candidate-batch-lookup/pages.json "${GITHUB_OUTPUT}" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          pages = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if not isinstance(pages, list) or any(not isinstance(page, dict) for page in pages):
+              raise SystemExit("invalid candidate batch artifact response")
+          artifacts = []
+          for page in pages:
+              values = page.get("artifacts")
+              if not isinstance(values, list):
+                  raise SystemExit("candidate batch artifact page has no artifact list")
+              artifacts.extend(values)
+          matches = [item for item in artifacts if item.get("name") == "candidate-batch-manifest"]
+          if len(matches) > 1:
+              raise SystemExit("multiple immutable candidate batch manifests exist")
+          artifact_id = ""
+          existing = bool(matches)
+          if existing:
+              artifact = matches[0]
+              if artifact.get("expired") is not False:
+                  raise SystemExit("candidate batch manifest is expired")
+              artifact_id = artifact.get("id")
+              if isinstance(artifact_id, bool) or not isinstance(artifact_id, int) or artifact_id <= 0:
+                  raise SystemExit("candidate batch manifest artifact id is invalid")
+          with open(sys.argv[2], "a", encoding="utf-8") as output:
+              output.write(f"existing={str(existing).lower()}\n")
+              output.write(f"artifact_id={artifact_id}\n")
+          PY
+
+      - name: Download the exact existing batch manifest
+        if: steps.lookup.outputs.existing == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ steps.lookup.outputs.artifact_id }}
+          merge-multiple: true
+          path: build/candidate-batch
+
+      - name: Materialize and validate the canonical batch identity
+        id: manifest
+        shell: bash
+        env:
+          EXISTING_BATCH: ${{ steps.lookup.outputs.existing }}
+        run: |
+          set -euo pipefail
+          python3 - build/candidate-batch/manifest.json "${GITHUB_OUTPUT}" <<'PY'
+          # BEGIN CANDIDATE BATCH MANIFEST
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          import sys
+
+          def reject_duplicates(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(f"duplicate candidate batch manifest key: {key}")
+                  result[key] = value
+              return result
+
+          manifest_path, output_path = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+          source_path = pathlib.Path(".github/docker/toolchain-sources.lock")
+          source_sha = os.environ["GITHUB_SHA"]
+          sources_sha256 = hashlib.sha256(source_path.read_bytes()).hexdigest()
+          run_id = os.environ["GITHUB_RUN_ID"]
+          current_attempt = int(os.environ["GITHUB_RUN_ATTEMPT"])
+          if re.fullmatch(r"[0-9a-f]{40}", source_sha) is None:
+              raise SystemExit("candidate source SHA is not canonical")
+          if re.fullmatch(r"[0-9a-f]{64}", sources_sha256) is None:
+              raise SystemExit("candidate source-lock digest is not canonical")
+          if re.fullmatch(r"[1-9][0-9]*", run_id) is None or current_attempt <= 0:
+              raise SystemExit("candidate workflow run identity is not canonical")
+          candidate_batch_id = f"{source_sha}:{sources_sha256}:{run_id}"
+          producer_workflow_run = f"{run_id}.{current_attempt}"
+          exact_keys = {
+              "schema", "source_sha", "sources_sha256", "candidate_batch_id", "workflow_run",
+          }
+          existing = os.environ["EXISTING_BATCH"] == "true"
+          if existing:
+              if not manifest_path.is_file() or set(manifest_path.parent.iterdir()) != {manifest_path}:
+                  raise SystemExit("existing candidate batch artifact is not exact")
+              manifest_text = manifest_path.read_text(encoding="utf-8")
+              record = json.loads(manifest_text, object_pairs_hook=reject_duplicates)
+              canonical_text = json.dumps(record, indent=2, sort_keys=True) + "\n"
+              if manifest_text != canonical_text:
+                  raise SystemExit("existing candidate batch manifest bytes are not canonical")
+          else:
+              if manifest_path.parent.exists() and any(manifest_path.parent.iterdir()):
+                  raise SystemExit("new candidate batch directory is not empty")
+              record = {
+                  "schema": 1,
+                  "source_sha": source_sha,
+                  "sources_sha256": sources_sha256,
+                  "candidate_batch_id": candidate_batch_id,
+                  "workflow_run": producer_workflow_run,
+              }
+              manifest_path.parent.mkdir(parents=True, exist_ok=True)
+              with open(manifest_path, "w", encoding="utf-8", newline="\n") as output:
+                  json.dump(record, output, indent=2, sort_keys=True)
+                  output.write("\n")
+          if set(record) != exact_keys:
+              raise SystemExit("candidate batch manifest keys are not canonical")
+          expected = {
+              "schema": 1,
+              "source_sha": source_sha,
+              "sources_sha256": sources_sha256,
+              "candidate_batch_id": candidate_batch_id,
+          }
+          for key, value in expected.items():
+              if record.get(key) != value:
+                  raise SystemExit(f"candidate batch manifest {key} mismatch")
+          workflow_match = re.fullmatch(
+              rf"{re.escape(run_id)}\.([1-9][0-9]*)",
+              str(record["workflow_run"]),
+          )
+          if workflow_match is None or int(workflow_match.group(1)) > current_attempt:
+              raise SystemExit("candidate batch origin is invalid or from the future")
+          with open(output_path, "a", encoding="utf-8") as output:
+              output.write(f"candidate_batch_id={candidate_batch_id}\n")
+              output.write(f"workflow_run={record['workflow_run']}\n")
+          # END CANDIDATE BATCH MANIFEST
+          PY
+
+      - name: Upload the new immutable batch manifest
+        id: upload_candidate
+        if: steps.lookup.outputs.existing == 'false'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-batch-manifest
+          path: build/candidate-batch/manifest.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
+
+      - name: Bind the exact batch manifest artifact id
+        id: select_artifact
+        shell: bash
+        env:
+          CREATED_ARTIFACT_ID: ${{ steps.upload_candidate.outputs.artifact-id }}
+          EXISTING_ARTIFACT_ID: ${{ steps.lookup.outputs.artifact_id }}
+          EXISTING_BATCH: ${{ steps.lookup.outputs.existing }}
+        run: |
+          set -euo pipefail
+          if [ "${EXISTING_BATCH}" = true ]; then
+            test -n "${EXISTING_ARTIFACT_ID}"
+            test -z "${CREATED_ARTIFACT_ID}"
+            artifact_id="${EXISTING_ARTIFACT_ID}"
+          else
+            test -z "${EXISTING_ARTIFACT_ID}"
+            test -n "${CREATED_ARTIFACT_ID}"
+            artifact_id="${CREATED_ARTIFACT_ID}"
+          fi
+          case "${artifact_id}" in
+            *[!0-9]*|'') echo "invalid batch artifact id" >&2; exit 1 ;;
+          esac
+          printf 'artifact_id=%s\n' "${artifact_id}" >> "${GITHUB_OUTPUT}"
+
+  build_gcc_amd64:
+    name: Build GCC 16.2 candidate (linux/amd64)
+    if: github.event_name == 'workflow_dispatch'
+    needs: initialize_candidate_batch
+    runs-on: ubuntu-24.04
+    outputs:
+      candidate_artifact_id: ${{ steps.upload_candidate.outputs.artifact-id }}
+    permissions:
+      contents: read
+      packages: write
+    env:
+      BATCH_WORKFLOW_RUN: ${{ needs.initialize_candidate_batch.outputs.workflow_run }}
+      BAKE_TARGET: gcc16-amd64
+      CANDIDATE_BATCH_ID: ${{ needs.initialize_candidate_batch.outputs.candidate_batch_id }}
+      COMPILER: g++
+      COMPILER_REVISION: 16.2.0
+      EXPECTED_ARCH: amd64
+      EXPECTED_PLATFORM: linux/amd64
+      LOCK_RUNNER: ubuntu-24.04
+      PROBE_NODE: x86_64_linux_gcc
+      REPOSITORY: ghcr.io/ximicpp/typelayout-gcc16
+      RUNNER_LABEL: ubuntu-24.04
+      TOOLCHAIN: gcc
+    steps:
+      - name: Check out the candidate commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate and load the committed source lock
+        id: lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/validate-toolchain-locks.py \
+            --sources .github/docker/toolchain-sources.lock \
+            --recipe-root .
+          python3 - "${LOCK_RUNNER}" "${GITHUB_OUTPUT}" >> "${GITHUB_ENV}" <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import sys
+
+          lock_path = pathlib.Path(".github/docker/toolchain-sources.lock")
+          lock = json.loads(lock_path.read_text(encoding="utf-8"))
+          runner = lock["linux"]["docker"]["runners"][sys.argv[1]]
+          print(f"SOURCES_SHA256={hashlib.sha256(lock_path.read_bytes()).hexdigest()}")
+          print(f"LOCKED_DOCKER_CLIENT={runner['client_version']}")
+          print(f"LOCKED_DOCKER_SERVER={runner['server_version']}")
+          buildx_version = lock["linux"]["docker"]["buildx_version"]
+          print(f"LOCKED_BUILDX_VERSION={buildx_version}")
+          buildkit_image = lock["linux"]["docker"]["buildkit_image"]
+          print(f"LOCKED_BUILDKIT_IMAGE={buildkit_image}")
+          with open(sys.argv[2], "a", encoding="utf-8") as outputs:
+              outputs.write(f"buildkit_image={buildkit_image}\n")
+              outputs.write(f"buildx_version={buildx_version}\n")
+          PY
+
+      - name: Verify the locked Docker and Buildx identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(docker version --format '{{.Client.Version}}')" = "${LOCKED_DOCKER_CLIENT}"
+          test "$(docker version --format '{{.Server.Version}}')" = "${LOCKED_DOCKER_SERVER}"
+          buildx_output="$(docker buildx version)"
+          python3 - "${LOCKED_BUILDX_VERSION}" "${buildx_output}" <<'PY'
+          import re
+          import sys
+
+          expected, output = sys.argv[1:]
+          versions = re.findall(r"(?<![0-9])v?([0-9]+\.[0-9]+\.[0-9]+)(?![0-9])", output)
+          if expected not in versions:
+              raise SystemExit(f"Buildx version mismatch: {output!r} != {expected!r}")
+          PY
+
+      - name: Create the locked BuildKit builder
+        id: buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+        with:
+          driver: docker-container
+          driver-opts: image=${{ steps.lock.outputs.buildkit_image }}
+          version: v${{ steps.lock.outputs.buildx_version }}
+          cache-binary: false
+
+      - name: Verify the created builder
+        shell: bash
+        env:
+          BUILDER_NAME: ${{ steps.buildx.outputs.name }}
+        run: |
+          set -euo pipefail
+          buildx_output="$(docker buildx version)"
+          python3 - "${LOCKED_BUILDX_VERSION}" "${buildx_output}" <<'PY'
+          import re
+          import sys
+
+          expected, output = sys.argv[1:]
+          versions = re.findall(r"(?<![0-9])v?([0-9]+\.[0-9]+\.[0-9]+)(?![0-9])", output)
+          if expected not in versions:
+              raise SystemExit(f"Buildx version mismatch: {output!r} != {expected!r}")
+          PY
+          docker buildx inspect "${BUILDER_NAME}" --bootstrap | tee buildx-inspect.txt
+          grep -F 'Driver: docker-container' buildx-inspect.txt
+          grep -F "${LOCKED_BUILDKIT_IMAGE}" buildx-inspect.txt
+
+      - name: Log in to private GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compute GCC16 image metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/typelayout-gcc16
-          tags: |
-            type=raw,value=sha-${{ github.sha }}
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push GCC16 image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: .github/docker/Dockerfile.gcc16
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-
-      - name: Record published GCC16 refs
+      - name: Build and push the native manifest by digest
+        shell: bash
+        env:
+          BUILDER_NAME: ${{ steps.buildx.outputs.name }}
         run: |
-          {
-            echo "Published image refs:"
-            echo "- ghcr.io/${IMAGE_NAMESPACE}/typelayout-gcc16:sha-${GITHUB_SHA}"
-            if [ "${GITHUB_REF_NAME}" = "main" ]; then
-              echo "- ghcr.io/${IMAGE_NAMESPACE}/typelayout-gcc16:latest"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          mkdir -p build/candidate-gcc-amd64
+          docker buildx bake \
+            --builder "${BUILDER_NAME}" \
+            --file .github/docker/docker-bake.hcl \
+            --metadata-file build/candidate-gcc-amd64/build-metadata.json \
+            --set "${BAKE_TARGET}.provenance=false" \
+            --set "${BAKE_TARGET}.sbom=false" \
+            --set "${BAKE_TARGET}.output=type=image,push-by-digest=true,name-canonical=true,oci-mediatypes=true,push=true" \
+            "gcc16-amd64"
 
-  build_p2996:
-    name: Publish P2996 Clang Image
-    runs-on: ubuntu-latest
+      - name: Run the candidate probe and write its receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt_dir=build/candidate-gcc-amd64
+          manifest_digest="$(python3 - "${receipt_dir}/build-metadata.json" "${BAKE_TARGET}" <<'PY'
+          import json
+          import re
+          import sys
 
-    steps:
-      - uses: actions/checkout@v4
+          value = json.load(open(sys.argv[1], encoding="utf-8"))[sys.argv[2]]["containerimage.digest"]
+          if re.fullmatch(r"sha256:[0-9a-f]{64}", value) is None:
+              raise SystemExit(f"invalid manifest digest: {value!r}")
+          print(value)
+          PY
+          )"
+          image="${REPOSITORY}@${manifest_digest}"
+          docker pull "${image}"
+          docker run --rm "${image}" /tmp/toolchain-probe
+          runner_image="${ImageOS-unknown}/${ImageVersion-unknown}"
+          docker run --rm \
+            --volume "${GITHUB_WORKSPACE}:/src:ro" \
+            --volume "${GITHUB_WORKSPACE}/${receipt_dir}:/receipt" \
+            --workdir /src \
+            --env COMPILER_REVISION="${COMPILER_REVISION}" \
+            --env RUNNER_IMAGE="${runner_image}" \
+            "${image}" \
+            bash -euo pipefail -c '
+              cmake -S /src -B /tmp/candidate-platform-probe -G Ninja \
+                -DTYPELAYOUT_TOOLCHAIN_REVISION="${COMPILER_REVISION}"
+              cmake --build /tmp/candidate-platform-probe \
+                --target relocatable_world_platform_probe --parallel
+              /tmp/candidate-platform-probe/relocatable_world_platform_probe \
+                x86_64_linux_gcc /receipt/platform-probe.json \
+                --runner ubuntu-24.04 --runner-image "${RUNNER_IMAGE}" \
+                --xcode-version none --xcode-build none \
+                --sdk-version none --sdk-build none \
+                --deployment-target none --sdk-locked true
+            '
+          export MANIFEST_DIGEST="${manifest_digest}"
+          python3 - "${receipt_dir}/receipt.json" "${receipt_dir}/platform-probe.json" <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import sys
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+          digest = os.environ["MANIFEST_DIGEST"]
+          if re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None:
+              raise SystemExit("invalid manifest_digest")
+          sys.path.insert(0, str(pathlib.Path("tools").resolve()))
+          import relocatable_world_evidence as evidence
+          probe = evidence.validate_probe(pathlib.Path(sys.argv[2]))
+          expected_gates = {
+              "char_bit": 8,
+              "pointer_bits": 64,
+              "endian": "little",
+              "reflection": True,
+              "memcpy_object_lifetime": True,
+              "memcpy_array_lifetime": True,
+          }
+          if probe["node"] != os.environ["PROBE_NODE"] or probe["probe"] != expected_gates:
+              raise SystemExit("platform probe identity or capability mismatch")
+          if set(probe["admission"].values()) != {True}:
+              raise SystemExit("candidate must admit all four contract types")
+          if probe["environment"]["runner"] != os.environ["RUNNER_LABEL"]:
+              raise SystemExit("platform probe runner mismatch")
+          compiler = probe["compiler"]
+          if compiler["family"] != "gcc" or compiler["revision"] != os.environ["COMPILER_REVISION"]:
+              raise SystemExit("platform probe compiler mismatch")
+          if compiler["target"].split("-", 1)[0] != "x86_64":
+              raise SystemExit(f"linux/amd64 target mismatch: {compiler['target']!r}")
+          candidate_batch_id = os.environ["CANDIDATE_BATCH_ID"]
+          expected_batch_id = (
+              f"{os.environ['GITHUB_SHA']}:{os.environ['SOURCES_SHA256']}:"
+              f"{os.environ['GITHUB_RUN_ID']}"
+          )
+          if candidate_batch_id != expected_batch_id:
+              raise SystemExit("candidate batch identity mismatch")
+          batch_workflow_run = os.environ["BATCH_WORKFLOW_RUN"]
+          batch_match = re.fullmatch(
+              rf"{re.escape(os.environ['GITHUB_RUN_ID'])}\.([1-9][0-9]*)",
+              batch_workflow_run,
+          )
+          if batch_match is None or int(batch_match.group(1)) > int(os.environ["GITHUB_RUN_ATTEMPT"]):
+              raise SystemExit("candidate batch origin is invalid or from the future")
+          producer_workflow_run = f"{os.environ['GITHUB_RUN_ID']}.{os.environ['GITHUB_RUN_ATTEMPT']}"
+          record = {
+              "schema": 1,
+              "source_sha": os.environ["GITHUB_SHA"],
+              "sources_sha256": os.environ["SOURCES_SHA256"],
+              "candidate_batch_id": candidate_batch_id,
+              "workflow_run": batch_workflow_run,
+              "producer_workflow_run": producer_workflow_run,
+              "toolchain": os.environ["TOOLCHAIN"],
+              "repository": os.environ["REPOSITORY"],
+              "platform": os.environ["EXPECTED_PLATFORM"],
+              "manifest_digest": digest,
+              "compiler_revision": compiler["revision"],
+              "compiler_version": compiler["version"],
+              "target": compiler["target"],
+              "stdlib": compiler["stdlib"],
+          }
+          with open(sys.argv[1], "w", encoding="utf-8", newline="\n") as output:
+              json.dump(record, output, indent=2, sort_keys=True)
+              output.write("\n")
+          PY
+          rm "${receipt_dir}/build-metadata.json"
+
+      - name: Upload the native manifest receipt
+        id: upload_candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          registry: ${{ env.REGISTRY }}
+          name: candidate-gcc-amd64-${{ github.run_attempt }}
+          path: build/candidate-gcc-amd64/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+  build_gcc_arm64:
+    name: Build GCC 16.2 candidate (linux/arm64)
+    if: github.event_name == 'workflow_dispatch'
+    needs: initialize_candidate_batch
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      candidate_artifact_id: ${{ steps.upload_candidate.outputs.artifact-id }}
+    permissions:
+      contents: read
+      packages: write
+    env:
+      BATCH_WORKFLOW_RUN: ${{ needs.initialize_candidate_batch.outputs.workflow_run }}
+      BAKE_TARGET: gcc16-arm64
+      CANDIDATE_BATCH_ID: ${{ needs.initialize_candidate_batch.outputs.candidate_batch_id }}
+      COMPILER: g++
+      COMPILER_REVISION: 16.2.0
+      EXPECTED_ARCH: arm64
+      EXPECTED_PLATFORM: linux/arm64
+      LOCK_RUNNER: ubuntu-24.04-arm
+      PROBE_NODE: arm64_linux_gcc
+      REPOSITORY: ghcr.io/ximicpp/typelayout-gcc16
+      RUNNER_LABEL: ubuntu-24.04-arm
+      TOOLCHAIN: gcc
+    steps:
+      - name: Check out the candidate commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate and load the committed source lock
+        id: lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/validate-toolchain-locks.py \
+            --sources .github/docker/toolchain-sources.lock \
+            --recipe-root .
+          python3 - "${LOCK_RUNNER}" "${GITHUB_OUTPUT}" >> "${GITHUB_ENV}" <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import sys
+
+          lock_path = pathlib.Path(".github/docker/toolchain-sources.lock")
+          lock = json.loads(lock_path.read_text(encoding="utf-8"))
+          runner = lock["linux"]["docker"]["runners"][sys.argv[1]]
+          print(f"SOURCES_SHA256={hashlib.sha256(lock_path.read_bytes()).hexdigest()}")
+          print(f"LOCKED_DOCKER_CLIENT={runner['client_version']}")
+          print(f"LOCKED_DOCKER_SERVER={runner['server_version']}")
+          buildx_version = lock["linux"]["docker"]["buildx_version"]
+          print(f"LOCKED_BUILDX_VERSION={buildx_version}")
+          buildkit_image = lock["linux"]["docker"]["buildkit_image"]
+          print(f"LOCKED_BUILDKIT_IMAGE={buildkit_image}")
+          with open(sys.argv[2], "a", encoding="utf-8") as outputs:
+              outputs.write(f"buildkit_image={buildkit_image}\n")
+              outputs.write(f"buildx_version={buildx_version}\n")
+          PY
+
+      - name: Verify the locked Docker and Buildx identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(docker version --format '{{.Client.Version}}')" = "${LOCKED_DOCKER_CLIENT}"
+          test "$(docker version --format '{{.Server.Version}}')" = "${LOCKED_DOCKER_SERVER}"
+          buildx_output="$(docker buildx version)"
+          python3 - "${LOCKED_BUILDX_VERSION}" "${buildx_output}" <<'PY'
+          import re
+          import sys
+
+          expected, output = sys.argv[1:]
+          versions = re.findall(r"(?<![0-9])v?([0-9]+\.[0-9]+\.[0-9]+)(?![0-9])", output)
+          if expected not in versions:
+              raise SystemExit(f"Buildx version mismatch: {output!r} != {expected!r}")
+          PY
+
+      - name: Create the locked BuildKit builder
+        id: buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+        with:
+          driver: docker-container
+          driver-opts: image=${{ steps.lock.outputs.buildkit_image }}
+          version: v${{ steps.lock.outputs.buildx_version }}
+          cache-binary: false
+
+      - name: Verify the created builder
+        shell: bash
+        env:
+          BUILDER_NAME: ${{ steps.buildx.outputs.name }}
+        run: |
+          set -euo pipefail
+          buildx_output="$(docker buildx version)"
+          python3 - "${LOCKED_BUILDX_VERSION}" "${buildx_output}" <<'PY'
+          import re
+          import sys
+
+          expected, output = sys.argv[1:]
+          versions = re.findall(r"(?<![0-9])v?([0-9]+\.[0-9]+\.[0-9]+)(?![0-9])", output)
+          if expected not in versions:
+              raise SystemExit(f"Buildx version mismatch: {output!r} != {expected!r}")
+          PY
+          docker buildx inspect "${BUILDER_NAME}" --bootstrap | tee buildx-inspect.txt
+          grep -F 'Driver: docker-container' buildx-inspect.txt
+          grep -F "${LOCKED_BUILDKIT_IMAGE}" buildx-inspect.txt
+
+      - name: Log in to private GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compute P2996 image metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/typelayout-p2996
-          tags: |
-            type=raw,value=sha-${{ github.sha }}
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push P2996 image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: .github/docker/Dockerfile.p2996
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-
-      - name: Record published P2996 refs
+      - name: Build and push the native manifest by digest
+        shell: bash
+        env:
+          BUILDER_NAME: ${{ steps.buildx.outputs.name }}
         run: |
-          {
-            echo "Published image refs:"
-            echo "- ghcr.io/${IMAGE_NAMESPACE}/typelayout-p2996:sha-${GITHUB_SHA}"
-            if [ "${GITHUB_REF_NAME}" = "main" ]; then
-              echo "- ghcr.io/${IMAGE_NAMESPACE}/typelayout-p2996:latest"
+          set -euo pipefail
+          mkdir -p build/candidate-gcc-arm64
+          docker buildx bake \
+            --builder "${BUILDER_NAME}" \
+            --file .github/docker/docker-bake.hcl \
+            --metadata-file build/candidate-gcc-arm64/build-metadata.json \
+            --set "${BAKE_TARGET}.provenance=false" \
+            --set "${BAKE_TARGET}.sbom=false" \
+            --set "${BAKE_TARGET}.output=type=image,push-by-digest=true,name-canonical=true,oci-mediatypes=true,push=true" \
+            "gcc16-arm64"
+
+      - name: Run the candidate probe and write its receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt_dir=build/candidate-gcc-arm64
+          manifest_digest="$(python3 - "${receipt_dir}/build-metadata.json" "${BAKE_TARGET}" <<'PY'
+          import json
+          import re
+          import sys
+
+          value = json.load(open(sys.argv[1], encoding="utf-8"))[sys.argv[2]]["containerimage.digest"]
+          if re.fullmatch(r"sha256:[0-9a-f]{64}", value) is None:
+              raise SystemExit(f"invalid manifest digest: {value!r}")
+          print(value)
+          PY
+          )"
+          image="${REPOSITORY}@${manifest_digest}"
+          docker pull "${image}"
+          docker run --rm "${image}" /tmp/toolchain-probe
+          runner_image="${ImageOS-unknown}/${ImageVersion-unknown}"
+          docker run --rm \
+            --volume "${GITHUB_WORKSPACE}:/src:ro" \
+            --volume "${GITHUB_WORKSPACE}/${receipt_dir}:/receipt" \
+            --workdir /src \
+            --env COMPILER_REVISION="${COMPILER_REVISION}" \
+            --env RUNNER_IMAGE="${runner_image}" \
+            "${image}" \
+            bash -euo pipefail -c '
+              cmake -S /src -B /tmp/candidate-platform-probe -G Ninja \
+                -DTYPELAYOUT_TOOLCHAIN_REVISION="${COMPILER_REVISION}"
+              cmake --build /tmp/candidate-platform-probe \
+                --target relocatable_world_platform_probe --parallel
+              /tmp/candidate-platform-probe/relocatable_world_platform_probe \
+                arm64_linux_gcc /receipt/platform-probe.json \
+                --runner ubuntu-24.04-arm --runner-image "${RUNNER_IMAGE}" \
+                --xcode-version none --xcode-build none \
+                --sdk-version none --sdk-build none \
+                --deployment-target none --sdk-locked true
+            '
+          export MANIFEST_DIGEST="${manifest_digest}"
+          python3 - "${receipt_dir}/receipt.json" "${receipt_dir}/platform-probe.json" <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import sys
+
+          digest = os.environ["MANIFEST_DIGEST"]
+          if re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None:
+              raise SystemExit("invalid manifest_digest")
+          sys.path.insert(0, str(pathlib.Path("tools").resolve()))
+          import relocatable_world_evidence as evidence
+          probe = evidence.validate_probe(pathlib.Path(sys.argv[2]))
+          expected_gates = {
+              "char_bit": 8,
+              "pointer_bits": 64,
+              "endian": "little",
+              "reflection": True,
+              "memcpy_object_lifetime": True,
+              "memcpy_array_lifetime": True,
+          }
+          if probe["node"] != os.environ["PROBE_NODE"] or probe["probe"] != expected_gates:
+              raise SystemExit("platform probe identity or capability mismatch")
+          if set(probe["admission"].values()) != {True}:
+              raise SystemExit("candidate must admit all four contract types")
+          if probe["environment"]["runner"] != os.environ["RUNNER_LABEL"]:
+              raise SystemExit("platform probe runner mismatch")
+          compiler = probe["compiler"]
+          if compiler["family"] != "gcc" or compiler["revision"] != os.environ["COMPILER_REVISION"]:
+              raise SystemExit("platform probe compiler mismatch")
+          if compiler["target"].split("-", 1)[0] != "aarch64":
+              raise SystemExit(f"linux/arm64 target mismatch: {compiler['target']!r}")
+          candidate_batch_id = os.environ["CANDIDATE_BATCH_ID"]
+          expected_batch_id = (
+              f"{os.environ['GITHUB_SHA']}:{os.environ['SOURCES_SHA256']}:"
+              f"{os.environ['GITHUB_RUN_ID']}"
+          )
+          if candidate_batch_id != expected_batch_id:
+              raise SystemExit("candidate batch identity mismatch")
+          batch_workflow_run = os.environ["BATCH_WORKFLOW_RUN"]
+          batch_match = re.fullmatch(
+              rf"{re.escape(os.environ['GITHUB_RUN_ID'])}\.([1-9][0-9]*)",
+              batch_workflow_run,
+          )
+          if batch_match is None or int(batch_match.group(1)) > int(os.environ["GITHUB_RUN_ATTEMPT"]):
+              raise SystemExit("candidate batch origin is invalid or from the future")
+          producer_workflow_run = f"{os.environ['GITHUB_RUN_ID']}.{os.environ['GITHUB_RUN_ATTEMPT']}"
+          record = {
+              "schema": 1,
+              "source_sha": os.environ["GITHUB_SHA"],
+              "sources_sha256": os.environ["SOURCES_SHA256"],
+              "candidate_batch_id": candidate_batch_id,
+              "workflow_run": batch_workflow_run,
+              "producer_workflow_run": producer_workflow_run,
+              "toolchain": os.environ["TOOLCHAIN"],
+              "repository": os.environ["REPOSITORY"],
+              "platform": os.environ["EXPECTED_PLATFORM"],
+              "manifest_digest": digest,
+              "compiler_revision": compiler["revision"],
+              "compiler_version": compiler["version"],
+              "target": compiler["target"],
+              "stdlib": compiler["stdlib"],
+          }
+          with open(sys.argv[1], "w", encoding="utf-8", newline="\n") as output:
+              json.dump(record, output, indent=2, sort_keys=True)
+              output.write("\n")
+          PY
+          rm "${receipt_dir}/build-metadata.json"
+
+      - name: Upload the native manifest receipt
+        id: upload_candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-gcc-arm64-${{ github.run_attempt }}
+          path: build/candidate-gcc-arm64/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+  build_p2996_amd64:
+    name: Build Bloomberg P2996 candidate (linux/amd64)
+    if: github.event_name == 'workflow_dispatch'
+    needs: initialize_candidate_batch
+    runs-on: ubuntu-24.04
+    outputs:
+      candidate_artifact_id: ${{ steps.upload_candidate.outputs.artifact-id }}
+    permissions:
+      contents: read
+      packages: write
+    env:
+      BATCH_WORKFLOW_RUN: ${{ needs.initialize_candidate_batch.outputs.workflow_run }}
+      BAKE_TARGET: p2996-amd64
+      CANDIDATE_BATCH_ID: ${{ needs.initialize_candidate_batch.outputs.candidate_batch_id }}
+      COMPILER: clang++
+      COMPILER_REVISION: 060be17654102019e14810c3f948ef85a490755f
+      EXPECTED_ARCH: amd64
+      EXPECTED_PLATFORM: linux/amd64
+      LOCK_RUNNER: ubuntu-24.04
+      PROBE_NODE: x86_64_linux_clang
+      REPOSITORY: ghcr.io/ximicpp/typelayout-p2996
+      RUNNER_LABEL: ubuntu-24.04
+      TOOLCHAIN: p2996
+    steps:
+      - name: Check out the candidate commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate and load the committed source lock
+        id: lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/validate-toolchain-locks.py \
+            --sources .github/docker/toolchain-sources.lock \
+            --recipe-root .
+          python3 - "${LOCK_RUNNER}" "${GITHUB_OUTPUT}" >> "${GITHUB_ENV}" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+
+          lock_path = pathlib.Path(".github/docker/toolchain-sources.lock")
+          lock = json.loads(lock_path.read_text(encoding="utf-8"))
+          runner = lock["linux"]["docker"]["runners"][sys.argv[1]]
+          print(f"SOURCES_SHA256={hashlib.sha256(lock_path.read_bytes()).hexdigest()}")
+          print(f"LOCKED_DOCKER_CLIENT={runner['client_version']}")
+          print(f"LOCKED_DOCKER_SERVER={runner['server_version']}")
+          buildx_version = lock["linux"]["docker"]["buildx_version"]
+          print(f"LOCKED_BUILDX_VERSION={buildx_version}")
+          buildkit_image = lock["linux"]["docker"]["buildkit_image"]
+          print(f"LOCKED_BUILDKIT_IMAGE={buildkit_image}")
+          with open(sys.argv[2], "a", encoding="utf-8") as outputs:
+              outputs.write(f"buildkit_image={buildkit_image}\n")
+              outputs.write(f"buildx_version={buildx_version}\n")
+          PY
+
+      - name: Verify the locked Docker and Buildx identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(docker version --format '{{.Client.Version}}')" = "${LOCKED_DOCKER_CLIENT}"
+          test "$(docker version --format '{{.Server.Version}}')" = "${LOCKED_DOCKER_SERVER}"
+          buildx_output="$(docker buildx version)"
+          python3 - "${LOCKED_BUILDX_VERSION}" "${buildx_output}" <<'PY'
+          import re
+          import sys
+
+          expected, output = sys.argv[1:]
+          versions = re.findall(r"(?<![0-9])v?([0-9]+\.[0-9]+\.[0-9]+)(?![0-9])", output)
+          if expected not in versions:
+              raise SystemExit(f"Buildx version mismatch: {output!r} != {expected!r}")
+          PY
+
+      - name: Create the locked BuildKit builder
+        id: buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+        with:
+          driver: docker-container
+          driver-opts: image=${{ steps.lock.outputs.buildkit_image }}
+          version: v${{ steps.lock.outputs.buildx_version }}
+          cache-binary: false
+
+      - name: Verify the created builder
+        shell: bash
+        env:
+          BUILDER_NAME: ${{ steps.buildx.outputs.name }}
+        run: |
+          set -euo pipefail
+          buildx_output="$(docker buildx version)"
+          python3 - "${LOCKED_BUILDX_VERSION}" "${buildx_output}" <<'PY'
+          import re
+          import sys
+
+          expected, output = sys.argv[1:]
+          versions = re.findall(r"(?<![0-9])v?([0-9]+\.[0-9]+\.[0-9]+)(?![0-9])", output)
+          if expected not in versions:
+              raise SystemExit(f"Buildx version mismatch: {output!r} != {expected!r}")
+          PY
+          docker buildx inspect "${BUILDER_NAME}" --bootstrap | tee buildx-inspect.txt
+          grep -F 'Driver: docker-container' buildx-inspect.txt
+          grep -F "${LOCKED_BUILDKIT_IMAGE}" buildx-inspect.txt
+
+      - name: Log in to private GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the native manifest by digest
+        shell: bash
+        env:
+          BUILDER_NAME: ${{ steps.buildx.outputs.name }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/candidate-p2996-amd64
+          docker buildx bake \
+            --builder "${BUILDER_NAME}" \
+            --file .github/docker/docker-bake.hcl \
+            --metadata-file build/candidate-p2996-amd64/build-metadata.json \
+            --set "${BAKE_TARGET}.provenance=false" \
+            --set "${BAKE_TARGET}.sbom=false" \
+            --set "${BAKE_TARGET}.output=type=image,push-by-digest=true,name-canonical=true,oci-mediatypes=true,push=true" \
+            "p2996-amd64"
+
+      - name: Run the candidate probe and write its receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt_dir=build/candidate-p2996-amd64
+          manifest_digest="$(python3 - "${receipt_dir}/build-metadata.json" "${BAKE_TARGET}" <<'PY'
+          import json
+          import re
+          import sys
+
+          value = json.load(open(sys.argv[1], encoding="utf-8"))[sys.argv[2]]["containerimage.digest"]
+          if re.fullmatch(r"sha256:[0-9a-f]{64}", value) is None:
+              raise SystemExit(f"invalid manifest digest: {value!r}")
+          print(value)
+          PY
+          )"
+          image="${REPOSITORY}@${manifest_digest}"
+          docker pull "${image}"
+          docker run --rm "${image}" /tmp/toolchain-probe
+          runtime_dir=/opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu
+          docker run --rm "${image}" test -d "${runtime_dir}"
+          docker run --rm "${image}" sh -eu -c 'ldd /tmp/toolchain-probe' > "${receipt_dir}/ldd.txt"
+          python3 - "${receipt_dir}/ldd.txt" "${runtime_dir}" <<'PY'
+          # BEGIN P2996 LDD VERIFIER
+          import pathlib
+          import re
+          import sys
+
+          log_path, runtime_dir = pathlib.Path(sys.argv[1]), sys.argv[2].rstrip("/")
+          families = {
+              "libc++": re.compile(r"^libc\+\+\.so(?:\.[0-9]+)*$"),
+              "libc++abi": re.compile(r"^libc\+\+abi\.so(?:\.[0-9]+)*$"),
+              "libunwind": re.compile(r"^libunwind\.so(?:\.[0-9]+)*$"),
+          }
+          resolved = {family: [] for family in families}
+          for line in log_path.read_text(encoding="utf-8").splitlines():
+              tokens = line.split()
+              if not tokens:
+                  continue
+              if "=>" in tokens:
+                  marker = tokens.index("=>")
+                  if marker == 0 or marker + 1 >= len(tokens):
+                      raise SystemExit("malformed P2996 runtime linkage line")
+                  soname, path = tokens[0], tokens[marker + 1]
+              else:
+                  path = tokens[0]
+                  soname = pathlib.PurePosixPath(path).name
+              for family, pattern in families.items():
+                  if pattern.fullmatch(soname):
+                      resolved[family].append(path)
+          for family, paths in resolved.items():
+              if len(paths) != 1:
+                  raise SystemExit(f"P2996 runtime linkage must resolve exactly one {family}: {paths!r}")
+              path = paths[0]
+              if not path.startswith(runtime_dir + "/"):
+                  raise SystemExit(f"P2996 runtime linkage escaped the bundled directory: {family} -> {path}")
+          # END P2996 LDD VERIFIER
+          PY
+          runner_image="${ImageOS-unknown}/${ImageVersion-unknown}"
+          docker run --rm \
+            --volume "${GITHUB_WORKSPACE}:/src:ro" \
+            --volume "${GITHUB_WORKSPACE}/${receipt_dir}:/receipt" \
+            --workdir /src \
+            --env COMPILER_REVISION="${COMPILER_REVISION}" \
+            --env RUNNER_IMAGE="${runner_image}" \
+            "${image}" \
+            bash -euo pipefail -c '
+              cmake -S /src -B /tmp/candidate-platform-probe -G Ninja \
+                -DTYPELAYOUT_TOOLCHAIN_REVISION="${COMPILER_REVISION}"
+              cmake --build /tmp/candidate-platform-probe \
+                --target relocatable_world_platform_probe --parallel
+              /tmp/candidate-platform-probe/relocatable_world_platform_probe \
+                x86_64_linux_clang /receipt/platform-probe.json \
+                --runner ubuntu-24.04 --runner-image "${RUNNER_IMAGE}" \
+                --xcode-version none --xcode-build none \
+                --sdk-version none --sdk-build none \
+                --deployment-target none --sdk-locked true
+            '
+          export MANIFEST_DIGEST="${manifest_digest}"
+          python3 - "${receipt_dir}/receipt.json" "${receipt_dir}/platform-probe.json" <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import sys
+
+          digest = os.environ["MANIFEST_DIGEST"]
+          if re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None:
+              raise SystemExit("invalid manifest_digest")
+          sys.path.insert(0, str(pathlib.Path("tools").resolve()))
+          import relocatable_world_evidence as evidence
+          probe = evidence.validate_probe(pathlib.Path(sys.argv[2]))
+          expected_gates = {
+              "char_bit": 8,
+              "pointer_bits": 64,
+              "endian": "little",
+              "reflection": True,
+              "memcpy_object_lifetime": True,
+              "memcpy_array_lifetime": True,
+          }
+          if probe["node"] != os.environ["PROBE_NODE"] or probe["probe"] != expected_gates:
+              raise SystemExit("platform probe identity or capability mismatch")
+          if set(probe["admission"].values()) != {True}:
+              raise SystemExit("candidate must admit all four contract types")
+          if probe["environment"]["runner"] != os.environ["RUNNER_LABEL"]:
+              raise SystemExit("platform probe runner mismatch")
+          compiler = probe["compiler"]
+          if compiler["family"] != "clang" or compiler["revision"] != os.environ["COMPILER_REVISION"]:
+              raise SystemExit("platform probe compiler mismatch")
+          if compiler["target"] != "x86_64-unknown-linux-gnu":
+              raise SystemExit(f"linux/amd64 target mismatch: {compiler['target']!r}")
+          candidate_batch_id = os.environ["CANDIDATE_BATCH_ID"]
+          expected_batch_id = (
+              f"{os.environ['GITHUB_SHA']}:{os.environ['SOURCES_SHA256']}:"
+              f"{os.environ['GITHUB_RUN_ID']}"
+          )
+          if candidate_batch_id != expected_batch_id:
+              raise SystemExit("candidate batch identity mismatch")
+          batch_workflow_run = os.environ["BATCH_WORKFLOW_RUN"]
+          batch_match = re.fullmatch(
+              rf"{re.escape(os.environ['GITHUB_RUN_ID'])}\.([1-9][0-9]*)",
+              batch_workflow_run,
+          )
+          if batch_match is None or int(batch_match.group(1)) > int(os.environ["GITHUB_RUN_ATTEMPT"]):
+              raise SystemExit("candidate batch origin is invalid or from the future")
+          producer_workflow_run = f"{os.environ['GITHUB_RUN_ID']}.{os.environ['GITHUB_RUN_ATTEMPT']}"
+          record = {
+              "schema": 1,
+              "source_sha": os.environ["GITHUB_SHA"],
+              "sources_sha256": os.environ["SOURCES_SHA256"],
+              "candidate_batch_id": candidate_batch_id,
+              "workflow_run": batch_workflow_run,
+              "producer_workflow_run": producer_workflow_run,
+              "toolchain": os.environ["TOOLCHAIN"],
+              "repository": os.environ["REPOSITORY"],
+              "platform": os.environ["EXPECTED_PLATFORM"],
+              "manifest_digest": digest,
+              "compiler_revision": compiler["revision"],
+              "compiler_version": compiler["version"],
+              "target": compiler["target"],
+              "stdlib": compiler["stdlib"],
+          }
+          with open(sys.argv[1], "w", encoding="utf-8", newline="\n") as output:
+              json.dump(record, output, indent=2, sort_keys=True)
+              output.write("\n")
+          PY
+          rm "${receipt_dir}/build-metadata.json"
+
+      - name: Upload the native manifest receipt
+        id: upload_candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-p2996-amd64-${{ github.run_attempt }}
+          path: build/candidate-p2996-amd64/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+  build_p2996_arm64:
+    name: Build Bloomberg P2996 candidate (linux/arm64)
+    if: github.event_name == 'workflow_dispatch'
+    needs: initialize_candidate_batch
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      candidate_artifact_id: ${{ steps.upload_candidate.outputs.artifact-id }}
+    permissions:
+      contents: read
+      packages: write
+    env:
+      BATCH_WORKFLOW_RUN: ${{ needs.initialize_candidate_batch.outputs.workflow_run }}
+      BAKE_TARGET: p2996-arm64
+      CANDIDATE_BATCH_ID: ${{ needs.initialize_candidate_batch.outputs.candidate_batch_id }}
+      COMPILER: clang++
+      COMPILER_REVISION: 060be17654102019e14810c3f948ef85a490755f
+      EXPECTED_ARCH: arm64
+      EXPECTED_PLATFORM: linux/arm64
+      LOCK_RUNNER: ubuntu-24.04-arm
+      PROBE_NODE: arm64_linux_clang
+      REPOSITORY: ghcr.io/ximicpp/typelayout-p2996
+      RUNNER_LABEL: ubuntu-24.04-arm
+      TOOLCHAIN: p2996
+    steps:
+      - name: Check out the candidate commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate and load the committed source lock
+        id: lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/validate-toolchain-locks.py \
+            --sources .github/docker/toolchain-sources.lock \
+            --recipe-root .
+          python3 - "${LOCK_RUNNER}" "${GITHUB_OUTPUT}" >> "${GITHUB_ENV}" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+
+          lock_path = pathlib.Path(".github/docker/toolchain-sources.lock")
+          lock = json.loads(lock_path.read_text(encoding="utf-8"))
+          runner = lock["linux"]["docker"]["runners"][sys.argv[1]]
+          print(f"SOURCES_SHA256={hashlib.sha256(lock_path.read_bytes()).hexdigest()}")
+          print(f"LOCKED_DOCKER_CLIENT={runner['client_version']}")
+          print(f"LOCKED_DOCKER_SERVER={runner['server_version']}")
+          buildx_version = lock["linux"]["docker"]["buildx_version"]
+          print(f"LOCKED_BUILDX_VERSION={buildx_version}")
+          buildkit_image = lock["linux"]["docker"]["buildkit_image"]
+          print(f"LOCKED_BUILDKIT_IMAGE={buildkit_image}")
+          with open(sys.argv[2], "a", encoding="utf-8") as outputs:
+              outputs.write(f"buildkit_image={buildkit_image}\n")
+              outputs.write(f"buildx_version={buildx_version}\n")
+          PY
+
+      - name: Verify the locked Docker and Buildx identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(docker version --format '{{.Client.Version}}')" = "${LOCKED_DOCKER_CLIENT}"
+          test "$(docker version --format '{{.Server.Version}}')" = "${LOCKED_DOCKER_SERVER}"
+          buildx_output="$(docker buildx version)"
+          python3 - "${LOCKED_BUILDX_VERSION}" "${buildx_output}" <<'PY'
+          import re
+          import sys
+
+          expected, output = sys.argv[1:]
+          versions = re.findall(r"(?<![0-9])v?([0-9]+\.[0-9]+\.[0-9]+)(?![0-9])", output)
+          if expected not in versions:
+              raise SystemExit(f"Buildx version mismatch: {output!r} != {expected!r}")
+          PY
+
+      - name: Create the locked BuildKit builder
+        id: buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+        with:
+          driver: docker-container
+          driver-opts: image=${{ steps.lock.outputs.buildkit_image }}
+          version: v${{ steps.lock.outputs.buildx_version }}
+          cache-binary: false
+
+      - name: Verify the created builder
+        shell: bash
+        env:
+          BUILDER_NAME: ${{ steps.buildx.outputs.name }}
+        run: |
+          set -euo pipefail
+          buildx_output="$(docker buildx version)"
+          python3 - "${LOCKED_BUILDX_VERSION}" "${buildx_output}" <<'PY'
+          import re
+          import sys
+
+          expected, output = sys.argv[1:]
+          versions = re.findall(r"(?<![0-9])v?([0-9]+\.[0-9]+\.[0-9]+)(?![0-9])", output)
+          if expected not in versions:
+              raise SystemExit(f"Buildx version mismatch: {output!r} != {expected!r}")
+          PY
+          docker buildx inspect "${BUILDER_NAME}" --bootstrap | tee buildx-inspect.txt
+          grep -F 'Driver: docker-container' buildx-inspect.txt
+          grep -F "${LOCKED_BUILDKIT_IMAGE}" buildx-inspect.txt
+
+      - name: Log in to private GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the native manifest by digest
+        shell: bash
+        env:
+          BUILDER_NAME: ${{ steps.buildx.outputs.name }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/candidate-p2996-arm64
+          docker buildx bake \
+            --builder "${BUILDER_NAME}" \
+            --file .github/docker/docker-bake.hcl \
+            --metadata-file build/candidate-p2996-arm64/build-metadata.json \
+            --set "${BAKE_TARGET}.provenance=false" \
+            --set "${BAKE_TARGET}.sbom=false" \
+            --set "${BAKE_TARGET}.output=type=image,push-by-digest=true,name-canonical=true,oci-mediatypes=true,push=true" \
+            "p2996-arm64"
+
+      - name: Run the candidate probe and write its receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt_dir=build/candidate-p2996-arm64
+          manifest_digest="$(python3 - "${receipt_dir}/build-metadata.json" "${BAKE_TARGET}" <<'PY'
+          import json
+          import re
+          import sys
+
+          value = json.load(open(sys.argv[1], encoding="utf-8"))[sys.argv[2]]["containerimage.digest"]
+          if re.fullmatch(r"sha256:[0-9a-f]{64}", value) is None:
+              raise SystemExit(f"invalid manifest digest: {value!r}")
+          print(value)
+          PY
+          )"
+          image="${REPOSITORY}@${manifest_digest}"
+          docker pull "${image}"
+          docker run --rm "${image}" /tmp/toolchain-probe
+          runtime_dir=/opt/p2996-toolchain/lib/aarch64-unknown-linux-gnu
+          docker run --rm "${image}" test -d "${runtime_dir}"
+          docker run --rm "${image}" sh -eu -c 'ldd /tmp/toolchain-probe' > "${receipt_dir}/ldd.txt"
+          python3 - "${receipt_dir}/ldd.txt" "${runtime_dir}" <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          log_path, runtime_dir = pathlib.Path(sys.argv[1]), sys.argv[2].rstrip("/")
+          families = {
+              "libc++": re.compile(r"^libc\+\+\.so(?:\.[0-9]+)*$"),
+              "libc++abi": re.compile(r"^libc\+\+abi\.so(?:\.[0-9]+)*$"),
+              "libunwind": re.compile(r"^libunwind\.so(?:\.[0-9]+)*$"),
+          }
+          resolved = {family: [] for family in families}
+          for line in log_path.read_text(encoding="utf-8").splitlines():
+              tokens = line.split()
+              if not tokens:
+                  continue
+              if "=>" in tokens:
+                  marker = tokens.index("=>")
+                  if marker == 0 or marker + 1 >= len(tokens):
+                      raise SystemExit("malformed P2996 runtime linkage line")
+                  soname, path = tokens[0], tokens[marker + 1]
+              else:
+                  path = tokens[0]
+                  soname = pathlib.PurePosixPath(path).name
+              for family, pattern in families.items():
+                  if pattern.fullmatch(soname):
+                      resolved[family].append(path)
+          for family, paths in resolved.items():
+              if len(paths) != 1:
+                  raise SystemExit(f"P2996 runtime linkage must resolve exactly one {family}: {paths!r}")
+              path = paths[0]
+              if not path.startswith(runtime_dir + "/"):
+                  raise SystemExit(f"P2996 runtime linkage escaped the bundled directory: {family} -> {path}")
+          PY
+          runner_image="${ImageOS-unknown}/${ImageVersion-unknown}"
+          docker run --rm \
+            --volume "${GITHUB_WORKSPACE}:/src:ro" \
+            --volume "${GITHUB_WORKSPACE}/${receipt_dir}:/receipt" \
+            --workdir /src \
+            --env COMPILER_REVISION="${COMPILER_REVISION}" \
+            --env RUNNER_IMAGE="${runner_image}" \
+            "${image}" \
+            bash -euo pipefail -c '
+              cmake -S /src -B /tmp/candidate-platform-probe -G Ninja \
+                -DTYPELAYOUT_TOOLCHAIN_REVISION="${COMPILER_REVISION}"
+              cmake --build /tmp/candidate-platform-probe \
+                --target relocatable_world_platform_probe --parallel
+              /tmp/candidate-platform-probe/relocatable_world_platform_probe \
+                arm64_linux_clang /receipt/platform-probe.json \
+                --runner ubuntu-24.04-arm --runner-image "${RUNNER_IMAGE}" \
+                --xcode-version none --xcode-build none \
+                --sdk-version none --sdk-build none \
+                --deployment-target none --sdk-locked true
+            '
+          export MANIFEST_DIGEST="${manifest_digest}"
+          python3 - "${receipt_dir}/receipt.json" "${receipt_dir}/platform-probe.json" <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import sys
+
+          digest = os.environ["MANIFEST_DIGEST"]
+          if re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None:
+              raise SystemExit("invalid manifest_digest")
+          sys.path.insert(0, str(pathlib.Path("tools").resolve()))
+          import relocatable_world_evidence as evidence
+          probe = evidence.validate_probe(pathlib.Path(sys.argv[2]))
+          expected_gates = {
+              "char_bit": 8,
+              "pointer_bits": 64,
+              "endian": "little",
+              "reflection": True,
+              "memcpy_object_lifetime": True,
+              "memcpy_array_lifetime": True,
+          }
+          if probe["node"] != os.environ["PROBE_NODE"] or probe["probe"] != expected_gates:
+              raise SystemExit("platform probe identity or capability mismatch")
+          if set(probe["admission"].values()) != {True}:
+              raise SystemExit("candidate must admit all four contract types")
+          if probe["environment"]["runner"] != os.environ["RUNNER_LABEL"]:
+              raise SystemExit("platform probe runner mismatch")
+          compiler = probe["compiler"]
+          if compiler["family"] != "clang" or compiler["revision"] != os.environ["COMPILER_REVISION"]:
+              raise SystemExit("platform probe compiler mismatch")
+          if compiler["target"] != "aarch64-unknown-linux-gnu":
+              raise SystemExit(f"linux/arm64 target mismatch: {compiler['target']!r}")
+          candidate_batch_id = os.environ["CANDIDATE_BATCH_ID"]
+          expected_batch_id = (
+              f"{os.environ['GITHUB_SHA']}:{os.environ['SOURCES_SHA256']}:"
+              f"{os.environ['GITHUB_RUN_ID']}"
+          )
+          if candidate_batch_id != expected_batch_id:
+              raise SystemExit("candidate batch identity mismatch")
+          batch_workflow_run = os.environ["BATCH_WORKFLOW_RUN"]
+          batch_match = re.fullmatch(
+              rf"{re.escape(os.environ['GITHUB_RUN_ID'])}\.([1-9][0-9]*)",
+              batch_workflow_run,
+          )
+          if batch_match is None or int(batch_match.group(1)) > int(os.environ["GITHUB_RUN_ATTEMPT"]):
+              raise SystemExit("candidate batch origin is invalid or from the future")
+          producer_workflow_run = f"{os.environ['GITHUB_RUN_ID']}.{os.environ['GITHUB_RUN_ATTEMPT']}"
+          record = {
+              "schema": 1,
+              "source_sha": os.environ["GITHUB_SHA"],
+              "sources_sha256": os.environ["SOURCES_SHA256"],
+              "candidate_batch_id": candidate_batch_id,
+              "workflow_run": batch_workflow_run,
+              "producer_workflow_run": producer_workflow_run,
+              "toolchain": os.environ["TOOLCHAIN"],
+              "repository": os.environ["REPOSITORY"],
+              "platform": os.environ["EXPECTED_PLATFORM"],
+              "manifest_digest": digest,
+              "compiler_revision": compiler["revision"],
+              "compiler_version": compiler["version"],
+              "target": compiler["target"],
+              "stdlib": compiler["stdlib"],
+          }
+          with open(sys.argv[1], "w", encoding="utf-8", newline="\n") as output:
+              json.dump(record, output, indent=2, sort_keys=True)
+              output.write("\n")
+          PY
+          rm "${receipt_dir}/build-metadata.json"
+
+      - name: Upload the native manifest receipt
+        id: upload_candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-p2996-arm64-${{ github.run_attempt }}
+          path: build/candidate-p2996-arm64/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+  build_p2996_macos_arm64:
+    name: Build Bloomberg P2996 candidate (macOS ARM64)
+    if: github.event_name == 'workflow_dispatch'
+    needs: initialize_candidate_batch
+    runs-on: macos-15
+    outputs:
+      candidate_artifact_id: ${{ steps.upload_candidate.outputs.artifact-id }}
+    env:
+      BATCH_WORKFLOW_RUN: ${{ needs.initialize_candidate_batch.outputs.workflow_run }}
+      CANDIDATE_BATCH_ID: ${{ needs.initialize_candidate_batch.outputs.candidate_batch_id }}
+      EXPECTED_ARCHITECTURE: arm64
+      MACOS_NODE: arm64_macos_clang
+      OUTPUT_DIR: build/candidate-macos-arm64
+    steps:
+      - name: Check out the candidate commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate the committed source lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/validate-toolchain-locks.py \
+            --sources .github/docker/toolchain-sources.lock \
+            --recipe-root .
+
+      - name: Build and verify the locked native archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          .github/scripts/build-p2996-macos.sh \
+            --sources .github/docker/toolchain-sources.lock \
+            --node arm64_macos_clang \
+            --output-dir "${OUTPUT_DIR}"
+          archive="$(find "${OUTPUT_DIR}" -maxdepth 1 -type f -name 'p2996-macos-arm64-*.tar.zst' -print)"
+          test -n "${archive}"
+          test "$(printf '%s\n' "${archive}" | wc -l | tr -d '[:space:]')" = 1
+          metadata="${archive%.tar.zst}.metadata.json"
+          verification="${archive%.tar.zst}.verification.json"
+          archive_sha256="$(python3 - "${metadata}" <<'PY'
+          import json
+          import sys
+          print(json.load(open(sys.argv[1], encoding="utf-8"))["archive_sha256"])
+          PY
+          )"
+          .github/scripts/verify-p2996-toolchain.sh \
+            --sources .github/docker/toolchain-sources.lock \
+            --node arm64_macos_clang \
+            --candidate-archive "${archive}" \
+            --candidate-sha256 "${archive_sha256}" \
+            --require-locked-sdk \
+            --metadata-output "${verification}"
+
+      - name: Validate the archive metadata contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "${OUTPUT_DIR}" "${MACOS_NODE}" "${EXPECTED_ARCHITECTURE}" <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          import sys
+
+          def sha256_file(path):
+              digest = hashlib.sha256()
+              with path.open("rb") as stream:
+                  for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          output_dir, node, architecture = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+          source_path = pathlib.Path(".github/docker/toolchain-sources.lock")
+          source = json.loads(source_path.read_text(encoding="utf-8"))
+          sources_sha256 = hashlib.sha256(source_path.read_bytes()).hexdigest()
+          revision = source["p2996"]["compiler_revision"]
+          stem = f"p2996-macos-{architecture}-{revision}"
+          archive = output_dir / f"{stem}.tar.zst"
+          build_path = output_dir / f"{stem}.metadata.json"
+          verify_path = output_dir / f"{stem}.verification.json"
+          expected_files = {archive.name, build_path.name, verify_path.name}
+          actual_files = {path.name for path in output_dir.iterdir() if path.is_file()}
+          if actual_files != expected_files:
+              raise SystemExit(f"unexpected macOS candidate files: {actual_files!r}")
+          build = json.loads(build_path.read_text(encoding="utf-8"))
+          verify = json.loads(verify_path.read_text(encoding="utf-8"))
+          build_keys = {
+              "schema", "node", "architecture", "compiler_revision", "archive",
+              "archive_sha256", "archive_size", "xcode_version", "xcode_build",
+              "sdk_version", "sdk_build", "deployment_target", "observed_runner",
+          }
+          verify_keys = {
+              "schema", "node", "architecture", "archive_sha256", "compiler_revision",
+              "compiler_version", "target", "stdlib", "xcode_version", "xcode_build",
+              "sdk_version", "sdk_build", "deployment_target", "sdk_locked",
+              "observed_runner", "environment", "flags",
+          }
+          if set(build) != build_keys or set(verify) != verify_keys:
+              raise SystemExit("non-canonical macOS metadata keys")
+          locked = source["macos"]["nodes"][node]
+          expected = {
+              "node": node,
+              "architecture": architecture,
+              "compiler_revision": revision,
+              "xcode_version": locked["xcode_version"],
+              "xcode_build": locked["xcode_build"],
+              "sdk_version": locked["sdk_version"],
+              "sdk_build": locked["sdk_build"],
+              "deployment_target": locked["deployment_target"],
+          }
+          for key, value in expected.items():
+              if build.get(key) != value or verify.get(key) != value:
+                  raise SystemExit(f"macOS {key} mismatch")
+          digest = sha256_file(archive)
+          if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+              raise SystemExit("invalid archive digest")
+          if build["archive"] != archive.name or build["archive_sha256"] != digest:
+              raise SystemExit("archive build metadata mismatch")
+          if verify["archive_sha256"] != digest or verify["sdk_locked"] is not True:
+              raise SystemExit("archive verification mismatch")
+          if build["archive_size"] != archive.stat().st_size or not (0 < archive.stat().st_size < 2147483648):
+              raise SystemExit("archive size must be below 2147483648 bytes")
+          if build["observed_runner"] != verify["observed_runner"]:
+              raise SystemExit("observed runner mismatch")
+          if set(build["observed_runner"]) != {"image_os", "image_version"}:
+              raise SystemExit("observed runner keys mismatch")
+          if any(not value for value in build["observed_runner"].values()):
+              raise SystemExit("empty observed runner identity")
+          if verify["target"] != "arm64-apple-macosx15.0.0":
+              raise SystemExit(f"compiler target mismatch: {verify['target']!r}")
+          if any(not verify[key].strip() for key in ("compiler_version", "stdlib")):
+              raise SystemExit("empty verified compiler identity")
+          candidate_batch_id = os.environ["CANDIDATE_BATCH_ID"]
+          expected_batch_id = (
+              f"{os.environ['GITHUB_SHA']}:{sources_sha256}:"
+              f"{os.environ['GITHUB_RUN_ID']}"
+          )
+          if candidate_batch_id != expected_batch_id:
+              raise SystemExit("candidate batch identity mismatch")
+          batch_workflow_run = os.environ["BATCH_WORKFLOW_RUN"]
+          batch_match = re.fullmatch(
+              rf"{re.escape(os.environ['GITHUB_RUN_ID'])}\.([1-9][0-9]*)",
+              batch_workflow_run,
+          )
+          if batch_match is None or int(batch_match.group(1)) > int(os.environ["GITHUB_RUN_ATTEMPT"]):
+              raise SystemExit("candidate batch origin is invalid or from the future")
+          producer_workflow_run = f"{os.environ['GITHUB_RUN_ID']}.{os.environ['GITHUB_RUN_ATTEMPT']}"
+          candidate_receipt = {
+              "schema": 1,
+              "source_sha": os.environ["GITHUB_SHA"],
+              "sources_sha256": sources_sha256,
+              "candidate_batch_id": candidate_batch_id,
+              "workflow_run": batch_workflow_run,
+              "producer_workflow_run": producer_workflow_run,
+              "node": node,
+              "archive_sha256": digest,
+          }
+          with open(output_dir / "candidate-receipt.json", "w", encoding="utf-8", newline="\n") as output:
+              json.dump(candidate_receipt, output, indent=2, sort_keys=True)
+              output.write("\n")
+          PY
+
+      - name: Upload the native macOS archive
+        id: upload_candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-macos-arm64-${{ github.run_attempt }}
+          path: build/candidate-macos-arm64
+          if-no-files-found: error
+          retention-days: 7
+
+  build_p2996_macos_x86_64:
+    name: Build Bloomberg P2996 candidate (macOS x86-64)
+    if: github.event_name == 'workflow_dispatch'
+    needs: initialize_candidate_batch
+    runs-on: macos-15-intel
+    outputs:
+      candidate_artifact_id: ${{ steps.upload_candidate.outputs.artifact-id }}
+    env:
+      BATCH_WORKFLOW_RUN: ${{ needs.initialize_candidate_batch.outputs.workflow_run }}
+      CANDIDATE_BATCH_ID: ${{ needs.initialize_candidate_batch.outputs.candidate_batch_id }}
+      EXPECTED_ARCHITECTURE: x86_64
+      MACOS_NODE: x86_64_macos_clang
+      OUTPUT_DIR: build/candidate-macos-x86_64
+    steps:
+      - name: Check out the candidate commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate the committed source lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/validate-toolchain-locks.py \
+            --sources .github/docker/toolchain-sources.lock \
+            --recipe-root .
+
+      - name: Build and verify the locked native archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          .github/scripts/build-p2996-macos.sh \
+            --sources .github/docker/toolchain-sources.lock \
+            --node x86_64_macos_clang \
+            --output-dir "${OUTPUT_DIR}"
+          archive="$(find "${OUTPUT_DIR}" -maxdepth 1 -type f -name 'p2996-macos-x86_64-*.tar.zst' -print)"
+          test -n "${archive}"
+          test "$(printf '%s\n' "${archive}" | wc -l | tr -d '[:space:]')" = 1
+          metadata="${archive%.tar.zst}.metadata.json"
+          verification="${archive%.tar.zst}.verification.json"
+          archive_sha256="$(python3 - "${metadata}" <<'PY'
+          import json
+          import sys
+          print(json.load(open(sys.argv[1], encoding="utf-8"))["archive_sha256"])
+          PY
+          )"
+          .github/scripts/verify-p2996-toolchain.sh \
+            --sources .github/docker/toolchain-sources.lock \
+            --node x86_64_macos_clang \
+            --candidate-archive "${archive}" \
+            --candidate-sha256 "${archive_sha256}" \
+            --require-locked-sdk \
+            --metadata-output "${verification}"
+
+      - name: Validate the archive metadata contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "${OUTPUT_DIR}" "${MACOS_NODE}" "${EXPECTED_ARCHITECTURE}" <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          import sys
+
+          def sha256_file(path):
+              digest = hashlib.sha256()
+              with path.open("rb") as stream:
+                  for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          output_dir, node, architecture = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+          source_path = pathlib.Path(".github/docker/toolchain-sources.lock")
+          source = json.loads(source_path.read_text(encoding="utf-8"))
+          sources_sha256 = hashlib.sha256(source_path.read_bytes()).hexdigest()
+          revision = source["p2996"]["compiler_revision"]
+          stem = f"p2996-macos-{architecture}-{revision}"
+          archive = output_dir / f"{stem}.tar.zst"
+          build_path = output_dir / f"{stem}.metadata.json"
+          verify_path = output_dir / f"{stem}.verification.json"
+          expected_files = {archive.name, build_path.name, verify_path.name}
+          actual_files = {path.name for path in output_dir.iterdir() if path.is_file()}
+          if actual_files != expected_files:
+              raise SystemExit(f"unexpected macOS candidate files: {actual_files!r}")
+          build = json.loads(build_path.read_text(encoding="utf-8"))
+          verify = json.loads(verify_path.read_text(encoding="utf-8"))
+          build_keys = {
+              "schema", "node", "architecture", "compiler_revision", "archive",
+              "archive_sha256", "archive_size", "xcode_version", "xcode_build",
+              "sdk_version", "sdk_build", "deployment_target", "observed_runner",
+          }
+          verify_keys = {
+              "schema", "node", "architecture", "archive_sha256", "compiler_revision",
+              "compiler_version", "target", "stdlib", "xcode_version", "xcode_build",
+              "sdk_version", "sdk_build", "deployment_target", "sdk_locked",
+              "observed_runner", "environment", "flags",
+          }
+          if set(build) != build_keys or set(verify) != verify_keys:
+              raise SystemExit("non-canonical macOS metadata keys")
+          locked = source["macos"]["nodes"][node]
+          expected = {
+              "node": node,
+              "architecture": architecture,
+              "compiler_revision": revision,
+              "xcode_version": locked["xcode_version"],
+              "xcode_build": locked["xcode_build"],
+              "sdk_version": locked["sdk_version"],
+              "sdk_build": locked["sdk_build"],
+              "deployment_target": locked["deployment_target"],
+          }
+          for key, value in expected.items():
+              if build.get(key) != value or verify.get(key) != value:
+                  raise SystemExit(f"macOS {key} mismatch")
+          digest = sha256_file(archive)
+          if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+              raise SystemExit("invalid archive digest")
+          if build["archive"] != archive.name or build["archive_sha256"] != digest:
+              raise SystemExit("archive build metadata mismatch")
+          if verify["archive_sha256"] != digest or verify["sdk_locked"] is not True:
+              raise SystemExit("archive verification mismatch")
+          if build["archive_size"] != archive.stat().st_size or not (0 < archive.stat().st_size < 2147483648):
+              raise SystemExit("archive size must be below 2147483648 bytes")
+          if build["observed_runner"] != verify["observed_runner"]:
+              raise SystemExit("observed runner mismatch")
+          if set(build["observed_runner"]) != {"image_os", "image_version"}:
+              raise SystemExit("observed runner keys mismatch")
+          if any(not value for value in build["observed_runner"].values()):
+              raise SystemExit("empty observed runner identity")
+          if verify["target"] != "x86_64-apple-macosx15.0.0":
+              raise SystemExit(f"compiler target mismatch: {verify['target']!r}")
+          if any(not verify[key].strip() for key in ("compiler_version", "stdlib")):
+              raise SystemExit("empty verified compiler identity")
+          candidate_batch_id = os.environ["CANDIDATE_BATCH_ID"]
+          expected_batch_id = (
+              f"{os.environ['GITHUB_SHA']}:{sources_sha256}:"
+              f"{os.environ['GITHUB_RUN_ID']}"
+          )
+          if candidate_batch_id != expected_batch_id:
+              raise SystemExit("candidate batch identity mismatch")
+          batch_workflow_run = os.environ["BATCH_WORKFLOW_RUN"]
+          batch_match = re.fullmatch(
+              rf"{re.escape(os.environ['GITHUB_RUN_ID'])}\.([1-9][0-9]*)",
+              batch_workflow_run,
+          )
+          if batch_match is None or int(batch_match.group(1)) > int(os.environ["GITHUB_RUN_ATTEMPT"]):
+              raise SystemExit("candidate batch origin is invalid or from the future")
+          producer_workflow_run = f"{os.environ['GITHUB_RUN_ID']}.{os.environ['GITHUB_RUN_ATTEMPT']}"
+          candidate_receipt = {
+              "schema": 1,
+              "source_sha": os.environ["GITHUB_SHA"],
+              "sources_sha256": sources_sha256,
+              "candidate_batch_id": candidate_batch_id,
+              "workflow_run": batch_workflow_run,
+              "producer_workflow_run": producer_workflow_run,
+              "node": node,
+              "archive_sha256": digest,
+          }
+          with open(output_dir / "candidate-receipt.json", "w", encoding="utf-8", newline="\n") as output:
+              json.dump(candidate_receipt, output, indent=2, sort_keys=True)
+              output.write("\n")
+          PY
+
+      - name: Upload the native macOS archive
+        id: upload_candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-macos-x86_64-${{ github.run_attempt }}
+          path: build/candidate-macos-x86_64
+          if-no-files-found: error
+          retention-days: 7
+
+  index_gcc:
+    name: Seal the GCC 16.2 two-platform index
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    outputs:
+      candidate_artifact_id: ${{ steps.upload_candidate.outputs.artifact-id }}
+    needs:
+      - build_gcc_amd64
+      - build_gcc_arm64
+      - build_p2996_amd64
+      - build_p2996_arm64
+      - build_p2996_macos_arm64
+      - build_p2996_macos_x86_64
+    permissions:
+      contents: read
+      packages: write
+    env:
+      EXPECTED_REVISION: 16.2.0
+      INDEX_ARTIFACT: candidate-gcc-index
+      LOCK_RUNNER: ubuntu-24.04
+      REPOSITORY: ghcr.io/ximicpp/typelayout-gcc16
+      TOOLCHAIN: gcc
+    steps:
+      - name: Check out the candidate commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate and load the committed source lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/validate-toolchain-locks.py \
+            --sources .github/docker/toolchain-sources.lock \
+            --recipe-root .
+          python3 - "${LOCK_RUNNER}" >> "${GITHUB_ENV}" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+
+          path = pathlib.Path(".github/docker/toolchain-sources.lock")
+          lock = json.loads(path.read_text(encoding="utf-8"))
+          runner = lock["linux"]["docker"]["runners"][sys.argv[1]]
+          print(f"SOURCES_SHA256={hashlib.sha256(path.read_bytes()).hexdigest()}")
+          print(f"LOCKED_DOCKER_CLIENT={runner['client_version']}")
+          print(f"LOCKED_DOCKER_SERVER={runner['server_version']}")
+          print(f"LOCKED_BUILDX_VERSION={lock['linux']['docker']['buildx_version']}")
+          PY
+
+      - name: Verify the locked Docker and Buildx identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(docker version --format '{{.Client.Version}}')" = "${LOCKED_DOCKER_CLIENT}"
+          test "$(docker version --format '{{.Server.Version}}')" = "${LOCKED_DOCKER_SERVER}"
+          buildx_output="$(docker buildx version)"
+          python3 - "${LOCKED_BUILDX_VERSION}" "${buildx_output}" <<'PY'
+          import re
+          import sys
+
+          expected, output = sys.argv[1:]
+          versions = re.findall(r"(?<![0-9])v?([0-9]+\.[0-9]+\.[0-9]+)(?![0-9])", output)
+          if expected not in versions:
+              raise SystemExit(f"Buildx version mismatch: {output!r} != {expected!r}")
+          PY
+
+      - name: Log in to private GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download the amd64 manifest receipt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.build_gcc_amd64.outputs.candidate_artifact_id }}
+          merge-multiple: true
+          path: build/index-gcc/amd64
+
+      - name: Download the arm64 manifest receipt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.build_gcc_arm64.outputs.candidate_artifact_id }}
+          merge-multiple: true
+          path: build/index-gcc/arm64
+
+      - name: Validate the native receipts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - build/index-gcc <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import sys
+
+          def reject_duplicates(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(f"duplicate key: {key}")
+                  result[key] = value
+              return result
+
+          root = pathlib.Path(sys.argv[1])
+          records = {}
+          exact_keys = {
+              "schema", "source_sha", "sources_sha256", "candidate_batch_id",
+              "workflow_run", "producer_workflow_run", "toolchain",
+              "repository", "platform", "manifest_digest", "compiler_revision",
+              "compiler_version", "target", "stdlib",
+          }
+          candidate_batch_id = (
+              f"{os.environ['GITHUB_SHA']}:{os.environ['SOURCES_SHA256']}:"
+              f"{os.environ['GITHUB_RUN_ID']}"
+          )
+          static_identity = {
+              "schema": 1,
+              "source_sha": os.environ["GITHUB_SHA"],
+              "sources_sha256": os.environ["SOURCES_SHA256"],
+              "candidate_batch_id": candidate_batch_id,
+              "toolchain": os.environ["TOOLCHAIN"],
+              "repository": os.environ["REPOSITORY"],
+              "compiler_revision": os.environ["EXPECTED_REVISION"],
+          }
+          for architecture, platform in (("amd64", "linux/amd64"), ("arm64", "linux/arm64")):
+              path = root / architecture / "receipt.json"
+              if set(path.parent.iterdir()) != {path}:
+                  raise SystemExit(f"unexpected receipt files for {platform}")
+              record = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicates)
+              if set(record) != exact_keys:
+                  raise SystemExit(f"non-canonical receipt keys for {platform}")
+              for key, value in static_identity.items():
+                  if record.get(key) != value:
+                      raise SystemExit(f"{platform} {key} mismatch")
+              producer = re.fullmatch(
+                  rf"{re.escape(os.environ['GITHUB_RUN_ID'])}\.([1-9][0-9]*)",
+                  str(record["producer_workflow_run"]),
+              )
+              if producer is None or int(producer.group(1)) > int(os.environ["GITHUB_RUN_ATTEMPT"]):
+                  raise SystemExit(f"{platform} producer workflow identity is invalid or from the future")
+              if record["platform"] != platform:
+                  raise SystemExit(f"platform mismatch: {record['platform']!r}")
+              if re.fullmatch(r"sha256:[0-9a-f]{64}", record["manifest_digest"]) is None:
+                  raise SystemExit(f"invalid {platform} digest")
+              records[platform] = record
+          batch_workflow_runs = {record["workflow_run"] for record in records.values()}
+          if len(batch_workflow_runs) != 1:
+              raise SystemExit("native receipts disagree on candidate batch origin")
+          batch_workflow_run = batch_workflow_runs.pop()
+          batch_origin = re.fullmatch(
+              rf"{re.escape(os.environ['GITHUB_RUN_ID'])}\.([1-9][0-9]*)",
+              str(batch_workflow_run),
+          )
+          if batch_origin is None or int(batch_origin.group(1)) > int(os.environ["GITHUB_RUN_ATTEMPT"]):
+              raise SystemExit("candidate batch origin is invalid or from the future")
+          batch_origin_attempt = int(batch_origin.group(1))
+          for platform, record in records.items():
+              producer = re.fullmatch(
+                  rf"{re.escape(os.environ['GITHUB_RUN_ID'])}\.([1-9][0-9]*)",
+                  str(record["producer_workflow_run"]),
+              )
+              if producer is None or int(producer.group(1)) < batch_origin_attempt:
+                  raise SystemExit(f"{platform} producer predates the candidate batch origin")
+          identity = {
+              **static_identity,
+              "workflow_run": batch_workflow_run,
+          }
+          for key in ("compiler_revision", "compiler_version", "stdlib"):
+              if records["linux/amd64"][key] != records["linux/arm64"][key]:
+                  raise SystemExit(f"cross-architecture {key} mismatch")
+          if records["linux/amd64"]["target"].split("-", 1)[0] != "x86_64":
+              raise SystemExit("amd64 compiler target mismatch")
+          if records["linux/arm64"]["target"].split("-", 1)[0] != "aarch64":
+              raise SystemExit("arm64 compiler target mismatch")
+          digests = {record["manifest_digest"] for record in records.values()}
+          if len(digests) != 2:
+              raise SystemExit("platform manifest digests must be unique")
+          expected_map = {platform: record["manifest_digest"] for platform, record in records.items()}
+          base = {
+              **identity,
+              "producer_workflow_run": f"{os.environ['GITHUB_RUN_ID']}.{os.environ['GITHUB_RUN_ATTEMPT']}",
+              "platform_producer_workflow_runs": {
+                  platform: record["producer_workflow_run"]
+                  for platform, record in records.items()
+              },
+              "compiler_version": records["linux/amd64"]["compiler_version"],
+              "stdlib": records["linux/amd64"]["stdlib"],
+              "platforms": {
+                  platform: {
+                      "manifest_digest": record["manifest_digest"],
+                      "target": record["target"],
+                  }
+                  for platform, record in records.items()
+              },
+          }
+          for name, value in (("expected-map.json", expected_map), ("index-base.json", base)):
+              with open(root / name, "w", encoding="utf-8", newline="\n") as output:
+                  json.dump(value, output, indent=2, sort_keys=True)
+                  output.write("\n")
+          PY
+
+      - name: Bind exact OCI child descriptors
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=build/index-gcc
+          for architecture in amd64 arm64; do
+            platform="linux/${architecture}"
+            digest="$(python3 - "${root}/expected-map.json" "${platform}" <<'PY'
+          import json
+          import sys
+          print(json.load(open(sys.argv[1], encoding="utf-8"))[sys.argv[2]])
+          PY
+          )"
+            docker buildx imagetools inspect --raw "${REPOSITORY}@${digest}" > "${root}/child-${architecture}.json"
+          done
+          python3 - "${root}" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+
+          root = pathlib.Path(sys.argv[1])
+          expected_map = json.loads((root / "expected-map.json").read_text(encoding="utf-8"))
+          if set(expected_map) != {"linux/amd64", "linux/arm64"}:
+              raise SystemExit("candidate platform map is not exact")
+          descriptors = []
+          for architecture in ("amd64", "arm64"):
+              platform = f"linux/{architecture}"
+              raw_bytes = (root / f"child-{architecture}.json").read_bytes()
+              digest = "sha256:" + hashlib.sha256(raw_bytes).hexdigest()
+              if digest != expected_map[platform]:
+                  raise SystemExit(f"{platform} raw manifest digest mismatch")
+              manifest = json.loads(raw_bytes)
+              media_type = "application/vnd.oci.image.manifest.v1+json"
+              if manifest.get("mediaType") != media_type:
+                  raise SystemExit(f"{platform} is not an OCI image manifest")
+              descriptors.append({
+                  "mediaType": media_type,
+                  "digest": digest,
+                  "size": len(raw_bytes),
+                  "platform": {"os": "linux", "architecture": architecture},
+              })
+          with open(root / "expected-descriptors.json", "w", encoding="utf-8", newline="\n") as output:
+              json.dump(descriptors, output, indent=2)
+              output.write("\n")
+          PY
+
+      - name: Create or verify the immutable canonical index
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=build/index-gcc
+          canonical="${REPOSITORY}:source-${SOURCES_SHA256}"
+          exact_index_map() {
+            python3 - "$1" "${root}/expected-descriptors.json" "$2" <<'PY'
+          # BEGIN OCI INDEX VERIFIER
+          import hashlib
+          import json
+          import re
+          import sys
+
+          def reject_duplicates(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(f"duplicate JSON key: {key}")
+                  result[key] = value
+              return result
+
+          raw_bytes = open(sys.argv[1], "rb").read()
+          reported_digest = sys.argv[3]
+          actual_digest = "sha256:" + hashlib.sha256(raw_bytes).hexdigest()
+          if re.fullmatch(r"sha256:[0-9a-f]{64}", reported_digest) is None:
+              raise SystemExit("reported index digest is invalid")
+          if actual_digest != reported_digest:
+              raise SystemExit("reported index digest is not bound to the raw index bytes")
+          raw = json.loads(raw_bytes, object_pairs_hook=reject_duplicates)
+          expected = json.load(open(sys.argv[2], encoding="utf-8"), object_pairs_hook=reject_duplicates)
+          if set(raw) != {"schemaVersion", "mediaType", "manifests"}:
+              raise SystemExit("index root contains non-canonical fields")
+          if raw["schemaVersion"] != 2 or raw["mediaType"] != "application/vnd.oci.image.index.v1+json":
+              raise SystemExit("index schema or media type is not canonical OCI")
+          manifests = raw["manifests"]
+          if not isinstance(manifests, list) or len(manifests) != 2 or not isinstance(expected, list):
+              raise SystemExit("index must contain exactly two ordered descriptors")
+          expected_platforms = (("linux", "amd64"), ("linux", "arm64"))
+          for descriptor, (expected_os, expected_architecture) in zip(manifests, expected_platforms):
+              if not isinstance(descriptor, dict) or set(descriptor) != {"mediaType", "digest", "size", "platform"}:
+                  raise SystemExit("index descriptor contains non-canonical fields")
+              if descriptor["mediaType"] != "application/vnd.oci.image.manifest.v1+json":
+                  raise SystemExit("index descriptor media type is not canonical OCI")
+              if re.fullmatch(r"sha256:[0-9a-f]{64}", str(descriptor["digest"])) is None:
+                  raise SystemExit("index descriptor digest is invalid")
+              if isinstance(descriptor["size"], bool) or not isinstance(descriptor["size"], int) or descriptor["size"] <= 0:
+                  raise SystemExit("index descriptor size is invalid")
+              platform = descriptor.get("platform")
+              if platform != {"os": expected_os, "architecture": expected_architecture}:
+                  raise SystemExit("non-canonical platform descriptor")
+          if manifests != expected:
+              raise SystemExit("index descriptor order, media type, size, digest, or platform mismatch")
+          # END OCI INDEX VERIFIER
+          PY
+          }
+          reported_index_digest() {
+            python3 - "$1" <<'PY'
+          import json
+          import re
+          import sys
+          digest = json.load(open(sys.argv[1], encoding="utf-8"))["digest"]
+          if re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None:
+              raise SystemExit("invalid reported index digest")
+          print(digest)
+          PY
+          }
+          if docker buildx imagetools inspect --raw "${canonical}" > "${root}/existing-index.json" 2> "${root}/inspect-error.txt"; then
+            docker buildx imagetools inspect "${canonical}" --format '{{json .Manifest}}' > "${root}/existing-summary.json"
+            existing_digest="$(reported_index_digest "${root}/existing-summary.json")"
+            exact_index_map "${root}/existing-index.json" "${existing_digest}"
+          else
+            if ! grep -Eqi 'manifest unknown|name unknown|not found' "${root}/inspect-error.txt"; then
+              cat "${root}/inspect-error.txt" >&2
+              exit 1
             fi
-          } >> "$GITHUB_STEP_SUMMARY"
+            amd64="$(python3 -c 'import json; print(json.load(open("build/index-gcc/expected-map.json"))["linux/amd64"])')"
+            arm64="$(python3 -c 'import json; print(json.load(open("build/index-gcc/expected-map.json"))["linux/arm64"])')"
+            docker buildx imagetools create \
+              --tag "${canonical}" \
+              --metadata-file "${root}/create-metadata.json" \
+              "${REPOSITORY}@${amd64}" \
+              "${REPOSITORY}@${arm64}"
+          fi
+          docker buildx imagetools inspect --raw "${canonical}" > "${root}/published-index.json"
+          docker buildx imagetools inspect "${canonical}" --format '{{json .Manifest}}' > "${root}/manifest-summary.json"
+          index_digest="$(reported_index_digest "${root}/manifest-summary.json")"
+          exact_index_map "${root}/published-index.json" "${index_digest}"
+          docker buildx imagetools inspect --raw "${REPOSITORY}@${index_digest}" > "${root}/digest-index.json"
+          docker buildx imagetools inspect "${REPOSITORY}@${index_digest}" --format '{{json .Manifest}}' > "${root}/digest-summary.json"
+          digest_reference="$(reported_index_digest "${root}/digest-summary.json")"
+          test "${digest_reference}" = "${index_digest}"
+          exact_index_map "${root}/digest-index.json" "${digest_reference}"
+          export INDEX_DIGEST="${index_digest}"
+          python3 - "${root}/index-base.json" "${root}/receipt.json" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          record = json.load(open(sys.argv[1], encoding="utf-8"))
+          digest = os.environ["INDEX_DIGEST"]
+          platform_digests = {item["manifest_digest"] for item in record["platforms"].values()}
+          if re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None or digest in platform_digests:
+              raise SystemExit("invalid or colliding index digest")
+          record["index_digest"] = digest
+          with open(sys.argv[2], "w", encoding="utf-8", newline="\n") as output:
+              json.dump(record, output, indent=2, sort_keys=True)
+              output.write("\n")
+          PY
+
+      - name: Upload the GCC index receipt
+        id: upload_candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-gcc-index-${{ github.run_attempt }}
+          path: build/index-gcc/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+  index_p2996:
+    name: Seal the Bloomberg P2996 two-platform index
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    outputs:
+      candidate_artifact_id: ${{ steps.upload_candidate.outputs.artifact-id }}
+    needs:
+      - build_gcc_amd64
+      - build_gcc_arm64
+      - build_p2996_amd64
+      - build_p2996_arm64
+      - build_p2996_macos_arm64
+      - build_p2996_macos_x86_64
+    permissions:
+      contents: read
+      packages: write
+    env:
+      EXPECTED_REVISION: 060be17654102019e14810c3f948ef85a490755f
+      INDEX_ARTIFACT: candidate-p2996-index
+      LOCK_RUNNER: ubuntu-24.04
+      REPOSITORY: ghcr.io/ximicpp/typelayout-p2996
+      TOOLCHAIN: p2996
+    steps:
+      - name: Check out the candidate commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate and load the committed source lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/validate-toolchain-locks.py \
+            --sources .github/docker/toolchain-sources.lock \
+            --recipe-root .
+          python3 - "${LOCK_RUNNER}" >> "${GITHUB_ENV}" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+
+          path = pathlib.Path(".github/docker/toolchain-sources.lock")
+          lock = json.loads(path.read_text(encoding="utf-8"))
+          runner = lock["linux"]["docker"]["runners"][sys.argv[1]]
+          print(f"SOURCES_SHA256={hashlib.sha256(path.read_bytes()).hexdigest()}")
+          print(f"LOCKED_DOCKER_CLIENT={runner['client_version']}")
+          print(f"LOCKED_DOCKER_SERVER={runner['server_version']}")
+          print(f"LOCKED_BUILDX_VERSION={lock['linux']['docker']['buildx_version']}")
+          PY
+
+      - name: Verify the locked Docker and Buildx identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(docker version --format '{{.Client.Version}}')" = "${LOCKED_DOCKER_CLIENT}"
+          test "$(docker version --format '{{.Server.Version}}')" = "${LOCKED_DOCKER_SERVER}"
+          buildx_output="$(docker buildx version)"
+          python3 - "${LOCKED_BUILDX_VERSION}" "${buildx_output}" <<'PY'
+          import re
+          import sys
+
+          expected, output = sys.argv[1:]
+          versions = re.findall(r"(?<![0-9])v?([0-9]+\.[0-9]+\.[0-9]+)(?![0-9])", output)
+          if expected not in versions:
+              raise SystemExit(f"Buildx version mismatch: {output!r} != {expected!r}")
+          PY
+
+      - name: Log in to private GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download the amd64 manifest receipt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.build_p2996_amd64.outputs.candidate_artifact_id }}
+          merge-multiple: true
+          path: build/index-p2996/amd64
+
+      - name: Download the arm64 manifest receipt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.build_p2996_arm64.outputs.candidate_artifact_id }}
+          merge-multiple: true
+          path: build/index-p2996/arm64
+
+      - name: Validate the native receipts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - build/index-p2996 <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import sys
+
+          def reject_duplicates(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(f"duplicate key: {key}")
+                  result[key] = value
+              return result
+
+          root = pathlib.Path(sys.argv[1])
+          records = {}
+          exact_keys = {
+              "schema", "source_sha", "sources_sha256", "candidate_batch_id",
+              "workflow_run", "producer_workflow_run", "toolchain",
+              "repository", "platform", "manifest_digest", "compiler_revision",
+              "compiler_version", "target", "stdlib",
+          }
+          candidate_batch_id = (
+              f"{os.environ['GITHUB_SHA']}:{os.environ['SOURCES_SHA256']}:"
+              f"{os.environ['GITHUB_RUN_ID']}"
+          )
+          static_identity = {
+              "schema": 1,
+              "source_sha": os.environ["GITHUB_SHA"],
+              "sources_sha256": os.environ["SOURCES_SHA256"],
+              "candidate_batch_id": candidate_batch_id,
+              "toolchain": os.environ["TOOLCHAIN"],
+              "repository": os.environ["REPOSITORY"],
+              "compiler_revision": os.environ["EXPECTED_REVISION"],
+          }
+          for architecture, platform in (("amd64", "linux/amd64"), ("arm64", "linux/arm64")):
+              path = root / architecture / "receipt.json"
+              if set(path.parent.iterdir()) != {path}:
+                  raise SystemExit(f"unexpected receipt files for {platform}")
+              record = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicates)
+              if set(record) != exact_keys:
+                  raise SystemExit(f"non-canonical receipt keys for {platform}")
+              for key, value in static_identity.items():
+                  if record.get(key) != value:
+                      raise SystemExit(f"{platform} {key} mismatch")
+              producer = re.fullmatch(
+                  rf"{re.escape(os.environ['GITHUB_RUN_ID'])}\.([1-9][0-9]*)",
+                  str(record["producer_workflow_run"]),
+              )
+              if producer is None or int(producer.group(1)) > int(os.environ["GITHUB_RUN_ATTEMPT"]):
+                  raise SystemExit(f"{platform} producer workflow identity is invalid or from the future")
+              if record["platform"] != platform:
+                  raise SystemExit(f"platform mismatch: {record['platform']!r}")
+              if re.fullmatch(r"sha256:[0-9a-f]{64}", record["manifest_digest"]) is None:
+                  raise SystemExit(f"invalid {platform} digest")
+              records[platform] = record
+          batch_workflow_runs = {record["workflow_run"] for record in records.values()}
+          if len(batch_workflow_runs) != 1:
+              raise SystemExit("native receipts disagree on candidate batch origin")
+          batch_workflow_run = batch_workflow_runs.pop()
+          batch_origin = re.fullmatch(
+              rf"{re.escape(os.environ['GITHUB_RUN_ID'])}\.([1-9][0-9]*)",
+              str(batch_workflow_run),
+          )
+          if batch_origin is None or int(batch_origin.group(1)) > int(os.environ["GITHUB_RUN_ATTEMPT"]):
+              raise SystemExit("candidate batch origin is invalid or from the future")
+          batch_origin_attempt = int(batch_origin.group(1))
+          for platform, record in records.items():
+              producer = re.fullmatch(
+                  rf"{re.escape(os.environ['GITHUB_RUN_ID'])}\.([1-9][0-9]*)",
+                  str(record["producer_workflow_run"]),
+              )
+              if producer is None or int(producer.group(1)) < batch_origin_attempt:
+                  raise SystemExit(f"{platform} producer predates the candidate batch origin")
+          identity = {
+              **static_identity,
+              "workflow_run": batch_workflow_run,
+          }
+          for key in ("compiler_revision", "compiler_version", "stdlib"):
+              if records["linux/amd64"][key] != records["linux/arm64"][key]:
+                  raise SystemExit(f"cross-architecture {key} mismatch")
+          if records["linux/amd64"]["target"] != "x86_64-unknown-linux-gnu":
+              raise SystemExit("amd64 compiler target mismatch")
+          if records["linux/arm64"]["target"] != "aarch64-unknown-linux-gnu":
+              raise SystemExit("arm64 compiler target mismatch")
+          digests = {record["manifest_digest"] for record in records.values()}
+          if len(digests) != 2:
+              raise SystemExit("platform manifest digests must be unique")
+          expected_map = {platform: record["manifest_digest"] for platform, record in records.items()}
+          base = {
+              **identity,
+              "producer_workflow_run": f"{os.environ['GITHUB_RUN_ID']}.{os.environ['GITHUB_RUN_ATTEMPT']}",
+              "platform_producer_workflow_runs": {
+                  platform: record["producer_workflow_run"]
+                  for platform, record in records.items()
+              },
+              "compiler_version": records["linux/amd64"]["compiler_version"],
+              "stdlib": records["linux/amd64"]["stdlib"],
+              "platforms": {
+                  platform: {
+                      "manifest_digest": record["manifest_digest"],
+                      "target": record["target"],
+                  }
+                  for platform, record in records.items()
+              },
+          }
+          for name, value in (("expected-map.json", expected_map), ("index-base.json", base)):
+              with open(root / name, "w", encoding="utf-8", newline="\n") as output:
+                  json.dump(value, output, indent=2, sort_keys=True)
+                  output.write("\n")
+          PY
+
+      - name: Bind exact OCI child descriptors
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=build/index-p2996
+          for architecture in amd64 arm64; do
+            platform="linux/${architecture}"
+            digest="$(python3 - "${root}/expected-map.json" "${platform}" <<'PY'
+          import json
+          import sys
+          print(json.load(open(sys.argv[1], encoding="utf-8"))[sys.argv[2]])
+          PY
+          )"
+            docker buildx imagetools inspect --raw "${REPOSITORY}@${digest}" > "${root}/child-${architecture}.json"
+          done
+          python3 - "${root}" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+
+          root = pathlib.Path(sys.argv[1])
+          expected_map = json.loads((root / "expected-map.json").read_text(encoding="utf-8"))
+          if set(expected_map) != {"linux/amd64", "linux/arm64"}:
+              raise SystemExit("candidate platform map is not exact")
+          descriptors = []
+          for architecture in ("amd64", "arm64"):
+              platform = f"linux/{architecture}"
+              raw_bytes = (root / f"child-{architecture}.json").read_bytes()
+              digest = "sha256:" + hashlib.sha256(raw_bytes).hexdigest()
+              if digest != expected_map[platform]:
+                  raise SystemExit(f"{platform} raw manifest digest mismatch")
+              manifest = json.loads(raw_bytes)
+              media_type = "application/vnd.oci.image.manifest.v1+json"
+              if manifest.get("mediaType") != media_type:
+                  raise SystemExit(f"{platform} is not an OCI image manifest")
+              descriptors.append({
+                  "mediaType": media_type,
+                  "digest": digest,
+                  "size": len(raw_bytes),
+                  "platform": {"os": "linux", "architecture": architecture},
+              })
+          with open(root / "expected-descriptors.json", "w", encoding="utf-8", newline="\n") as output:
+              json.dump(descriptors, output, indent=2)
+              output.write("\n")
+          PY
+
+      - name: Create or verify the immutable canonical index
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=build/index-p2996
+          canonical="${REPOSITORY}:source-${SOURCES_SHA256}"
+          exact_index_map() {
+            python3 - "$1" "${root}/expected-descriptors.json" "$2" <<'PY'
+          import hashlib
+          import json
+          import re
+          import sys
+
+          def reject_duplicates(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(f"duplicate JSON key: {key}")
+                  result[key] = value
+              return result
+
+          raw_bytes = open(sys.argv[1], "rb").read()
+          reported_digest = sys.argv[3]
+          actual_digest = "sha256:" + hashlib.sha256(raw_bytes).hexdigest()
+          if re.fullmatch(r"sha256:[0-9a-f]{64}", reported_digest) is None:
+              raise SystemExit("reported index digest is invalid")
+          if actual_digest != reported_digest:
+              raise SystemExit("reported index digest is not bound to the raw index bytes")
+          raw = json.loads(raw_bytes, object_pairs_hook=reject_duplicates)
+          expected = json.load(open(sys.argv[2], encoding="utf-8"), object_pairs_hook=reject_duplicates)
+          if set(raw) != {"schemaVersion", "mediaType", "manifests"}:
+              raise SystemExit("index root contains non-canonical fields")
+          if raw["schemaVersion"] != 2 or raw["mediaType"] != "application/vnd.oci.image.index.v1+json":
+              raise SystemExit("index schema or media type is not canonical OCI")
+          manifests = raw["manifests"]
+          if not isinstance(manifests, list) or len(manifests) != 2 or not isinstance(expected, list):
+              raise SystemExit("index must contain exactly two ordered descriptors")
+          expected_platforms = (("linux", "amd64"), ("linux", "arm64"))
+          for descriptor, (expected_os, expected_architecture) in zip(manifests, expected_platforms):
+              if not isinstance(descriptor, dict) or set(descriptor) != {"mediaType", "digest", "size", "platform"}:
+                  raise SystemExit("index descriptor contains non-canonical fields")
+              if descriptor["mediaType"] != "application/vnd.oci.image.manifest.v1+json":
+                  raise SystemExit("index descriptor media type is not canonical OCI")
+              if re.fullmatch(r"sha256:[0-9a-f]{64}", str(descriptor["digest"])) is None:
+                  raise SystemExit("index descriptor digest is invalid")
+              if isinstance(descriptor["size"], bool) or not isinstance(descriptor["size"], int) or descriptor["size"] <= 0:
+                  raise SystemExit("index descriptor size is invalid")
+              platform = descriptor.get("platform")
+              if platform != {"os": expected_os, "architecture": expected_architecture}:
+                  raise SystemExit("non-canonical platform descriptor")
+          if manifests != expected:
+              raise SystemExit("index descriptor order, media type, size, digest, or platform mismatch")
+          PY
+          }
+          reported_index_digest() {
+            python3 - "$1" <<'PY'
+          import json
+          import re
+          import sys
+          digest = json.load(open(sys.argv[1], encoding="utf-8"))["digest"]
+          if re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None:
+              raise SystemExit("invalid reported index digest")
+          print(digest)
+          PY
+          }
+          if docker buildx imagetools inspect --raw "${canonical}" > "${root}/existing-index.json" 2> "${root}/inspect-error.txt"; then
+            docker buildx imagetools inspect "${canonical}" --format '{{json .Manifest}}' > "${root}/existing-summary.json"
+            existing_digest="$(reported_index_digest "${root}/existing-summary.json")"
+            exact_index_map "${root}/existing-index.json" "${existing_digest}"
+          else
+            if ! grep -Eqi 'manifest unknown|name unknown|not found' "${root}/inspect-error.txt"; then
+              cat "${root}/inspect-error.txt" >&2
+              exit 1
+            fi
+            amd64="$(python3 -c 'import json; print(json.load(open("build/index-p2996/expected-map.json"))["linux/amd64"])')"
+            arm64="$(python3 -c 'import json; print(json.load(open("build/index-p2996/expected-map.json"))["linux/arm64"])')"
+            docker buildx imagetools create \
+              --tag "${canonical}" \
+              --metadata-file "${root}/create-metadata.json" \
+              "${REPOSITORY}@${amd64}" \
+              "${REPOSITORY}@${arm64}"
+          fi
+          docker buildx imagetools inspect --raw "${canonical}" > "${root}/published-index.json"
+          docker buildx imagetools inspect "${canonical}" --format '{{json .Manifest}}' > "${root}/manifest-summary.json"
+          index_digest="$(reported_index_digest "${root}/manifest-summary.json")"
+          exact_index_map "${root}/published-index.json" "${index_digest}"
+          docker buildx imagetools inspect --raw "${REPOSITORY}@${index_digest}" > "${root}/digest-index.json"
+          docker buildx imagetools inspect "${REPOSITORY}@${index_digest}" --format '{{json .Manifest}}' > "${root}/digest-summary.json"
+          digest_reference="$(reported_index_digest "${root}/digest-summary.json")"
+          test "${digest_reference}" = "${index_digest}"
+          exact_index_map "${root}/digest-index.json" "${digest_reference}"
+          export INDEX_DIGEST="${index_digest}"
+          python3 - "${root}/index-base.json" "${root}/receipt.json" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          record = json.load(open(sys.argv[1], encoding="utf-8"))
+          digest = os.environ["INDEX_DIGEST"]
+          platform_digests = {item["manifest_digest"] for item in record["platforms"].values()}
+          if re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None or digest in platform_digests:
+              raise SystemExit("invalid or colliding index digest")
+          record["index_digest"] = digest
+          with open(sys.argv[2], "w", encoding="utf-8", newline="\n") as output:
+              json.dump(record, output, indent=2, sort_keys=True)
+              output.write("\n")
+          PY
+
+      - name: Upload the P2996 index receipt
+        id: upload_candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-p2996-index-${{ github.run_attempt }}
+          path: build/index-p2996/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+  publish_macos_release:
+    name: Publish the two immutable macOS archives
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    outputs:
+      candidate_artifact_id: ${{ steps.upload_candidate.outputs.artifact-id }}
+    environment: toolchain-release
+    needs:
+      - index_gcc
+      - index_p2996
+      - build_p2996_macos_arm64
+      - build_p2996_macos_x86_64
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the candidate commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate and identify the committed source lock
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/validate-toolchain-locks.py \
+            --sources .github/docker/toolchain-sources.lock \
+            --recipe-root .
+          python3 >> "${GITHUB_OUTPUT}" <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+
+          path = pathlib.Path(".github/docker/toolchain-sources.lock")
+          lock = json.loads(path.read_text(encoding="utf-8"))
+          digest = hashlib.sha256(path.read_bytes()).hexdigest()
+          candidate_batch_id = f"{os.environ['GITHUB_SHA']}:{digest}:{os.environ['GITHUB_RUN_ID']}"
+          print(f"sources_sha256={digest}")
+          print(f"clang_commit={lock['p2996']['compiler_revision']}")
+          print(f"tag=typelayout-toolchains-{digest}")
+          print(f"candidate_batch_id={candidate_batch_id}")
+          PY
+
+      - name: Download the ARM64 archive candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.build_p2996_macos_arm64.outputs.candidate_artifact_id }}
+          merge-multiple: true
+          path: build/release-macos/arm64
+
+      - name: Download the x86-64 archive candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.build_p2996_macos_x86_64.outputs.candidate_artifact_id }}
+          merge-multiple: true
+          path: build/release-macos/x86_64
+
+      - name: Validate both release inputs independently
+        id: candidate_identity
+        shell: bash
+        env:
+          CANDIDATE_BATCH_ID: ${{ steps.source.outputs.candidate_batch_id }}
+          CLANG_COMMIT: ${{ steps.source.outputs.clang_commit }}
+          SOURCES_SHA256: ${{ steps.source.outputs.sources_sha256 }}
+        run: |
+          set -euo pipefail
+          python3 - build/release-macos <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          import sys
+
+          def sha256_file(path):
+              digest = hashlib.sha256()
+              with path.open("rb") as stream:
+                  for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          root = pathlib.Path(sys.argv[1])
+          source_path = pathlib.Path(".github/docker/toolchain-sources.lock")
+          source = json.loads(source_path.read_text(encoding="utf-8"))
+          if hashlib.sha256(source_path.read_bytes()).hexdigest() != os.environ["SOURCES_SHA256"]:
+              raise SystemExit("source lock digest output mismatch")
+          revision = os.environ["CLANG_COMMIT"]
+          if revision != source["p2996"]["compiler_revision"]:
+              raise SystemExit("compiler revision output mismatch")
+          candidate_batch_id = os.environ["CANDIDATE_BATCH_ID"]
+          records = {}
+          for directory, architecture, node in (
+              ("arm64", "arm64", "arm64_macos_clang"),
+              ("x86_64", "x86_64", "x86_64_macos_clang"),
+          ):
+              candidate_dir = root / directory
+              stem = f"p2996-macos-{architecture}-{revision}"
+              archive = candidate_dir / f"{stem}.tar.zst"
+              metadata_path = candidate_dir / f"{stem}.metadata.json"
+              verification_path = candidate_dir / f"{stem}.verification.json"
+              candidate_receipt_path = candidate_dir / "candidate-receipt.json"
+              if set(candidate_dir.iterdir()) != {archive, metadata_path, verification_path, candidate_receipt_path}:
+                  raise SystemExit(f"unexpected release input files for {node}")
+              metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+              verification = json.loads(verification_path.read_text(encoding="utf-8"))
+              candidate_receipt = json.loads(candidate_receipt_path.read_text(encoding="utf-8"))
+              if set(candidate_receipt) != {
+                  "schema", "source_sha", "sources_sha256", "candidate_batch_id",
+                  "workflow_run", "producer_workflow_run", "node", "archive_sha256",
+              }:
+                  raise SystemExit(f"non-canonical candidate receipt for {node}")
+              digest = sha256_file(archive)
+              if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+                  raise SystemExit(f"invalid archive digest for {node}")
+              if metadata["archive"] != archive.name:
+                  raise SystemExit(f"archive filename mismatch for {node}")
+              if metadata["archive_sha256"] != digest or verification["archive_sha256"] != digest:
+                  raise SystemExit(f"archive checksum mismatch for {node}")
+              expected_receipt = {
+                  "schema": 1,
+                  "source_sha": os.environ["GITHUB_SHA"],
+                  "sources_sha256": os.environ["SOURCES_SHA256"],
+                  "candidate_batch_id": os.environ["CANDIDATE_BATCH_ID"],
+                  "node": node,
+                  "archive_sha256": digest,
+              }
+              for key, value in expected_receipt.items():
+                  if candidate_receipt.get(key) != value:
+                      raise SystemExit(f"candidate receipt {key} mismatch for {node}")
+              producer = re.fullmatch(
+                  rf"{re.escape(os.environ['GITHUB_RUN_ID'])}\.([1-9][0-9]*)",
+                  str(candidate_receipt["producer_workflow_run"]),
+              )
+              if producer is None or int(producer.group(1)) > int(os.environ["GITHUB_RUN_ATTEMPT"]):
+                  raise SystemExit(f"candidate receipt producer identity is invalid for {node}")
+              if metadata["archive_size"] != archive.stat().st_size or not (0 < archive.stat().st_size < 2147483648):
+                  raise SystemExit(f"archive size mismatch for {node}")
+              if verification["sdk_locked"] is not True:
+                  raise SystemExit(f"SDK was not locked for {node}")
+              if metadata["observed_runner"] != verification["observed_runner"]:
+                  raise SystemExit(f"observed runner mismatch for {node}")
+              locked = source["macos"]["nodes"][node]
+              for key in (
+                  "xcode_version", "xcode_build", "sdk_version", "sdk_build",
+                  "deployment_target",
+              ):
+                  if metadata[key] != locked[key] or verification[key] != locked[key]:
+                      raise SystemExit(f"{key} mismatch for {node}")
+              if metadata["node"] != node or verification["node"] != node:
+                  raise SystemExit(f"node mismatch for {node}")
+              if metadata["compiler_revision"] != revision or verification["compiler_revision"] != revision:
+                  raise SystemExit(f"compiler revision mismatch for {node}")
+              records[node] = {
+                  "archive": str(archive),
+                  "metadata": metadata,
+                  "verification": verification,
+                  "candidate_receipt": candidate_receipt,
+              }
+          batch_workflow_runs = {
+              record["candidate_receipt"]["workflow_run"]
+              for record in records.values()
+          }
+          if len(batch_workflow_runs) != 1:
+              raise SystemExit("macOS candidate receipts disagree on candidate batch origin")
+          batch_workflow_run = batch_workflow_runs.pop()
+          batch_origin = re.fullmatch(
+              rf"{re.escape(os.environ['GITHUB_RUN_ID'])}\.([1-9][0-9]*)",
+              str(batch_workflow_run),
+          )
+          if batch_origin is None or int(batch_origin.group(1)) > int(os.environ["GITHUB_RUN_ATTEMPT"]):
+              raise SystemExit("candidate batch origin is invalid or from the future")
+          batch_origin_attempt = int(batch_origin.group(1))
+          for node, record in records.items():
+              producer = re.fullmatch(
+                  rf"{re.escape(os.environ['GITHUB_RUN_ID'])}\.([1-9][0-9]*)",
+                  str(record["candidate_receipt"]["producer_workflow_run"]),
+              )
+              if producer is None or int(producer.group(1)) < batch_origin_attempt:
+                  raise SystemExit(f"candidate producer predates the batch origin for {node}")
+          if records["arm64_macos_clang"]["metadata"]["archive_sha256"] == records["x86_64_macos_clang"]["metadata"]["archive_sha256"]:
+              raise SystemExit("macOS archive checksums must be unique")
+          expected_assets = {}
+          for record in records.values():
+              archive = pathlib.Path(record["archive"])
+              expected_assets[archive.name] = {
+                  "path": str(archive),
+                  "size": archive.stat().st_size,
+                  "sha256": record["metadata"]["archive_sha256"],
+              }
+          with open(root / "expected-assets.json", "w", encoding="utf-8", newline="\n") as output:
+              json.dump(expected_assets, output, indent=2, sort_keys=True)
+              output.write("\n")
+          with open(root / "candidate-producers.json", "w", encoding="utf-8", newline="\n") as output:
+              json.dump(
+                  {
+                      node: record["candidate_receipt"]["producer_workflow_run"]
+                      for node, record in records.items()
+                  },
+                  output,
+                  indent=2,
+                  sort_keys=True,
+              )
+              output.write("\n")
+          release_body = json.dumps(
+              {
+                  "batch_workflow_run": batch_workflow_run,
+                  "candidate_batch_id": candidate_batch_id,
+                  "producer_workflow_run": f"{os.environ['GITHUB_RUN_ID']}.{os.environ['GITHUB_RUN_ATTEMPT']}",
+              },
+              separators=(",", ":"),
+              sort_keys=True,
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"batch_workflow_run={batch_workflow_run}\n")
+              output.write(f"release_body={release_body}\n")
+          PY
+
+      - name: Read and plan the exact release state
+        id: release_plan
+        shell: bash
+        env:
+          BATCH_WORKFLOW_RUN: ${{ steps.candidate_identity.outputs.batch_workflow_run }}
+          CANDIDATE_BATCH_ID: ${{ steps.source.outputs.candidate_batch_id }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.source.outputs.tag }}
+        run: |
+          set -euo pipefail
+          root=build/release-macos/preflight
+          mkdir -p "${root}"
+          api_version='X-GitHub-Api-Version: 2026-03-10'
+          tag_path=-
+          if gh api -H "${api_version}" \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" \
+            > "${root}/tag.json" 2> "${root}/tag-error.txt"; then
+            tag_path="${root}/tag.json"
+          elif ! grep -q 'HTTP 404' "${root}/tag-error.txt"; then
+            cat "${root}/tag-error.txt" >&2
+            exit 1
+          fi
+          by_tag_path=-
+          if gh api -H "${api_version}" \
+            "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
+            > "${root}/release-by-tag.json" 2> "${root}/release-by-tag-error.txt"; then
+            by_tag_path="${root}/release-by-tag.json"
+          elif ! grep -q 'HTTP 404' "${root}/release-by-tag-error.txt"; then
+            cat "${root}/release-by-tag-error.txt" >&2
+            exit 1
+          fi
+          gh api --paginate --slurp -H "${api_version}" \
+            "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            > "${root}/release-pages.json"
+          python3 - \
+            build/release-macos/expected-assets.json \
+            "${root}/release-pages.json" \
+            "${tag_path}" \
+            "${by_tag_path}" \
+            "${root}/plan.json" <<'PY'
+          # BEGIN RELEASE STATE PLANNER
+          import json
+          import os
+          import pathlib
+          import re
+          import sys
+
+          def load_optional(value):
+              if value == "-":
+                  return None
+              return json.loads(pathlib.Path(value).read_text(encoding="utf-8"))
+
+          expected_path, pages_path, tag_path, by_tag_path, output_path = sys.argv[1:]
+          expected = json.loads(pathlib.Path(expected_path).read_text(encoding="utf-8"))
+          if not isinstance(expected, dict) or len(expected) != 2:
+              raise SystemExit("expected exactly two local release assets")
+          for name, record in expected.items():
+              if (
+                  not isinstance(name, str)
+                  or not isinstance(record, dict)
+                  or set(record) != {"path", "size", "sha256"}
+                  or not isinstance(record["path"], str)
+                  or not isinstance(record["size"], int)
+                  or record["size"] <= 0
+                  or re.fullmatch(r"[0-9a-f]{64}", str(record["sha256"])) is None
+              ):
+                  raise SystemExit("invalid local release asset manifest")
+
+          pages = json.loads(pathlib.Path(pages_path).read_text(encoding="utf-8"))
+          if not isinstance(pages, list) or any(not isinstance(page, list) for page in pages):
+              raise SystemExit("invalid paginated release response")
+          releases = [release for page in pages for release in page]
+          release_tag = os.environ["RELEASE_TAG"]
+          batch_origin = re.fullmatch(
+              rf"{re.escape(os.environ['GITHUB_RUN_ID'])}\.([1-9][0-9]*)",
+              os.environ["BATCH_WORKFLOW_RUN"],
+          )
+          if batch_origin is None or int(batch_origin.group(1)) > int(os.environ["GITHUB_RUN_ATTEMPT"]):
+              raise SystemExit("candidate batch origin is invalid or from the future")
+          batch_origin_attempt = int(batch_origin.group(1))
+          matching = [release for release in releases if release.get("tag_name") == release_tag]
+          if len(matching) > 1:
+              raise SystemExit("multiple releases claim the exact tag")
+          release = matching[0] if matching else None
+          tag = load_optional(tag_path)
+          by_tag = load_optional(by_tag_path)
+
+          if tag is not None:
+              target = tag.get("object")
+              if (
+                  not isinstance(target, dict)
+                  or target.get("type") != "commit"
+                  or target.get("sha") != os.environ["GITHUB_SHA"]
+              ):
+                  raise SystemExit("release tag is not the exact lightweight commit tag")
+          if by_tag is not None:
+              if release is None or by_tag.get("id") != release.get("id"):
+                  raise SystemExit("release-by-tag lookup disagrees with the release list")
+
+          if release is None:
+              plan = {
+                  "action": "create",
+                  "create_tag": tag is None,
+                  "finalize": True,
+                  "release_id": None,
+                  "release_producer_workflow_run": f"{os.environ['GITHUB_RUN_ID']}.{os.environ['GITHUB_RUN_ATTEMPT']}",
+                  "missing_assets": sorted(expected),
+              }
+          else:
+              if tag is None:
+                  raise SystemExit("existing release has no exact lightweight tag")
+              if not isinstance(release.get("id"), int) or release["id"] <= 0:
+                  raise SystemExit("existing release id is invalid")
+              identity = {
+                  "tag_name": release_tag,
+                  "target_commitish": os.environ["GITHUB_SHA"],
+                  "name": release_tag,
+                  "prerelease": False,
+              }
+              for key, value in identity.items():
+                  if release.get(key) != value:
+                      raise SystemExit(f"existing release {key} mismatch")
+              if not isinstance(release.get("draft"), bool) or not isinstance(release.get("immutable"), bool):
+                  raise SystemExit("existing release state flags are invalid")
+              if release["draft"] and release["immutable"]:
+                  raise SystemExit("draft release cannot already be immutable")
+              if not release["draft"] and by_tag is None:
+                  raise SystemExit("published release is missing from the exact tag lookup")
+              release_body_text = release.get("body")
+              try:
+                  release_body = json.loads(release_body_text)
+              except (TypeError, json.JSONDecodeError) as error:
+                  raise SystemExit("existing release producer identity is invalid") from error
+              if set(release_body) != {
+                  "batch_workflow_run", "candidate_batch_id", "producer_workflow_run",
+              }:
+                  raise SystemExit("existing release producer identity keys are invalid")
+              canonical_body = json.dumps(
+                  release_body,
+                  separators=(",", ":"),
+                  sort_keys=True,
+              )
+              if release_body_text != canonical_body:
+                  raise SystemExit("existing release body bytes are not canonical")
+              if release_body["candidate_batch_id"] != os.environ["CANDIDATE_BATCH_ID"]:
+                  raise SystemExit("existing release candidate batch mismatch")
+              if release_body["batch_workflow_run"] != os.environ["BATCH_WORKFLOW_RUN"]:
+                  raise SystemExit("existing release candidate batch origin mismatch")
+              producer_match = re.fullmatch(
+                  r"([1-9][0-9]*)\.([1-9][0-9]*)",
+                  str(release_body["producer_workflow_run"]),
+              )
+              if (
+                  producer_match is None
+                  or producer_match.group(1) != os.environ["GITHUB_RUN_ID"]
+                  or int(producer_match.group(2)) < batch_origin_attempt
+                  or int(producer_match.group(2)) > int(os.environ["GITHUB_RUN_ATTEMPT"])
+              ):
+                  raise SystemExit("existing release producer workflow mismatch")
+              assets = release.get("assets")
+              if not isinstance(assets, list):
+                  raise SystemExit("existing release assets are invalid")
+              actual = {}
+              for asset in assets:
+                  name = asset.get("name")
+                  if name not in expected:
+                      raise SystemExit("unexpected release asset")
+                  if name in actual:
+                      raise SystemExit("duplicate release asset name")
+                  if not isinstance(asset.get("id"), int) or asset["id"] <= 0:
+                      raise SystemExit("release asset id is invalid")
+                  local = expected[name]
+                  if asset.get("state") != "uploaded":
+                      raise SystemExit("release asset is not fully uploaded")
+                  if asset.get("size") != local["size"]:
+                      raise SystemExit("release asset size mismatch")
+                  if asset.get("digest") != f"sha256:{local['sha256']}":
+                      raise SystemExit("release asset checksum mismatch")
+                  actual[name] = asset
+              missing = sorted(set(expected) - set(actual))
+              if not release["draft"] and missing:
+                  raise SystemExit("published release is missing assets")
+              if release["immutable"] and missing:
+                  raise SystemExit("immutable published release is missing assets")
+              plan = {
+                  "action": "upload_missing" if missing else "reuse",
+                  "create_tag": False,
+                  "finalize": release["draft"],
+                  "release_id": release["id"],
+                  "release_producer_workflow_run": release_body["producer_workflow_run"],
+                  "missing_assets": missing,
+              }
+
+          with open(output_path, "w", encoding="utf-8", newline="\n") as output:
+              json.dump(plan, output, indent=2, sort_keys=True)
+              output.write("\n")
+          # END RELEASE STATE PLANNER
+          PY
+          python3 - "${root}/plan.json" "${GITHUB_OUTPUT}" <<'PY'
+          import json
+          import sys
+
+          plan = json.load(open(sys.argv[1], encoding="utf-8"))
+          with open(sys.argv[2], "a", encoding="utf-8") as output:
+              output.write(f"action={plan['action']}\n")
+              output.write(f"create_tag={str(plan['create_tag']).lower()}\n")
+              output.write(f"release_id={plan['release_id'] or ''}\n")
+              output.write(f"release_producer_workflow_run={plan['release_producer_workflow_run']}\n")
+          PY
+
+      - name: Create the missing lightweight tag
+        if: steps.release_plan.outputs.create_tag == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.TOOLCHAIN_RELEASE_TOKEN }}
+          RELEASE_TAG: ${{ steps.source.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh api --method POST \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f "ref=refs/tags/${RELEASE_TAG}" \
+            -f "sha=${GITHUB_SHA}" \
+            > build/release-macos/created-tag.json
+
+      - name: Create a draft release and upload both archives
+        id: create_release
+        if: steps.release_plan.outputs.action == 'create'
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        with:
+          token: ${{ secrets.TOOLCHAIN_RELEASE_TOKEN }}
+          tag_name: ${{ steps.source.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ steps.source.outputs.tag }}
+          body: ${{ steps.candidate_identity.outputs.release_body }}
+          draft: true
+          prerelease: false
+          files: |
+            build/release-macos/arm64/*.tar.zst
+            build/release-macos/x86_64/*.tar.zst
+          overwrite_files: false
+          fail_on_unmatched_files: true
+          make_latest: false
+
+      - name: Upload only missing assets
+        if: steps.release_plan.outputs.action == 'upload_missing'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.TOOLCHAIN_RELEASE_TOKEN }}
+          RELEASE_ID: ${{ steps.release_plan.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          root=build/release-macos
+          python3 - "${root}/preflight/plan.json" "${root}/expected-assets.json" <<'PY' > "${root}/missing-assets.tsv"
+          import json
+          import sys
+          import urllib.parse
+
+          plan = json.load(open(sys.argv[1], encoding="utf-8"))
+          expected = json.load(open(sys.argv[2], encoding="utf-8"))
+          for name in plan["missing_assets"]:
+              print(f"{urllib.parse.quote(name, safe='')}\t{expected[name]['path']}")
+          PY
+          upload_index=0
+          while IFS=$'\t' read -r encoded_name asset_path; do
+            test -n "${encoded_name}"
+            test -f "${asset_path}"
+            upload_index=$((upload_index + 1))
+            curl --fail-with-body --silent --show-error \
+              --request POST \
+              --header 'Accept: application/vnd.github+json' \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header 'Content-Type: application/octet-stream' \
+              --header 'X-GitHub-Api-Version: 2026-03-10' \
+              --data-binary "@${asset_path}" \
+              "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?name=${encoded_name}" \
+              > "${root}/upload-${upload_index}.json"
+          done < "${root}/missing-assets.tsv"
+
+      - name: Verify complete release bytes before finalization
+        id: verified_release
+        shell: bash
+        env:
+          BATCH_WORKFLOW_RUN: ${{ steps.candidate_identity.outputs.batch_workflow_run }}
+          CANDIDATE_BATCH_ID: ${{ steps.source.outputs.candidate_batch_id }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.release_plan.outputs.release_id || steps.create_release.outputs.id }}
+          RELEASE_PRODUCER_WORKFLOW_RUN: ${{ steps.release_plan.outputs.release_producer_workflow_run }}
+          RELEASE_TAG: ${{ steps.source.outputs.tag }}
+        run: |
+          set -euo pipefail
+          test -n "${RELEASE_ID}"
+          root=build/release-macos/verified
+          mkdir -p "${root}/downloaded"
+          gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            > "${root}/release.json"
+          gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" \
+            > "${root}/tag.json"
+          python3 - \
+            build/release-macos/expected-assets.json \
+            "${root}/release.json" \
+            "${root}/tag.json" \
+            "${root}/assets.tsv" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          expected = json.load(open(sys.argv[1], encoding="utf-8"))
+          release = json.load(open(sys.argv[2], encoding="utf-8"))
+          tag = json.load(open(sys.argv[3], encoding="utf-8"))
+          target = tag.get("object")
+          if not isinstance(target, dict) or target.get("type") != "commit" or target.get("sha") != os.environ["GITHUB_SHA"]:
+              raise SystemExit("release tag changed before finalization")
+          identity = {
+              "id": int(os.environ["RELEASE_ID"]),
+              "tag_name": os.environ["RELEASE_TAG"],
+              "target_commitish": os.environ["GITHUB_SHA"],
+              "name": os.environ["RELEASE_TAG"],
+              "prerelease": False,
+          }
+          for key, value in identity.items():
+              if release.get(key) != value:
+                  raise SystemExit(f"release {key} changed before finalization")
+          if not isinstance(release.get("draft"), bool) or not isinstance(release.get("immutable"), bool):
+              raise SystemExit("release state flags changed before finalization")
+          if release["draft"] and release["immutable"]:
+              raise SystemExit("draft release unexpectedly became immutable")
+          release_body_text = release.get("body", "")
+          try:
+              release_body = json.loads(release_body_text)
+          except (TypeError, json.JSONDecodeError) as error:
+              raise SystemExit("release body changed before finalization") from error
+          expected_body = {
+              "batch_workflow_run": os.environ["BATCH_WORKFLOW_RUN"],
+              "candidate_batch_id": os.environ["CANDIDATE_BATCH_ID"],
+              "producer_workflow_run": os.environ["RELEASE_PRODUCER_WORKFLOW_RUN"],
+          }
+          canonical_body = json.dumps(
+              expected_body,
+              separators=(",", ":"),
+              sort_keys=True,
+          )
+          if release_body != expected_body or release_body_text != canonical_body:
+              raise SystemExit("release body identity changed before finalization")
+          batch_origin = re.fullmatch(
+              rf"{re.escape(os.environ['GITHUB_RUN_ID'])}\.([1-9][0-9]*)",
+              str(release_body["batch_workflow_run"]),
+          )
+          if batch_origin is None or int(batch_origin.group(1)) > int(os.environ["GITHUB_RUN_ATTEMPT"]):
+              raise SystemExit("release batch origin is invalid or from the future")
+          producer = re.fullmatch(
+              rf"{re.escape(os.environ['GITHUB_RUN_ID'])}\.([1-9][0-9]*)",
+              str(release_body["producer_workflow_run"]),
+          )
+          if (
+              producer is None
+              or int(producer.group(1)) < int(batch_origin.group(1))
+              or int(producer.group(1)) > int(os.environ["GITHUB_RUN_ATTEMPT"])
+          ):
+              raise SystemExit("release producer identity is invalid or from the future")
+          assets = release.get("assets")
+          if not isinstance(assets, list) or len(assets) != len(expected):
+              raise SystemExit("release does not contain exactly two assets")
+          by_name = {}
+          for asset in assets:
+              name = asset.get("name")
+              if name not in expected or name in by_name:
+                  raise SystemExit("unexpected or duplicate release asset")
+              local = expected[name]
+              if (
+                  not isinstance(asset.get("id"), int)
+                  or asset["id"] <= 0
+                  or asset.get("state") != "uploaded"
+                  or asset.get("size") != local["size"]
+                  or asset.get("digest") != f"sha256:{local['sha256']}"
+              ):
+                  raise SystemExit("release asset metadata differs from local bytes")
+              expected_url = f"https://github.com/ximicpp/TypeLayout/releases/download/{os.environ['RELEASE_TAG']}/{name}"
+              if asset.get("browser_download_url") != expected_url:
+                  raise SystemExit("release asset URL mismatch")
+              by_name[name] = asset
+          with open(sys.argv[4], "w", encoding="utf-8", newline="\n") as output:
+              for name in sorted(by_name):
+                  output.write(f"{by_name[name]['id']}\t{name}\n")
+          PY
+          while IFS=$'\t' read -r asset_id asset_name; do
+            gh api -H 'Accept: application/octet-stream' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" \
+              > "${root}/downloaded/${asset_name}"
+          done < "${root}/assets.tsv"
+          python3 - \
+            build/release-macos/expected-assets.json \
+            "${root}/release.json" \
+            "${root}/downloaded" \
+            "${GITHUB_OUTPUT}" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+
+          def sha256_file(path):
+              digest = hashlib.sha256()
+              with path.open("rb") as stream:
+                  for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          expected = json.load(open(sys.argv[1], encoding="utf-8"))
+          release = json.load(open(sys.argv[2], encoding="utf-8"))
+          downloaded = pathlib.Path(sys.argv[3])
+          if {path.name for path in downloaded.iterdir()} != set(expected):
+              raise SystemExit("downloaded release asset set mismatch")
+          for name, record in expected.items():
+              if sha256_file(downloaded / name) != record["sha256"]:
+                  raise SystemExit(f"downloaded release asset checksum mismatch: {name}")
+          with open(sys.argv[4], "a", encoding="utf-8") as output:
+              output.write(f"release_id={release['id']}\n")
+              output.write(f"finalize={str(release['draft']).lower()}\n")
+          PY
+
+      - name: Finalize the verified draft
+        if: steps.verified_release.outputs.finalize == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.TOOLCHAIN_RELEASE_TOKEN }}
+          RELEASE_ID: ${{ steps.verified_release.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          gh api --method PATCH \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            -F draft=false \
+            -f make_latest=false \
+            > build/release-macos/finalized-release.json
+
+      - name: Post-publish verify_release and write its receipt
+        shell: bash
+        env:
+          BATCH_WORKFLOW_RUN: ${{ steps.candidate_identity.outputs.batch_workflow_run }}
+          CANDIDATE_BATCH_ID: ${{ steps.source.outputs.candidate_batch_id }}
+          CLANG_COMMIT: ${{ steps.source.outputs.clang_commit }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_PRODUCER_WORKFLOW_RUN: ${{ steps.release_plan.outputs.release_producer_workflow_run }}
+          RELEASE_TAG: ${{ steps.source.outputs.tag }}
+          SOURCES_SHA256: ${{ steps.source.outputs.sources_sha256 }}
+        run: |
+          set -euo pipefail
+          root=build/release-macos
+          gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" \
+            > "${root}/published-tag.json"
+          gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
+            > "${root}/published-release.json"
+          mkdir -p "${root}/downloaded"
+          python3 - "${root}/published-release.json" "${CLANG_COMMIT}" <<'PY' > "${root}/published-assets.tsv"
+          import json
+          import sys
+
+          release = json.load(open(sys.argv[1], encoding="utf-8"))
+          assets = release.get("assets")
+          revision = sys.argv[2]
+          expected_names = {
+              f"p2996-macos-arm64-{revision}.tar.zst",
+              f"p2996-macos-x86_64-{revision}.tar.zst",
+          }
+          if (
+              not isinstance(assets, list)
+              or len(assets) != 2
+              or {asset.get("name") for asset in assets} != expected_names
+          ):
+              raise SystemExit("published release asset list is not the exact safe set")
+          for asset in sorted(assets, key=lambda item: str(item.get("name"))):
+              if not isinstance(asset.get("id"), int) or not isinstance(asset.get("name"), str):
+                  raise SystemExit("published release asset identity is invalid")
+              print(f"{asset['id']}\t{asset['name']}")
+          PY
+          while IFS=$'\t' read -r asset_id asset_name; do
+            gh api -H 'Accept: application/octet-stream' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" \
+              > "${root}/downloaded/${asset_name}"
+          done < "${root}/published-assets.tsv"
+          python3 - "${root}" "${root}/receipt.json" <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          import sys
+
+          def sha256_file(path):
+              digest = hashlib.sha256()
+              with path.open("rb") as stream:
+                  for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          root, output_path = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+          candidate_batch_id = os.environ["CANDIDATE_BATCH_ID"]
+          batch_workflow_run = os.environ["BATCH_WORKFLOW_RUN"]
+          batch_origin = re.fullmatch(
+              rf"{re.escape(os.environ['GITHUB_RUN_ID'])}\.([1-9][0-9]*)",
+              batch_workflow_run,
+          )
+          if batch_origin is None or int(batch_origin.group(1)) > int(os.environ["GITHUB_RUN_ATTEMPT"]):
+              raise SystemExit("candidate batch origin is invalid or from the future")
+          tag = json.loads((root / "published-tag.json").read_text(encoding="utf-8"))
+          release = json.loads((root / "published-release.json").read_text(encoding="utf-8"))
+          if tag.get("object", {}).get("type") != "commit" or tag["object"].get("sha") != os.environ["GITHUB_SHA"]:
+              raise SystemExit("published release tag target mismatch")
+          identity = {
+              "tag_name": os.environ["RELEASE_TAG"],
+              "target_commitish": os.environ["GITHUB_SHA"],
+              "name": os.environ["RELEASE_TAG"],
+              "draft": False,
+              "prerelease": False,
+          }
+          for key, value in identity.items():
+              if release.get(key) != value:
+                  raise SystemExit(f"published release {key} mismatch")
+          if not isinstance(release.get("immutable"), bool):
+              raise SystemExit("published release immutable flag is invalid")
+          release_body_text = release.get("body", "")
+          try:
+              release_body = json.loads(release_body_text)
+          except (TypeError, json.JSONDecodeError) as error:
+              raise SystemExit("published release body is not canonical JSON") from error
+          if set(release_body) != {
+              "batch_workflow_run", "candidate_batch_id", "producer_workflow_run",
+          }:
+              raise SystemExit("published release body keys mismatch")
+          canonical_body = json.dumps(
+              release_body,
+              separators=(",", ":"),
+              sort_keys=True,
+          )
+          if release_body_text != canonical_body:
+              raise SystemExit("published release body bytes are not canonical")
+          if release_body["candidate_batch_id"] != os.environ["CANDIDATE_BATCH_ID"]:
+              raise SystemExit("published release candidate batch mismatch")
+          if release_body["batch_workflow_run"] != batch_workflow_run:
+              raise SystemExit("published release candidate batch origin changed")
+          if release_body["producer_workflow_run"] != os.environ["RELEASE_PRODUCER_WORKFLOW_RUN"]:
+              raise SystemExit("published release producer identity changed")
+          producer_pattern = rf"{re.escape(os.environ['GITHUB_RUN_ID'])}\.([1-9][0-9]*)"
+          release_producer = re.fullmatch(producer_pattern, str(release_body["producer_workflow_run"]))
+          if (
+              release_producer is None
+              or int(release_producer.group(1)) < int(batch_origin.group(1))
+              or int(release_producer.group(1)) > int(os.environ["GITHUB_RUN_ATTEMPT"])
+          ):
+              raise SystemExit("published release producer identity is invalid or from the future")
+          revision = os.environ["CLANG_COMMIT"]
+          expected_names = {
+              f"p2996-macos-arm64-{revision}.tar.zst",
+              f"p2996-macos-x86_64-{revision}.tar.zst",
+          }
+          assets = release.get("assets")
+          if not isinstance(assets, list) or {asset.get("name") for asset in assets} != expected_names or len(assets) != 2:
+              raise SystemExit("release must contain exactly the two expected assets")
+          if {path.name for path in (root / "downloaded").iterdir()} != expected_names:
+              raise SystemExit("downloaded release asset set mismatch")
+          nodes = {}
+          for directory, architecture, node in (
+              ("arm64", "arm64", "arm64_macos_clang"),
+              ("x86_64", "x86_64", "x86_64_macos_clang"),
+          ):
+              name = f"p2996-macos-{architecture}-{revision}.tar.zst"
+              local = root / directory / name
+              downloaded = root / "downloaded" / name
+              metadata = json.loads((root / directory / f"p2996-macos-{architecture}-{revision}.metadata.json").read_text(encoding="utf-8"))
+              verification = json.loads((root / directory / f"p2996-macos-{architecture}-{revision}.verification.json").read_text(encoding="utf-8"))
+              asset = next(asset for asset in assets if asset["name"] == name)
+              url = f"https://github.com/ximicpp/TypeLayout/releases/download/{os.environ['RELEASE_TAG']}/{name}"
+              local_digest = sha256_file(local)
+              if (
+                  asset.get("state") != "uploaded"
+                  or asset.get("browser_download_url") != url
+                  or asset.get("size") != local.stat().st_size
+                  or asset.get("digest") != f"sha256:{local_digest}"
+              ):
+                  raise SystemExit(f"published asset metadata mismatch for {node}")
+              downloaded_digest = sha256_file(downloaded)
+              if local_digest != downloaded_digest or local_digest != metadata["archive_sha256"]:
+                  raise SystemExit(f"published asset checksum mismatch for {node}")
+              if re.fullmatch(r"[0-9a-f]{64}", local_digest) is None:
+                  raise SystemExit(f"invalid archive checksum for {node}")
+              nodes[node] = {
+                  "url": url,
+                  "archive_sha256": local_digest,
+                  "compiler_revision": verification["compiler_revision"],
+                  "compiler_version": verification["compiler_version"],
+                  "target": verification["target"],
+                  "stdlib": verification["stdlib"],
+                  "xcode_version": verification["xcode_version"],
+                  "xcode_build": verification["xcode_build"],
+                  "sdk_version": verification["sdk_version"],
+                  "sdk_build": verification["sdk_build"],
+                  "deployment_target": verification["deployment_target"],
+                  "observed_runner": verification["observed_runner"],
+              }
+          if len({node["archive_sha256"] for node in nodes.values()}) != 2:
+              raise SystemExit("published archive checksums must be unique")
+          candidate_producers = json.loads((root / "candidate-producers.json").read_text(encoding="utf-8"))
+          if set(candidate_producers) != set(nodes):
+              raise SystemExit("candidate producer node set mismatch")
+          for node, producer in candidate_producers.items():
+              match = re.fullmatch(producer_pattern, str(producer))
+              if (
+                  match is None
+                  or int(match.group(1)) < int(batch_origin.group(1))
+                  or int(match.group(1)) > int(os.environ["GITHUB_RUN_ATTEMPT"])
+              ):
+                  raise SystemExit(f"invalid candidate producer identity for {node}")
+          receipt = {
+              "schema": 1,
+              "source_sha": os.environ["GITHUB_SHA"],
+              "sources_sha256": os.environ["SOURCES_SHA256"],
+              "candidate_batch_id": candidate_batch_id,
+              "workflow_run": batch_workflow_run,
+              "producer_workflow_run": f"{os.environ['GITHUB_RUN_ID']}.{os.environ['GITHUB_RUN_ATTEMPT']}",
+              "release_producer_workflow_run": release_body["producer_workflow_run"],
+              "candidate_producer_workflow_runs": candidate_producers,
+              "nodes": nodes,
+          }
+          output_path.parent.mkdir(parents=True, exist_ok=True)
+          with open(output_path, "w", encoding="utf-8", newline="\n") as output:
+              json.dump(receipt, output, indent=2, sort_keys=True)
+              output.write("\n")
+          PY
+
+      - name: Upload the macOS release receipt
+        id: upload_candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-macos-release-${{ github.run_attempt }}
+          path: build/release-macos/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+  seal_candidate_lock:
+    name: Seal the candidate toolchains.lock artifact
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    needs:
+      - index_gcc
+      - index_p2996
+      - publish_macos_release
+    steps:
+      - name: Check out the candidate commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download the GCC index receipt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.index_gcc.outputs.candidate_artifact_id }}
+          merge-multiple: true
+          path: build/candidate-lock/gcc
+
+      - name: Download the P2996 index receipt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.index_p2996.outputs.candidate_artifact_id }}
+          merge-multiple: true
+          path: build/candidate-lock/p2996
+
+      - name: Download the macOS release receipt
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          artifact-ids: ${{ needs.publish_macos_release.outputs.candidate_artifact_id }}
+          merge-multiple: true
+          path: build/candidate-lock/macos
+
+      - name: Merge only canonical publication receipts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/validate-toolchain-locks.py \
+            --sources .github/docker/toolchain-sources.lock \
+            --recipe-root .
+          python3 - build/candidate-lock build/candidate-toolchains-lock/toolchains.lock <<'PY'
+          # BEGIN CANDIDATE LOCK SEALER
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          import sys
+
+          def reject_duplicates(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(f"duplicate key: {key}")
+                  result[key] = value
+              return result
+
+          def load_exact(path, keys):
+              path = pathlib.Path(path)
+              if set(path.parent.iterdir()) != {path}:
+                  raise SystemExit(f"unexpected files beside {path}")
+              value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicates)
+              if set(value) != set(keys):
+                  raise SystemExit(f"non-canonical receipt keys in {path}: {set(value)!r}")
+              return value
+
+          root, output_path = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+          source_path = pathlib.Path(".github/docker/toolchain-sources.lock")
+          sources_sha256 = hashlib.sha256(source_path.read_bytes()).hexdigest()
+          source_sha = os.environ["GITHUB_SHA"]
+          batch_run_id = os.environ["GITHUB_RUN_ID"]
+          candidate_batch_id = f"{source_sha}:{sources_sha256}:{batch_run_id}"
+          if re.fullmatch(r"[0-9a-f]{40}", source_sha) is None:
+              raise SystemExit("candidate source SHA is not canonical")
+          if re.fullmatch(r"[1-9][0-9]*", batch_run_id) is None:
+              raise SystemExit("candidate workflow run id is not canonical")
+          index_keys = {
+              "schema", "source_sha", "sources_sha256", "candidate_batch_id",
+              "workflow_run", "producer_workflow_run", "platform_producer_workflow_runs", "toolchain",
+              "repository", "index_digest", "compiler_revision", "compiler_version",
+              "stdlib", "platforms",
+          }
+          macos_keys = {
+              "schema", "source_sha", "sources_sha256", "candidate_batch_id",
+              "workflow_run", "producer_workflow_run", "release_producer_workflow_run",
+              "candidate_producer_workflow_runs", "nodes",
+          }
+          receipts = {
+              "gcc": load_exact(root / "gcc" / "receipt.json", index_keys),
+              "p2996": load_exact(root / "p2996" / "receipt.json", index_keys),
+              "macos": load_exact(root / "macos" / "receipt.json", macos_keys),
+          }
+          static_identity = {
+              "schema": 1,
+              "source_sha": source_sha,
+              "sources_sha256": sources_sha256,
+              "candidate_batch_id": candidate_batch_id,
+          }
+          for name, receipt in receipts.items():
+              for key, value in static_identity.items():
+                  if receipt.get(key) != value:
+                      raise SystemExit(f"{name} receipt {key} mismatch")
+          current_attempt = int(os.environ["GITHUB_RUN_ATTEMPT"])
+          producer_pattern = rf"{re.escape(batch_run_id)}\.([1-9][0-9]*)"
+
+          workflow_runs = {receipt["workflow_run"] for receipt in receipts.values()}
+          if len(workflow_runs) != 1:
+              raise SystemExit("publication receipts disagree on candidate batch origin")
+          workflow_run = workflow_runs.pop()
+          origin_match = re.fullmatch(producer_pattern, str(workflow_run))
+          if origin_match is None or int(origin_match.group(1)) > current_attempt:
+              raise SystemExit("candidate batch origin is invalid or from the future")
+          origin_attempt = int(origin_match.group(1))
+
+          def verify_producer(value, label):
+              match = re.fullmatch(producer_pattern, str(value))
+              if (
+                  match is None
+                  or int(match.group(1)) < origin_attempt
+                  or int(match.group(1)) > current_attempt
+              ):
+                  raise SystemExit(f"{label} producer workflow identity is invalid or from the future")
+
+          for name in ("gcc", "p2996"):
+              receipt = receipts[name]
+              verify_producer(receipt["producer_workflow_run"], name)
+              producers = receipt["platform_producer_workflow_runs"]
+              if set(producers) != {"linux/amd64", "linux/arm64"}:
+                  raise SystemExit(f"{name} platform producer set mismatch")
+              for platform, producer in producers.items():
+                  verify_producer(producer, f"{name} {platform}")
+          macos_receipt = receipts["macos"]
+          verify_producer(macos_receipt["producer_workflow_run"], "macOS receipt")
+          verify_producer(macos_receipt["release_producer_workflow_run"], "macOS release")
+          macos_producers = macos_receipt["candidate_producer_workflow_runs"]
+          if set(macos_producers) != {"arm64_macos_clang", "x86_64_macos_clang"}:
+              raise SystemExit("macOS candidate producer set mismatch")
+          for node, producer in macos_producers.items():
+              verify_producer(producer, node)
+          expected_repositories = {
+              "gcc": "ghcr.io/ximicpp/typelayout-gcc16",
+              "p2996": "ghcr.io/ximicpp/typelayout-p2996",
+          }
+          expected_revisions = {
+              "gcc": "16.2.0",
+              "p2996": "060be17654102019e14810c3f948ef85a490755f",
+          }
+          linux = {}
+          all_digests = []
+          for name in ("gcc", "p2996"):
+              receipt = receipts[name]
+              if receipt["toolchain"] != name:
+                  raise SystemExit(f"{name} toolchain name mismatch")
+              if receipt["repository"] != expected_repositories[name]:
+                  raise SystemExit(f"{name} repository mismatch")
+              if receipt["compiler_revision"] != expected_revisions[name]:
+                  raise SystemExit(f"{name} compiler revision mismatch")
+              if set(receipt["platforms"]) != {"linux/amd64", "linux/arm64"}:
+                  raise SystemExit(f"{name} platform set mismatch")
+              for platform, record in receipt["platforms"].items():
+                  if set(record) != {"manifest_digest", "target"}:
+                      raise SystemExit(f"{name} {platform} keys mismatch")
+                  if re.fullmatch(r"sha256:[0-9a-f]{64}", record["manifest_digest"]) is None:
+                      raise SystemExit(f"{name} {platform} digest invalid")
+                  if not record["target"]:
+                      raise SystemExit(f"{name} {platform} target empty")
+                  all_digests.append(record["manifest_digest"])
+              if re.fullmatch(r"sha256:[0-9a-f]{64}", receipt["index_digest"]) is None:
+                  raise SystemExit(f"{name} index digest invalid")
+              all_digests.append(receipt["index_digest"])
+              linux[name] = {
+                  "repository": receipt["repository"],
+                  "index_digest": receipt["index_digest"],
+                  "compiler_revision": receipt["compiler_revision"],
+                  "compiler_version": receipt["compiler_version"],
+                  "stdlib": receipt["stdlib"],
+                  "platforms": receipt["platforms"],
+              }
+          macos = receipts["macos"]["nodes"]
+          if set(macos) != {"arm64_macos_clang", "x86_64_macos_clang"}:
+              raise SystemExit("macOS node set mismatch")
+          mac_node_keys = {
+              "url", "archive_sha256", "compiler_revision", "compiler_version", "target",
+              "stdlib", "xcode_version", "xcode_build", "sdk_version", "sdk_build",
+              "deployment_target", "observed_runner",
+          }
+          for node, record in macos.items():
+              if set(record) != mac_node_keys:
+                  raise SystemExit(f"{node} keys mismatch")
+              if re.fullmatch(r"[0-9a-f]{64}", record["archive_sha256"]) is None:
+                  raise SystemExit(f"{node} archive digest invalid")
+              all_digests.append("sha256:" + record["archive_sha256"])
+          if len(all_digests) != len(set(all_digests)):
+              raise SystemExit("candidate index, manifest, and archive digests must all be unique")
+          output = {
+              "schema": 1,
+              "sources_sha256": sources_sha256,
+              "source_sha": source_sha,
+              "workflow_run": workflow_run,
+              "linux": linux,
+              "macos": macos,
+          }
+          output_path.parent.mkdir(parents=True, exist_ok=False)
+          with open(output_path, "w", encoding="utf-8", newline="\n") as stream:
+              json.dump(output, stream, indent=2, sort_keys=True)
+              stream.write("\n")
+          # END CANDIDATE LOCK SEALER
+          PY
+
+      - name: Validate the complete candidate lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/validate-toolchain-locks.py \
+            --sources .github/docker/toolchain-sources.lock \
+            --outputs build/candidate-toolchains-lock/toolchains.lock \
+            --recipe-root .
+          test "$(find build/candidate-toolchains-lock -maxdepth 1 -type f -print | wc -l | tr -d '[:space:]')" = 1
+          test -f build/candidate-toolchains-lock/toolchains.lock
+
+      - name: Upload the exact candidate lock
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-toolchains-lock
+          path: build/candidate-toolchains-lock/toolchains.lock
+          if-no-files-found: error
+          retention-days: 7
+
+  promote_legacy_aliases:
+    name: Validate sealed toolchains and promote legacy aliases
+    if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out the sealed default-branch commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate the committed lock pair and Docker client
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .github/docker/toolchains.lock
+          python3 .github/scripts/validate-toolchain-locks.py \
+            --sources .github/docker/toolchain-sources.lock \
+            --outputs .github/docker/toolchains.lock \
+            --recipe-root .
+          python3 >> "${GITHUB_ENV}" <<'PY'
+          import json
+          lock = json.load(open(".github/docker/toolchain-sources.lock", encoding="utf-8"))
+          runner = lock["linux"]["docker"]["runners"]["ubuntu-24.04"]
+          print(f"LOCKED_DOCKER_CLIENT={runner['client_version']}")
+          print(f"LOCKED_DOCKER_SERVER={runner['server_version']}")
+          print(f"LOCKED_BUILDX_VERSION={lock['linux']['docker']['buildx_version']}")
+          PY
+
+      - name: Verify the locked Docker and Buildx identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(docker version --format '{{.Client.Version}}')" = "${LOCKED_DOCKER_CLIENT}"
+          test "$(docker version --format '{{.Server.Version}}')" = "${LOCKED_DOCKER_SERVER}"
+          buildx_output="$(docker buildx version)"
+          python3 - "${LOCKED_BUILDX_VERSION}" "${buildx_output}" <<'PY'
+          import re
+          import sys
+
+          expected, output = sys.argv[1:]
+          versions = re.findall(r"(?<![0-9])v?([0-9]+\.[0-9]+\.[0-9]+)(?![0-9])", output)
+          if expected not in versions:
+              raise SystemExit(f"Buildx version mismatch: {output!r} != {expected!r}")
+          PY
+
+      - name: Log in to private GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify digest candidates, run legacy contracts, and promote aliases
+        shell: bash
+        run: |
+          set -euo pipefail
+          promotion_root="${RUNNER_TEMP}/toolchain-promotion"
+          mkdir -p "${promotion_root}/sigs" "${promotion_root}/indexes"
+          chmod 0777 "${promotion_root}" "${promotion_root}/sigs"
+          gcc_image="$(python3 .github/scripts/validate-toolchain-locks.py \
+            --sources .github/docker/toolchain-sources.lock \
+            --outputs .github/docker/toolchains.lock \
+            --recipe-root . \
+            --print-image gcc16)"
+          p2996_image="$(python3 .github/scripts/validate-toolchain-locks.py \
+            --sources .github/docker/toolchain-sources.lock \
+            --outputs .github/docker/toolchains.lock \
+            --recipe-root . \
+            --print-image p2996)"
+          python3 - "${promotion_root}/indexes" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          root = pathlib.Path(sys.argv[1])
+          lock = json.load(open(".github/docker/toolchains.lock", encoding="utf-8"))
+          for name in ("gcc", "p2996"):
+              record = lock["linux"][name]
+              expected = {
+                  platform: value["manifest_digest"]
+                  for platform, value in record["platforms"].items()
+              }
+              with open(root / f"{name}.json", "w", encoding="utf-8", newline="\n") as output:
+                  json.dump(expected, output, indent=2, sort_keys=True)
+                  output.write("\n")
+          PY
+          for toolchain in gcc p2996; do
+            if [ "${toolchain}" = gcc ]; then
+              repository="${GCC_REPOSITORY}"
+            else
+              repository="${P2996_REPOSITORY}"
+            fi
+            for architecture in amd64 arm64; do
+              platform="linux/${architecture}"
+              digest="$(python3 - "${promotion_root}/indexes/${toolchain}.json" "${platform}" <<'PY'
+          import json
+          import sys
+          print(json.load(open(sys.argv[1], encoding="utf-8"))[sys.argv[2]])
+          PY
+          )"
+              docker buildx imagetools inspect --raw "${repository}@${digest}" \
+                > "${promotion_root}/indexes/${toolchain}-child-${architecture}.json"
+            done
+            python3 - "${promotion_root}/indexes" "${toolchain}" <<'PY'
+          import hashlib
+          import json
+          import pathlib
+          import sys
+
+          root, toolchain = pathlib.Path(sys.argv[1]), sys.argv[2]
+          expected_map = json.loads((root / f"{toolchain}.json").read_text(encoding="utf-8"))
+          if set(expected_map) != {"linux/amd64", "linux/arm64"}:
+              raise SystemExit("committed platform map is not exact")
+          descriptors = []
+          for architecture in ("amd64", "arm64"):
+              platform = f"linux/{architecture}"
+              raw_bytes = (root / f"{toolchain}-child-{architecture}.json").read_bytes()
+              digest = "sha256:" + hashlib.sha256(raw_bytes).hexdigest()
+              if digest != expected_map[platform]:
+                  raise SystemExit(f"{toolchain} {platform} child digest mismatch")
+              manifest = json.loads(raw_bytes)
+              media_type = "application/vnd.oci.image.manifest.v1+json"
+              if manifest.get("mediaType") != media_type:
+                  raise SystemExit(f"{toolchain} {platform} is not an OCI manifest")
+              descriptors.append({
+                  "mediaType": media_type,
+                  "digest": digest,
+                  "size": len(raw_bytes),
+                  "platform": {"os": "linux", "architecture": architecture},
+              })
+          with open(root / f"{toolchain}-descriptors.json", "w", encoding="utf-8", newline="\n") as output:
+              json.dump(descriptors, output, indent=2)
+              output.write("\n")
+          PY
+          done
+          verify_remote_index() {
+            reference="$1"
+            expected_descriptors="$2"
+            expected_index="$3"
+            label="$4"
+            docker buildx imagetools inspect --raw "${reference}" > "${promotion_root}/indexes/${label}-raw.json"
+            docker buildx imagetools inspect "${reference}" --format '{{json .Manifest}}' > "${promotion_root}/indexes/${label}-summary.json"
+            python3 - \
+              "${promotion_root}/indexes/${label}-raw.json" \
+              "${promotion_root}/indexes/${label}-summary.json" \
+              "${expected_descriptors}" \
+              "${expected_index}" <<'PY'
+          import hashlib
+          import json
+          import re
+          import sys
+
+          def reject_duplicates(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(f"duplicate JSON key: {key}")
+                  result[key] = value
+              return result
+
+          raw_bytes = open(sys.argv[1], "rb").read()
+          summary = json.load(open(sys.argv[2], encoding="utf-8"), object_pairs_hook=reject_duplicates)
+          expected = json.load(open(sys.argv[3], encoding="utf-8"), object_pairs_hook=reject_duplicates)
+          expected_index = sys.argv[4]
+          if summary.get("digest") != expected_index:
+              raise SystemExit(f"remote index digest mismatch: {summary.get('digest')!r}")
+          if "sha256:" + hashlib.sha256(raw_bytes).hexdigest() != expected_index:
+              raise SystemExit("remote reported digest is not bound to the raw index bytes")
+          raw = json.loads(raw_bytes, object_pairs_hook=reject_duplicates)
+          if set(raw) != {"schemaVersion", "mediaType", "manifests"}:
+              raise SystemExit("remote index root contains non-canonical fields")
+          if raw["schemaVersion"] != 2 or raw["mediaType"] != "application/vnd.oci.image.index.v1+json":
+              raise SystemExit("remote index is not a canonical OCI index")
+          manifests = raw["manifests"]
+          expected_platforms = (("linux", "amd64"), ("linux", "arm64"))
+          if not isinstance(manifests, list) or len(manifests) != 2 or not isinstance(expected, list):
+              raise SystemExit("remote index does not have exactly two ordered descriptors")
+          for descriptor, (expected_os, expected_architecture) in zip(manifests, expected_platforms):
+              if not isinstance(descriptor, dict) or set(descriptor) != {"mediaType", "digest", "size", "platform"}:
+                  raise SystemExit("remote index descriptor contains non-canonical fields")
+              if descriptor["mediaType"] != "application/vnd.oci.image.manifest.v1+json":
+                  raise SystemExit("remote index descriptor is not a canonical OCI manifest")
+              if re.fullmatch(r"sha256:[0-9a-f]{64}", str(descriptor["digest"])) is None:
+                  raise SystemExit("remote index descriptor digest is invalid")
+              if isinstance(descriptor["size"], bool) or not isinstance(descriptor["size"], int) or descriptor["size"] <= 0:
+                  raise SystemExit("remote index descriptor size is invalid")
+              if descriptor["platform"] != {"os": expected_os, "architecture": expected_architecture}:
+                  raise SystemExit("remote index descriptor order or platform is invalid")
+          if manifests != expected:
+              raise SystemExit("remote index exact descriptor mismatch")
+          PY
+          }
+          gcc_index="${gcc_image##*@}"
+          p2996_index="${p2996_image##*@}"
+          verify_remote_index "${gcc_image}" "${promotion_root}/indexes/gcc-descriptors.json" "${gcc_index}" gcc-before-smoke
+          verify_remote_index "${p2996_image}" "${promotion_root}/indexes/p2996-descriptors.json" "${p2996_index}" p2996-before-smoke
+
+          runtime_dir=/opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu
+          docker run --rm "${p2996_image}" test -d "${runtime_dir}"
+          docker run --rm "${p2996_image}" sh -eu -c 'ldd /tmp/toolchain-probe' \
+            > "${promotion_root}/p2996-ldd.txt"
+          python3 - "${promotion_root}/p2996-ldd.txt" "${runtime_dir}" <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          log_path, runtime_dir = pathlib.Path(sys.argv[1]), sys.argv[2].rstrip("/")
+          families = {
+              "libc++": re.compile(r"^libc\+\+\.so(?:\.[0-9]+)*$"),
+              "libc++abi": re.compile(r"^libc\+\+abi\.so(?:\.[0-9]+)*$"),
+              "libunwind": re.compile(r"^libunwind\.so(?:\.[0-9]+)*$"),
+          }
+          resolved = {family: [] for family in families}
+          for line in log_path.read_text(encoding="utf-8").splitlines():
+              tokens = line.split()
+              if not tokens:
+                  continue
+              if "=>" in tokens:
+                  marker = tokens.index("=>")
+                  if marker == 0 or marker + 1 >= len(tokens):
+                      raise SystemExit("malformed P2996 runtime linkage line")
+                  soname, path = tokens[0], tokens[marker + 1]
+              else:
+                  path = tokens[0]
+                  soname = pathlib.PurePosixPath(path).name
+              for family, pattern in families.items():
+                  if pattern.fullmatch(soname):
+                      resolved[family].append(path)
+          for family, paths in resolved.items():
+              if len(paths) != 1:
+                  raise SystemExit(f"P2996 runtime linkage must resolve exactly one {family}: {paths!r}")
+              path = paths[0]
+              if not path.startswith(runtime_dir + "/"):
+                  raise SystemExit(f"P2996 runtime linkage escaped the bundled directory: {family} -> {path}")
+          PY
+
+          docker run --rm \
+            --volume "${GITHUB_WORKSPACE}:/src:ro" \
+            --volume "${promotion_root}:/promotion" \
+            --workdir /src \
+            --env LD_LIBRARY_PATH=/opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu \
+            "${p2996_image}" \
+            bash -euo pipefail -c '
+              test -d /opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu
+              for build_type in Debug Release; do
+                build_dir="/tmp/typelayout-${build_type}"
+                cmake -S /src -B "${build_dir}" -G Ninja -DCMAKE_BUILD_TYPE="${build_type}"
+                cmake --build "${build_dir}" --parallel
+                ctest --test-dir "${build_dir}" --output-on-failure --no-tests=error
+              done
+              cmake -S /src -B /tmp/compat-clang -G Ninja \
+                -DTYPELAYOUT_COMPAT_CI_EXPORT_DIR=/promotion/sigs
+              cmake --build /tmp/compat-clang --target compat_ci_export --parallel
+              /tmp/compat-clang/compat_ci_export /promotion/sigs
+            '
+
+          docker run --rm \
+            --volume "${GITHUB_WORKSPACE}:/src:ro" \
+            --volume "${promotion_root}:/promotion" \
+            --workdir /src \
+            "${gcc_image}" \
+            bash -euo pipefail -c '
+              cmake -S /src -B /tmp/compat-gcc -G Ninja \
+                -DTYPELAYOUT_COMPAT_CI_EXPORT_DIR=/promotion/sigs
+              cmake --build /tmp/compat-gcc --target compat_ci_export --parallel
+              /tmp/compat-gcc/compat_ci_export /promotion/sigs
+            '
+
+          docker run --rm \
+            --volume "${GITHUB_WORKSPACE}:/src:ro" \
+            --volume "${promotion_root}:/promotion" \
+            --workdir /src \
+            --env LD_LIBRARY_PATH=/opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu \
+            "${p2996_image}" \
+            bash -euo pipefail -c '
+              test -f /promotion/sigs/x86_64_linux_gcc.sig.hpp
+              test -f /promotion/sigs/x86_64_linux_clang.sig.hpp
+              cmake -S /src -B /tmp/compat-linux -G Ninja \
+                -DTYPELAYOUT_BUILD_COMPAT_CI=OFF \
+                -DTYPELAYOUT_BUILD_COMPAT_CI_LINUX=ON \
+                -DTYPELAYOUT_COMPAT_CI_LINUX_SIGS_DIR=/promotion/sigs
+              cmake --build /tmp/compat-linux --target compat_ci_check_linux --parallel
+              ctest --test-dir /tmp/compat-linux -R "^compat_ci_check_linux$" --output-on-failure --no-tests=error
+
+              # compat_check_demo_negative must fail with both expected diagnostics.
+              cmake -S /src -B /tmp/compat-negative -G Ninja
+              cmake --build /tmp/compat-negative --target compat_check --parallel
+              set +e
+              /tmp/compat-negative/compat_check > /tmp/compat-negative.log 2>&1
+              status=$?
+              set -e
+              cat /tmp/compat-negative.log
+              test "${status}" -ne 0
+              grep -q "Layout mismatch" /tmp/compat-negative.log
+              grep -q "not byte-copy safe" /tmp/compat-negative.log
+            '
+
+          # Recheck immutable inputs immediately before the two legacy tag writes.
+          verify_remote_index "${gcc_image}" "${promotion_root}/indexes/gcc-descriptors.json" "${gcc_index}" gcc-before-alias
+          verify_remote_index "${p2996_image}" "${promotion_root}/indexes/p2996-descriptors.json" "${p2996_index}" p2996-before-alias
+          read_reference_digest() {
+            reference="$1"
+            label="$2"
+            docker buildx imagetools inspect "${reference}" --format '{{json .Manifest}}' \
+              > "${promotion_root}/indexes/${label}-snapshot-summary.json"
+            python3 - "${promotion_root}/indexes/${label}-snapshot-summary.json" <<'PY'
+          import json
+          import re
+          import sys
+          digest = json.load(open(sys.argv[1], encoding="utf-8")).get("digest")
+          if re.fullmatch(r"sha256:[0-9a-f]{64}", str(digest)) is None:
+              raise SystemExit("legacy alias snapshot digest is invalid")
+          print(digest)
+          PY
+          }
+          verify_alias_digest() {
+            reference="$1"
+            expected_digest="$2"
+            label="$3"
+            docker buildx imagetools inspect --raw "${reference}" \
+              > "${promotion_root}/indexes/${label}-alias-raw.json"
+            docker buildx imagetools inspect "${reference}" --format '{{json .Manifest}}' \
+              > "${promotion_root}/indexes/${label}-alias-summary.json"
+            python3 - \
+              "${promotion_root}/indexes/${label}-alias-raw.json" \
+              "${promotion_root}/indexes/${label}-alias-summary.json" \
+              "${expected_digest}" <<'PY'
+          import hashlib
+          import json
+          import re
+          import sys
+
+          raw_bytes = open(sys.argv[1], "rb").read()
+          reported = json.load(open(sys.argv[2], encoding="utf-8")).get("digest")
+          expected = sys.argv[3]
+          if re.fullmatch(r"sha256:[0-9a-f]{64}", expected) is None:
+              raise SystemExit("expected alias digest is invalid")
+          if reported != expected or "sha256:" + hashlib.sha256(raw_bytes).hexdigest() != expected:
+              raise SystemExit("legacy alias does not resolve to the exact expected bytes")
+          PY
+          }
+          gcc_old_digest="$(read_reference_digest "${GCC_REPOSITORY}:latest" gcc-old)"
+          p2996_old_digest="$(read_reference_digest "${P2996_REPOSITORY}:latest" p2996-old)"
+          verify_alias_digest "${GCC_REPOSITORY}:latest" "${gcc_old_digest}" gcc-old
+          verify_alias_digest "${P2996_REPOSITORY}:latest" "${p2996_old_digest}" p2996-old
+
+          write_alias() {
+            repository="$1"
+            source="$2"
+            docker buildx imagetools create --tag "${repository}:latest" "${source}"
+          }
+          verify_new_aliases() {
+            verify_remote_index "${GCC_REPOSITORY}:latest" "${promotion_root}/indexes/gcc-descriptors.json" "${gcc_index}" gcc-latest
+            verify_remote_index "${P2996_REPOSITORY}:latest" "${promotion_root}/indexes/p2996-descriptors.json" "${p2996_index}" p2996-latest
+          }
+          rollback_alias() {
+            repository="$1"
+            old_digest="$2"
+            label="$3"
+            write_alias "${repository}" "${repository}@${old_digest}"
+            verify_alias_digest "${repository}:latest" "${old_digest}" "${label}-restored"
+          }
+
+          # BEGIN ALIAS PROMOTION TRANSACTION
+          promotion_status=0
+          set +e
+          (
+            set -e
+            write_alias "${GCC_REPOSITORY}" "${gcc_image}"
+            write_alias "${P2996_REPOSITORY}" "${p2996_image}"
+            verify_new_aliases
+          )
+          promotion_status=$?
+          set -e
+          if [ "${promotion_status}" -ne 0 ]; then
+            rollback_status=0
+            rollback_alias "${GCC_REPOSITORY}" "${gcc_old_digest}" gcc || rollback_status=$?
+            rollback_alias "${P2996_REPOSITORY}" "${p2996_old_digest}" p2996 || {
+              status=$?
+              if [ "${rollback_status}" -eq 0 ]; then
+                rollback_status="${status}"
+              fi
+            }
+            if [ "${rollback_status}" -ne 0 ]; then
+              echo "ROLLBACK FAILED: legacy aliases may be inconsistent" >&2
+              exit 70
+            fi
+            exit "${promotion_status}"
+          fi
+          # END ALIAS PROMOTION TRANSACTION

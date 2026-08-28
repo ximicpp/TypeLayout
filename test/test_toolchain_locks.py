@@ -1,10 +1,15 @@
 import hashlib
 import importlib.util
+import io
 import json
+import lzma
 import os
 from pathlib import Path
+import re
+import shlex
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 
@@ -28,6 +33,21 @@ BUILDKIT_IMAGE = (
     "docker.io/moby/buildkit@sha256:"
     "28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8"
 )
+DOCKERFILE_FRONTEND = (
+    "docker.io/docker/dockerfile:1.7@sha256:"
+    "a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e"
+)
+
+UBUNTU_RUNNER_INVENTORY = """# Ubuntu 24.04
+- Docker-Buildx 0.36.1
+- Docker Client 28.0.4
+- Docker Server 28.0.4
+"""
+MACOS_RUNNER_INVENTORY = """# macOS 15
+| Version        | Build    | Path                           | Symlinks |
+| 16.4 (default) | 16F6     | /Applications/Xcode_16.4.app   | /Applications/Xcode.app |
+| macOS 15.5     | macosx15.5 | 16.4 |
+"""
 
 ACTION_PINS = {
     "checkout": "11d5960a326750d5838078e36cf38b85af677262",
@@ -57,9 +77,11 @@ PACKAGE_LOCKS = {
         "libzstd-dev=1.5.7+dfsg-1",
     ],
     "gcc_runtime": [
+        "binutils=2.44-3",
         "ca-certificates=20250419",
         "cmake=3.31.6-2",
         "git=1:2.47.3-0+deb13u1",
+        "libc6-dev=2.41-12+deb13u3",
         "ninja-build:amd64=1.12.1-1",
         "ninja-build:arm64=1.12.1-1+b1",
         "python3=3.13.5-1",
@@ -83,9 +105,11 @@ PACKAGE_LOCKS = {
         "zstd=1.5.7+dfsg-1",
     ],
     "p2996_runtime": [
+        "binutils=2.44-3",
         "ca-certificates=20250419",
         "cmake=3.31.6-2",
         "git=1:2.47.3-0+deb13u1",
+        "libc6-dev=2.41-12+deb13u3",
         "libtinfo6=6.5+20250216-2",
         "libxml2=2.12.7+dfsg+really2.9.14-2.1+deb13u3",
         "libzstd1=1.5.7+dfsg-1",
@@ -134,6 +158,15 @@ def bash_syntax_command(script):
     return command[:-1] + ["-n", command[-1]]
 
 
+def bash_path(path):
+    resolved = Path(path).resolve()
+    if os.name != "nt":
+        return str(resolved)
+    drive = resolved.drive[0].lower()
+    relative = resolved.as_posix().split(":", 1)[1]
+    return f"/mnt/{drive}{relative}"
+
+
 class ToolchainLockTests(unittest.TestCase):
     maxDiff = None
 
@@ -152,28 +185,8 @@ class ToolchainLockTests(unittest.TestCase):
                     "tools/*.sh text eol=lf\n",
                     encoding="utf-8",
                 )
-            elif relative.endswith("Dockerfile.gcc16"):
-                path.write_text(
-                    "fixture\n"
-                    + "\n".join(
-                        PACKAGE_LOCKS["gcc_builder"]
-                        + PACKAGE_LOCKS["gcc_runtime"]
-                    )
-                    + "\n",
-                    encoding="utf-8",
-                )
-            elif relative.endswith("Dockerfile.p2996"):
-                path.write_text(
-                    "fixture\n"
-                    + "\n".join(
-                        PACKAGE_LOCKS["p2996_builder"]
-                        + PACKAGE_LOCKS["p2996_runtime"]
-                    )
-                    + "\n",
-                    encoding="utf-8",
-                )
             else:
-                path.write_text(f"fixture for {relative}\n", encoding="utf-8")
+                path.write_bytes((ROOT / relative).read_bytes())
 
     def tearDown(self):
         self.temporary_directory.cleanup()
@@ -248,6 +261,7 @@ class ToolchainLockTests(unittest.TestCase):
                 },
                 "prerequisites": prerequisites,
                 "configure_flags": [
+                    "--prefix=/opt/gcc-16.2.0",
                     "--enable-languages=c,c++",
                     "--disable-bootstrap",
                     "--disable-multilib",
@@ -266,6 +280,8 @@ class ToolchainLockTests(unittest.TestCase):
                 "llvm_targets": ["X86", "AArch64"],
                 "cmake_flags": [
                     "-DCMAKE_BUILD_TYPE=Release",
+                    "-DLLVM_ENABLE_PROJECTS=clang",
+                    "-DLLVM_ENABLE_RUNTIMES=libcxx;libcxxabi;libunwind",
                     "-DLLVM_INCLUDE_TESTS=OFF",
                     "-DCLANG_INCLUDE_TESTS=OFF",
                     "-DLLVM_INCLUDE_EXAMPLES=OFF",
@@ -276,6 +292,34 @@ class ToolchainLockTests(unittest.TestCase):
                     "-DLLVM_INSTALL_TOOLCHAIN_ONLY=ON",
                     "-DLLVM_PARALLEL_LINK_JOBS=1",
                 ],
+                "platform_cmake_flags": {
+                    "linux/amd64": [
+                        "-DCMAKE_INSTALL_PREFIX=/opt/p2996-toolchain",
+                        "-DLLVM_TARGETS_TO_BUILD=X86",
+                        "-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON",
+                    ],
+                    "linux/arm64": [
+                        "-DCMAKE_INSTALL_PREFIX=/opt/p2996-toolchain",
+                        "-DLLVM_TARGETS_TO_BUILD=AArch64",
+                        "-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON",
+                    ],
+                    "macos/arm64": [
+                        "-DCMAKE_INSTALL_PREFIX=${TOOLCHAIN_ROOT}",
+                        "-DCMAKE_OSX_ARCHITECTURES=arm64",
+                        "-DCMAKE_OSX_SYSROOT=${SDKROOT}",
+                        "-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0",
+                        "-DLLVM_TARGETS_TO_BUILD=AArch64",
+                        "-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF",
+                    ],
+                    "macos/x86_64": [
+                        "-DCMAKE_INSTALL_PREFIX=${TOOLCHAIN_ROOT}",
+                        "-DCMAKE_OSX_ARCHITECTURES=x86_64",
+                        "-DCMAKE_OSX_SYSROOT=${SDKROOT}",
+                        "-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0",
+                        "-DLLVM_TARGETS_TO_BUILD=X86",
+                        "-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF",
+                    ],
+                },
             },
             "linux": {
                 "platforms": {
@@ -322,6 +366,7 @@ class ToolchainLockTests(unittest.TestCase):
                     },
                     "buildx_version": "0.36.1",
                     "buildkit_image": BUILDKIT_IMAGE,
+                    "dockerfile_frontend": DOCKERFILE_FRONTEND,
                 },
             },
             "macos": {
@@ -457,6 +502,18 @@ class ToolchainLockTests(unittest.TestCase):
         command.extend(extra)
         return subprocess.run(command, capture_output=True, text=True, check=False)
 
+    def rebase_recipe(self, relative, transform):
+        recipe = self.root / relative
+        original = recipe.read_text(encoding="utf-8")
+        changed = transform(original)
+        self.assertNotEqual(changed, original, f"mutation did not change {relative}")
+        recipe.write_text(changed, encoding="utf-8")
+        sources_value = self.make_sources()
+        sources_value["recipes"][relative] = normalized_sha256(recipe)
+        sources = self.root / "toolchain-sources.lock"
+        write_json(sources, sources_value)
+        return self.run_validator(sources)
+
     @staticmethod
     def load_script(path, name):
         specification = importlib.util.spec_from_file_location(name, path)
@@ -535,6 +592,40 @@ class ToolchainLockTests(unittest.TestCase):
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("recipe", completed.stderr)
 
+    def test_recipe_paths_reject_final_and_intermediate_symlinks(self):
+        relative = ".github/docker/Dockerfile.gcc16"
+        recipe = self.root / relative
+        external = self.root / "external-dockerfile"
+        external.write_bytes(recipe.read_bytes())
+        recipe.unlink()
+        os.symlink(external, recipe)
+        sources = self.root / "toolchain-sources.lock"
+        write_json(sources, self.make_sources())
+        completed = self.run_validator(sources)
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("symbolic link", completed.stderr)
+
+        bootstrap = self.load_script(BOOTSTRAP, "toolchain_recipe_path_test")
+        with self.assertRaisesRegex(bootstrap.BootstrapError, "symbolic link"):
+            bootstrap._normalized_recipe_sha256(self.root, relative)
+
+        recipe.unlink()
+        recipe.write_bytes(external.read_bytes())
+        docker_directory = self.root / ".github/docker"
+        real_directory = self.root / ".github/real-docker"
+        docker_directory.rename(real_directory)
+        os.symlink(real_directory, docker_directory, target_is_directory=True)
+        sources_value = self.make_sources()
+        sources_value["recipes"] = {
+            path: normalized_sha256(self.root / path) for path in RECIPE_PATHS
+        }
+        write_json(sources, sources_value)
+        completed = self.run_validator(sources)
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("symbolic link", completed.stderr)
+        with self.assertRaisesRegex(bootstrap.BootstrapError, "symbolic link"):
+            bootstrap._normalized_recipe_sha256(self.root, relative)
+
     def test_locked_package_version_drift_is_rejected(self):
         sources = self.make_sources()
         sources["linux"]["packages"]["gcc_builder"][0] = (
@@ -568,6 +659,479 @@ class ToolchainLockTests(unittest.TestCase):
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("Dockerfile.gcc16", completed.stderr)
 
+    def test_package_parser_is_scoped_to_install_and_expands_ninja_mapping(self):
+        validator = self.load_script(VALIDATOR, "toolchain_package_parser_test")
+        stage = """runtime
+RUN printf 'deb [check-valid-until=no] %s trixie main\\n' snapshot
+RUN set -eu; \\
+    case "${TARGETARCH}" in \\
+        amd64) ninja_package='ninja-build:amd64=1.12.1-1' ;; \\
+        arm64) ninja_package='ninja-build:arm64=1.12.1-1+b1' ;; \\
+    esac; \\
+    apt-get install -y --no-install-recommends \\
+        binutils=2.44-3 \\
+        "${ninja_package}" \\
+        libc6-dev=2.41-12+deb13u3; \\
+    rm -rf /var/lib/apt/lists/*
+"""
+
+        self.assertEqual(
+            validator._locked_packages_in_stage(stage, "fixture runtime"),
+            [
+                "binutils=2.44-3",
+                "ninja-build:amd64=1.12.1-1",
+                "ninja-build:arm64=1.12.1-1+b1",
+                "libc6-dev=2.41-12+deb13u3",
+            ],
+        )
+
+        unversioned = stage.replace(
+            "        libc6-dev=2.41-12+deb13u3; \\\n",
+            "        bash \\\n"
+            "        libc6-dev=2.41-12+deb13u3; \\\n",
+        )
+        with self.assertRaises(validator.LockError):
+            validator._locked_packages_in_stage(unversioned, "fixture runtime")
+
+    def test_recipe_configuration_drift_is_rejected_even_with_rebased_hash(self):
+        sources = self.make_sources()
+        mac_build = self.root / ".github/scripts/build-p2996-macos.sh"
+        mac_build.write_text(
+            mac_build.read_text(encoding="utf-8").replace(
+                "-DCMAKE_OSX_SYSROOT", "-DCMAKE_OSX_UNREVIEWED_SYSROOT"
+            ),
+            encoding="utf-8",
+        )
+        sources["recipes"][".github/scripts/build-p2996-macos.sh"] = (
+            normalized_sha256(mac_build)
+        )
+        path = self.root / "toolchain-sources.lock"
+        write_json(path, sources)
+
+        completed = self.run_validator(path)
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("CMake configuration", completed.stderr)
+
+    def test_recipe_configuration_rejects_non_option_in_continued_command(self):
+        sources = self.make_sources()
+        mac_build = self.root / ".github/scripts/build-p2996-macos.sh"
+        mac_build.write_text(
+            mac_build.read_text(encoding="utf-8").replace(
+                "    -DCMAKE_BUILD_TYPE=Release \\\n",
+                "    -DCMAKE_BUILD_TYPE=Release \\\n"
+                "    $(printf unreviewed) \\\n",
+            ),
+            encoding="utf-8",
+        )
+        sources["recipes"][".github/scripts/build-p2996-macos.sh"] = (
+            normalized_sha256(mac_build)
+        )
+        path = self.root / "toolchain-sources.lock"
+        write_json(path, sources)
+
+        completed = self.run_validator(path)
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("unexpected continued token", completed.stderr)
+
+    def test_rebased_docker_recipe_cannot_neutralize_native_guard(self):
+        sources = self.make_sources()
+        dockerfile = self.root / ".github/docker/Dockerfile.gcc16"
+        dockerfile.write_text(
+            dockerfile.read_text(encoding="utf-8").replace(
+                '    test "${BUILDARCH}" = "${native_arch}"\n',
+                '    test "${BUILDARCH}" = "${native_arch}" || true\n',
+                1,
+            ),
+            encoding="utf-8",
+        )
+        sources["recipes"][".github/docker/Dockerfile.gcc16"] = (
+            normalized_sha256(dockerfile)
+        )
+        path = self.root / "toolchain-sources.lock"
+        write_json(path, sources)
+
+        completed = self.run_validator(path)
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("native", completed.stderr)
+
+    def test_rebased_docker_recipe_cannot_shadow_architecture_before_guard(self):
+        sources = self.make_sources()
+        dockerfile = self.root / ".github/docker/Dockerfile.gcc16"
+        content = dockerfile.read_text(encoding="utf-8")
+        marker = 'RUN set -eu; \\\n'
+        self.assertIn(marker, content)
+        dockerfile.write_text(
+            content.replace(
+                marker,
+                'ENV BUILDARCH=${TARGETARCH}\n' + marker,
+                1,
+            ),
+            encoding="utf-8",
+        )
+        sources["recipes"][".github/docker/Dockerfile.gcc16"] = (
+            normalized_sha256(dockerfile)
+        )
+        path = self.root / "toolchain-sources.lock"
+        write_json(path, sources)
+
+        completed = self.run_validator(path)
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("BUILDARCH", completed.stderr)
+
+    def test_rebased_docker_recipe_cannot_add_noncanonical_apt_command(self):
+        sources = self.make_sources()
+        dockerfile = self.root / ".github/docker/Dockerfile.gcc16"
+        content = dockerfile.read_text(encoding="utf-8")
+        marker = '    test "${BUILDARCH}" = "${native_arch}"\n'
+        self.assertIn(marker, content)
+        dockerfile.write_text(
+            content.replace(marker, marker + "RUN apt-get -y install wget\n", 1),
+            encoding="utf-8",
+        )
+        sources["recipes"][".github/docker/Dockerfile.gcc16"] = (
+            normalized_sha256(dockerfile)
+        )
+        path = self.root / "toolchain-sources.lock"
+        write_json(path, sources)
+
+        completed = self.run_validator(path)
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("apt", completed.stderr)
+
+    def test_rebased_p2996_recipe_cannot_override_target_after_mapping(self):
+        sources = self.make_sources()
+        dockerfile = self.root / ".github/docker/Dockerfile.p2996"
+        content = dockerfile.read_text(encoding="utf-8")
+        marker = '    esac; \\\n    cmake -S llvm -B build -G Ninja \\\n'
+        self.assertIn(marker, content)
+        dockerfile.write_text(
+            content.replace(
+                marker,
+                '    esac; \\\n'
+                '    llvm_target=WebAssembly; \\\n'
+                '    cmake -S llvm -B build -G Ninja \\\n',
+                1,
+            ),
+            encoding="utf-8",
+        )
+        sources["recipes"][".github/docker/Dockerfile.p2996"] = (
+            normalized_sha256(dockerfile)
+        )
+        path = self.root / "toolchain-sources.lock"
+        write_json(path, sources)
+
+        completed = self.run_validator(path)
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("target", completed.stderr.casefold())
+
+    def test_rebased_docker_recipes_cannot_change_locked_source_inputs(self):
+        attacks = (
+            (
+                ".github/docker/Dockerfile.gcc16",
+                f"ARG DEBIAN_IMAGE={DEBIAN_IMAGE}",
+                "ARG DEBIAN_IMAGE=docker.io/library/debian:latest",
+            ),
+            (
+                ".github/docker/Dockerfile.gcc16",
+                "ARG DEBIAN_SNAPSHOT=https://snapshot.debian.org/archive/"
+                "debian/20260824T000000Z/",
+                "ARG DEBIAN_SNAPSHOT=https://deb.debian.org/debian/",
+            ),
+            (
+                ".github/docker/Dockerfile.gcc16",
+                "ARG GCC_URL=https://gcc.gnu.org/pub/gcc/releases/gcc-16.2.0/"
+                "gcc-16.2.0.tar.xz",
+                "ARG GCC_URL=https://example.invalid/gcc.tar.xz",
+            ),
+            (
+                ".github/docker/Dockerfile.gcc16",
+                f"ARG GCC_SHA512={GCC_SHA512}",
+                "ARG GCC_SHA512=" + "0" * 128,
+            ),
+            (
+                ".github/docker/Dockerfile.gcc16",
+                "ARG GMP_URL=https://gcc.gnu.org/pub/gcc/infrastructure/"
+                "gmp-6.3.0.tar.bz2",
+                "ARG GMP_URL=https://example.invalid/gmp.tar.bz2",
+            ),
+            (
+                ".github/docker/Dockerfile.p2996",
+                "ARG P2996_REPOSITORY=https://github.com/bloomberg/"
+                "clang-p2996.git",
+                "ARG P2996_REPOSITORY=https://example.invalid/clang.git",
+            ),
+            (
+                ".github/docker/Dockerfile.p2996",
+                f"ARG P2996_COMMIT={CLANG_COMMIT}",
+                "ARG P2996_COMMIT=" + "f" * 40,
+            ),
+        )
+        for relative, locked, replacement in attacks:
+            with self.subTest(relative=relative, locked=locked.split("=", 1)[0]):
+                dockerfile = self.root / relative
+                original = dockerfile.read_text(encoding="utf-8")
+                self.assertIn(locked, original)
+                try:
+                    dockerfile.write_text(
+                        original.replace(locked, replacement, 1),
+                        encoding="utf-8",
+                    )
+                    sources = self.make_sources()
+                    sources["recipes"][relative] = normalized_sha256(dockerfile)
+                    path = self.root / "toolchain-sources.lock"
+                    write_json(path, sources)
+
+                    completed = self.run_validator(path)
+
+                    self.assertNotEqual(completed.returncode, 0)
+                    self.assertIn("Dockerfile", completed.stderr)
+                finally:
+                    dockerfile.write_text(original, encoding="utf-8")
+
+    def test_rebased_bake_recipe_cannot_swap_native_platform(self):
+        sources = self.make_sources()
+        bake = self.root / ".github/docker/docker-bake.hcl"
+        bake.write_text(
+            bake.read_text(encoding="utf-8").replace(
+                'platforms  = ["linux/amd64"]',
+                'platforms  = ["linux/arm64"]',
+                1,
+            ),
+            encoding="utf-8",
+        )
+        sources["recipes"][".github/docker/docker-bake.hcl"] = normalized_sha256(
+            bake
+        )
+        path = self.root / "toolchain-sources.lock"
+        write_json(path, sources)
+
+        completed = self.run_validator(path)
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("docker-bake.hcl", completed.stderr)
+
+    def test_rebased_critical_recipes_reject_unreviewed_instructions(self):
+        attacks = (
+            (
+                ".github/docker/Dockerfile.gcc16",
+                lambda text: text.replace(
+                    "WORKDIR /workspace\n",
+                    "RUN cp /bin/false /opt/gcc-16.2.0/bin/g++\n"
+                    "WORKDIR /workspace\n",
+                    1,
+                ),
+            ),
+            (
+                ".github/docker/Dockerfile.gcc16",
+                lambda text: text.replace(
+                    "WORKDIR /opt/sources\n",
+                    "ADD https://example.invalid/source.tar.xz /tmp/source.tar.xz\n"
+                    "WORKDIR /opt/sources\n",
+                    1,
+                ),
+            ),
+            (
+                ".github/docker/Dockerfile.p2996",
+                lambda text: text.replace(
+                    "WORKDIR /workspace\n", "COPY . /tmp/context\nWORKDIR /workspace\n", 1
+                ),
+            ),
+            (
+                ".github/docker/Dockerfile.p2996",
+                lambda text: text.replace(
+                    "WORKDIR /workspace\n", "RUN true\nWORKDIR /workspace\n", 1
+                ),
+            ),
+        )
+        for relative, transform in attacks:
+            with self.subTest(relative=relative):
+                completed = self.rebase_recipe(relative, transform)
+                self.assertNotEqual(completed.returncode, 0, completed.stdout)
+                (self.root / relative).write_bytes((ROOT / relative).read_bytes())
+
+    def test_rebased_gcc_fetch_cannot_rewrite_url_digest_or_order(self):
+        attacks = (
+            lambda text: text.replace(
+                'url="$1"; file="$2"; digest="$3"; \\\n',
+                'url="$1"; file="$2"; digest="$3"; \\\n'
+                '        url=https://example.invalid/unreviewed; \\\n',
+                1,
+            ),
+            lambda text: text.replace(
+                'url="$1"; file="$2"; digest="$3"; \\\n',
+                'url="$1"; file="$2"; digest="$3"; \\\n'
+                '        digest="$(sha512sum "${file}" | cut -d" " -f1)"; \\\n',
+                1,
+            ),
+            lambda text: text.replace(
+                "        curl --fail --location --proto '=https' --tlsv1.2 \\\n"
+                '            --retry 3 --output "${file}" "${url}"; \\\n'
+                "        printf '%s  %s\\n' \"${digest}\" \"${file}\" "
+                "| sha512sum --check --strict -; \\\n",
+                "        printf '%s  %s\\n' \"${digest}\" \"${file}\" "
+                "| sha512sum --check --strict -; \\\n"
+                "        curl --fail --location --proto '=https' --tlsv1.2 \\\n"
+                '            --retry 3 --output "${file}" "${url}"; \\\n',
+                1,
+            ),
+            lambda text: text.replace(
+                '            --retry 3 --output "${file}" "${url}"; \\\n',
+                '            --retry 3 --output "${file}" "${url}"; \\\n'
+                '        tar -tf "${file}" >/dev/null; \\\n',
+                1,
+            ),
+        )
+        relative = ".github/docker/Dockerfile.gcc16"
+        for transform in attacks:
+            with self.subTest(transform=transform):
+                completed = self.rebase_recipe(relative, transform)
+                self.assertNotEqual(completed.returncode, 0, completed.stdout)
+                (self.root / relative).write_bytes((ROOT / relative).read_bytes())
+
+    def test_bake_and_workflow_cannot_inject_build_inputs(self):
+        bake_attacks = (
+            lambda text: text.replace(
+                'target "gcc16-amd64" {\n',
+                'target "gcc16-amd64" {\n  args = { UNREVIEWED = "1" }\n',
+                1,
+            ),
+            lambda text: text.replace(
+                'target "gcc16-amd64" {\n',
+                'target "gcc16-amd64" {\n  context = "https://example.invalid/repo.git"\n',
+                1,
+            ),
+            lambda text: text
+            + '\ntarget "unreviewed" {\n  context = "https://example.invalid"\n}\n',
+        )
+        relative = ".github/docker/docker-bake.hcl"
+        for transform in bake_attacks:
+            with self.subTest(kind="bake"):
+                completed = self.rebase_recipe(relative, transform)
+                self.assertNotEqual(completed.returncode, 0, completed.stdout)
+                (self.root / relative).write_bytes((ROOT / relative).read_bytes())
+
+        workflow = ".github/workflows/toolchain-images.yml"
+        completed = self.rebase_recipe(
+            workflow,
+            lambda text: text.replace(
+                '            --set "${BAKE_TARGET}.provenance=false" \\\n',
+                '            --set "${BAKE_TARGET}.args.UNREVIEWED=1" \\\n'
+                '            --set "${BAKE_TARGET}.provenance=false" \\\n',
+                1,
+            ),
+        )
+        self.assertNotEqual(completed.returncode, 0, completed.stdout)
+
+    def test_rebased_frozen_workflow_rejects_unreviewed_bytes(self):
+        relative = ".github/workflows/toolchain-images.yml"
+        completed = self.rebase_recipe(
+            relative,
+            lambda text: text + "\n# unreviewed workflow bytes\n",
+        )
+
+        self.assertNotEqual(completed.returncode, 0, completed.stdout)
+        self.assertIn("reviewed semantic recipe", completed.stderr)
+        self.assertIn(relative, completed.stderr)
+
+    def test_rebased_macos_recipes_reject_critical_step_mutations(self):
+        attacks = (
+            (
+                ".github/scripts/build-p2996-macos.sh",
+                lambda text: text.replace(
+                    '[[ "$(git -C "${source_dir}" rev-parse HEAD)" == "${p2996_commit}" ]]',
+                    ": # skipped locked revision verification",
+                    1,
+                ),
+            ),
+            (
+                ".github/scripts/build-p2996-macos.sh",
+                lambda text: text.replace(
+                    'cmake --install "${build_dir}" --strip',
+                    'cmake --install "${build_dir}"',
+                    1,
+                ),
+            ),
+            (
+                ".github/scripts/build-p2996-macos.sh",
+                lambda text: text.replace(
+                    'if [[ "${host_architecture}" != "${architecture}" ]]; then',
+                    "if false; then",
+                    1,
+                ),
+            ),
+            (
+                ".github/scripts/build-p2996-macos.sh",
+                lambda text: text.replace(
+                    '[[ "${actual_sdk_build}" == "${sdk_build}" ]] || {',
+                    "true || {",
+                    1,
+                ),
+            ),
+            (
+                ".github/scripts/build-p2996-macos.sh",
+                lambda text: text.replace(
+                    "available_memory / 2147483648",
+                    "available_memory / 1",
+                    1,
+                ),
+            ),
+            (
+                ".github/scripts/build-p2996-macos.sh",
+                lambda text: text.replace("--require-locked-sdk", "--allow-unlocked-sdk", 1),
+            ),
+            (
+                ".github/scripts/verify-p2996-toolchain.sh",
+                lambda text: text.replace(
+                    'actual_sha256="$(shasum -a 256 "${archive}" | awk \'{print $1}\')"',
+                    'actual_sha256="${expected_sha256}"',
+                    1,
+                ),
+            ),
+            (
+                ".github/scripts/verify-p2996-toolchain.sh",
+                lambda text: text.replace(
+                    "printf '#include <vector>\\n' \\\n",
+                    "printf 'int main() {}\\n' \\\n",
+                    1,
+                ),
+            ),
+            (
+                ".github/scripts/verify-p2996-toolchain.sh",
+                lambda text: text.replace(
+                    'zstd -dc "${archive}" | python3 "${archive_validator}"',
+                    ": # skipped archive validation",
+                    1,
+                ),
+            ),
+            (
+                ".github/scripts/verify-p2996-toolchain.sh",
+                lambda text: text.replace(
+                    'python3 - "${rpath_output}" "${library_dir}" <<\'PY\'',
+                    'python3 - "${rpath_output}" "/unreviewed" <<\'PY\'',
+                    1,
+                ),
+            ),
+            (
+                ".github/scripts/verify-p2996-toolchain.sh",
+                lambda text: text.replace(
+                    'python3 - "${dyld_output}" "${library_dir}" <<\'PY\'',
+                    'python3 - "${dyld_output}" "/usr/lib" <<\'PY\'',
+                    1,
+                ),
+            ),
+        )
+        for relative, transform in attacks:
+            with self.subTest(relative=relative):
+                completed = self.rebase_recipe(relative, transform)
+                self.assertNotEqual(completed.returncode, 0, completed.stdout)
+                (self.root / relative).write_bytes((ROOT / relative).read_bytes())
+
     def test_complete_output_lock_prints_only_digest_qualified_index(self):
         sources = self.root / "toolchain-sources.lock"
         write_json(sources, self.make_sources())
@@ -584,6 +1148,35 @@ class ToolchainLockTests(unittest.TestCase):
             "ghcr.io/ximicpp/typelayout-p2996@sha256:" + "4" * 64,
         )
 
+    def test_output_lock_rejects_noncanonical_runtime_identities(self):
+        mutations = (
+            lambda outputs: outputs["linux"]["gcc"].__setitem__(
+                "compiler_version", "gcc (GCC) 16.2.0"
+            ),
+            lambda outputs: outputs["linux"]["gcc"].__setitem__(
+                "stdlib", "libstdc++"
+            ),
+            lambda outputs: outputs["linux"]["p2996"].__setitem__(
+                "stdlib", "libc++"
+            ),
+            lambda outputs: outputs["macos"]["arm64_macos_clang"].__setitem__(
+                "compiler_version", "clang version unreviewed"
+            ),
+            lambda outputs: outputs["macos"]["x86_64_macos_clang"].__setitem__(
+                "stdlib", "libc++-999999"
+            ),
+        )
+        sources = self.root / "toolchain-sources.lock"
+        write_json(sources, self.make_sources())
+        for mutate in mutations:
+            with self.subTest(mutate=mutate):
+                outputs_value = self.make_outputs(sources)
+                mutate(outputs_value)
+                outputs = self.root / "toolchains.lock"
+                write_json(outputs, outputs_value)
+                completed = self.run_validator(sources, outputs)
+                self.assertNotEqual(completed.returncode, 0, completed.stdout)
+
     def test_duplicate_platform_manifest_is_rejected(self):
         sources = self.root / "toolchain-sources.lock"
         write_json(sources, self.make_sources())
@@ -598,6 +1191,35 @@ class ToolchainLockTests(unittest.TestCase):
 
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("unique", completed.stderr)
+
+    def test_output_lock_rejects_each_noncanonical_platform_target(self):
+        mutations = (
+            lambda outputs: outputs["linux"]["gcc"]["platforms"][
+                "linux/amd64"
+            ].__setitem__("target", "aarch64-unknown-linux-gnu"),
+            lambda outputs: outputs["linux"]["p2996"]["platforms"][
+                "linux/amd64"
+            ].__setitem__("target", "x86_64-linux-gnu"),
+            lambda outputs: outputs["linux"]["p2996"]["platforms"][
+                "linux/arm64"
+            ].__setitem__("target", "arm64-unknown-linux-gnu"),
+            lambda outputs: outputs["macos"]["arm64_macos_clang"].__setitem__(
+                "target", "x86_64-apple-macosx15.0.0"
+            ),
+            lambda outputs: outputs["macos"]["x86_64_macos_clang"].__setitem__(
+                "target", "x86_64-apple-macosx15.1.0"
+            ),
+        )
+        sources = self.root / "toolchain-sources.lock"
+        write_json(sources, self.make_sources())
+        for mutate in mutations:
+            with self.subTest(mutate=mutate):
+                outputs_value = self.make_outputs(sources)
+                mutate(outputs_value)
+                outputs = self.root / "toolchains.lock"
+                write_json(outputs, outputs_value)
+                completed = self.run_validator(sources, outputs)
+                self.assertNotEqual(completed.returncode, 0, completed.stdout)
 
     def test_observed_runner_change_does_not_change_lock_validity(self):
         sources = self.root / "toolchain-sources.lock"
@@ -681,6 +1303,20 @@ class ToolchainLockTests(unittest.TestCase):
                 "https://example.invalid/unreviewed",
             )
 
+    def test_bootstrap_refuses_redirect_downgrade_and_nonstandard_port(self):
+        bootstrap = self.load_script(BOOTSTRAP, "toolchain_redirect_security_test")
+        request = bootstrap.Request("https://gcc.gnu.org/source")
+        for redirect in (
+            "http://gcc.gnu.org/unreviewed",
+            "https://gcc.gnu.org:8443/unreviewed",
+        ):
+            with self.subTest(redirect=redirect), self.assertRaises(
+                bootstrap.BootstrapError
+            ):
+                bootstrap.SameHostRedirectHandler().redirect_request(
+                    request, None, 302, "Found", {}, redirect
+                )
+
     def test_bootstrap_builds_complete_lock_from_resolved_inputs(self):
         self.assertTrue(BOOTSTRAP.is_file(), "bootstrap script must exist")
         bootstrap = self.load_script(BOOTSTRAP, "toolchain_source_bootstrap_test")
@@ -695,6 +1331,12 @@ class ToolchainLockTests(unittest.TestCase):
                 return gcc_sums
             if url.endswith("prerequisites.sha512"):
                 return prerequisite_sums
+            if url.endswith("images/ubuntu/Ubuntu2404-Readme.md"):
+                return UBUNTU_RUNNER_INVENTORY
+            if url.endswith(
+                ("images/macos/macos-15-Readme.md", "images/macos/macos-15-arm64-Readme.md")
+            ):
+                return MACOS_RUNNER_INVENTORY
             raise AssertionError(f"unexpected URL {url}")
 
         def resolve_image(reference):
@@ -715,6 +1357,9 @@ class ToolchainLockTests(unittest.TestCase):
         )
 
         self.assertEqual(lock["gcc"]["source"]["sha512"], GCC_SHA512)
+        self.assertEqual(
+            lock["gcc"]["configure_flags"][0], "--prefix=/opt/gcc-16.2.0"
+        )
         self.assertEqual(lock["p2996"]["projects"], ["clang"])
         self.assertEqual(
             lock["p2996"]["runtimes"], ["libcxx", "libcxxabi", "libunwind"]
@@ -723,7 +1368,107 @@ class ToolchainLockTests(unittest.TestCase):
             lock["macos"]["nodes"]["arm64_macos_clang"]["sdk_build"],
             "24F74",
         )
+        self.assertEqual(
+            lock["linux"]["docker"]["dockerfile_frontend"],
+            DOCKERFILE_FRONTEND,
+        )
+        self.assertEqual(
+            set(lock["p2996"]["platform_cmake_flags"]),
+            {"linux/amd64", "linux/arm64", "macos/arm64", "macos/x86_64"},
+        )
+        self.assertEqual(
+            lock["p2996"]["platform_cmake_flags"]["linux/amd64"][1],
+            "-DLLVM_TARGETS_TO_BUILD=X86",
+        )
+        self.assertEqual(
+            lock["p2996"]["platform_cmake_flags"]["linux/arm64"][1],
+            "-DLLVM_TARGETS_TO_BUILD=AArch64",
+        )
+        for package_set in ("gcc_runtime", "p2996_runtime"):
+            self.assertIn("binutils=fixture-1", lock["linux"]["packages"][package_set])
+            self.assertIn("libc6-dev=fixture-1", lock["linux"]["packages"][package_set])
         self.assertEqual(set(lock["recipes"]), set(RECIPE_PATHS))
+
+    def test_bootstrap_rejects_missing_or_disagreeing_runner_inventory(self):
+        bootstrap = self.load_script(BOOTSTRAP, "toolchain_inventory_test")
+        gcc_sums = f"{GCC_SHA512}  gcc-16.2.0.tar.xz\n"
+        prerequisite_sums = "\n".join(
+            f"{record['sha512']}  {record['filename']}"
+            for record in self.make_sources()["gcc"]["prerequisites"].values()
+        )
+
+        def build_with(ubuntu, mac_x64, mac_arm64):
+            def fetch_text(url):
+                if url.endswith("sha512.sum"):
+                    return gcc_sums
+                if url.endswith("prerequisites.sha512"):
+                    return prerequisite_sums
+                if url.endswith("images/ubuntu/Ubuntu2404-Readme.md"):
+                    return ubuntu
+                if url.endswith("images/macos/macos-15-Readme.md"):
+                    return mac_x64
+                if url.endswith("images/macos/macos-15-arm64-Readme.md"):
+                    return mac_arm64
+                raise AssertionError(url)
+
+            return bootstrap.build_source_lock(
+                recipe_root=self.root,
+                gcc_version="16.2.0",
+                clang_commit=CLANG_COMMIT,
+                fetch_text=fetch_text,
+                resolve_image=lambda reference: (
+                    reference.split(":", 1)[0] + "@sha256:" + "a" * 64
+                ),
+                resolve_packages=lambda names: [f"{name}=1" for name in names],
+            )
+
+        with self.assertRaises(bootstrap.BootstrapError):
+            build_with(
+                UBUNTU_RUNNER_INVENTORY.replace("- Docker-Buildx 0.36.1\n", ""),
+                MACOS_RUNNER_INVENTORY,
+                MACOS_RUNNER_INVENTORY,
+            )
+        with self.assertRaises(bootstrap.BootstrapError):
+            build_with(
+                UBUNTU_RUNNER_INVENTORY,
+                MACOS_RUNNER_INVENTORY,
+                MACOS_RUNNER_INVENTORY.replace("16F6", "16F7"),
+            )
+
+    def test_bootstrap_normalizes_lzma_json_and_download_limit_errors(self):
+        bootstrap = self.load_script(BOOTSTRAP, "toolchain_remote_error_test")
+        with self.assertRaises(bootstrap.BootstrapError):
+            bootstrap._parse_package_versions(b"not an xz stream")
+
+        original_limit = bootstrap.MAX_PACKAGES_DECOMPRESSED_BYTES
+        bootstrap.MAX_PACKAGES_DECOMPRESSED_BYTES = 8
+        try:
+            with self.assertRaises(bootstrap.BootstrapError):
+                bootstrap._parse_package_versions(lzma.compress(b"x" * 9))
+        finally:
+            bootstrap.MAX_PACKAGES_DECOMPRESSED_BYTES = original_limit
+
+        with self.assertRaises(bootstrap.BootstrapError):
+            bootstrap._decode_json(b"{broken", "fixture JSON")
+        with self.assertRaises(bootstrap.BootstrapError):
+            bootstrap._require_json_string({}, "token", "fixture JSON")
+
+        class Response:
+            def __init__(self):
+                self.chunks = [b"1234", b"5", b""]
+
+            def read(self, _size):
+                return self.chunks.pop(0)
+
+        with self.assertRaises(bootstrap.BootstrapError):
+            bootstrap._read_limited(Response(), 4, "fixture download")
+
+        class BrokenResponse:
+            def read(self, _size):
+                raise OSError("fixture transport failure")
+
+        with self.assertRaises(bootstrap.BootstrapError):
+            bootstrap._read_limited(BrokenResponse(), 4, "fixture download")
 
     def test_checked_in_source_lock_and_recipes_validate(self):
         completed = subprocess.run(
@@ -799,6 +1544,627 @@ class ToolchainLockTests(unittest.TestCase):
         self.assertNotIn("qemu", bake.lower())
         self.assertNotIn(":latest", bake)
 
+    def test_every_docker_stage_requires_a_native_build_before_work(self):
+        for relative in (
+            ".github/docker/Dockerfile.gcc16",
+            ".github/docker/Dockerfile.p2996",
+        ):
+            content = (ROOT / relative).read_text(encoding="utf-8")
+            stages = re.split(r"(?m)^FROM ", content)[1:]
+            self.assertEqual(len(stages), 2, relative)
+            for index, stage in enumerate(stages):
+                with self.subTest(recipe=relative, stage=index):
+                    self.assertEqual(stage.count("ARG BUILDARCH"), 1)
+                    self.assertEqual(stage.count("ARG TARGETARCH"), 1)
+                    guard = 'test "${BUILDARCH}" = "${TARGETARCH}"'
+                    self.assertEqual(stage.count(guard), 1)
+                    self.assertEqual(stage.count('test -n "${BUILDARCH}"'), 1)
+                    self.assertEqual(stage.count('test -n "${TARGETARCH}"'), 1)
+                    self.assertEqual(stage.count('case "$(uname -m)" in'), 1)
+                    self.assertEqual(
+                        stage.count('test "${BUILDARCH}" = "${native_arch}"'), 1
+                    )
+                    first_run = stage.index("RUN ")
+                    guard_index = stage.index(guard)
+                    self.assertLess(first_run, guard_index)
+                    for token in (
+                        "apt-get",
+                        "curl ",
+                        "git fetch",
+                        "cmake -S",
+                        "/configure",
+                        "make -j",
+                    ):
+                        if token in stage:
+                            self.assertLess(guard_index, stage.index(token), token)
+
+    def test_runtime_probe_dependencies_are_locked_and_installed(self):
+        sources = json.loads(SOURCE_LOCK.read_text(encoding="utf-8"))
+        for package_set, relative in (
+            ("gcc_runtime", ".github/docker/Dockerfile.gcc16"),
+            ("p2996_runtime", ".github/docker/Dockerfile.p2996"),
+        ):
+            runtime = re.split(
+                r"(?m)^FROM ", (ROOT / relative).read_text(encoding="utf-8")
+            )[2]
+            for package in (
+                "binutils=2.44-3",
+                "libc6-dev=2.41-12+deb13u3",
+            ):
+                with self.subTest(package_set=package_set, package=package):
+                    self.assertIn(package, sources["linux"]["packages"][package_set])
+                    self.assertIn(package, runtime)
+
+    def test_dockerfile_frontend_is_digest_locked(self):
+        sources = json.loads(SOURCE_LOCK.read_text(encoding="utf-8"))
+        self.assertEqual(
+            sources["linux"]["docker"]["dockerfile_frontend"],
+            DOCKERFILE_FRONTEND,
+        )
+        for relative in (
+            ".github/docker/Dockerfile.gcc16",
+            ".github/docker/Dockerfile.p2996",
+        ):
+            first_line = (ROOT / relative).read_text(encoding="utf-8").splitlines()[0]
+            self.assertEqual(first_line, f"# syntax={DOCKERFILE_FRONTEND}")
+
+    def test_archive_validator_rejects_escaping_links_and_special_files(self):
+        verify_script = (
+            ROOT / ".github/scripts/verify-p2996-toolchain.sh"
+        ).read_text(encoding="utf-8")
+        match = re.search(
+            r"# BEGIN TOOLCHAIN ARCHIVE VALIDATOR\n"
+            r"archive_validator=[^\n]+\n"
+            r"cat >[^\n]+ <<'PY'\n(.*?)\nPY\n"
+            r"# END TOOLCHAIN ARCHIVE VALIDATOR",
+            verify_script,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "archive validator must be an executable unit")
+        validator = match.group(1)
+
+        def validate(*members, source=validator):
+            archive = io.BytesIO()
+            with tarfile.open(fileobj=archive, mode="w") as output:
+                for member in members:
+                    output.addfile(member)
+            return subprocess.run(
+                [sys.executable, "-c", source],
+                input=archive.getvalue(),
+                capture_output=True,
+                check=False,
+            )
+
+        root = tarfile.TarInfo("p2996-toolchain")
+        root.type = tarfile.DIRTYPE
+        regular = tarfile.TarInfo("p2996-toolchain/bin/clang++")
+        regular.size = 0
+        self.assertEqual(validate(root, regular).returncode, 0)
+
+        valid_link = tarfile.TarInfo("p2996-toolchain/bin/clang")
+        valid_link.type = tarfile.SYMTYPE
+        valid_link.linkname = "clang++"
+        self.assertEqual(validate(root, regular, valid_link).returncode, 0)
+
+        duplicate = tarfile.TarInfo("p2996-toolchain/bin/./clang++")
+        duplicate.size = 0
+        duplicate_rejected = validate(root, regular, duplicate)
+        self.assertNotEqual(duplicate_rejected.returncode, 0)
+        self.assertIn(b"duplicate normalized", duplicate_rejected.stderr)
+
+        unresolved = tarfile.TarInfo("p2996-toolchain/bin/unresolved")
+        unresolved.type = tarfile.SYMTYPE
+        unresolved.linkname = "missing"
+        self_link = tarfile.TarInfo("p2996-toolchain/bin/self")
+        self_link.type = tarfile.SYMTYPE
+        self_link.linkname = "self"
+        cycle_a = tarfile.TarInfo("p2996-toolchain/bin/a")
+        cycle_a.type = tarfile.SYMTYPE
+        cycle_a.linkname = "b"
+        cycle_b = tarfile.TarInfo("p2996-toolchain/bin/b")
+        cycle_b.type = tarfile.SYMTYPE
+        cycle_b.linkname = "a"
+        for links in ((unresolved,), (self_link,), (cycle_a, cycle_b)):
+            with self.subTest(links=[link.name for link in links]):
+                rejected = validate(root, *links)
+                self.assertNotEqual(rejected.returncode, 0, rejected.stderr)
+                self.assertRegex(
+                    rejected.stderr.decode("utf-8"), r"unresolved|cycle"
+                )
+
+        attacks = []
+        absolute_link = tarfile.TarInfo("p2996-toolchain/bin/clang++")
+        absolute_link.type = tarfile.SYMTYPE
+        absolute_link.linkname = "/tmp/unreviewed"
+        attacks.append(absolute_link)
+        relative_link = tarfile.TarInfo("p2996-toolchain/bin/clang++")
+        relative_link.type = tarfile.SYMTYPE
+        relative_link.linkname = "../../../tmp/unreviewed"
+        attacks.append(relative_link)
+        escaping_hardlink = tarfile.TarInfo("p2996-toolchain/bin/clang++")
+        escaping_hardlink.type = tarfile.LNKTYPE
+        escaping_hardlink.linkname = "outside-toolchain"
+        attacks.append(escaping_hardlink)
+        fifo = tarfile.TarInfo("p2996-toolchain/unsafe-fifo")
+        fifo.type = tarfile.FIFOTYPE
+        attacks.append(fifo)
+        for attack in attacks:
+            with self.subTest(type=attack.type, link=attack.linkname):
+                rejected = validate(root, attack)
+                self.assertNotEqual(rejected.returncode, 0, rejected.stderr)
+
+        oversized_pax = tarfile.TarInfo("pax-header")
+        oversized_pax.type = tarfile.XHDTYPE
+        oversized_pax.size = 1048577
+        pax_rejected = validate(oversized_pax)
+        self.assertNotEqual(pax_rejected.returncode, 0)
+        self.assertIn(b"extended tar header", pax_rejected.stderr)
+
+        for sparse_headers in (
+            {"GNU.sparse.map": "0,0", "GNU.sparse.size": "0"},
+            {"SCHILY.filetype": "sparse", "SCHILY.realsize": "1024"},
+        ):
+            with self.subTest(sparse_headers=sparse_headers):
+                archive = io.BytesIO()
+                with tarfile.open(
+                    fileobj=archive, mode="w", format=tarfile.PAX_FORMAT
+                ) as output:
+                    output.addfile(root)
+                    sparse = tarfile.TarInfo("p2996-toolchain/sparse")
+                    sparse.size = 0
+                    sparse.pax_headers = sparse_headers
+                    output.addfile(sparse)
+                sparse_rejected = subprocess.run(
+                    [sys.executable, "-c", validator],
+                    input=archive.getvalue(),
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertNotEqual(
+                    sparse_rejected.returncode, 0, sparse_rejected.stderr
+                )
+                self.assertIn(b"sparse", sparse_rejected.stderr.lower())
+
+        oversized = tarfile.TarInfo("p2996-toolchain/oversized")
+        oversized.size = 8589934593
+        self.assertNotEqual(validate(root, oversized).returncode, 0)
+        one_member_validator = validator.replace(
+            "MAX_MEMBERS = 200000", "MAX_MEMBERS = 1"
+        )
+        self.assertNotEqual(
+            validate(root, regular, source=one_member_validator).returncode,
+            0,
+        )
+        self.assertIn(
+            'archive_size="$(stat -f \'%z\' "${archive}")"', verify_script
+        )
+        self.assertIn("archive_size >= 2147483648", verify_script)
+        self.assertIn("--max-filesize 2147483647", verify_script)
+
+    def test_locked_flag_expander_preserves_spaceful_paths_as_nul_tokens(self):
+        verify_script = (
+            ROOT / ".github/scripts/verify-p2996-toolchain.sh"
+        ).read_text(encoding="utf-8")
+        match = re.search(
+            r"# BEGIN LOCKED FLAG EXPANDER\n(.*?)\n"
+            r"# END LOCKED FLAG EXPANDER",
+            verify_script,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "flag expander must be an executable unit")
+        template = (
+            "-nostdinc++ -isystem ${TOOLCHAIN_ROOT}/include/c++/v1 "
+            "-isysroot ${SDKROOT} -L ${TOOLCHAIN_ROOT}/lib "
+            "-Wl,-rpath,${TOOLCHAIN_ROOT}/lib/${TARGET_TRIPLE}"
+        )
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                match.group(1),
+                template,
+                "/tmp/toolchain root",
+                "/tmp/SDK Root",
+                "arm64-apple-macosx15.0.0",
+            ],
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(
+            completed.stdout.rstrip(b"\0").split(b"\0"),
+            [
+                b"-nostdinc++",
+                b"-isystem",
+                b"/tmp/toolchain root/include/c++/v1",
+                b"-isysroot",
+                b"/tmp/SDK Root",
+                b"-L",
+                b"/tmp/toolchain root/lib",
+                b"-Wl,-rpath,/tmp/toolchain root/lib/arm64-apple-macosx15.0.0",
+            ],
+        )
+
+    def test_macos_runtime_load_validator_rejects_host_or_mixed_libraries(self):
+        verify_script = (
+            ROOT / ".github/scripts/verify-p2996-toolchain.sh"
+        ).read_text(encoding="utf-8")
+        match = re.search(
+            r"# BEGIN MACOS RUNTIME LOAD VALIDATOR\n(.*?)\n"
+            r"# END MACOS RUNTIME LOAD VALIDATOR",
+            verify_script,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "runtime validator must be executable")
+        library_dir = self.root / "toolchain root/lib"
+        library_dir.mkdir(parents=True)
+        expected = []
+        for name in ("libc++.1.dylib", "libc++abi.1.dylib", "libunwind.1.dylib"):
+            path = library_dir / name
+            path.write_bytes(b"runtime")
+            expected.append(str(path.resolve()))
+        dyld = self.root / "dyld.txt"
+        dyld.write_text(
+            "\n".join(f"dyld[1]: {path}" for path in expected) + "\n",
+            encoding="utf-8",
+        )
+        command = [
+            sys.executable,
+            "-c",
+            match.group(1),
+            str(dyld),
+            str(library_dir),
+        ]
+        self.assertEqual(subprocess.run(command, check=False).returncode, 0)
+
+        dyld.write_text(
+            dyld.read_text(encoding="utf-8")
+            + "dyld[1]: /usr/lib/libc++.1.dylib\n",
+            encoding="utf-8",
+        )
+        rejected = subprocess.run(command, capture_output=True, text=True, check=False)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("only from the archive", rejected.stderr)
+
+    def test_macos_runtime_load_validator_accepts_dyld4_uuid_records(self):
+        verify_script = (
+            ROOT / ".github/scripts/verify-p2996-toolchain.sh"
+        ).read_text(encoding="utf-8")
+        match = re.search(
+            r"# BEGIN MACOS RUNTIME LOAD VALIDATOR\n(.*?)\n"
+            r"# END MACOS RUNTIME LOAD VALIDATOR",
+            verify_script,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "runtime validator must be executable")
+        library_dir = self.root / "toolchain root/lib"
+        library_dir.mkdir(parents=True)
+        records = []
+        uuids = (
+            "01234567-89AB-CDEF-0123-456789ABCDEF",
+            "12345678-9ABC-DEF0-1234-56789ABCDEF0",
+            "23456789-ABCD-EF01-2345-6789ABCDEF01",
+        )
+        for uuid, name in zip(
+            uuids, ("libc++.1.dylib", "libc++abi.1.dylib", "libunwind.1.dylib")
+        ):
+            path = library_dir / name
+            path.write_bytes(b"runtime")
+            records.append(f"dyld[42]: <{uuid}> {path.resolve()}")
+        dyld = self.root / "dyld4.txt"
+        dyld.write_text("\n".join(records) + "\n", encoding="utf-8")
+        completed = subprocess.run(
+            [sys.executable, "-c", match.group(1), str(dyld), str(library_dir)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_macos_runtime_load_validator_rejects_dyld4_uuid_host_library(self):
+        verify_script = (
+            ROOT / ".github/scripts/verify-p2996-toolchain.sh"
+        ).read_text(encoding="utf-8")
+        match = re.search(
+            r"# BEGIN MACOS RUNTIME LOAD VALIDATOR\n(.*?)\n"
+            r"# END MACOS RUNTIME LOAD VALIDATOR",
+            verify_script,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "runtime validator must be executable")
+        library_dir = self.root / "toolchain root/lib"
+        library_dir.mkdir(parents=True)
+        records = []
+        for name in ("libc++.1.dylib", "libc++abi.1.dylib", "libunwind.1.dylib"):
+            path = library_dir / name
+            path.write_bytes(b"runtime")
+            records.append(f"dyld[42]: {path.resolve()}")
+        records.append(
+            "dyld[42]: <3456789A-BCDE-F012-3456-789ABCDEF012> "
+            "/usr/lib/libc++.1.dylib"
+        )
+        dyld = self.root / "dyld4-mixed.txt"
+        dyld.write_text("\n".join(records) + "\n", encoding="utf-8")
+        rejected = subprocess.run(
+            [sys.executable, "-c", match.group(1), str(dyld), str(library_dir)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("only from the archive", rejected.stderr)
+
+    def test_macos_runtime_load_validator_rejects_malformed_dyld4_record(self):
+        verify_script = (
+            ROOT / ".github/scripts/verify-p2996-toolchain.sh"
+        ).read_text(encoding="utf-8")
+        match = re.search(
+            r"# BEGIN MACOS RUNTIME LOAD VALIDATOR\n(.*?)\n"
+            r"# END MACOS RUNTIME LOAD VALIDATOR",
+            verify_script,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "runtime validator must be executable")
+        library_dir = self.root / "toolchain root/lib"
+        library_dir.mkdir(parents=True)
+        records = []
+        for name in ("libc++.1.dylib", "libc++abi.1.dylib", "libunwind.1.dylib"):
+            path = library_dir / name
+            path.write_bytes(b"runtime")
+            records.append(f"dyld[42]: {path.resolve()}")
+        records.append("dyld[42]: <not-a-uuid> /usr/lib/libc++.1.dylib")
+        dyld = self.root / "dyld4-malformed.txt"
+        dyld.write_text("\n".join(records) + "\n", encoding="utf-8")
+        rejected = subprocess.run(
+            [sys.executable, "-c", match.group(1), str(dyld), str(library_dir)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("malformed dyld library record", rejected.stderr)
+
+    def test_linux_p2996_runtime_load_validator_rejects_mixed_libraries(self):
+        dockerfile = (ROOT / ".github/docker/Dockerfile.p2996").read_text(
+            encoding="utf-8"
+        )
+        match = re.search(
+            r"# BEGIN LINUX P2996 RUNTIME LOAD VALIDATOR\n(.*?)\n"
+            r"# END LINUX P2996 RUNTIME LOAD VALIDATOR",
+            dockerfile,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "Linux runtime validator must be executable")
+        runtime_dir = self.root / "p2996 runtime"
+        runtime_dir.mkdir()
+        records = []
+        for name in ("libc++.so.1", "libc++abi.so.1", "libunwind.so.1"):
+            path = runtime_dir / name
+            path.write_bytes(b"runtime")
+            records.append(f"{name} => {path.resolve()} (0x1)")
+        ldd_output = self.root / "probe.ldd"
+        ldd_output.write_text("\n".join(records) + "\n", encoding="utf-8")
+        command = [
+            sys.executable,
+            "-c",
+            match.group(1),
+            str(ldd_output),
+            str(runtime_dir),
+        ]
+        self.assertEqual(subprocess.run(command, check=False).returncode, 0)
+        ldd_output.write_text(
+            ldd_output.read_text(encoding="utf-8")
+            + "libc++.so.2 => /usr/lib/libc++.so.2 (0x2)\n",
+            encoding="utf-8",
+        )
+        rejected = subprocess.run(command, capture_output=True, text=True, check=False)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("exactly once", rejected.stderr)
+
+    def test_macos_rpath_validator_accepts_exact_archive_path_with_spaces(self):
+        verify_script = (
+            ROOT / ".github/scripts/verify-p2996-toolchain.sh"
+        ).read_text(encoding="utf-8")
+        match = re.search(
+            r"# BEGIN MACOS RPATH VALIDATOR\n(.*?)\n"
+            r"# END MACOS RPATH VALIDATOR",
+            verify_script,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "rpath validator must be executable")
+        library_dir = self.root / "toolchain root/lib"
+        library_dir.mkdir(parents=True)
+        report = self.root / "rpaths.txt"
+        report.write_text(
+            "Load command 1\n"
+            "          cmd LC_RPATH\n"
+            "      cmdsize 80\n"
+            f"         path {library_dir.resolve()} (offset 12)\n",
+            encoding="utf-8",
+        )
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                match.group(1),
+                str(report),
+                str(library_dir),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_macos_platform_probe_validator_requires_all_gates_and_admissions(self):
+        verify_script = (
+            ROOT / ".github/scripts/verify-p2996-toolchain.sh"
+        ).read_text(encoding="utf-8")
+        match = re.search(
+            r"# BEGIN MACOS PLATFORM PROBE VALIDATOR\n(.*?)\n"
+            r"# END MACOS PLATFORM PROBE VALIDATOR",
+            verify_script,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "platform probe validator must be executable")
+        probe = {
+            "schema": 1,
+            "node": "arm64_macos_clang",
+            "probe": {
+                "char_bit": 8,
+                "pointer_bits": 64,
+                "endian": "little",
+                "reflection": True,
+                "memcpy_object_lifetime": True,
+                "memcpy_array_lifetime": True,
+            },
+            "admission": {
+                key: True
+                for key in (
+                    "WorldSnapshot",
+                    "Entity",
+                    "EntityRelativePtr",
+                    "EntityIndexEntry",
+                )
+            },
+            "compiler": {
+                "family": "clang",
+                "revision": CLANG_COMMIT,
+                "version": "clang version 21.0.0",
+                "target": "arm64-apple-macosx15.0.0",
+                "stdlib": "libc++-210000",
+                "xcode_version": "16.4",
+                "xcode_build": "16F6",
+                "sdk_version": "15.5",
+                "sdk_build": "24F74",
+                "deployment_target": "15.0",
+                "sdk_locked": True,
+            },
+            "environment": {"runner": "macos-15", "runner_image": "fixture"},
+        }
+        probe_path = self.root / "probe.json"
+        arguments = [
+            sys.executable,
+            "-c",
+            match.group(1),
+            str(ROOT),
+            str(probe_path),
+            "arm64_macos_clang",
+            "macos-15",
+            CLANG_COMMIT,
+            "arm64-apple-macosx15.0.0",
+            "16.4",
+            "16F6",
+            "15.5",
+            "24F74",
+            "15.0",
+            "true",
+        ]
+        write_json(probe_path, probe)
+        self.assertEqual(subprocess.run(arguments, check=False).returncode, 0)
+        for section, key in (("probe", "reflection"), ("admission", "Entity")):
+            with self.subTest(section=section, key=key):
+                mutated = json.loads(json.dumps(probe))
+                mutated[section][key] = False
+                write_json(probe_path, mutated)
+                rejected = subprocess.run(
+                    arguments, capture_output=True, text=True, check=False
+                )
+                self.assertNotEqual(rejected.returncode, 0)
+
+    def test_candidate_archive_is_copied_once_to_private_storage(self):
+        verify_content = (
+            ROOT / ".github/scripts/verify-p2996-toolchain.sh"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn(
+            'archive="$(cd "$(dirname "${candidate_archive}")"', verify_content
+        )
+        self.assertIn(
+            'archive="${temporary_root}/toolchain.tar.zst"', verify_content
+        )
+        self.assertIn('open(sys.argv[1], "rb") as source', verify_content)
+        self.assertIn('open(sys.argv[2], "xb") as destination', verify_content)
+
+    def test_candidate_verifier_reaches_controlled_runtime_failure(self):
+        script = self.root / ".github/scripts/verify-p2996-toolchain.sh"
+        script.write_bytes(
+            (ROOT / ".github/scripts/verify-p2996-toolchain.sh").read_bytes()
+        )
+        validator = self.root / ".github/scripts/validate-toolchain-locks.py"
+        validator.write_bytes(VALIDATOR.read_bytes())
+        evidence_module = self.root / "tools/relocatable_world_evidence.py"
+        evidence_module.parent.mkdir(parents=True, exist_ok=True)
+        evidence_module.write_bytes(
+            (ROOT / "tools/relocatable_world_evidence.py").read_bytes()
+        )
+        sources = self.root / "toolchain-sources.lock"
+        write_json(sources, self.make_sources())
+        missing_candidate = self.root / "missing-candidate.tar.zst"
+        shell_setup = """
+xcodebuild() { :; }
+xcode-select() { :; }
+xcrun() { :; }
+zstd() { :; }
+shasum() { :; }
+otool() { :; }
+uname() { printf 'x86_64\n'; }
+export -f xcodebuild xcode-select xcrun zstd shasum otool uname
+"""
+        arguments = [
+            bash_path(script),
+            "--sources",
+            bash_path(sources),
+            "--node",
+            "x86_64_macos_clang",
+            "--candidate-archive",
+            bash_path(missing_candidate),
+            "--candidate-sha256",
+            "0" * 64,
+            "--allow-unlocked-sdk",
+        ]
+        shell_setup += "exec bash " + " ".join(
+            shlex.quote(argument) for argument in arguments
+        )
+        command = ["bash", "-c", shell_setup]
+        if os.name == "nt":
+            command.insert(0, "wsl")
+
+        completed = subprocess.run(
+            command,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertNotIn("unbound variable", completed.stderr)
+        self.assertIn("No such file or directory", completed.stderr)
+
+    def test_macos_verification_receipt_uses_probe_compiler_identity(self):
+        verify_content = (
+            ROOT / ".github/scripts/verify-p2996-toolchain.sh"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn('compiler_version="$("${cxx}" --version)"', verify_content)
+        for field in ("version", "target", "stdlib"):
+            self.assertIn(f'compiler["{field}"]', verify_content)
+        self.assertIn('[[ "${probe_target}" == "${target}" ]]', verify_content)
+
+    def test_macos_output_mode_binds_probe_identity_to_output_lock(self):
+        verify_content = (
+            ROOT / ".github/scripts/verify-p2996-toolchain.sh"
+        ).read_text(encoding="utf-8")
+        for field in ("compiler_version", "target", "stdlib"):
+            self.assertIn(f'output["{field}"]', verify_content)
+        for observed, expected in (
+            ("compiler_version", "locked_compiler_version"),
+            ("probe_target", "locked_compiler_target"),
+            ("stdlib", "locked_stdlib"),
+        ):
+            self.assertIn(
+                f'[[ "${{{observed}}}" == "${{{expected}}}" ]]', verify_content
+            )
+
     def test_macos_scripts_have_valid_shell_syntax_and_candidate_mode(self):
         build_script = ROOT / ".github/scripts/build-p2996-macos.sh"
         verify_script = ROOT / ".github/scripts/verify-p2996-toolchain.sh"
@@ -825,7 +2191,7 @@ class ToolchainLockTests(unittest.TestCase):
         self.assertIn("--allow-unlocked-sdk", help_result.stdout)
         verify_content = verify_script.read_text(encoding="utf-8")
         self.assertIn('record["flags"]', verify_content)
-        self.assertIn("shlex.split(flags)", verify_content)
+        self.assertIn("shlex.split(sys.argv[1])", verify_content)
 
 
 if __name__ == "__main__":

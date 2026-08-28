@@ -168,10 +168,22 @@ cmake --install "${build_dir}" --strip
 
 [[ -x "${toolchain_root}/bin/clang" && -x "${toolchain_root}/bin/clang++" ]]
 [[ -f "${toolchain_root}/include/c++/v1/vector" ]]
-find "${toolchain_root}/lib" -name 'libc++.*' -print -quit | grep -q .
-find "${toolchain_root}/lib" -name 'libc++abi.*' -print -quit | grep -q .
-find "${toolchain_root}/lib" -name 'libunwind.*' -print -quit | grep -q .
-if find -L "${toolchain_root}" -type l -print -quit | grep -q .; then
+for runtime_pattern in 'libc++.*' 'libc++abi.*' 'libunwind.*'; do
+    runtime_match="$(find "${toolchain_root}/lib" \
+        -name "${runtime_pattern}" -print -quit)" || {
+        echo "cannot inspect installed runtime libraries" >&2
+        exit 1
+    }
+    [[ -n "${runtime_match}" ]] || {
+        echo "installed toolchain is missing ${runtime_pattern}" >&2
+        exit 1
+    }
+done
+broken_link="$(find -L "${toolchain_root}" -type l -print -quit)" || {
+    echo "cannot inspect installed toolchain links" >&2
+    exit 1
+}
+if [[ -n "${broken_link}" ]]; then
     echo "installed toolchain contains a broken symbolic link" >&2
     exit 1
 fi
@@ -182,8 +194,8 @@ verification="${output_dir}/p2996-macos-${architecture}-${p2996_commit}.verifica
 COPYFILE_DISABLE=1 tar -cf - -C "${stage_dir}" p2996-toolchain \
     | zstd -19 -T0 -o "${archive}"
 archive_size="$(stat -f '%z' "${archive}")"
-if (( archive_size >= 2147483648 )); then
-    echo "toolchain archive is ${archive_size} bytes; limit is below 2 GiB" >&2
+if (( archive_size <= 0 || archive_size >= 2147483648 )); then
+    echo "toolchain archive size is outside the allowed range: ${archive_size}" >&2
     exit 1
 fi
 archive_sha256="$(shasum -a 256 "${archive}" | awk '{print $1}')"

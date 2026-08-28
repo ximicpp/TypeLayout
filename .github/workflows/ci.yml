@@ -12,6 +12,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   LD_LIBRARY_PATH: /opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu
 
@@ -21,22 +24,28 @@ jobs:
   # =========================================================================
   build:
     name: Clang P2996 (${{ matrix.build_type }})
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     container:
       image: ghcr.io/ximicpp/typelayout-p2996:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     strategy:
       matrix:
         build_type: [Debug, Release]
-    
+
     steps:
-      - uses: actions/checkout@v4
-      
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-      
+
       - name: Build
         run: cmake --build build --parallel
-      
+
       - name: Test
-        run: ctest --test-dir build --output-on-failure
-      
+        run: ctest --test-dir build --output-on-failure --no-tests=error

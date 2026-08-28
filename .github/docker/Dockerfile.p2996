@@ -1,13 +1,25 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker.io/docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
 
 # Native Bloomberg P2996 Clang image. The compiler and its libc++ runtime are
 # built together from one immutable LLVM commit on the target architecture.
 ARG DEBIAN_IMAGE=docker.io/library/debian@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
 FROM ${DEBIAN_IMAGE} AS builder
 
+ARG BUILDARCH
 ARG TARGETARCH
 ARG DEBIAN_SNAPSHOT=https://snapshot.debian.org/archive/debian/20260824T000000Z/
 ENV DEBIAN_FRONTEND=noninteractive
+RUN set -eu; \
+    case "$(uname -m)" in \
+        x86_64) native_arch=amd64 ;; \
+        aarch64|arm64) native_arch=arm64 ;; \
+        *) echo "unsupported native architecture: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    test -n "${BUILDARCH}"; \
+    test -n "${TARGETARCH}"; \
+    test "${BUILDARCH}" = "${TARGETARCH}"; \
+    test "${BUILDARCH}" = "${native_arch}"
+
 RUN set -eu; \
     case "${TARGETARCH}" in \
         amd64) ninja_package='ninja-build:amd64=1.12.1-1' ;; \
@@ -88,16 +100,29 @@ RUN set -eu; \
     runtime_triple="$(/opt/p2996-toolchain/bin/clang++ -dumpmachine)"; \
     runtime_dir="/opt/p2996-toolchain/lib/${runtime_triple}"; \
     test -d "${runtime_dir}"; \
-    find "${runtime_dir}" -name 'libc++.*' -print -quit | grep -q .; \
-    find "${runtime_dir}" -name 'libc++abi.*' -print -quit | grep -q .; \
-    find "${runtime_dir}" -name 'libunwind.*' -print -quit | grep -q .
+    for runtime_pattern in 'libc++.*' 'libc++abi.*' 'libunwind.*'; do \
+        runtime_match="$(find "${runtime_dir}" \
+            -name "${runtime_pattern}" -print -quit)"; \
+        test -n "${runtime_match}"; \
+    done
 
-ARG DEBIAN_IMAGE
 FROM ${DEBIAN_IMAGE} AS runtime
 
+ARG BUILDARCH
 ARG TARGETARCH
 ARG DEBIAN_SNAPSHOT=https://snapshot.debian.org/archive/debian/20260824T000000Z/
 ENV DEBIAN_FRONTEND=noninteractive
+RUN set -eu; \
+    case "$(uname -m)" in \
+        x86_64) native_arch=amd64 ;; \
+        aarch64|arm64) native_arch=arm64 ;; \
+        *) echo "unsupported native architecture: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    test -n "${BUILDARCH}"; \
+    test -n "${TARGETARCH}"; \
+    test "${BUILDARCH}" = "${TARGETARCH}"; \
+    test "${BUILDARCH}" = "${native_arch}"
+
 RUN set -eu; \
     case "${TARGETARCH}" in \
         amd64) ninja_package='ninja-build:amd64=1.12.1-1' ;; \
@@ -109,9 +134,11 @@ RUN set -eu; \
     rm -f /etc/apt/sources.list.d/debian.sources; \
     apt-get -o Acquire::Check-Valid-Until=false update; \
     apt-get install -y --no-install-recommends \
+        binutils=2.44-3 \
         ca-certificates=20250419 \
         cmake=3.31.6-2 \
         git=1:2.47.3-0+deb13u1 \
+        libc6-dev=2.41-12+deb13u3 \
         libtinfo6=6.5+20250216-2 \
         libxml2=2.12.7+dfsg+really2.9.14-2.1+deb13u3 \
         libzstd1=1.5.7+dfsg-1 \
@@ -186,7 +213,46 @@ clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ \
     -nostdinc++ -isystem /opt/p2996-toolchain/include/c++/v1 \
     -L "${runtime_dir}" -Wl,-rpath,"${runtime_dir}" \
     /tmp/toolchain-probe.cpp -o /tmp/toolchain-probe
-ldd /tmp/toolchain-probe | grep -F "${runtime_dir}/libc++.so"
+ldd /tmp/toolchain-probe >/tmp/toolchain-probe.ldd
+python3 - /tmp/toolchain-probe.ldd "${runtime_dir}" <<'PY'
+# BEGIN LINUX P2996 RUNTIME LOAD VALIDATOR
+from pathlib import Path
+import re
+import sys
+
+
+pattern = re.compile(r"^(libc\+\+|libc\+\+abi|libunwind)\.so(?:\.[0-9]+)*$")
+runtime_dir = Path(sys.argv[2]).resolve()
+observed = {name: set() for name in ("libc++", "libc++abi", "libunwind")}
+for line in Path(sys.argv[1]).read_text(
+    encoding="utf-8", errors="replace"
+).splitlines():
+    fields = line.strip().split(" => ", 1)
+    if len(fields) == 2:
+        library_name = fields[0].strip()
+        candidate = fields[1].rsplit(" (", 1)[0].strip()
+    else:
+        candidate = fields[0].rsplit(" (", 1)[0].strip()
+        library_name = Path(candidate).name
+    match = pattern.fullmatch(library_name)
+    if match and candidate != "not found":
+        observed[match.group(1)].add(Path(candidate).resolve())
+for name, paths in observed.items():
+    if len(paths) != 1:
+        raise SystemExit(
+            f"runtime {name} must resolve exactly once: {sorted(map(str, paths))!r}"
+        )
+    path = next(iter(paths))
+    try:
+        path.relative_to(runtime_dir)
+    except ValueError as error:
+        raise SystemExit(
+            f"runtime {name} escaped bundled directory: {path}"
+        ) from error
+    if not path.is_file():
+        raise SystemExit(f"runtime {name} is not a bundled file: {path}")
+# END LINUX P2996 RUNTIME LOAD VALIDATOR
+PY
 /tmp/toolchain-probe
 EOF
 
