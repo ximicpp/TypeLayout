@@ -215,10 +215,10 @@ RECIPE_PATHS = (
 # The workflow joins this table only after Task 5 freezes its final bytes.
 REVIEWED_RECIPE_SHA256 = {
     ".github/docker/Dockerfile.gcc16": (
-        "60b9e77c8a4e054b994b8dc5ff0a646587f92d09ed98f39e0afd7acbdc8f104c"
+        "b2ab4c2cdab754ca863621248402dd6e05f5aabfeb88b03fd86d169dfa2c2253"
     ),
     ".github/docker/Dockerfile.p2996": (
-        "9df5355b7a0e5f1af96779767f3436fa1ce44913f2dab311eedd53eb1f938304"
+        "aae5fb581d0c22a28bc131554e4fbfb42d658e66f3b9724fe7046e60e568bbc5"
     ),
     ".github/docker/docker-bake.hcl": (
         "ec7978e3b34056c46745623579889d416db0f5c6faa9df8a86bb933633e7f18b"

@@ -101,7 +101,7 @@ RUN /opt/sources/gcc-16.2.0/configure \
 # Bound compiler concurrency to one job per 2 GiB of available memory.
 RUN set -eu; \
     threads="$(nproc)"; \
-    available="$(awk '/MemAvailable:/ { printf "%.0f\\n", $2 * 1024 }' /proc/meminfo)"; \
+    available="$(awk '/MemAvailable:/ { printf "%.0f\n", $2 * 1024 }' /proc/meminfo)"; \
     if [ -r /sys/fs/cgroup/memory.max ]; then \
         limit="$(cat /sys/fs/cgroup/memory.max)"; \
         if [ "${limit}" != max ] && [ "${limit}" -lt "${available}" ]; then \

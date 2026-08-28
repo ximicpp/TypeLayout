@@ -248,8 +248,8 @@
   },
   "recipes": {
     ".gitattributes": "d471ccadeb965783788919164e493fa383f7eae3fb1a1dfcdfb1fa72b914789d",
-    ".github/docker/Dockerfile.gcc16": "60b9e77c8a4e054b994b8dc5ff0a646587f92d09ed98f39e0afd7acbdc8f104c",
-    ".github/docker/Dockerfile.p2996": "9df5355b7a0e5f1af96779767f3436fa1ce44913f2dab311eedd53eb1f938304",
+    ".github/docker/Dockerfile.gcc16": "b2ab4c2cdab754ca863621248402dd6e05f5aabfeb88b03fd86d169dfa2c2253",
+    ".github/docker/Dockerfile.p2996": "aae5fb581d0c22a28bc131554e4fbfb42d658e66f3b9724fe7046e60e568bbc5",
     ".github/docker/docker-bake.hcl": "ec7978e3b34056c46745623579889d416db0f5c6faa9df8a86bb933633e7f18b",
     ".github/scripts/build-p2996-macos.sh": "5dd189f68eed06050fd53dd8aef3e6eba00bfcd3ba89c18eb352a98836f2393a",
     ".github/scripts/verify-p2996-toolchain.sh": "f07c394b5baf7277f7c1c71f98e7b5d484ffb4beead36e4990b4a1b95335ae88",

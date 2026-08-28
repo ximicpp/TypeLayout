@@ -1603,6 +1603,36 @@ RUN set -eu; \\
         self.assertNotIn("qemu", bake.lower())
         self.assertNotIn(":latest", bake)
 
+    def test_linux_builder_memory_probe_outputs_decimal_bytes(self):
+        awk_runner = self.root / "run-awk.sh"
+        awk_runner.write_bytes(b'#!/bin/sh\nawk -f "$1"\n')
+        for index, relative in enumerate(
+            (
+                ".github/docker/Dockerfile.gcc16",
+                ".github/docker/Dockerfile.p2996",
+            )
+        ):
+            content = (ROOT / relative).read_text(encoding="utf-8")
+            builder = re.split(r"(?m)^FROM ", content)[1]
+            match = re.search(
+                r'''available="\$\(awk '([^']+)' /proc/meminfo\)"''', builder
+            )
+            self.assertIsNotNone(match, relative)
+            awk_program = self.root / f"memory-probe-{index}.awk"
+            awk_program.write_bytes((match.group(1) + "\n").encode("utf-8"))
+
+            completed = subprocess.run(
+                bash_command(awk_runner, bash_path(awk_program)),
+                input="MemAvailable: 123 kB\n",
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            with self.subTest(recipe=relative):
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertEqual(completed.stdout, "125952\n")
+
     def test_every_docker_stage_requires_a_native_build_before_work(self):
         for relative in (
             ".github/docker/Dockerfile.gcc16",
