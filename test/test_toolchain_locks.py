@@ -1786,6 +1786,7 @@ RUN set -eu; \\
             check=False,
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
+
         self.assertEqual(
             completed.stdout.rstrip(b"\0").split(b"\0"),
             [
@@ -1976,7 +1977,7 @@ RUN set -eu; \\
         self.assertNotEqual(rejected.returncode, 0)
         self.assertIn("exactly once", rejected.stderr)
 
-    def test_macos_rpath_validator_accepts_exact_archive_path_with_spaces(self):
+    def test_macos_rpath_validator_accepts_resolved_archive_path_only(self):
         verify_script = (
             ROOT / ".github/scripts/verify-p2996-toolchain.sh"
         ).read_text(encoding="utf-8")
@@ -1990,26 +1991,44 @@ RUN set -eu; \\
         library_dir = self.root / "toolchain root/lib"
         library_dir.mkdir(parents=True)
         report = self.root / "rpaths.txt"
-        report.write_text(
-            "Load command 1\n"
-            "          cmd LC_RPATH\n"
-            "      cmdsize 80\n"
-            f"         path {library_dir.resolve()} (offset 12)\n",
-            encoding="utf-8",
-        )
-        completed = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                match.group(1),
-                str(report),
-                str(library_dir),
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+
+        def validate(path):
+            report.write_text(
+                "Load command 1\n"
+                "          cmd LC_RPATH\n"
+                "      cmdsize 80\n"
+                f"         path {path} (offset 12)\n",
+                encoding="utf-8",
+            )
+            return subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    match.group(1),
+                    str(report),
+                    str(library_dir),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        completed = validate(library_dir.resolve())
         self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        redundant_separator = (
+            str(library_dir.resolve().parent)
+            + os.sep
+            + os.sep
+            + library_dir.name
+        )
+        completed = validate(redundant_separator)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        outside = self.root / "host lib"
+        outside.mkdir()
+        completed = validate(outside.resolve())
+        self.assertNotEqual(completed.returncode, 0)
 
     def test_macos_platform_probe_validator_requires_all_gates_and_admissions(self):
         verify_script = (

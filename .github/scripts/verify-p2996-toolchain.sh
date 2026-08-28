@@ -557,9 +557,18 @@ import sys
 
 text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
 rpaths = re.findall(r"\n\s*cmd LC_RPATH\n.*?\n\s*path (.*?) \(offset", text)
-expected = str(Path(sys.argv[2]).resolve())
-if rpaths != [expected]:
+if len(rpaths) != 1 or not Path(rpaths[0]).is_absolute():
     raise SystemExit(f"executable rpaths do not resolve only to archive: {rpaths!r}")
+try:
+    observed = Path(rpaths[0]).resolve(strict=True)
+    expected = Path(sys.argv[2]).resolve(strict=True)
+except OSError as error:
+    raise SystemExit(f"executable rpath cannot be resolved: {rpaths!r}") from error
+if observed != expected:
+    raise SystemExit(
+        f"executable rpaths do not resolve only to archive: "
+        f"observed={rpaths!r}, resolved={str(observed)!r}"
+    )
 # END MACOS RPATH VALIDATOR
 PY
 
