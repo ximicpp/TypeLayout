@@ -2,9 +2,9 @@
 
 **Talk:** *Can I memcpy This Type Across a Boundary? Verifying Object Representation at Compile Time With C++26 Reflection*
 
-**Status:** content design only. This document fixes the audience-facing content and the English speaker script for Slides 1–45. It does not define the final layout, artwork, animation, or PowerPoint implementation. Appendix Slides 46–61 keep the outline in the approved deck design and do not yet have full scripts.
+**Status:** content design only. This document fixes the audience-facing content and the English speaker script for Slides 1–47. It does not define the final layout, artwork, animation, or PowerPoint implementation. Appendix Slides 48–63 keep the outline in the approved deck design and do not yet have full scripts.
 
-**Delivery target:** about 50–55 minutes for the main deck, leaving time for the appendix and questions.
+**Delivery target:** about 56 minutes for the main deck, leaving time for the appendix and questions.
 
 **Staging rule:** when an **On screen** section contains several blocks, treat them as successive reveal states. Keep the current inference visible and move explanatory detail into the speaker script instead of showing every block at once.
 
@@ -47,7 +47,7 @@ Can I copy this C++ object as raw bytes across a boundary?
 
 Native C++ types often become byte formats in shared memory, plugin interfaces, and files.
 
-Across a boundary, the build or address space may change. Then local checks are not enough.
+Across a boundary, the build or address space may change. Then checks from only one build are not enough.
 
 C++26 reflection lets each build create compile-time evidence. A verification build uses that evidence to decide.
 
@@ -57,7 +57,7 @@ Let us start with a type that looks safe.
 
 ### Slide 2 — Would you permit these bytes across all declared builds?
 
-**Target time:** 65 seconds
+**Target time:** 75 seconds
 
 **On screen**
 
@@ -83,15 +83,17 @@ PERMIT ACROSS BUILDS?
 
 Here is a small record: a 64-bit unsigned ID and a `long double` value.
 
-The checklist looks good. The type is trivially copyable, with no pointer, ownership, or virtual function.
+The local checklist looks good. The type is trivially copyable. It has no pointer, ownership, or virtual function.
 
-On this build, a raw byte copy looks valid.
+Within this build, copying its object representation is allowed.
 
 But several builds may produce or consume these bytes. Should we permit transfer across all of them?
 
-A local `memcpy` is not enough. Can these native bytes serve as a format across builds?
+A local `memcpy` does not answer that question. Can these native bytes serve as one format across builds?
 
-We do not have the evidence yet. Permit, or reject?
+We do not have the required evidence yet. So we cannot issue a Permit.
+
+Keep this type in mind. We will return to it after building the method.
 
 **Transition to Slide 3**
 
@@ -136,7 +138,7 @@ We must track two separate assumptions.
 
 ### Slide 4 — Build identity and address space are separate
 
-**Target time:** 65 seconds
+**Target time:** 75 seconds
 
 **On screen**
 
@@ -162,13 +164,15 @@ Bottom left: a host and plugin share one address space, but come from different 
 
 Bottom right: another build reads stored bytes in another address space.
 
-The cases fail for different reasons. Pointers depend on the address space. Object representation may depend on the build. Either difference can reject raw-byte transfer.
+These cases create different risks. Pointers may depend on the address space. Object representation may depend on the build.
+
+A change does not automatically reject every type. But it tells us what must be checked.
 
 **Transition to Slide 5**
 
 First, keep the build and change the address space.
 
-### Slide 5 — A new process keeps layout, but not the pointer target
+### Slide 5 — Same layout does not make a pointer portable across processes
 
 **Target time:** 70 seconds
 
@@ -180,7 +184,7 @@ same executable
 Process A                         Process B
 ─────────                         ─────────
 pointer bits: 0x7F20...  ─────→   pointer bits: 0x7F20...
-target: real object               target: unknown
+target: object in Process A       target: not established in Process B
 
 build identity: retained
 address-space identity: lost
@@ -190,15 +194,17 @@ address-space identity: lost
 
 Now keep the build and change only the address space.
 
-Two processes run the same executable, so the layout is the same.
+Two processes run the same executable, so the pointer field has the same layout.
 
-Copy a pointer value from Process A to Process B. Every bit survives. The field keeps the same size, alignment, and offset.
+Here, the pointer names an ordinary object in Process A.
 
-But the target object belongs to Process A. In Process B, the same address may name another object, or no object.
+Copy the pointer bits to Process B. Every bit survives. The field keeps the same size, alignment, and offset.
 
-The representation matches, but the value depends on its source address space.
+But Process B has another address space. The same address may name another object, or no object.
 
-The bits survived. The target did not.
+The pointer representation matches, but its meaning depends on the source address space.
+
+The bits survived. Their meaning did not.
 
 **Transition to Slide 6**
 
@@ -224,14 +230,14 @@ compiler · flags · headers · packing · standard-library ABI
 ```
 
 ```text
-Pointers may still work, but layout Agreement is not automatic.
+Pointers may still work, but matching layout is not automatic.
 ```
 
 **Speaker script**
 
 Now keep one address space, but change the build.
 
-A plugin and its host can share one process. An agreed pointer may still name the same object.
+A plugin and its host can share one process. A pointer passed through the interface may still name the same object.
 
 But they are separate builds. The compiler, flags, headers, packing, or standard-library ABI may differ.
 
@@ -245,43 +251,46 @@ Later, one strict profile will cover all three cases without relying on shared a
 
 Stored bytes can remove both assumptions.
 
-### Slide 7 — Stored bytes outlive builds and address spaces
+### Slide 7 — Stored native bytes may lose both assumptions
 
-**Target time:** 60 seconds
+**Target time:** 50 seconds
 
 **On screen**
 
 ```text
-Writer build A  ───→  capture.bin  ───→  Reader build B
-today                                      later
-
-build identity: lost
-address-space identity: lost
+producer build A
+       ↓
+stored native-byte region
+       ↓
+declared consumer build B
 ```
 
 ```text
-Other obligations: versioning · trust · crash consistency
+build changed · address space changed · load base changed
+```
+
+```text
+Later demo
+server recovery · native-client world snapshot
 ```
 
 **Speaker script**
 
-A file can lose both assumptions.
+Stored bytes can lose both assumptions.
 
-Build A writes native bytes. Build B reads them later, perhaps on another target.
+Producer build A writes a native-byte region. Later, declared consumer build B reads it in another address space and at another base address.
 
-The first address space is gone, so local references may fail. The build may also change, so the layout may differ.
+Now both build identity and address-space identity may be different.
 
-Stored data also needs versioning, trust, durability, and crash consistency. Those topics are outside this talk.
-
-Here we ask only two questions. May the type travel as native bytes? Did every declared build produce the same representation?
+The later demo will use this case for server recovery and native-client world snapshots. We will explain those two uses after building the method.
 
 **Transition to Slide 8**
 
-To answer both questions, we need one clear transfer profile.
+To decide any of these cases, we need one clear transfer profile.
 
-### Slide 8 — One strict profile covers all three cases
+### Slide 8 — Start with one strict transfer profile
 
-**Target time:** 65 seconds
+**Target time:** 75 seconds
 
 **On screen**
 
@@ -292,6 +301,13 @@ Stored bytes ─┘
 ```
 
 ```text
+A transfer profile states the rules
+for one kind of byte transfer.
+```
+
+```text
+ordinary copy
+
 memcpy-style object transfer
 no fixup or field conversion
 source-address-independent bytes
@@ -300,19 +316,31 @@ finite declared build set
 
 ```text
 Two questions
-1. May the bytes stand without producer-local context?
-2. Do all declared builds produce the same object representation?
+
+Admission
+May this type use this profile?
+
+Agreement
+Do the declared builds give it the same object representation?
+```
+
+```text
+Later: whole_region_relocation
 ```
 
 **Speaker script**
 
-This talk uses one strict transfer profile for all three cases.
+We begin with one strict transfer profile that can be applied to all three boundary kinds.
 
-It uses `memcpy`-style object transfer. There is no fixup and no field conversion. The bytes cannot depend on the source address space. The build set is finite and declared.
+A transfer profile states the rules for one kind of byte transfer.
 
-Some systems support relocation or agreed local references. They need a different profile and different evidence.
+This profile uses ordinary copy. It performs `memcpy`-style object transfer. There is no fixup and no field conversion. The bytes cannot depend on the source address space. The build set is finite and declared.
 
-Under this strict profile, two questions remain. Can the bytes stand on their own? Are they the same on every declared build?
+Admission asks whether a type may use this profile.
+
+Agreement asks whether the declared builds give it the same object representation.
+
+The connected world region needs a different profile. Later, we will name `whole_region_relocation` and apply the same two gates to it.
 
 **Transition to Slide 9**
 
@@ -334,6 +362,10 @@ Boundary
 → Issue a narrow Permit
 ```
 
+```text
+Payoff: apply the same method to the connected world region
+```
+
 **Speaker script**
 
 This is the full path through the talk.
@@ -346,9 +378,16 @@ Then CI checks the full declared contract.
 
 Only after every check passes do we issue a narrow Permit.
 
+The small examples will explain each step. The world-region demo will show the combined result across declared producer and consumer builds.
+
 **Transition to Slide 10**
 
 First, look at the trait we often trust: `trivially_copyable`.
+
+**[Sources for Slides 1–9]**
+
+- Published talk contract: `docs/talk/cppcon2026-sched-listing.md`.
+- Checkpoint scenario and claim boundary: `docs/superpowers/specs/2026-08-27-relocatable-world-demo-design.md`.
 
 ### Slide 10 — `trivially_copyable` is local; it does not compare builds
 
@@ -438,7 +477,7 @@ We need each build to describe the representation it produced.
 
 ### Slide 12 — A useful signature must meet four rules
 
-**Target time:** 80 seconds
+**Target time:** 90 seconds
 
 **On screen**
 
@@ -770,7 +809,7 @@ This certificate supports Agreement. The same walk also supplies facts for Admis
 
 **Transition to Slide 20**
 
-That comparison gives us the first gate: Agreement.
+A direct use of this certificate is Agreement.
 
 **[Sources for Slides 12–19]**
 
@@ -807,6 +846,8 @@ same contract key
 ```
 
 **Speaker script**
+
+We explain Agreement first because it follows directly from the signature. A Permit still needs both gates.
 
 Agreement checks one registered key on one declared edge.
 
@@ -965,6 +1006,11 @@ Pointer rejection follows from this profile.
 It is not a universal rule for every possible boundary.
 ```
 
+```text
+Later: whole_region_relocation
+region-relative offsets + complete-region invariant
+```
+
 **Speaker script**
 
 Admission checks one registered type, one build, and one transfer profile.
@@ -975,9 +1021,9 @@ Our profile uses `memcpy`-style transfer. It performs no fixup, and the bytes ca
 
 An ordinary pointer fails this profile.
 
-Another system may support shared addresses or relocation. It needs another profile and other evidence.
+The world region uses region-relative offsets. They need another profile and a complete-region invariant. We will use that contract later.
 
-Pointers are not universally invalid. Pointer-dependent bytes simply fail the profile used in this talk.
+Pointers are not universally invalid. Pointer-dependent bytes simply fail the ordinary-copy profile used here.
 
 **Transition to Slide 25**
 
@@ -1156,6 +1202,7 @@ One edge can pass both gates. We still need to check the full build set.
 - `include/boost/typelayout/admission.hpp`
 - `include/boost/typelayout/tools/compat_check.hpp`
 - `example/compat_check.cpp`
+- Whole-region Admission callback: `example/relocatable_world_demo/world.hpp` and `region.hpp`.
 - `test/test_core.cpp`
 - C++ working draft N5032, `[basic.types]`, for the ordinary byte-copy condition.
 
@@ -1408,11 +1455,11 @@ If the Apple job is skipped, the three-build contract does not become a two-buil
 
 A complete run decides each key. A project may require every key to pass, but that is a separate project rule.
 
-The demo will show a Permit, an Admission failure, and an Agreement failure.
+The first demo will show a Permit, an Admission failure, and an Agreement failure. Then we will expand the stored-region preview from Slide 7.
 
 **Transition to Slide 35**
 
-The model is complete. Now let us apply it to a useful raw-byte path.
+The model is complete. First use a small ordinary-copy baseline. Then return to the connected world region.
 
 **[Sources for Slides 29–34]**
 
@@ -1423,71 +1470,19 @@ The model is complete. Now let us apply it to a useful raw-byte path.
 - Retained generated headers under `example/sigs/`
 - Exact build provenance fields and attestation design remain appendix material.
 
-## Stage 5 — Apply the Model to a Real Raw-Byte Contract
+## Stage 5 — Apply the Model to Useful Raw-Byte Contracts
 
-### Slide 35 — The demo declares one real raw-byte contract
+### Slide 35 — Ordinary copy: a fixed-width contract passes
 
-**Target time:** 70 seconds
-
-**On screen**
-
-```text
-declared recorder build
-        ↓
-portable capture file
-        ↓
-declared analyzer build
-```
-
-```text
-C_capture = (R_capture, V, E, P)
-
-V
-  Linux x86-64 / GCC 16
-  Linux x86-64 / Clang P2996
-  Apple ARM64 / Clang P2996
-
-E
-  every pair; either endpoint may write or read
-```
-
-```text
-R_capture
-  PacketHeader · MeasurementSample · CaptureTrailer · CaptureBlock
-
-P
-  ordinary copy · no fixup · source-address-independent
-```
-
-```text
-Can all four native types use one raw-byte path?
-```
-
-**Speaker script**
-
-The demo is a fixed-size telemetry capture block.
-
-A recorder writes the file. An analyzer reads it later. Any of the three declared builds may write or read.
-
-So every pair of builds is a required edge.
-
-The registered set has four keys: `PacketHeader`, `MeasurementSample`, `CaptureTrailer`, and `CaptureBlock`.
-
-The profile allows ordinary copy, but no fixup or source-address dependency.
-
-The short names on the slide represent exact build identities in CI.
-
-Now the question is precise. Can all four types use one raw-byte path across these builds?
-
-**Transition to Slide 36**
-
-For the positive set, both gates pass.
-
-### Slide 36 — Four native types pass on all three builds
-
-**Target time:** 75 seconds
+**Target time:** 85 seconds
 
 **On screen**
+
+```text
+declared recorder → capture.bin → declared analyzer
+
+C_capture = (R_capture, V, E, ordinary_copy)
+```
 
 ```text
 CaptureBlock · 96 bytes
@@ -1497,17 +1492,12 @@ CaptureBlock · 96 bytes
 [ CaptureTrailer 16 ]
 ```
 
-| Key | Admission on all builds | Agreement on all edges | Result |
+| Registered set | Admission | Agreement | Result |
 |---|---:|---:|---:|
-| `PacketHeader` | PASS | MATCH | PERMIT |
-| `MeasurementSample` | PASS | MATCH | PERMIT |
-| `CaptureTrailer` | PASS | MATCH | PERMIT |
-| `CaptureBlock` | PASS | MATCH | PERMIT |
+| four fixed-width keys | PASS on all builds | MATCH on all edges | four PERMITS |
 
 ```text
-CaptureBlock → whole-object raw write → bytes
-             → raw read into a live, aligned CaptureBlock
-
+whole-object raw I/O
 no field encoding · no endian conversion · no fixup
 ```
 
@@ -1518,25 +1508,27 @@ its native bytes as the stored representation.
 
 **Speaker script**
 
-The layout at the top gives the whole block. It has one header, four samples, and one trailer. The total is 96 bytes.
+The first ordinary-copy result is the passing baseline.
 
-The table shows the decision. Every key passes Admission on every build. Every required edge matches.
+This small baseline keeps the two failure modes clear before we expand the stored-region preview.
 
-CI issues four separate Permits.
+A recorder writes one fixed-size capture block. A declared analyzer reads it later. Any declared build may write or read.
 
-Inside `C_capture`, the `CaptureBlock` Permit allows a whole-object raw write. The bytes may later be copied into a live and correctly aligned `CaptureBlock`.
+The block contains one header, four samples, and one trailer. The registered set has four fixed-width keys.
 
-There is no field encoding, endian conversion, or pointer fixup.
+Every key passes Admission on every build. Every required edge matches. CI gives four separate Permits.
 
-The Permit applies only to this type inside this contract.
+The `CaptureBlock` Permit allows whole-object raw I/O inside this contract. There is no field encoding, endian conversion, or pointer fixup.
 
-**Transition to Slide 37**
+This is the fixed-width type that passes.
 
-Now add one pointer. Only Admission will fail.
+**Transition to Slide 36**
 
-### Slide 37 — A cached pointer fails Admission
+Now add one native pointer.
 
-**Target time:** 65 seconds
+### Slide 36 — Ordinary copy: a native pointer fails Admission
+
+**Target time:** 50 seconds
 
 **On screen**
 
@@ -1567,21 +1559,19 @@ Matching pointer bits do not transfer the target object.
 
 **Speaker script**
 
-Now add a cached metadata pointer. It may be useful inside one process.
+The second ordinary-copy result adds one cached metadata pointer.
 
 The full layout still matches on all three builds, so Agreement reports `MATCH`.
 
-But Admission fails everywhere. The copied address depends on the recorder's address space.
+But Admission fails everywhere. The copied address depends on the recorder's address space, which this profile does not allow.
 
-Our profile allows no fixup and no source-address dependency. This type cannot enter the raw-byte set.
+The candidate stays outside `R_capture`. The four existing Permits remain unchanged.
 
-We test it with the same builds, edges, and profile. It stays outside `R_capture`, and the four existing Permits remain unchanged.
-
-**Transition to Slide 38**
+**Transition to Slide 37**
 
 The next type passes Admission but fails Agreement.
 
-### Slide 38 — `long double` passes Admission but fails Agreement
+### Slide 37 — Ordinary copy: `long double` fails Agreement across real ABIs
 
 **Target time:** 75 seconds
 
@@ -1618,7 +1608,7 @@ Bytes can stand alone and still have different representations.
 
 **Speaker script**
 
-Now return to `Measurement`. It has no pointer, so ordinary-copy Admission passes on every build.
+The third ordinary-copy result returns to `Measurement`. It has no pointer, so Admission passes on every build.
 
 But the representations differ.
 
@@ -1630,138 +1620,296 @@ Both signatures begin with `[64-le]`. Pointer width and byte order match, but th
 
 The Linux builds agree with each other. Each Linux build disagrees with Apple. Agreement rejects the candidate.
 
-**Transition to Slide 39**
+**Transition to Slide 38**
 
-We now have one working set and one failure for each gate.
+The gates work. Now expand the stored-region preview from Slide 7 into the producer-and-consumer case.
 
-### Slide 39 — Four Permits and two Rejections show both gates
+### Slide 38 — One connected world region supports two closed boundaries
 
 **Target time:** 75 seconds
 
 **On screen**
 
-| Type set or candidate | Admission | Agreement | Decision |
-|---|---:|---:|---:|
-| every `K ∈ R_capture` | PASS everywhere | MATCH everywhere | four PERMITS |
-| `UnsafeWithPointer` | FAIL everywhere | MATCH everywhere | REJECT |
-| `Measurement` | PASS everywhere | DIFFER on Linux–Apple | REJECT |
-
 ```text
-Agreement cannot fix source dependence.
-Admission cannot fix a representation difference.
+server → declared server build
+  checkpoint · takeover · recovery
+  resume · modify · save again
+
+server → declared native client build
+  snapshot delivery
+  validate · query · use
 ```
 
 ```text
-Measurement under C_candidate(Measurement)
-→ Agreement DIFFER
-→ REJECT
+Connected world region
+  dynamic names · entity collection · ID index
+  null links · shared targets · cycles · pointer container
+
+Goal
+  move one complete region to the consumer's base
+  no per-object encoding · no pointer fixups
 ```
 
 **Speaker script**
 
-This matrix shows why we need both gates.
+Now expand the stored-region preview from Slide 7. The fixed capture proves the decision rule, but real application state is often connected.
 
-Every production key passes Admission and Agreement. The four keys receive separate Permits.
+The same world region can serve two closed boundaries. Another server can resume it for takeover or recovery. A declared native client can receive it as a snapshot and query it directly.
 
-`UnsafeWithPointer` has matching layouts, but Admission rejects its source-dependent address.
+The region contains dynamic names, collections, an index, null links, shared targets, and cycles.
 
-`Measurement` passes Admission, but Agreement rejects its different platform representations.
+The goal is to move the complete region to the consumer's base without per-object encoding or pointer fixups.
 
-Agreement cannot fix source dependence. Admission cannot fix a representation difference.
+That is not ordinary object copy. It needs a different contract.
 
-The demo succeeds only when it sees all four Permits and both expected Rejections.
+**Transition to Slide 39**
 
-This also answers the question from Slide 2. Under this candidate contract, Linux and Apple disagree, so `Measurement` cannot enter the production raw-byte set.
+So we change the transfer profile explicitly.
+
+### Slide 39 — Whole-region relocation is a different profile
+
+**Target time:** 80 seconds
+
+**On screen**
+
+```text
+ordinary_copy
+  each copied object must stand alone
+
+whole_region_relocation
+  copy one complete contiguous region
+  preserve one region-relative offset space
+  never move its parts independently
+```
+
+```text
+C_world = (R_world, V, E, whole_region_relocation)
+
+R_world
+  WorldSnapshot · Entity
+  EntityRelativePtr · EntityIndexEntry
+
+V  declared server and native-client builds
+E  declared producer → consumer edges
+```
+
+```text
+relative_ptr<T> stores an offset inside the region
+native T* still depends on one address space
+```
+
+```text
+The profile changes. The two gates do not.
+```
+
+**Speaker script**
+
+This profile copies one complete contiguous region.
+
+Its pointers store region-relative offsets. The base address may change, but every stored offset keeps the same meaning inside the region.
+
+The rule is strict. We cannot move a container header, its elements, or its target objects independently.
+
+Together, the types, builds, edges, and profile form `C_world`. The registered set has four keys. The build set may contain servers and native clients, but every exact build must be declared. The edge set says which producer may send to which consumer.
+
+Admission checks each key under `whole_region_relocation`. Agreement still compares signatures across every declared edge.
+
+A native pointer still fails because it depends on one process address space.
+
+The profile changes. The two gates do not.
 
 **Transition to Slide 40**
 
-The positive result is useful. But its meaning must stay narrow.
+First, the build must establish the Permit.
 
-**[Sources for Slides 35–39]**
+### Slide 40 — Build and CI establish the Permit before deployment
+
+**Target time:** 65 seconds
+
+**On screen**
+
+```text
+each declared build
+  compile-time Admission
+  export Signature
+          ↓
+verification build / CI
+  check evidence completeness
+  check Agreement on every declared edge
+          ↓
+four keys: four contract-scoped PERMITS
+```
+
+```text
+Admission[whole_region_relocation]  PASS
+Agreement[declared build edges]     MATCH
+```
+
+```text
+Runtime does not recompute either gate.
+```
+
+**Speaker script**
+
+Nothing here waits for a region to arrive.
+
+Each declared build checks Admission at compile time and exports its reflection-based signatures.
+
+A verification build or CI checks that the evidence is complete. It then compares every declared producer and consumer edge.
+
+For this contract, all four keys pass Admission and Agreement, so CI establishes four separate Permits.
+
+Those results approve the native-byte path before deployment. Runtime does not run reflection or discover Agreement again.
+
+**Transition to Slide 41**
+
+With the Permit already established, runtime handles the actual bytes.
+
+### Slide 41 — Runtime validates the actual region before typed access
+
+**Target time:** 90 seconds
+
+**On screen**
+
+```text
+checkpoint file  or  network snapshot
+        ↓
+validate envelope
+        ↓
+copy complete region to a different base
+        ↓
+validate stored ranges and graph before dereference
+        ↓
+server: query · modify · save again
+client: query · use
+```
+
+```text
+Relocation  base changed; stored region-relative offsets unchanged
+Graph       null + shared + cycle + pointer container PASS
+Business    party_hp=420 · tick=42→43 · boss_hp=300→250
+Reload      mutation persisted
+```
+
+```text
+Connected native data moved as one region,
+with no per-field decoding or pointer fixups.
+```
+
+**Speaker script**
+
+The deployed consumer starts from the Permit already established by build and CI.
+
+It may read a checkpoint file or receive the same region as a network payload. The loader validates the envelope and copies the complete region to a different base. It then validates every stored range and graph link before typed access.
+
+The base address changes, but the stored region-relative offsets do not change.
+
+The graph keeps null links, shared targets, a cycle, and pointers stored inside a container.
+
+The demo reads total party health as 420. It changes the tick from 42 to 43 and the boss health from 300 to 250.
+
+After another save and load, those changes remain. That server-style round trip is a strong workflow check. A client consumer may stop after validation and query.
+
+This is the practical payoff.
+
+**Transition to Slide 42**
+
+The negative cases show where that result stops.
+
+### Slide 42 — Each failure stops at the layer that owns it
+
+**Target time:** 70 seconds
+
+**On screen**
+
+| Case | Decision phase | Result |
+|---|---|---|
+| native pointer | build-time Admission | FAIL · no Permit |
+| packed `Entity` | build/CI Agreement | DIFFER · no Permit |
+| corrupt region offset | runtime graph validation | REJECT before dereference |
+
+```text
+packed Entity = synthetic ABI drift
+Measurement = real platform-divergent example from Slide 37
+```
+
+```text
+Runtime graph validation is not a third TypeLayout gate.
+```
+
+```text
+TypeLayout checks representation.
+The application still validates the stored graph.
+```
+
+**Speaker script**
+
+Each failure stops at the correct layer.
+
+A native pointer fails compile-time Admission, so this native-byte path receives no Permit.
+
+A packed `Entity` produces a different signature. Agreement fails in build or CI, so this edge receives no Permit.
+
+This packed case is synthetic. The real platform-divergent example remains `Measurement` on Slide 37.
+
+A corrupt region offset is different. The type representations already passed. The application graph validator rejects the bad offset before any dereference.
+
+That validator is not a third TypeLayout gate. It is a runtime obligation owned by the region loader.
+
+**Transition to Slide 43**
+
+Both positive results are useful, but both Permits are narrow.
+
+**[Sources for Slides 35–42]**
 
 - Portable-capture implementation contract: `docs/superpowers/specs/2026-08-23-cppcon2026-typelayout-deck-design.md`, Section 11.1.
-- Required final sources include the retained positive and negative build artifacts specified by the implementation contract; they control the final demo values and diagnostics.
+- Relocatable-world design and claim boundary: `docs/superpowers/specs/2026-08-27-relocatable-world-demo-design.md`.
+- Relocatable-world implementation: `example/relocatable_world_demo/world.hpp`, `region.hpp`, `region_storage.hpp`, `checkpoint.hpp`, `checkpoint.cpp`, `world_runtime.cpp`, and `demo.cpp`.
+- Final multi-build claims require retained producer and consumer artifacts with their provenance; a local `producer_ok` fixture comparison is only that local comparison.
 - System V AMD64 ABI: <https://gitlab.com/x86-psABIs/x86-64-ABI/blob/master/x86-64-ABI/low-level-sys-info.tex>
 - Apple ARM64 ABI guidance: <https://developer.apple.com/documentation/xcode/writing-arm64-code-for-apple-platforms>
 
 ## Stage 6 — Bound the Permit
 
-### Slide 40 — A Permit proves one narrow representation claim
+### Slide 43 — A Permit proves representation, not runtime safety
 
-**Target time:** 65 seconds
+**Target time:** 90 seconds
 
 **On screen**
 
 | TypeLayout proves | Application still owns |
 |---|---|
-| ordinary-copy Admission on every declared build | schema and application meaning |
+| profile-specific Admission on every declared build | the profile invariant |
 | representation Agreement on every required edge | valid values and invariants |
 | complete evidence for the declared contract | storage, lifetime, and alignment |
-| per-type `ClosedPermit_C(K)` | synchronization, trust, and versioning |
+| per-type `ClosedPermit_C(K)` | synchronization, transport, validation, trust, and versioning |
 
 ```text
 Representation Permit ≠ end-to-end safety
 ```
 
+```text
+Build and CI check the representation contract.
+Runtime validates the actual bytes and operation.
+```
+
 **Speaker script**
 
-The Permit proves one representation claim inside one declared contract.
+The Permit proves one representation claim inside one declared contract. Every build passed profile-specific Admission. Every required edge passed Agreement. The evidence was complete.
 
-The left column shows that claim. Every build passed Admission. Every required edge passed Agreement. CI had complete, valid evidence.
+The right column remains with the application. For whole-region relocation, the application must copy the complete region and keep one offset space.
 
-The right column remains with the application.
+The Permit does not prove meaning or valid values. It does not create storage, lifetime, or alignment. It does not provide synchronization, transport, validation, trust, or versioning.
 
-The Permit does not prove meaning, values, or invariants. It does not create object lifetime or aligned storage. It does not provide synchronization, validation, trust, or versioning.
-
-Those requirements are real, but they are outside this Permit.
+Those responsibilities depend on the boundary and the actual bytes received at runtime.
 
 The Permit is useful because its meaning is narrow and exact.
 
-**Transition to Slide 41**
-
-The remaining work depends on how the application uses the bytes.
-
-### Slide 41 — Runtime safety still depends on the boundary
-
-**Target time:** 65 seconds
-
-**On screen**
-
-```text
-Object obligations
-  storage · lifetime · alignment
-
-Concurrency and transport obligations
-  publication · synchronization · coherence
-
-External-data obligations
-  validation · versioning · durability · failure handling
-```
-
-```text
-Compile time checks the representation.
-Runtime still owns the operation.
-```
-
-**Speaker script**
-
-The remaining work has three groups.
-
-Object rules cover storage, lifetime, and alignment. File bytes do not automatically become a live C++ object.
-
-Concurrency rules cover publication, synchronization, coherence, and data races.
-
-External-data rules cover validation, versioning, durability, and failure handling. Matching representation does not make untrusted bytes safe.
-
-The exact work depends on the boundary. Shared memory, plugins, files, and devices need different runtime checks.
-
-The main rule is simple. Compile time checks representation. Runtime still owns the operation.
-
-**Transition to Slide 42**
+**Transition to Slide 44**
 
 The contract also tells us when native bytes are the wrong tool.
 
-### Slide 42 — Re-check closed sets; convert for open-ended peers
+### Slide 44 — Re-check closed sets; change profiles explicitly
 
 **Target time:** 75 seconds
 
@@ -1772,6 +1920,10 @@ Finite controlled change
   add a declared build or edge
   → generate fresh evidence
   → check the new closed contract
+
+Changed transfer model
+  → declare the new profile and its invariant
+  → do not reuse the old Permit
 
 Contract cannot stay closed
   unknown peers · different platform representations
@@ -1787,6 +1939,7 @@ Serialization alone does not make it safe.
 
 ```text
 Re-check a finite contract after each change.
+Change the profile explicitly when the transfer model changes.
 Use an explicit representation when the set stays open.
 ```
 
@@ -1798,21 +1951,23 @@ For one known build or edge, generate fresh evidence. Then update the contract a
 
 The result may be Permit or Reject. The method still works because the set remains finite.
 
+If the transfer model changes, declare another profile and its invariant. Do not reuse an ordinary-copy Permit for whole-region relocation.
+
 Use an explicit representation for unknown peers, different platform layouts, independent evolution, conversion, or process-local handles.
 
 Untrusted input still needs validation. Serialization alone does not make data safe.
 
 The real question is whether we can declare, check, and keep a closed representation contract.
 
-**Transition to Slide 43**
+**Transition to Slide 45**
 
 Now we can ask the opening question in the right way.
 
 ## Stage 7 — Summarize the Problem, Method, and Takeaway
 
-### Slide 43 — The real question is: under which contract?
+### Slide 45 — The real question is: under which contract?
 
-**Target time:** 60 seconds
+**Target time:** 80 seconds
 
 **On screen**
 
@@ -1821,7 +1976,7 @@ Local operation
 May this object be copied as bytes here?
 
 Boundary contract
-May these bytes stand independently?
+Do these bytes satisfy the declared transfer profile?
 Do all declared builds give them the same representation?
 ```
 
@@ -1829,6 +1984,11 @@ Do all declared builds give them the same representation?
 Measurement under C_candidate(Measurement)
 → Agreement DIFFER
 → REJECT
+
+Relocatable world under C_world
+→ build/CI: four per-key PERMITS
+→ declared server or native-client edge
+→ complete region moves; runtime validation remains
 ```
 
 ```text
@@ -1839,25 +1999,26 @@ Across a boundary, a native C++ type becomes a binary contract.
 
 The opening question was incomplete.
 
-“Can I `memcpy` this type?” asks about one local operation.
+“Can I `memcpy` this type?” asks about one local operation. “Can I use these native bytes across this boundary?” asks about a contract.
 
-“Can I use these native bytes across this boundary?” asks about a contract.
+The selected profile defines what must travel. Ordinary copy requires source-independent bytes. Whole-region relocation requires the complete region and one offset space. Every declared build must still agree on the representation.
 
-The bytes must stand without producer-local context. Every declared build must also produce the same representation.
+`Measurement` passed Admission, but Linux and Apple disagreed. The candidate was rejected.
 
-For `Measurement`, local copy was legal and Admission passed. But Apple disagreed with both Linux builds, so the candidate was rejected.
+The relocatable world used a different profile. Build and CI established four separate Permits before deployment. A declared server or native-client consumer can then load the complete region. Runtime validation still checks the actual bytes and stored graph.
 
-That is one decision for one type under one contract. It is not a universal rule for `Measurement`.
+Different profiles. The same two gates. Separate contract-scoped results.
 
-**Transition to Slide 44**
+**Transition to Slide 46**
 
 Here is the full method in one chain.
 
-**[Sources for Slide 43]**
+**[Sources for Slide 45]**
 
 - C++ working draft N5032, `[basic.types]`, for object representation and trivially copyable byte-copy guarantees.
+- Checkpoint contract and result: `docs/superpowers/specs/2026-08-27-relocatable-world-demo-design.md` and `example/relocatable_world_demo/demo.cpp`.
 
-### Slide 44 — Reflection creates evidence; CI decides
+### Slide 46 — Reflection creates evidence; CI decides
 
 **Target time:** 70 seconds
 
@@ -1899,11 +2060,11 @@ A failed gate gives `REJECT`. Only the complete passing graph gives `ClosedPermi
 
 The compiler gives us the facts. The contract gives those facts a scope.
 
-**Transition to Slide 45**
+**Transition to Slide 47**
 
 The final slide gives four rules for your next design review.
 
-**[Sources for Slide 44]**
+**[Sources for Slide 46]**
 
 - WG21 P2996R12 and P3687R1.
 - `include/boost/typelayout/detail/reflect.hpp`
@@ -1913,7 +2074,7 @@ The final slide gives four rules for your next design review.
 - `include/boost/typelayout/tools/sig_export.hpp`
 - `include/boost/typelayout/tools/compat_check.hpp`
 
-### Slide 45 — Permit native bytes only inside a closed contract
+### Slide 47 — Permit native bytes only inside a closed contract
 
 **Target time:** 60 seconds
 
@@ -1924,10 +2085,10 @@ The final slide gives four rules for your next design review.
 
 2. Check Admission and Agreement separately.
 
-3. Keep every Permit per type and inside C.
+3. Keep every Permit per type, per profile, and inside C.
 
-4. Re-check finite changes; use an explicit representation
-   when C cannot stay closed.
+4. Re-check finite changes; change profiles explicitly;
+   use an explicit representation when C cannot stay closed.
 ```
 
 ```text
@@ -1936,41 +2097,41 @@ not semantic compatibility or schema evolution.
 ```
 
 ```text
+Different profile. Same two gates. Separate Permit.
+```
+
+```text
 Permit native bytes only inside a closed contract.
 ```
 
 ```text
-github.com/ximicpp/TypeLayout                    Q&A → Appendix 46
+github.com/ximicpp/TypeLayout                    Q&A → Appendix 48
 ```
 
 **Speaker script**
 
-Here are the four rules to remember.
+Here are the four rules.
 
-Declare the contract before asking for a decision.
+Name the contract. Check Admission and Agreement separately.
 
-Check Admission and Agreement separately.
+Keep each Permit with one type, one profile, and one contract.
 
-Keep every Permit with one type and one declared contract.
+Re-check every finite change. If the transfer model changes, name the new profile. If the contract cannot stay closed, use an explicit representation.
 
-After a finite change, generate new evidence and check again. If the contract cannot stay closed, use an explicit representation.
+The claim covers representation only. It does not prove semantics or schema evolution.
 
-This proves representation compatibility, not semantic compatibility or schema evolution.
-
-So, can you `memcpy` a type across a boundary?
-
-Only after the contract is named, every build provides evidence, and both gates pass across the full contract.
+Different profile. Same two gates. Separate Permit.
 
 Permit native bytes only inside a closed contract.
 
-**[Sources for Slide 45]**
+**[Sources for Slide 47]**
 
 - Repository and examples: <https://github.com/ximicpp/TypeLayout>
-- This slide summarizes claims already sourced in Slides 10–44 and introduces no new technical claim.
+- This slide summarizes claims already sourced in Slides 10–46 and introduces no new technical claim.
 
 ## Appendix Scope for the Next Content Pass
 
-Slides 46–61 keep the approved appendix titles and Q&A routing from the deck design. They do not receive full speaker scripts in this pass. Each appendix slide will later contain:
+Slides 48–63 keep the approved appendix titles and Q&A routing from the deck design. They do not receive full speaker scripts in this pass. Each appendix slide will later contain:
 
 - the exact audience question it answers;
 - the minimum supporting code, standard wording, table, or diagnostic;

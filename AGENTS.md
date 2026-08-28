@@ -38,12 +38,22 @@ contract when editing the deck. The approved narrative design is
 `docs/superpowers/specs/2026-08-23-cppcon2026-typelayout-deck-design.md`, and
 the implementation plan is
 `docs/superpowers/plans/2026-08-23-cppcon2026-typelayout-deck-implementation.md`.
+The current audience-facing content draft for main-deck Slides 1–47 is
+`docs/talk/cppcon2026-main-deck-content-and-script.md`. It contains the exact
+on-screen content, English speaker script, transitions, timing targets, and
+source notes. Treat it as the review artifact for content approval; it does
+not authorize creating the PowerPoint before that review is complete.
+The relocatable-world scenario, its declared server-to-server and
+server-to-native-client placements, and the separation between build/CI
+permission and runtime validation are defined in
+`docs/superpowers/specs/2026-08-27-relocatable-world-demo-design.md`.
 
 Use this source order when claims differ:
 
 1. The Sched snapshot controls what the public talk has promised.
 2. The approved deck design controls the presentation's narrative and scope.
-3. Repository code and tests control technical/API claims and examples.
+3. The reviewed main-deck content script controls slide copy and spoken wording.
+4. Repository code and tests control technical/API claims and examples.
 
 Deck revisions must preserve the public two-gate problem: whether a type may
 be transported as bytes at all, and whether every declared ABI gives it the

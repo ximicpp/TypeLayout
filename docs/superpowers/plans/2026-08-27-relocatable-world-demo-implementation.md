@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the XOffset-backed example with the smallest self-contained C++26 game-world checkpoint demo that proves whole-region Admission, four-key Agreement, validated no-fixup relocation, useful read/write behavior, and three layer-specific rejections.
+**Goal:** Replace the XOffset-backed example with the smallest self-contained C++26 connected game-world region demo that proves whole-region Admission, four-key Agreement, validated no-fixup relocation, useful read/write behavior, and three layer-specific rejections. The same producer/consumer model supports server-to-server checkpoint transfer or recovery and snapshot delivery from a server to a pre-verified native client.
 
 **Architecture:** Keep every stored representation in one fixed 4096-byte region and encode every stored link as a four-byte offset from that region's base. Construction uses builder-issued handles and one whole-range implicit-object-creating `std::memcpy` per final-location object or array; loading validates a canonical 40-byte envelope, performs one distinct-source whole-payload `std::memcpy`, and stages typed access behind non-overlapping byte-range checks before exposing a validated `RegionView`. TypeLayout's existing profile-aware Admission API remains unchanged; the demo adds only local traits, four stable Agreement keys, and schema-specific validation.
 
@@ -27,7 +27,9 @@
 - The four Agreement keys are exactly `WorldSnapshot`, `Entity`, `EntityRelativePtr`, and `EntityIndexEntry`, joined by key rather than registry position.
 - The talk executable prints exactly three negative demonstrations: native pointer at Admission, packed `Entity` at Agreement, and corrupt region offset at graph validation. Additional malformed-input tests remain silent CTests.
 - `Entity` IDs are 1001 and 2001. Initial state is tick 42, Hero HP 120, Boss HP 300; the mutation is tick 43 and Boss HP 250.
-- This is an appendix-only whole-region relocation demo. Do not modify the deck or claim that it replaces Stage 5 `portable_capture` or the required real platform-divergent negative.
+- Admission is a compile-time property of each build. Agreement belongs to a verification build or CI comparison of build artifacts. The local talk executable may print those materialized results and stop its test workflow when either fails, but the deployed region loader does not recompute either TypeLayout gate.
+- The region payload may be stored as a server checkpoint or carried as a server-to-declared-native-client snapshot. This plan implements the payload and local consumer behavior, not network framing, reliability, authentication, or an open client protocol.
+- This whole-region relocation demo supports the Stage 5 practical payoff. It does not replace the `portable_capture` ordinary-copy baseline or the required real platform-divergent negative.
 - Use path-scoped commits. Never use `git add -A`, never touch the main checkout's presentation artifacts, and never delete the retained vendor submodule.
 
 ---
@@ -1160,7 +1162,7 @@ At the top of `demo.cpp`, retain this source attribution without adding runtime 
 // XOffsetDatastructure and does not implement or validate its wire format.
 ```
 
-`demo.cpp` performs Admission and normal Agreement before any checkpoint load, runs the positive A-to-B-to-C flow, then executes the three negatives. Its successful stdout is exactly equivalent to:
+`demo.cpp` materializes the compile-time Admission result and a checked-in build-artifact Agreement comparison before entering its local load test, runs the positive A-to-B-to-C flow, then executes the three negatives. This executable is a pedagogical build/CI harness, not a deployed runtime gate. Its successful stdout is exactly equivalent to:
 
 ```text
 Admission[whole_region_relocation]: PASS
@@ -1191,7 +1193,7 @@ Use fixed-string checks for all nine non-empty output lines and verify no fourth
 
 ```bash
 git add -- CMakeLists.txt example/relocatable_world_demo/demo.cpp example/relocatable_world_demo/world_runtime.hpp example/relocatable_world_demo/world_runtime.cpp test/test_relocatable_world.cpp
-git commit -m "feat: demonstrate relocatable world checkpoint"
+git commit -m "feat: demonstrate relocatable world region"
 ```
 
 ### Task 8: Retire the XOffset-Backed Demo and Run Full Regression

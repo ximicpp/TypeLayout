@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Produce a fully editable, source-template-faithful 61-slide CppCon 2026 deck that implements the approved signature-centered argument and passes slide-by-slide visual, structural, and technical review.
+**Goal:** Produce a fully editable, source-template-faithful 63-slide CppCon 2026 deck that implements the approved signature-centered argument and passes slide-by-slide visual, structural, and technical review.
 
-**Architecture:** Treat the user-provided PPTX as the only visual design source. Inspect all 55 source slides, create a validated 61-slide clone map, edit inherited elements through `@oai/artifact-tool`, and build the deck in five independently rendered content batches before a final evidence and fidelity gate. Keep every intermediate in an isolated build directory and export one new PPTX without overwriting the source attachment.
+**Architecture:** Treat the user-provided PPTX as the only visual design source. Inspect all 55 source slides, create a validated 63-slide clone map, edit inherited elements through `@oai/artifact-tool`, and build the deck in five independently rendered content batches before a final evidence and fidelity gate. Keep every intermediate in an isolated build directory and export one new PPTX without overwriting the source attachment.
 
 **Tech Stack:** PowerShell, JavaScript ES modules, `@oai/artifact-tool`, presentation template-following helpers, presentation render/overflow helpers, Git for this plan only.
 
@@ -24,11 +24,11 @@
 - Run `mark_artifact_operation_started.mjs` exactly once, with operation kind `edit`, immediately before the first authoring command.
 - Load workspace dependencies first and use exactly the returned `RUNTIME_NODE`, `RUNTIME_NODE_MODULES`, and `RUNTIME_BIN_DIR` values. Do not install or discover alternate runtimes.
 - Keep generated plans, source notes, audit notes, QA ledgers, JSON maps, renderings, and `.mjs` builders under the build directory. Only the final PPTX may be written outside it.
-- Main deck: slides 1–45. Appendix: slides 46–61.
-- Main profile: ordinary object copy, zero fixup, source-address-independent bytes, finite declared type and build sets, trusted producer objects.
-- Relocation remains appendix-only and never shares an unqualified permit with ordinary copy.
+- Main deck: slides 1–47. Appendix: slides 48–63.
+- Baseline profile: ordinary object copy, zero fixup, source-address-independent bytes, finite declared type and build sets, trusted producer objects.
+- Stage 5 changes explicitly to `whole_region_relocation` for the connected world region. It supports declared server and native-client consumers and never shares an unqualified Permit with ordinary copy.
 - Use the terms Evidence, Admission, Agreement, EdgePass, and Permit exactly as defined in the spec.
-- Slides 1–45 must read as seven cumulative stages: why evidence is needed → how one build produces evidence → how the two gates decide one edge → how CI closes the finite contract → how the model authorizes one useful raw-byte type set and rejects two nearby alternatives → how the resulting Permit is bounded → a final recap of the problem, method, and actionable takeaway. Slides 35–39 form Stage 5, slides 40–42 form the brief Stage 6, and slides 43–45 form the explicit Stage 7 conclusion.
+- Slides 1–47 must read as seven cumulative stages: why evidence is needed → how one build produces evidence → how the two gates decide one edge → how CI closes the finite contract → how the model works for ordinary copy and then enables a practical whole-region producer/consumer contract → how build/CI permission differs from runtime validation → how both profile-specific Permits are bounded → a final recap of the problem, method, and actionable takeaway. Slides 35–42 form Stage 5, slides 43–44 form the brief Stage 6, and slides 45–47 form the explicit Stage 7 conclusion.
 - Reserve `Permit` for the per-key result closed over the complete declared build graph. Slide 28 may establish `EdgePass`, but it must not present one edge as the final Permit.
 - Treat CI provenance as evidence-input validation, not as a third compatibility gate beside Admission and Agreement.
 - Reconcile the Sched phrase `architecture and endianness` explicitly: the current signature prefix records pointer width and endianness, leaf encodings carry further representation facts, and exact compiler/target identity belongs to provenance. Never call the prefix a complete CPU/ISA identity.
@@ -56,13 +56,13 @@
 | `.codex_tmp/cppcon2026_typelayout_final/source-notes.txt` | Source/provenance ledger for the attachment, repository artifacts, papers, and ABI references |
 | `.codex_tmp/cppcon2026_typelayout_final/template-inspect/` | Complete source renders, layout exports, media, fonts, manifest, and NDJSON inventory |
 | `.codex_tmp/cppcon2026_typelayout_final/template-audit.txt` | Reusable source patterns, inherited structure, typography, placeholder, and insertion rules |
-| `.codex_tmp/cppcon2026_typelayout_final/template-frame-map.json` | Validated mapping from all 61 output slides to source slides and source elements |
+| `.codex_tmp/cppcon2026_typelayout_final/template-frame-map.json` | Validated mapping from all 63 output slides to source slides and source elements |
 | `.codex_tmp/cppcon2026_typelayout_final/deviation-log.txt` | Intentional template deviations with affected output slides and reasons |
-| `.codex_tmp/cppcon2026_typelayout_final/template-starter.pptx` | 61-slide deck created only by duplicating mapped source slides |
+| `.codex_tmp/cppcon2026_typelayout_final/template-starter.pptx` | 63-slide deck created only by duplicating mapped source slides |
 | `.codex_tmp/cppcon2026_typelayout_final/template-starter-preview/` | Starter renders used to confirm clone order and template fidelity |
 | `.codex_tmp/cppcon2026_typelayout_final/template-starter-layout/` | Starter layout JSON used by the final fidelity comparison |
 | `.codex_tmp/cppcon2026_typelayout_final/edit-plan.json` | Output-slide roles mapped to exact starter-deck element anchors and actions |
-| `.codex_tmp/cppcon2026_typelayout_final/slide-content.mjs` | Audience-facing copy, source-slide mapping, edit operations, and note sources for slides 1–61 |
+| `.codex_tmp/cppcon2026_typelayout_final/slide-content.mjs` | Audience-facing copy, source-slide mapping, edit operations, and note sources for slides 1–63 |
 | `.codex_tmp/cppcon2026_typelayout_final/deck-edit-schema.mjs` | Validation and application interfaces shared by the content and builder |
 | `.codex_tmp/cppcon2026_typelayout_final/build-deck.mjs` | Imports the starter, applies content through a requested slide, renders evidence, and exports a draft |
 | `.codex_tmp/cppcon2026_typelayout_final/validate-content.mjs` | Checks slide numbering, mapping, titles, edit targets, vocabulary, and source-note coverage |
@@ -96,7 +96,7 @@ capture.bin: identical across all three fully attributed producers
 
 ## External Prerequisite for the Completed-Demo Slides
 
-The current plan records but does not execute the code-demo work package. A separately authorized code task must create the six `portable_capture_*` sources, CMake/CTest integration, CI producers/checkers, and one retained complete three-build artifact set before Tasks 7–10 execute. Tasks 1–6 may proceed independently; Task 8 is blocked specifically for appendix slide 59, while Tasks 9–10 require the complete demo sources and artifacts for final accuracy review and delivery. This checkpoint stays in the implementation plan and does not appear in the audience-facing Stage 5 chain.
+The current plan records but does not execute the portable-capture code work package. A separately authorized code task must create its sources, CMake/CTest integration, CI producers/checkers, and one retained complete three-build artifact set before Tasks 7–10 execute. Tasks 1–6 may proceed independently; Task 8 is blocked specifically for appendix slide 61, while Tasks 9–10 require complete evidence for every multi-build claim. The implemented relocatable-world demo may support the local behavior shown in Stage 5, but its full six-node matrix still requires retained native artifacts. These checkpoints stay in the implementation plan and do not appear in the audience-facing chain.
 
 ---
 
@@ -208,7 +208,7 @@ In `template-audit.txt`, record:
 
 Expected: every one of the 55 source slides has one audit record, and every element proposed for later rewriting has a real ID from the inspection output.
 
-### Task 2: Create and validate the 61-slide clone map and starter deck
+### Task 2: Create and validate the 63-slide clone map and starter deck
 
 **Files:**
 
@@ -222,7 +222,7 @@ Expected: every one of the 55 source slides has one audit record, and every elem
 **Interfaces:**
 
 - Consumes: `template-inspect.ndjson`, layout JSON, `template-audit.txt`, and the primary source-slide mapping in spec section 7.
-- Produces: a validated 61-slide starter and exact source/starter element targets for every allowed edit.
+- Produces: a validated 63-slide starter and exact source/starter element targets for every allowed edit.
 
 - [ ] **Step 1: Encode the approved output-to-source mapping**
 
@@ -232,13 +232,13 @@ Use this exact mapping:
 1:1, 2:4, 3:2, 4:2, 5:3, 6:2, 7:2, 8:3, 9:6, 10:5, 11:14,
 12:8, 13:9, 14:10, 15:48, 16:12, 17:52, 18:45, 19:13, 20:13, 21:13, 22:52,
 23:17, 24:15, 25:18, 26:50, 27:19, 28:21, 29:23, 30:24, 31:51, 32:25, 33:26, 34:27,
-35:28, 36:29, 37:30, 38:31, 39:32, 40:34, 41:40, 42:35,
-43:6, 44:26, 45:36,
-46:37, 47:38, 48:39, 49:40, 50:41, 51:42, 52:44, 53:43, 54:44, 55:48, 56:45,
-57:46, 58:51, 59:53, 60:54, 61:55
+35:28, 36:29, 37:30, 38:2, 39:21, 40:26, 41:40, 42:44,
+43:34, 44:35, 45:6, 46:26, 47:36,
+48:37, 49:38, 50:39, 51:40, 52:41, 53:42, 54:44, 55:43, 56:44, 57:48,
+58:45, 59:46, 60:51, 61:53, 62:54, 63:55
 ```
 
-Expected: 61 unique output numbers, all source numbers in the range 1–55.
+Expected: 63 unique output numbers, all source numbers in the range 1–55.
 
 - [ ] **Step 2: Classify every inherited source element**
 
@@ -289,7 +289,7 @@ Run:
   --contact-sheet 'E:\workspace\TypeLayout\.codex_tmp\cppcon2026_typelayout_final\template-starter-contact-sheet.png'
 ```
 
-Expected: 61-slide starter, 61 previews, 61 layout JSON files, and a contact sheet.
+Expected: 63-slide starter, 63 previews, 63 layout JSON files, and a contact sheet.
 
 - [ ] **Step 7: Inspect the starter and create the edit plan**
 
@@ -297,7 +297,7 @@ Import and inspect the starter with artifact-tool. In `edit-plan.json`, map sema
 
 - [ ] **Step 8: Verify starter fidelity before content changes**
 
-Inspect all 61 starter renders. Confirm order, source-slide correspondence, masters/layouts, CppCon brand marks, typography, footer, page marker, and inherited placeholder state. Record only intentional deviations in `deviation-log.txt`.
+Inspect all 63 starter renders. Confirm order, source-slide correspondence, masters/layouts, CppCon brand marks, typography, footer, page marker, and inherited placeholder state. Record only intentional deviations in `deviation-log.txt`.
 
 ### Task 3: Implement the edit schema, content validator, and incremental builder
 
@@ -425,7 +425,7 @@ Add slide 1's definition, run the builder with `--through-slide 1`, export a one
 **Interfaces:**
 
 - Consumes: the approved spec sections 4.1–4.2 and 5 for slides 1–11, including the main-spine/required-evidence/deferred-detail budget, plus the authoring harness.
-- Produces: the complete opening question, two-axis boundary model, three scenarios, strict profile, seven-claim chain, and local-check counterargument.
+- Produces: the complete opening question, two-axis boundary model, three scenarios, strict profile, seven-step chain, the connected-world producer/consumer question, and the local-check counterargument.
 
 - [ ] **Step 1: Run the partial validator before adding the batch**
 
@@ -438,16 +438,16 @@ Expected: failure naming slides 2–11 as missing.
 Add definitions for:
 
 1. `Can I memcpy this type across a boundary?`
-2. `Would you approve these bytes across every declared build?`
-3. `Across a boundary, object representation becomes a contract`
-4. `Build identity and address space are independent assumptions`
-5. `A new process preserves representation—but not referents`
-6. `A shared address space does not make two builds layout-compatible`
-7. `Stored bytes outlive both the build and the address space`
-8. `One strict profile makes the three scenarios comparable`
-9. `Seven claims turn the question into a decision`
-10. `Trivially copyable permits a local operation—it compares no builds`
-11. `` `sizeof` can reject compatibility—but equal size cannot establish it ``
+2. `Would you permit these bytes across all declared builds?`
+3. `At a boundary, representation becomes a contract`
+4. `Build identity and address space are separate`
+5. `Same layout does not make a pointer portable across processes`
+6. `One address space does not guarantee one layout`
+7. `Stored native bytes may lose both assumptions`
+8. `Start with one strict transfer profile`
+9. `Seven steps turn the question into a decision`
+10. `` `trivially_copyable` is local; it does not compare builds ``
+11. `` `sizeof` can reject a match; equal size cannot prove it ``
 
 Use the source mapping from Task 2 and the visible content/visual job from spec section 5. Apply the narrative layering and detail-admission rules from spec sections 4.1–4.2; scenario detail that does not establish the two axes or strict profile belongs in notes or the appendix.
 
@@ -457,11 +457,11 @@ Keep the title slide minimal. On slide 2 show `Measurement { uint64_t id; long d
 
 - [ ] **Step 4: Implement the two-axis scenario sequence**
 
-Slides 3–8 must visibly distinguish retained/lost build identity and retained/lost address-space identity. The strict profile on slide 8 must say ordinary copy, zero fixup, source-address-independent bytes, and finite declared build set.
+Slides 3–8 must visibly distinguish retained/lost build identity and retained/lost address-space identity. Slide 7 completes the matrix with producer build A writing a stored native-byte region and declared consumer build B reading it under another build identity, address space, and load base. Preview server recovery and native-client world snapshots only as the later demo; introduce their exact placements and supported-build rules on Slide 38. Slide 8 defines a transfer profile, names Admission and Agreement in plain language, states ordinary copy, zero fixup or field conversion, source-address-independent bytes, and a finite declared build set, then previews `whole_region_relocation` as the later world-region profile.
 
 - [ ] **Step 5: Implement the cumulative seven-claim chain**
 
-Slide 9 uses the exact chain from spec section 5 as a brief orientation beat. It must not be titled or styled as an agenda, and it must not explain downstream predicates, formulas, artifact formats, or CI mechanics.
+Slide 9 uses the exact chain from spec section 5 as a brief orientation beat. Add only one payoff line: the small examples explain each step, and the world-region producer/consumer demo shows the combined result. It must not be titled or styled as an agenda, and it must not explain downstream predicates, formulas, artifact formats, or CI mechanics. Slides 7–9 cite the relocatable-world design as the source for the two application placements.
 
 - [ ] **Step 6: Implement the two local-check counterexamples**
 
@@ -511,17 +511,17 @@ Expected: failure naming slides 12–22 as missing.
 
 Add definitions for:
 
-12. `A useful signature must earn our trust`
-13. `The declaration identifies entities; the compiler supplies the byte map`
-14. `Reflection exposes facts; recursion turns them into structure`
-15. `One consteval dispatcher handles every supported category`
-16. `Leaf tokens describe representation—not source spelling`
-17. `Absolute offsets remove irrelevant source paths`
-18. `Hidden layout machinery is rejected—not guessed`
-19. `A consteval walk assembles the certificate`
-20. `Agreement is a registered-type × build-edge predicate`
-21. `Exact equality is both a gate and a diagnostic`
-22. `Agreement proves encoded representation—not identity, meaning, or independence`
+12. `A useful signature must meet four rules`
+13. `The compiler gives us the byte map`
+14. `Reflection gives facts; recursion builds structure`
+15. `One consteval dispatcher handles every supported kind`
+16. `Leaf tokens describe representation, not spelling`
+17. `Absolute offsets remove unneeded source paths`
+18. `If required layout facts are hidden, reject the type`
+19. `A consteval walk builds the certificate`
+20. `Agreement checks one key on one edge`
+21. `Exact equality gives a gate and a clear diagnostic`
+22. `Agreement proves representation equality—nothing more`
 
 - [ ] **Step 3: Establish signature trust properties before showing grammar**
 
@@ -541,7 +541,7 @@ Slide 18 uses virtual inheritance as one concrete fail-closed path: required hid
 
 - [ ] **Step 7: Define Agreement precisely**
 
-Slide 20 first states that both artifacts refer to the same registered application contract, then uses the exact predicate from the spec and presents Agreement as a registered-contract-key × build-edge relation within the declared signature domain/version. Slide 21 shows one exact match, one divergence with readable locations, and a real `static_assert(layout_match(linux_plat::PacketHeader_layout, macos_plat::PacketHeader_layout))` using the current primitive. Slide 22 states the three limits—source identity, application meaning, and source-context independence—in one compact statement rather than three examples; slide 23 provides the pointer counterexample and slide 27 provides the semantic warning. It must say encoded certificates match rather than claim universal object-representation identity.
+Slide 20 states that Agreement is explained first because it follows directly from the certificate produced in Stage 2; this is explanation order, not gate priority, and a Permit still needs both gates. Do not call Agreement the first gate. Then state that both artifacts refer to the same registered application contract, use the exact predicate from the spec, and present Agreement as a registered-contract-key × build-edge relation within the declared signature domain/version. Slide 21 shows one exact match, one divergence with readable locations, and a real `static_assert(layout_match(linux_plat::PacketHeader_layout, macos_plat::PacketHeader_layout))` using the current primitive. Slide 22 states the three limits—source identity, application meaning, and source-context independence—in one compact statement rather than three examples; slide 23 provides the pointer counterexample and slide 27 provides the semantic warning. It must say encoded certificates match rather than claim universal object-representation identity.
 
 - [ ] **Step 8: Add reflection and signature sources to notes**
 
@@ -576,22 +576,22 @@ Expected: failure naming slides 23–34 as missing.
 
 Add definitions for:
 
-23. `Matching layouts can preserve the wrong thing`
-24. `Admission applies one transfer profile to one build`
-25. `Structural Admission has three independent conditions`
-26. `The recursive check closes structural blind spots`
-27. `Structural inspection cannot infer semantic dependence`
-28. `Admission and Agreement reject independent failures`
-29. `A closed claim needs a finite contract`
-30. `Every actual build emits its own evidence`
-31. `The emitted header contains evidence—not provenance`
-32. `CI binds evidence to an exact producer`
-33. `CI quantifies the same two gates over the declared graph`
-34. `Missing evidence makes the run incomplete—not passing`
+23. `A matching layout does not make a pointer transferable`
+24. `Admission checks one type on one build under one profile`
+25. `Admission needs three separate conditions`
+26. `The recursive check finds hidden structural problems`
+27. `Reflection cannot see application meaning`
+28. `Admission and Agreement catch different failures`
+29. `A Permit needs a finite declared contract`
+30. `Every build must emit its own evidence`
+31. `The header has evidence, not producer identity`
+32. `CI ties evidence to the build that made it`
+33. `CI checks both gates across the full graph`
+34. `Missing evidence means INCOMPLETE, not PASS`
 
 - [ ] **Step 3: Implement the pointer counterexample and profile-aware Admission**
 
-Slide 23 ends `Agreement MATCH / Admission FAIL`. Slide 24 states that pointer rejection follows from the talk's strict source-address-independent profile, not every possible boundary profile.
+Slide 23 ends `Agreement MATCH / Admission FAIL`. Slide 24 states that pointer rejection follows from the talk's strict source-address-independent profile, not every possible boundary profile. It briefly recalls that the connected world region's relative offsets require `whole_region_relocation` and the complete-region invariant, without introducing container or graph details.
 
 - [ ] **Step 4: Implement the Admission predicate and ordinary-copy composition**
 
@@ -607,92 +607,96 @@ Slide 29 defines `C = (R,V,E,P)` with `E` explicitly named as the required trans
 
 - [ ] **Step 7: Separate artifact fields from provenance**
 
-Slide 31 shows only the current artifact fields needed by the decision—contract key, signature, and byte-copy-safe result—and notes that ordinary-copy registration separately enforces local trivial copyability. It separates observed evidence from producer identity and freshness. Slide 32 shows one simple declared-build + producer-attestation → accepted-evidence binding and explicitly says provenance validates inputs before the two gates; it is not a third gate. Move the complete `TypeEntry`, platform, provenance, and `.sig.hpp` versus external-attestation details to appendix slide 58.
+Slide 31 shows only the current artifact fields needed by the decision—contract key, signature, and byte-copy-safe result—and notes that ordinary-copy registration separately enforces local trivial copyability. It separates observed evidence from producer identity and freshness. Slide 32 shows one simple declared-build + producer-attestation → accepted-evidence binding and explicitly says provenance validates inputs before the two gates; it is not a third gate. Move the complete `TypeEntry`, platform, provenance, and `.sig.hpp` versus external-attestation details to appendix slide 60.
 
 - [ ] **Step 8: Close the graph without inventing an API**
 
-Slide 33 uses the declared build graph and actual node-local Admission state, then generalizes slide 28's edge decision for one registered key: `ClosedPermit_C(K) = Admission_P(K,B) for every B ∈ V ∧ Agreement(K,A,B) for every (A,B) ∈ E`. State that CI repeats this closed decision for every `K ∈ R`; it must not collapse mixed per-type outcomes into one ambiguous Permit. Do not teach equality transitivity or spanning-tree comparison reduction on the main slide; those are appendix or speaker-note optimizations. Slide 34 shows three states: missing, stale, or unattributable evidence gives `INCOMPLETE / NO PERMIT`; valid evidence plus an Admission or Agreement failure gives `REJECT / NO PERMIT`; valid evidence plus both gates passing over the complete graph gives `PERMIT`. The run is complete only when every declared key has a `PERMIT / REJECT` decision. Preview the reporter's three diagnostic shapes—`byte-copy safe + layout match`, `Layout match (not byte-copy safe)`, and `Layout mismatch`—and defer the full report to appendix slide 57. Keep the detailed failure taxonomy in diagnostics or notes. Use current primitive composition or `CompatReporter`; do not show `TYPELAYOUT_ASSERT_TRANSFER_SAFE`.
+Slide 33 uses the declared build graph and actual node-local Admission state, then generalizes slide 28's edge decision for one registered key: `ClosedPermit_C(K) = Admission_P(K,B) for every B ∈ V ∧ Agreement(K,A,B) for every (A,B) ∈ E`. State that CI repeats this closed decision for every `K ∈ R`; it must not collapse mixed per-type outcomes into one ambiguous Permit. Do not teach equality transitivity or spanning-tree comparison reduction on the main slide; those are appendix or speaker-note optimizations. Slide 34 shows three states: missing, stale, or unattributable evidence gives `INCOMPLETE / NO PERMIT`; valid evidence plus an Admission or Agreement failure gives `REJECT / NO PERMIT`; valid evidence plus both gates passing over the complete graph gives `PERMIT`. The run is complete only when every declared key has a `PERMIT / REJECT` decision. Preview the reporter's three diagnostic shapes—`byte-copy safe + layout match`, `Layout match (not byte-copy safe)`, and `Layout mismatch`—and defer the full report to appendix slide 59. Its transition says that a small ordinary-copy baseline isolates the gates before expanding the stored-region preview from Slide 7. Keep the detailed failure taxonomy in diagnostics or notes. Use current primitive composition or `CompatReporter`; do not show `TYPELAYOUT_ASSERT_TRANSFER_SAFE`.
 
 - [ ] **Step 9: Add repository and CI sources to notes**
 
-At minimum cite `include/boost/typelayout/admission.hpp`, `include/boost/typelayout/tools/sig_types.hpp`, `include/boost/typelayout/tools/sig_export.hpp`, `include/boost/typelayout/tools/compat_check.hpp`, `include/boost/typelayout/tools/compat_auto.hpp`, `example/compat_ci_export.cpp`, and `.github/workflows/compat-pipeline.yml`.
+At minimum cite `include/boost/typelayout/admission.hpp`, `include/boost/typelayout/tools/sig_types.hpp`, `include/boost/typelayout/tools/sig_export.hpp`, `include/boost/typelayout/tools/compat_check.hpp`, `include/boost/typelayout/tools/compat_auto.hpp`, `example/compat_ci_export.cpp`, and `.github/workflows/compat-pipeline.yml`. Slide 24 also cites the relocatable-world `world.hpp` and `region.hpp` files for its profile callback.
 
 - [ ] **Step 10: Validate, build, and inspect through slide 34**
 
 Confirm Agreement uses edge color/text, Admission uses node color/text, slides 20–28 read `how the two gates decide one edge`, and slides 29–34 read `how CI closes each key over the finite contract`. Confirm slide 28 says `EDGE PASS`, not `PERMIT`; provenance is visibly an input-validity condition; slide 34 distinguishes `INCOMPLETE`, `REJECT`, and `PERMIT`; and no per-key Permit is inferred from a single edge, macro, or skipped CI job. Correct all slide-scoped QA findings before Task 7.
 
-### Task 7: Author and review slides 35–45 — apply the model, bound the Permit, and close with a complete takeaway
+### Task 7: Author and review slides 35–48 — apply the model, separate build permission from runtime validation, bound the Permit, and close with a complete takeaway
 
 **Files:**
 
 - Modify: `.codex_tmp/cppcon2026_typelayout_final/slide-content.mjs`
 - Modify: `.codex_tmp/cppcon2026_typelayout_final/edit-plan.json`
-- Create: `.codex_tmp/cppcon2026_typelayout_final/draft-45.pptx`
-- Create: `.codex_tmp/cppcon2026_typelayout_final/draft-45-render/`
-- Create: `.codex_tmp/cppcon2026_typelayout_final/draft-45-layout/`
+- Create: `.codex_tmp/cppcon2026_typelayout_final/draft-48.pptx`
+- Create: `.codex_tmp/cppcon2026_typelayout_final/draft-48-render/`
+- Create: `.codex_tmp/cppcon2026_typelayout_final/draft-48-layout/`
 
 **Interfaces:**
 
-- Consumes: spec sections 4.6–4.8, the slide-by-slide requirements for slides 35–45 in spec section 5, the closed two-gate model, the approved portable-capture implementation contract, and the completed demo's platform evidence.
-- Produces: one coherent permitted native-byte type set, two independently rejected nearby alternatives, a bounded Permit, and a three-slide recap of the problem, method, and actionable takeaway.
+- Consumes: spec sections 4.6–4.8, the reviewed content/script for slides 35–48, the portable-capture contract, the relocatable-world design and implementation, and retained evidence for every visible multi-build claim.
+- Produces: the ordinary-copy baseline and required rejection modes, one practical whole-region-relocation result for declared server and native-client consumers, an explicit build/CI-versus-runtime split, bounded profile-specific Permits, and a three-slide recap.
 
 - [ ] **Step 1: Run the partial validator before adding the batch**
 
-Run `validate-content.mjs 45`.
+Run `validate-content.mjs 48`.
 
-Expected: failure naming slides 35–45 as missing.
+Expected: failure naming slides 35–48 as missing.
 
 - [ ] **Step 2: Add the exact slide titles and source mapping**
 
 Add definitions for:
 
-35. `A real contract starts with bytes every supported build must read`
-36. `Four native types pass the complete three-build contract`
-37. `One cached pointer removes a type from the raw-byte path`
-38. `` One `long double` removes a type from the cross-ABI path ``
-39. `Four permits and two rejections exercise both gates`
-40. `A representation permit is deliberately narrow`
-41. `Runtime obligations depend on the boundary`
-42. `Re-close finite changes; convert when the contract cannot stay closed`
-43. `` The real question is not “can I memcpy?”—it is “under which contract?” ``
-44. `Reflection derives representation evidence; CI closes the decision`
-45. `Permit native bytes only inside a closed contract`
+35. `Ordinary copy: a fixed-width contract passes`
+36. `Ordinary copy: a native pointer fails Admission`
+37. `` Ordinary copy: `long double` fails Agreement across real ABIs ``
+38. `One connected world region supports two closed boundaries`
+39. `Whole-region relocation is a different profile`
+40. `Build and CI establish the Permit before deployment`
+41. `Runtime validates the actual region before typed access`
+42. `Each failure stops at the layer that owns it`
+43. `A Permit proves representation, not runtime safety`
+44. `Re-check closed sets; change profiles explicitly`
+45. `The real question is: under which contract?`
+46. `Reflection creates evidence; CI decides`
+47. `Permit native bytes only inside a closed contract`
 
-- [ ] **Step 3: Instantiate the real portable-capture contract**
+- [ ] **Step 3: Establish the ordinary-copy baseline and the two promised rejections**
 
-Slide 35 shows recorder build → capture file/persistent bytes → later analyzer build, labels the three provenance-bound builds, and states that all three pairwise Agreement edges are required because either endpoint may write or read. Introduce `R_capture = { PacketHeader, MeasurementSample, CaptureTrailer, CaptureBlock }` as the production type set and keep `P: ordinary copy · zero fixup · source-address-independent` visible. Do not show full declarations or CI mechanics.
+Treat Slides 35–37 as one parallel three-result group rather than three new stories. Slide 35 compresses `C_capture`, the 96-byte fixed-width block, four per-key Permits, and the authorized whole-object raw-I/O path. Slide 36 briefly shows `UnsafeWithPointer`: Agreement MATCH, Admission FAIL, REJECT, without re-teaching the pointer mechanism from Slide 23. Slide 37 gives the real Linux x86-64 versus Apple ARM64 `Measurement` difference enough time to close the opening question: Admission PASS, Agreement DIFFER, REJECT. Use parallel ordinary-copy titles and verdict shapes. The packed relocation fixture must not replace this real ABI result.
 
-- [ ] **Step 4: Show the permitted set and its practical consequence**
+- [ ] **Step 4: Create the need for a separate whole-region profile**
 
-Slide 36 composes the 96-byte `CaptureBlock` from a 16-byte header, four 16-byte samples, and a 16-byte trailer. For every `K ∈ R_capture`, show Admission PASS on all three nodes, Agreement MATCH on every required edge, and one per-key Permit. Make the direct consequence precise: `ClosedPermit_C(CaptureBlock)` authorizes native object representation for the whole-block raw-I/O path with no per-field encoding, endian conversion, or fixup; lifetime, storage, synchronization, and error handling remain application obligations on slides 40–41. The other three Permits remain independent per-key results. Call the four keys the permitted set, not a new aggregate Permit predicate. Show `CaptureBlock: Admission PASS + Agreement MATCH → PERMIT` as the compact two-gate CI result; notes may map this to trivial-copy registration plus the reporter's `byte-copy safe + layout match` wording.
+Slide 38 expands the stored-region preview from Slide 7 into the producer-and-consumer question. Introduce the connected world region's two placements here: server-to-server checkpoint transfer or recovery and server-to-declared-native-client snapshot delivery. The client is an exact pre-verified build and ABI, not merely a named architecture. Contrast this region with the fixed capture and show its dynamic names, collections, index, null/shared/cyclic links, and pointers stored in a container. Slide 39 declares `C_world = (R_world,V,E,whole_region_relocation)`, lists the four keys, identifies exact declared builds and producer-to-consumer edges, and states the complete-region invariant. State that the profile changes while Admission and Agreement remain the only TypeLayout gates. Never imply that the ordinary-copy Permit covers the region-relative types.
 
-- [ ] **Step 5: Apply one nearby change to each gate**
+- [ ] **Step 5: Separate pre-deployment permission from runtime behavior and show three correctly owned failures**
 
-Slide 37 starts from the working `MeasurementSample`, adds a cached metadata pointer, and evaluates the resulting `UnsafeWithPointer` through `C_candidate(UnsafeWithPointer)`: Agreement MATCH on every edge, Admission FAIL on every node, REJECT. Show the concrete reporter wording `Layout match (not byte-copy safe)`. Slide 38 replaces the sample's fixed-width value representation with the opening `Measurement { uint64_t id; long double value; }`: Admission PASS on every node, Linux GCC ↔ Linux Clang MATCH, while both Linux ↔ Apple edges DIFFER because Linux x86-64 uses `@16:fld80` with size/alignment 32/16 and Apple ARM64 uses `@8:fld64` with size/alignment 16/8. Keep the shared `[64-le]` prefix visible and wrap the decisive fragments in one compact `[DIFFER] Measurement layout signatures` diagnostic. Both candidates reuse the same `V`, `E`, and `P`; neither enters the production allowlist.
+Slide 40 shows each declared build performing compile-time Admission and signature export, followed by verification-build/CI evidence validation and Agreement across every declared producer-to-consumer edge. Four separate per-key Permits appear only after the complete contract passes. State explicitly that runtime does not recompute either gate.
 
-- [ ] **Step 6: Attach demo and ABI sources**
+Slide 41 starts from that pre-established Permit and shows the runtime path: checkpoint file or network snapshot, envelope validation, relocation to a different base, stored-range and graph validation before dereference, and then role-specific use. The server-style consumer queries, mutates, saves, and reloads; a native-client consumer may stop after validation and query. Use `stored region-relative offsets unchanged`, not ambiguous `raw offsets unchanged`. Network framing, reliability, and authentication remain outside the representation claim.
 
-Cite the completed demo's retained artifacts, the x86-64 psABI, and Apple's ARM64 ABI documentation in speaker notes for slides 35–39. For slide 43, cite N5032 or `[basic.types]` for the local object-representation and trivially-copyable claims. For slide 44, cite P2996/P3687 plus the exact repository reflection, signature, Admission, export, and compatibility-check sources that support the compressed method chain. Slide 45 is a conceptual synthesis of already sourced claims and needs no new technical source beyond the repository/Q&A link. Keep provenance and full artifact detail out of the visible main-slide flow.
+Slide 42 maps native pointer to build-time Admission with no Permit, packed `Entity` to build/CI Agreement with no Permit, and corrupt region offset to runtime graph validation. Label the packed case synthetic and state that runtime validation is not a third TypeLayout gate. A local `producer_ok` comparison must not be labeled as the full six-node matrix.
 
-- [ ] **Step 7: Close Stage 5, bound its result in Stage 6, and build the three-part Stage 7 recap**
+- [ ] **Step 6: Attach demo, implementation, ABI, and standards sources**
 
-Slide 39 closes Stage 5 with three rows: every key in `R_capture` receives its own Permit, candidate `UnsafeWithPointer` is rejected only by Admission, and candidate `Measurement` is rejected only by Agreement. Keep the workflow success condition in notes. Stage 6 then stays deliberately brief: slide 40 separates what TypeLayout proves from application-owned obligations; slide 41 groups runtime work into object, concurrency/transport, and external-data obligations while deferring the per-boundary matrix to appendix slide 49; slide 42 states that a finite change to `V` or `E` requires fresh evidence and a newly closed decision, while open-ended peers, representation divergence, or requirements beyond representation compatibility need an explicit representation/conversion layer. It must also state that serialization alone does not make untrusted input safe.
+Cite the portable-capture contract and retained artifacts for Slide 35, the ABI sources for Slide 37, and `docs/superpowers/specs/2026-08-27-relocatable-world-demo-design.md`, `example/relocatable_world_demo/demo.cpp`, and retained native matrix evidence for Slides 38–42. Slide 45 cites N5032 or `[basic.types]` plus the world-region sources already used on Slides 38–42. Slide 46 cites P2996/P3687 and the exact repository reflection, signature, Admission, export, and compatibility sources. Keep provenance and implementation inventories out of the visible main flow.
 
-Stage 7 has three distinct recap jobs. Slide 43 returns to the opening `Measurement` question, distinguishes the local-copy question from the cross-boundary contract question, and states that the original unqualified question was incomplete. It must repeat the compact result `Measurement under C_candidate(Measurement) → Agreement DIFFER → REJECT`, but not the `long double` signature or ABI proof. Slide 44 compresses the method into one chain: declare `C = (R,V,E,P)` and contract key `K` → every `B ∈ V` evaluates `Admission_P(K,B)` and emits `Signature_B(K)` → CI validates the evidence inputs → Admission on every declared node plus Agreement of signatures on every required edge closes `K` over `C` → `ClosedPermit_C(K)` or `REJECT`. Evidence presence, attribution, and freshness remain evidence-input validation preconditions, not a third gate. Slide 45 gives the four-item design-review checklist, states that Permit is per-type and contract-scoped, distinguishes re-closing a finite contract change from introducing an explicit representation when the contract cannot stay closed, and ends with the exact operating rule from spec section 4.8. Do not replay signature grammar, ABI fragments, artifact fields, the demo matrix, or the full Stage 6 comparison in Stage 7.
+- [ ] **Step 7: Bound both Permits and build the three-part conclusion**
 
-- [ ] **Step 8: Validate, build, and inspect through slide 45**
+Slide 43 combines TypeLayout's profile-specific proof boundary with application-owned invariants and runtime work; do not repeat the corrupt-offset example already shown on Slide 42. Slide 44 distinguishes finite re-closing, an explicit profile change, and an open contract that needs representation/conversion. Slides 45–47 recap problem → method → operating rule. Slide 45 contrasts the rejected `Measurement` contract with the four separate build/CI Permits for `C_world`, the declared server or native-client consumer edge, and the remaining runtime validation. Slide 47 keeps Permit per-type, per-profile, and contract-scoped, shows `Different profile. Same two gates. Separate Permit.`, and routes Q&A to appendix slide 48.
 
-Confirm slides 35–39 read as one causal story—real boundary → declared contract → useful permitted set → Admission failure → Agreement failure → resolved matrix—without detouring into implementation mechanics. Confirm slides 40–42 form the short boundary chain—Permit obtained → proof boundary → application obligations → re-close finite changes or use an explicit representation when the contract cannot stay closed. Confirm slides 43–45 form a visibly separate conclusion—problem recap → method recap → actionable takeaway—without adding new proof obligations. Slide 45 must contain the GitHub URL and a Q&A cue to appendix slide 46 in the inherited footer, and must not become a generic thank-you slide.
+- [ ] **Step 8: Validate, build, and inspect through slide 47**
 
-### Task 8: Author and review appendix slides 46–61 and complete speaker-note sources
+Confirm slides 35–42 read the parallel ordinary-copy three-result group → expand the Slide 7 stored-region preview → explicit profile change → build/CI Permit → runtime use and validation → correctly layered failures. Confirm slides 43–44 bound the result without adding a gate or repeating the corrupt-offset example. Confirm slides 45–47 close both running examples in the order problem recap → method recap → actionable takeaway. Slide 47 must contain the GitHub URL and Q&A cue to appendix slide 48 and must not become a generic thank-you slide.
+
+### Task 8: Author and review appendix slides 48–63 and complete speaker-note sources
 
 **Files:**
 
 - Modify: `.codex_tmp/cppcon2026_typelayout_final/slide-content.mjs`
 - Modify: `.codex_tmp/cppcon2026_typelayout_final/edit-plan.json`
-- Create: `.codex_tmp/cppcon2026_typelayout_final/draft-61.pptx`
-- Create: `.codex_tmp/cppcon2026_typelayout_final/draft-61-render/`
-- Create: `.codex_tmp/cppcon2026_typelayout_final/draft-61-layout/`
+- Create: `.codex_tmp/cppcon2026_typelayout_final/draft-63.pptx`
+- Create: `.codex_tmp/cppcon2026_typelayout_final/draft-63-render/`
+- Create: `.codex_tmp/cppcon2026_typelayout_final/draft-63-layout/`
 
 **Interfaces:**
 
@@ -701,54 +705,54 @@ Confirm slides 35–39 read as one causal story—real boundary → declared con
 
 - [ ] **Step 1: Run the full validator before adding the appendix**
 
-Run `validate-content.mjs 61`.
+Run `validate-content.mjs 63`.
 
-Expected: failure naming slides 46–61 as missing.
+Expected: failure naming slides 48–63 as missing.
 
 - [ ] **Step 2: Add the exact appendix titles and source mapping**
 
 Add definitions for:
 
-46. `Q&A map`
-47. `` Why not `has_unique_object_representations`? ``
-48. `Padding locations versus padding contents`
-49. `Implicit lifetime, storage, alignment, overlap, and synchronization`
-50. `Endianness and why byte swapping is conversion`
-51. `` Why the global `[64-le]` envelope is conservative ``
-52. `` `char`, `bool`, `wchar_t`, and floating-point assumptions ``
-53. `Opaque type trust boundary`
-54. `Full supported / assumed / rejected matrix`
-55. `Full signature grammar and recursive engine pseudocode`
-56. `Complete difficult-case encodings`
-57. `Diagnostic report anatomy`
-58. `Artifact format versus CI provenance`
-59. `Portable-capture demo: types, artifacts, and exact verdicts`
-60. `Ordinary copy versus relocation`
-61. `C++29 relocation status and project-policy limits`
+48. `Q&A map`
+49. `` Why not `has_unique_object_representations`? ``
+50. `Padding locations versus padding contents`
+51. `Implicit lifetime, storage, alignment, overlap, and synchronization`
+52. `Endianness and why byte swapping is conversion`
+53. `` Why the global `[64-le]` envelope is conservative ``
+54. `` `char`, `bool`, `wchar_t`, and floating-point assumptions ``
+55. `Opaque type trust boundary`
+56. `Full supported / assumed / rejected matrix`
+57. `Full signature grammar and recursive engine pseudocode`
+58. `Complete difficult-case encodings`
+59. `Diagnostic report anatomy`
+60. `Artifact format versus CI provenance`
+61. `Portable-capture demo: types, artifacts, and exact verdicts`
+62. `Ordinary copy versus whole-region relocation`
+63. `C++29 relocation status and project-policy limits`
 
-Slide 46's Q&A map must use the new appendix destinations 47–61; do not retain any pre-expansion 45–59 links or labels.
+Slide 48's Q&A map must use destinations 49–63.
 
 - [ ] **Step 3: Keep appendix material additive**
 
 For every appendix definition, compare it with its main-deck dependency. Remove any repeated conclusion and retain only deeper wording, full grammar, complete encodings, complete tables, diagnostic anatomy, or standards-status detail.
 
-Appendix slide 49 owns the full per-boundary runtime-obligations matrix removed from slide 41.
+Appendix slide 51 owns the full per-boundary runtime-obligations matrix compressed into slide 43.
 
-Appendix slide 58 owns the complete artifact and provenance field lists and the `.sig.hpp` versus external-attestation distinction. Equality-transitivity and spanning-tree comparison reduction may remain in speaker notes or be reached through the Q&A map; they must not return to the main causal spine.
+Appendix slide 60 owns the complete artifact and provenance field lists and the `.sig.hpp` versus external-attestation distinction. Equality-transitivity and spanning-tree comparison reduction may remain in speaker notes or be reached through the Q&A map; they must not return to the main causal spine.
 
-Appendix slide 59 owns the portable-capture implementation detail removed from Stage 5: complete positive/negative declarations, separate exporter registries, fixture-specific no-padding assertions, producer bundle contents, retained generated signatures, the full three-node/three-edge result table, and the exact positive-plus-negative CI success condition.
+Appendix slide 61 owns the portable-capture implementation detail removed from Stage 5. Appendix slide 62 owns the full profile comparison, relocatable-world types and containers, native matrix, validation algorithm, and build/CI-versus-runtime distinction.
 
 - [ ] **Step 4: Add ordinary-copy and relocation sources**
 
-Slides 47–52 cite the current draft/N5032 clauses they interpret. Slides 60–61 cite P4197R0 and clearly state that trivial relocation was removed from C++26 and remains an open C++29 design space as of 2026-08-23.
+Slides 49–54 cite the current draft/N5032 clauses they interpret. Slides 62–63 cite P4197R0 and clearly state that trivial relocation was removed from C++26 and remains an open C++29 design space as of 2026-08-23.
 
 - [ ] **Step 5: Add local implementation sources**
 
-Slides 53–59 cite the exact repository files used: opaque registration, signature grammar, parser, safety classification, signature artifacts, and reporter implementation. Appendix slide 59 also cites the retained three-build positive/negative artifacts and their provenance manifests.
+Slides 55–62 cite the exact repository files used: opaque registration, signature grammar, parser, safety classification, signature artifacts, reporter implementation, and both demos. Appendix slides 61–62 cite retained native artifacts and their provenance manifests.
 
-- [ ] **Step 6: Validate, build, and inspect all 61 slides**
+- [ ] **Step 6: Validate, build, and inspect all 63 slides**
 
-Run the validator and builder through slide 61. Inspect slides 46–61 individually and verify appendix navigation is clear, titles do not wrap, code remains readable, and the visual treatment is recognizably appendix material without switching themes.
+Run the validator and builder through slide 63. Inspect slides 48–63 individually and verify appendix navigation is clear, titles do not wrap, code remains readable, and the visual treatment is recognizably appendix material without switching themes.
 
 ### Task 9: Run the technical-accuracy and evidence-chain review
 
@@ -775,47 +779,61 @@ Run the validator and builder through slide 61. Inspect slides 46–61 individua
 - Read: `example/portable_capture_io.cpp`
 - Read: `example/portable_capture_check.cpp`
 - Read: `example/portable_capture_negative_check.cpp`
+- Read: `example/relocatable_world_demo/demo.cpp`
+- Read: `example/relocatable_world_demo/world.hpp`
+- Read: `example/relocatable_world_demo/region.hpp`
+- Read: `example/relocatable_world_demo/region_storage.hpp`
+- Read: `example/relocatable_world_demo/checkpoint.hpp`
+- Read: `example/relocatable_world_demo/checkpoint.cpp`
+- Read: `example/relocatable_world_demo/world_runtime.cpp`
+- Read: `docs/superpowers/specs/2026-08-27-relocatable-world-demo-design.md`
 - Read: `test/test_core.cpp`
 - Read: `.github/workflows/compat-pipeline.yml`
 
 **Interfaces:**
 
-- Consumes: the complete 61-slide draft and all claim-supporting implementation/standards sources.
+- Consumes: the complete 63-slide draft and all claim-supporting implementation/standards sources.
 - Produces: a machine-readable content gate plus a line-by-line evidence review that blocks technically inaccurate delivery.
 
 - [ ] **Step 1: Implement the final content inspector**
 
 `qa-content.mjs` must import the PPTX, inspect `slide,textbox,shape,notes,layout`, and assert:
 
-- exactly 61 slides;
+- exactly 63 slides;
 - exact expected title on every slide;
 - no unresolved authoring markers, unresolved braces, authoring prompts, or production notes;
 - no visible `TYPELAYOUT_ASSERT_TRANSFER_SAFE`;
 - ordinary-copy slides contain the combined trivial-copyability plus structural predicate;
-- relocation appears only in appendix slides 60–61 or an explicit exclusion statement;
+- Slides 7, 8, 9, and 24 may preview the connected-world question and later profile, but whole-region operational claims appear only after the explicit profile change on Slide 39; no ordinary-copy Permit is reused for it;
 - every required sourced slide contains a `[Sources]` notes block;
-- slide 2 contains `PERMIT?`, slides 38–39 answer it for the candidate contract, slide 43 reframes the original question, and slide 45 resolves the talk with the final rule;
-- slides 20, 24, 28, 33, and 40 keep Agreement, Admission, EdgePass, per-key closed-contract Permit, and application obligations distinct;
+- slide 2 contains `PERMIT?`; slide 7 previews the stored-region case; slide 38 introduces both declared world-region placements; slide 37 answers `Measurement`; slide 45 closes both examples; and slide 47 resolves the talk with the final rule;
+- slide 24 previews region-relative offsets only as a profile-dependent callback and does not issue a whole-region Permit;
+- slides 20, 24, 28, 33, 40, 41, and 43 keep Agreement, Admission, EdgePass, per-key closed-contract Permit, runtime validation, and application obligations distinct;
 - slide 28 contains `EDGE PASS` and does not label its single-edge result `PERMIT`;
 - slides 29–34 never present provenance as a third compatibility gate;
+- slide 34 transitions from the small ordinary-copy baseline back to the stored world region previewed on slide 7;
 - slide 34 labels missing/stale/unattributable input `INCOMPLETE`, valid evidence with either gate failing `REJECT`, and valid evidence with the complete graph passing `PERMIT`;
-- slides 35–39 preserve the sequence real boundary → declared contract → permitted set → Admission rejection → Agreement rejection → final matrix;
-- slides 40–42 preserve the brief Stage 6 sequence Permit obtained → proof boundary → compressed application obligations → re-close finite changes or use an explicit representation when the contract cannot stay closed, without introducing a new gate, mechanism, or demo;
-- slides 43–45 form the explicit Stage 7 conclusion in the order problem recap → method recap → actionable takeaway, without introducing a new proof obligation;
-- slide 43 distinguishes the local-copy question from the cross-boundary contract question and contains `Measurement under C_candidate(Measurement) → Agreement DIFFER → REJECT` without replaying the `long double` proof;
-- slide 44 declares `C` before evidence generation, then shows every build evaluating Admission and emitting its representation signature, CI validating those inputs, Agreement on all required edges, and the claim closing for `K` over `C`, ending in `ClosedPermit_C(K) or REJECT`; provenance remains evidence-input validation rather than a third gate;
-- slide 45 contains all four design-review checklist items—declare `C = (R,V,E,P)`, check Admission and Agreement separately, keep Permit per-type and contract-scoped, and re-close finite changes or use an explicit representation when `C` cannot stay closed—ends with the exact operating rule, preserves the GitHub/Q&A footer, and contains no generic thank-you message;
-- slide 36 presents four per-key Permits rather than inventing one aggregate Permit;
+- slides 35–42 preserve the sequence ordinary-copy pass → Admission rejection → real Agreement rejection → two practical world-region placements → explicit profile change → build/CI Permit → runtime behavior and validation → correctly layered failures;
+- slide 39 states the complete-region invariant and that the profile changes while the two TypeLayout gates do not;
+- slide 40 shows per-build compile-time Admission and signature export followed by verification-build/CI Agreement, shows four per-key results rather than an aggregate Permit, and states that runtime does not recompute either gate;
+- slide 41 uses `stored region-relative offsets unchanged`, starts from the pre-established Permit, separates server and native-client consumer use, and does not present a local fixture as the complete native matrix;
+- slide 42 labels packed `Entity` synthetic, retains `Measurement` as the real ABI example, assigns the first two failures to build/CI, and states that corrupt-offset validation is not a third TypeLayout gate;
+- slides 43–44 preserve the brief Stage 6 sequence Permit obtained → combined proof/runtime boundary → finite re-close, explicit profile change, or explicit representation, without introducing a new gate or repeating the corrupt-offset example;
+- slides 45–47 form the explicit Stage 7 conclusion in the order problem recap → method recap → actionable takeaway;
+- slide 45 contains the rejected `Measurement` result, four separate build/CI `C_world` Permits, declared server or native-client consumer use, and the remaining runtime-validation boundary;
+- slide 46 declares `C` before evidence generation and ends in `ClosedPermit_C(K) or REJECT`; provenance remains evidence-input validation rather than a third gate;
+- slide 47 keeps Permit per-type, per-profile, and contract-scoped, includes `Different profile. Same two gates. Separate Permit.`, preserves the GitHub/Q&A footer, and contains no generic thank-you message;
+- slide 35 presents four per-key Permits rather than inventing one aggregate Permit;
 - slide 21 contains the real Agreement `static_assert`, and slide 26 contains the combined ordinary-copy Admission `static_assert`;
-- slide 34 previews CI diagnostic shapes, slide 37 shows `Layout match (not byte-copy safe)`, and slide 38 shows a `[DIFFER]` layout diagnostic;
+- slide 34 previews CI diagnostic shapes, slide 36 shows `Layout match, but not byte-copy safe`, and slide 37 shows a `[DIFFER]` layout diagnostic;
 
-- [ ] **Step 2: Run the inspector against the 61-slide draft**
+- [ ] **Step 2: Run the inspector against the 63-slide draft**
 
 Run:
 
 ```powershell
 & $env:RUNTIME_NODE 'E:\workspace\TypeLayout\.codex_tmp\cppcon2026_typelayout_final\qa-content.mjs' `
-  'E:\workspace\TypeLayout\.codex_tmp\cppcon2026_typelayout_final\draft-61.pptx'
+  'E:\workspace\TypeLayout\.codex_tmp\cppcon2026_typelayout_final\draft-63.pptx'
 ```
 
 Expected: exit 0. Correct deck content rather than weakening an assertion.
@@ -826,7 +844,7 @@ Check the visible operations/categories/grammar against the five signature/refle
 
 - [ ] **Step 4: Verify Admission and Agreement claims against code**
 
-Check ordinary copy, opaque handling, pointer-like rejection, `TypeEntry`, key-based runtime reporting, and array-position compile-time comparison against the listed API files. Verify all four portable-capture positive keys, the exact two negative-result shapes, the whole-object I/O path, and the three pairwise checks against the completed demo sources and artifacts. Confirm the deck never upgrades current behavior into a nonexistent convenience API.
+Check ordinary copy, whole-region Admission, opaque handling, native-pointer rejection, relative-pointer classification, `TypeEntry`, key-based runtime reporting, and array-position compile-time comparison against the listed API files. Verify the portable-capture results and the relocatable-world positive flow, three negative paths, and four Agreement keys against code and retained evidence. Confirm that corrupt-offset rejection happens before dereference and remains application validation. Confirm the deck never upgrades a local fixture result or current API into a broader claim.
 
 - [ ] **Step 5: Verify platform claims against primary evidence**
 
@@ -852,9 +870,9 @@ Expected: slide wording reflects these sources as of 2026-08-23 and uses no broa
 
 - [ ] **Step 7: Complete the evidence column in the QA ledger**
 
-For slides 1–61, record `local`, `external`, `conceptual`, or `none required`, with the exact notes block checked for every `local` or `external` row.
+For slides 1–63, record `local`, `external`, `conceptual`, or `none required`, with the exact notes block checked for every `local` or `external` row.
 
-### Task 10: Perform final artifact export, 61-slide visual QA, fidelity checks, and delivery copy
+### Task 10: Perform final artifact export, 63-slide visual QA, fidelity checks, and delivery copy
 
 **Files:**
 
@@ -874,7 +892,7 @@ For slides 1–61, record `local`, `external`, `conceptual`, or `none required`,
 
 - [ ] **Step 1: Build a fresh final candidate from the starter**
 
-Run the full builder with `--through-slide 61`, outputting `final-candidate.pptx`, `final-render`, and `final-layout`. Do not promote `draft-61.pptx` directly.
+Run the full builder with `--through-slide 63`, outputting `final-candidate.pptx`, `final-render`, and `final-layout`. Do not promote `draft-63.pptx` directly.
 
 Expected: the candidate is regenerated from the starter and current definitions in one clean pass.
 
@@ -916,7 +934,7 @@ Expected: exit 0, no unfilled `sldNum`, `dt`, `ftr`, title/body, or other struct
 
 Compare every `ppt/theme/theme*.xml` part between `source.pptx` and `final-candidate.pptx`. If artifact export changed a retained source theme part, restore that exact source part byte-for-byte as required by the presentation skill, then rerun content, render, overflow, and fidelity checks.
 
-- [ ] **Step 6: Inspect all 61 final slides individually at full size**
+- [ ] **Step 6: Inspect all 63 final slides individually at full size**
 
 For each `final-render` PNG, inspect:
 
@@ -957,7 +975,7 @@ Expected: both SHA-256 values match.
 
 Run `qa-content.mjs`, `slides_test.py`, and one final artifact-tool slide-count/notes inspection against `E:\workspace\TypeLayout\cppcon2026_typelayout_signature_centered.pptx`.
 
-Expected: all commands exit 0, 61 slides are present, and the delivered copy matches the verified candidate.
+Expected: all commands exit 0, 63 slides are present, and the delivered copy matches the verified candidate.
 
 ## Completion Evidence
 
@@ -965,12 +983,12 @@ Do not claim the deck complete until the final turn can cite fresh outputs showi
 
 - source SHA-256 equals isolated source-copy SHA-256;
 - 55 source slides and layouts were inspected;
-- frame-map validation passed for 61 mapped outputs;
-- content validation passed for slides 1–61;
-- final artifact contains exactly 61 slides;
+- frame-map validation passed for 63 mapped outputs;
+- content validation passed for slides 1–63;
+- final artifact contains exactly 63 slides;
 - overflow detection passed;
 - template-fidelity and structural-placeholder checks passed;
-- all 61 QA-ledger rows are fully `PASS`;
+- all 63 QA-ledger rows are fully `PASS`;
 - the retained portable-capture run reports four per-key Permits over all three declared nodes and edges;
 - `UnsafeWithPointer` reports complete evidence, Admission FAIL on every node, and Agreement MATCH on every edge;
 - `Measurement` reports complete evidence, Admission PASS on every node, Linux↔Linux MATCH, and both Linux↔Apple edges DIFFER;

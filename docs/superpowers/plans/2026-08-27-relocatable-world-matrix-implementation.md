@@ -4,7 +4,7 @@
 
 **Goal:** Turn the completed standalone relocatable-world demo into reproducible six-node native evidence with 15 four-key Agreement records, 30 directed validated loads, immutable toolchain provenance, and a one-command ARM64 Mac 5/6 workflow.
 
-**Architecture:** Each native node runs one shared capability probe, exports four TypeLayout signatures, produces one canonical `.region`, and seals those facts plus artifact hashes into strict JSON provenance. A schema-specific Python evidence tool validates JSON and SHA256 inputs and generates constexpr headers; the C++ consumer compares the current build with each producer before loading, while a C++20-only matrix checker remains runnable without P2996 and closes the fixed node/edge graph. Toolchains use a source lock followed by separately reviewed output locks; the authoritative workflow never consumes mutable tags.
+**Architecture:** Each native node runs one shared capability probe, exports four TypeLayout signatures, produces one canonical `.region`, and seals those facts plus artifact hashes into strict JSON provenance. A schema-specific Python evidence tool validates JSON and SHA256 inputs and generates constexpr headers; a C++ verification consumer runs inside the build/CI evidence workflow, compares the current build with each producer, and exercises cross-loads only after the representation decision passes. It is not the deployed application loader. A C++20-only matrix checker remains runnable without P2996 and closes the fixed node/edge graph. Toolchains use a source lock followed by separately reviewed output locks; the authoritative workflow never consumes mutable tags.
 
 **Tech Stack:** C++26 P2996 for producers/consumers, standalone C++20 for closure, Python 3 standard library, CMake/CTest, Docker Buildx, GHCR OCI images, native GitHub macOS archives, GitHub Actions, GCC 16.2, and Bloomberg Clang P2996.
 
@@ -34,6 +34,7 @@
 - Provenance records the four profile Admission decisions and four signature strings directly. `TypeEntry::byte_copy_safe` is not whole-region Admission.
 - Every Agreement record joins exactly four unique keys by name. `PERMIT` means Admission on both nodes plus equal signatures for that key; it never includes loading or application validation.
 - Every authoritative consumer emits exactly five directed records; every local 5/6 consumer emits exactly four. Neither profile permits a self-edge. Loader status is separate: `PASS`, `SKIPPED_TYPELAYOUT_REJECT`, `REJECT_ENVELOPE`, `REJECT_REGION`, `REJECT_GRAPH`, or `INCOMPLETE`.
+- Admission and Agreement are pre-deployment evidence decisions produced by compile/build and verification-build/CI work. The CI consumer executable may run those comparisons and cross-load tests in one job, but a deployed server or native client starts only from an already permitted path and performs runtime envelope, range, and graph validation on the actual region.
 - Every non-fallback provenance record participating in one closure has the same `source_sha`, `workflow_run`, `sources_sha256`, and `outputs_sha256`. Authoritative values must equal that workflow's `${{ github.sha }}`, `${{ github.run_id }}.${{ github.run_attempt }}`, and the hashes of the committed lock files; local values must equal the clean committed `HEAD`, one launcher invocation ID, and those same committed lock-file hashes. The attempt suffix prevents artifacts from a rerun of the same workflow run from cohering with the original attempt. Mixed-run, mixed-attempt, or mixed-commit bundles are `INCOMPLETE` even when every individual file is otherwise valid.
 - Overall closure precedence is `INCOMPLETE`, then `REJECT`, then `PASS`. Missing jobs or artifacts never shrink the declared graph.
 - Agreement, consumer, and closure jobs use always-running paths, upload their result artifact before failing, and preserve all expected identity slots.
@@ -924,10 +925,10 @@ Expected: both evidence audits PASS with the same `implementation_sha`, the auth
 The note contains these sections:
 
 ```text
-1. Demo 的实际问题：同一 schema 下的游戏世界 checkpoint/process takeover；明确写出“这是受 offset-based arena/checkpoint 设计（包括 XOffsetDatastructure）启发的独立教学实现，不是 XOffsetDatastructure，也不实现或验证其 wire format”
+1. Demo 的实际问题：同一应用和 schema 合同下，一个 connected game-world region 从 producer build 进入预验证的 consumer build；覆盖 server→server checkpoint/接管/恢复，以及 server→已声明 native client 的 snapshot delivery；明确写出“这是受 offset-based arena/checkpoint 设计（包括 XOffsetDatastructure）启发的独立教学实现，不是 XOffsetDatastructure，也不实现或验证其 wire format”
 2. 最小数据模型：Entity、WorldSnapshot、relative_ptr、string/vector/flat_map
-3. 两道门：四个逐 key Admission + Agreement Permit
-4. 运行时责任：40-byte envelope、range/lifetime/index/graph validation
+3. 构建期两道门：每个 build 的 compile-time Admission、verification build/CI 的 Agreement，以及四个逐 key Permit；运行时不重新计算这两道门
+4. 运行时责任：读取 checkpoint 或接收 snapshot 后执行 40-byte envelope、range/lifetime/index/graph validation；network framing/authentication 不在 Demo 范围内
 5. 正向结果：A→B→C、无 fixup、共享/环/null、查询与 mutation
 6. 三个负例及其准确失败层
 7. 六节点证据：6 nodes、15 pairs、60 named permits、30 directed PASS loads

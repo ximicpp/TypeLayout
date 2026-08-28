@@ -10,18 +10,24 @@
 
 ## 1. Purpose
 
-Add one self-contained TypeLayout demo that models a game-server world checkpoint stored as a relocatable byte region. The checkpoint contains dynamic-length strings and collections plus a graph with null, shared, cyclic, and container-stored relative pointers. It can be saved, loaded at a different base address, queried, modified in place, and saved again without pointer fixups.
+Add one self-contained TypeLayout demo that models a connected game-world data set stored as a relocatable byte region. The same producer-and-consumer model represents two closed application boundaries:
 
-The demo proves two independent gates before application data is loaded:
+1. one server build passes a checkpoint to another declared server build for takeover, restart, recovery, migration, or upgrade;
+2. one server build sends a world snapshot to a declared and pre-verified native client build.
 
-1. **Admission:** every declared native representation is valid for the explicitly selected whole-region relocation profile.
-2. **Agreement:** every declared producer and consumer build gives those representations the same TypeLayout signatures.
+The region contains dynamic-length strings and collections plus a graph with null, shared, cyclic, and container-stored relative pointers. It can be loaded at a different base address and queried without per-field decoding or pointer fixups. The server-consumer path additionally modifies the world, saves it, and loads it again as a stronger workflow closure; a client consumer may stop after validation and query.
 
-After both gates permit transfer, a small demo-local loader validates the checkpoint envelope and every stored range. A graph validator then checks application-defined relative pointers before any dereference.
+The demo separates pre-deployment representation decisions from runtime data handling:
+
+1. **Compile/build:** every declared build evaluates Admission for the explicitly selected whole-region relocation profile and exports TypeLayout signatures.
+2. **Verification build/CI:** producer and consumer artifacts are compared for Agreement, and complete passing evidence establishes the contract-scoped Permits.
+3. **Runtime:** a small demo-local loader validates the checkpoint envelope and every stored range. A graph validator then checks application-defined relative pointers before any dereference.
+
+Runtime does not recompute Admission or Agreement. The first two decisions exist before the file is read or the network payload arrives.
 
 This is a representative practical boundary, not a production format. It is deliberately small enough to explain in a talk while retaining the feature that makes offset-based regions useful: movable pointers compose into strings, collections, lookup structures, shared targets, and cycles.
 
-This is an explicitly separate whole-region-relocation appendix demo. It cannot replace the deck's Stage 5 `portable_capture` ordinary-copy walkthrough or its required real platform-divergent negative. The packed-`Entity` fixture is supplemental ABI-setting evidence for this relocation demo, not the platform-divergent example promised by the public session.
+This is an explicitly separate whole-region-relocation contract. The deck introduces the two world-region boundaries on Slide 7, recalls only the relevant profile or CI question before Stage 5, and keeps the complete contract and result on Slides 38–42. Stage 5 uses it after the `portable_capture` ordinary-copy baseline to show the practical value of the same two-gate method for connected native data. It does not replace the fixed-width ordinary-copy pass, the native-pointer Admission rejection, or the real platform-divergent `Measurement` rejection promised by the public session. The packed-`Entity` fixture remains supplemental ABI-setting evidence for this relocation demo.
 
 ## 2. Relationship to XOffsetDatastructure
 
@@ -64,7 +70,7 @@ The native evidence matrix must additionally show:
 - complete build and artifact provenance;
 - four named TypeLayout `PERMIT` decisions per agreeing build pair, plus a separate successful workflow closure only when all declared runtime evidence is complete.
 
-No deck file is changed until the implementation and evidence exist. Deck-facing observations remain notes until then.
+The main deck may show behavior reproduced by the implemented local demo. Claims over the complete six-node matrix still require retained native build artifacts with the declared provenance; a local `producer_ok` fixture comparison must not be presented as that full matrix.
 
 ## 4. Scope and Non-Goals
 
@@ -91,14 +97,23 @@ No deck file is changed until the implementation and evidence exist. Deck-facing
 - A generic region schema language, semantic dependency closure, or migration framework.
 - Hostile-input hardening beyond the explicitly declared format and validation checks.
 - Schema evolution, semantic compatibility, cross-endian conversion, or a universal wire format.
+- Arbitrary or open-ended client populations, or compatibility inferred from an architecture name alone.
+- Network framing, reliability, authentication, authorization, or transport security.
 - Independent movement of a container header, its elements, or its pointees.
 - Arbitrary non-trivially-copyable object relocation.
 - Windows, mobile, big-endian, or 32-bit nodes.
 - Claims about production NetEase formats or real XOffset deployments.
 
-## 5. Practical Scenario
+## 5. Practical Scenarios
 
-The checkpoint represents a trusted game-server world exchanged under one application and schema contract for process takeover:
+The region represents a trusted game-server world exchanged under one application and schema contract. The producer and consumer builds are exact declared nodes; `x86_64` or `ARM64` alone is not a sufficient consumer identity.
+
+Two application placements use the same representation contract:
+
+- **Server to server:** a checkpoint crosses to another server build for takeover, restart, recovery, migration, or upgrade. The consumer resumes the world, modifies it, and may save it again.
+- **Server to native client:** a server sends a connected world snapshot to a pre-verified client build. The client validates the region, loads it at its own base, and queries or uses the data without per-field decoding. The demo does not require the client to modify or return the region.
+
+The concrete world is:
 
 - `tick == 42` initially;
 - `Hero` has ID 1001 and HP 120;
@@ -111,7 +126,7 @@ The checkpoint represents a trusted game-server world exchanged under one applic
 - `party` contains `[Hero, Boss]` and has total HP 420;
 - `entity_index` maps the two stable IDs to indices 0 and 1.
 
-After loading at a new base, the consumer changes the tick from 42 to 43 and Boss HP from 300 to 250, saves again, and proves the mutation survives another load.
+After loading at a new base, the demonstrated server-style consumer changes the tick from 42 to 43 and Boss HP from 300 to 250, saves again, and proves the mutation survives another load. This stronger round trip validates the mutable server workflow; the client placement may stop after the earlier validated query.
 
 This graph is the smallest one that covers every required pointer shape without adding unrelated domain concepts.
 
@@ -367,11 +382,14 @@ The checked-in normal and packed producer fixtures remain the compact local evid
 
 ## 11. Validation and Trust Boundary
 
-The demo accepts trusted checkpoints under one application and schema contract, not arbitrary hostile input. Validation has three layers:
+The demo accepts trusted world regions under one application and schema contract, not arbitrary hostile input. The build system and runtime have separate responsibilities:
 
-1. **Admission and Agreement** run before calling the loader.
-2. **Envelope and region validation** check the byte format and every declared range.
-3. **World graph validation** checks relative entity links and the ID index before application dereference.
+1. **Compile/build Admission** checks each declared type, build, and profile before deployment.
+2. **Verification-build/CI Agreement** compares retained producer and consumer evidence and establishes a Permit only for a complete passing contract.
+3. **Runtime envelope and region validation** check the actual byte format and every declared range.
+4. **Runtime world graph validation** checks relative entity links and the ID index before application dereference.
+
+Only the last two layers belong to the loader. The runtime consumer does not execute reflection or recompute either TypeLayout gate.
 
 Envelope and region validation require:
 
@@ -418,15 +436,23 @@ A pointer merely into the middle of an entity is rejected. Only after all descri
 ## 12. Positive Execution Flow
 
 ```text
+compile each declared producer and consumer build
+-> require four-type whole-region Admission PASS
+-> export four signatures with build provenance
+-> verification build / CI checks complete evidence
+-> require Agreement MATCH on every declared edge
+-> establish four contract-scoped Permits
+
+runtime producer
 build source region A
 -> allocate all region storage
 -> populate Hero, Boss, strings, index, and party
 -> link relative pointers
 -> validate A
--> require four-type Admission PASS
--> require producer_ok Agreement MATCH
 -> save checkpoint A
 -> keep A alive
+
+runtime consumer
 -> load bytes into region B
 -> require base(A) != base(B)
 -> validate B before dereference
@@ -440,7 +466,7 @@ build source region A
 -> verify the mutations persisted
 ```
 
-The source region remains live while the loaded region is checked, making the base-address difference unambiguous. No fixup pass is performed.
+The source region remains live while the loaded region is checked, making the base-address difference unambiguous. No fixup pass is performed. File storage and network delivery carry the same region payload; their framing, reliability, and authentication are outside this demo.
 
 ## 13. Required Negative Cases and Output
 
@@ -464,6 +490,8 @@ Negative[native pointer]: Admission FAIL, load skipped
 Negative[packed Entity]: Agreement DIFFER, load skipped
 Negative[corrupt region offset]: graph REJECT before dereference
 ```
+
+The first two positive lines summarize compile/build and CI evidence materialized into the demonstration. They are not runtime reflection checks. Likewise, the native-pointer and packed-`Entity` negatives belong to build/CI; `load skipped` means that the demonstration does not enter the runtime load path after no Permit is available. Only the corrupt-offset case is a runtime rejection.
 
 The packed fixture must still pass whole-region Admission. Its `WorldSnapshot`, `EntityRelativePtr`, and `EntityIndexEntry` entries must match the normal fixture; only `Entity` may differ. This pins the negative to one intentional representation change.
 
@@ -618,6 +646,6 @@ Counts retain node identities and edge directions so duplicates cannot hide omis
 
 The demonstrated claim is:
 
-> For this explicitly declared four-type payload contract, a trusted self-contained region produced by any locked 64-bit little-endian node can be relocated as one unit and loaded by any other declared node when every type passes whole-region Admission, producer and consumer TypeLayout signatures agree, the checkpoint envelope and stored ranges validate, and every application relative pointer validates before dereference.
+> For this explicitly declared four-type payload contract, build and CI can establish contract-scoped Permits for a trusted self-contained region produced by any locked 64-bit little-endian node and consumed by another declared node. At runtime, that region can be relocated as one unit and used at a different base when the checkpoint envelope, stored ranges, and every application relative pointer validate before dereference. A declared consumer may represent another server or a pre-verified native client.
 
 The demo does not prove ordinary-copy admission for same-region pointers, XOffset compatibility, application semantics, schema evolution, arbitrary object relocation, or compatibility with unlisted builds. It demonstrates one explicit relocation profile whose correctness depends on copying the complete region while preserving its region-relative offset space.

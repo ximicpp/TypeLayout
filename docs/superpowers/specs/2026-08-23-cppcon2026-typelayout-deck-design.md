@@ -26,7 +26,7 @@ The deck educates through a cumulative proof. It is neither an ABI survey nor a 
 
 ## 2. Scope and Explicit Non-Goals
 
-The main argument uses one strict transfer profile:
+The main argument first uses one strict ordinary-copy profile:
 
 - ordinary object copy;
 - zero fixup;
@@ -34,6 +34,10 @@ The main argument uses one strict transfer profile:
 - finite declared type and build sets;
 - trusted producer objects;
 - representation verification rather than semantic schema verification.
+
+Stage 5 then makes one explicit profile change to `whole_region_relocation`. Under that separate profile, a complete contiguous region may be copied to a new base while its single region-relative offset space is preserved. Region headers, elements, and pointees may not be moved independently. The two compatibility gates do not change; only the declared Admission policy and its application-owned invariant change.
+
+The relocatable-world example models one producer build and one pre-verified consumer build. The same closed contract supports two application placements: server-to-server checkpoint transfer or recovery, and server-to-declared-native-client snapshot delivery. The client claim is about exact builds and ABI evidence, not architecture names alone. It does not turn the region into an open network format.
 
 The published Sched abstract uses `architecture and endianness` as shorthand for representation-relevant target facts. At repository baseline `201f06f`, the signature's global `arch-prefix` explicitly encodes pointer width and endianness; leaf tokens, sizes, and alignments carry further representation facts, while exact compiler and target identity belong to CI provenance. The deck must explain this mapping once and must not claim that the signature prefix encodes a complete CPU architecture or ISA identity.
 
@@ -47,7 +51,7 @@ The main permit excludes:
 - runtime lifetime, storage, alignment, synchronization, framing, and crash consistency;
 - deterministic canonical bytes when padding or multiple value representations are possible.
 
-Relocation remains an appendix-only, separate contract. The deck must not imply that `is_byte_copy_safe_v<T>` alone grants ordinary `memcpy` permission.
+Relocation remains a separate contract, not an extension of an ordinary-copy Permit. The deck must not imply that `is_byte_copy_safe_v<T>` alone grants ordinary `memcpy` permission, or that a whole-region Permit authorizes independent relocation of its parts.
 
 ## 3. Approved Seven-Claim Throughline
 
@@ -69,7 +73,7 @@ Relocation remains an appendix-only, separate contract. The deck must not imply 
 
 5. **Admission**
 
-   > Agreement is not permission: under the talk’s zero-fixup, source-address-independent profile, Structural Admission requires ordinary byte-copy legality, no detected source-context dependency, and complete representation evidence.
+   > Agreement is not permission: Admission applies one declared transfer profile to one type on one build. The ordinary-copy profile rejects source-context dependence; the later whole-region profile admits only explicitly supported region-relative representations under the complete-region invariant.
 
 6. **Closed CI**
 
@@ -77,7 +81,7 @@ Relocation remains an appendix-only, separate contract. The deck must not imply 
 
 7. **Operating boundary**
 
-   > A representation permit is deliberately narrow: it approves native object representation inside one closed contract; the application still owns meaning, lifetime, storage, synchronization, and trust—otherwise serialize or convert.
+   > A representation permit is deliberately narrow: it approves native object representation inside one closed contract and one profile; the application still owns meaning, lifetime, storage, synchronization, validation, and trust—otherwise choose another explicit profile or representation layer.
 
 ## 4. Narrative Architecture
 
@@ -93,12 +97,21 @@ opening question
 → establish Admission on both endpoint nodes
 → derive one edge-level decision rule
 → close the finite contract in CI
-→ authorize one real raw-byte type set and reject two nearby alternatives
+→ authorize one ordinary-copy type set and reject two nearby alternatives
+→ change the profile explicitly and show a relocatable world region with dynamic data and an object graph
+→ separate the build/CI Permit from runtime validation of the actual bytes
 → state the operating boundary
 → restate the problem, method, and decision rule as the final takeaway
 ```
 
-The main deck contains 45 slides. The appendix contains 16 slides, for 61 slides total.
+The main deck contains 47 slides. The appendix contains 16 slides, for 63 slides total.
+
+The talk uses two coordinated threads:
+
+- **decision spine:** boundary → evidence → Agreement → Admission → closed CI → contract-scoped Permit;
+- **value thread:** a stored native-byte region is previewed when both build and address-space identity are lost; its server-to-server and server-to-declared-native-client placements are introduced when the complete example begins, then used to bound and summarize the result.
+
+The value thread carries the question and the payoff, not the implementation. `PacketHeader` remains the small signature example, `UnsafeWithPointer` isolates Admission, and `Measurement` isolates real ABI Agreement drift. Region containers, graph structure, validation, and business output remain concentrated in Slides 38–42 and the appendix.
 
 | Section | Main slides | Expected time | Communication job |
 |---|---:|---:|---|
@@ -108,9 +121,9 @@ The main deck contains 45 slides. The appendix contains 16 slides, for 61 slides
 | Agreement | 20–22 | 4–5 min | Define exact edge equality and its limits |
 | Admission | 23–28 | 7–8 min | Define the profile-aware node predicate and structural limits |
 | Closed CI | 29–34 | 7–8 min | Produce provenance-bound per-key decisions over the finite build graph |
-| Apply | 35–39 | 5–6 min | Enable one useful raw-byte contract, reject one Admission failure and one Agreement failure, and resolve the opening example |
-| Operating boundary | 40–42 | 3 min | State what the Permit proves, what remains application-owned, when to re-close, and when to use an explicit representation |
-| Conclusion and takeaway | 43–45 | 3 min | Restate the problem, compress the complete method, and leave one actionable decision rule |
+| Apply | 35–42 | 9–10 min | Establish the ordinary-copy baseline, then separate pre-deployment permission from runtime use of a connected world region |
+| Operating boundary | 43–44 | 2–3 min | State what each Permit proves, what remains application-owned, when to re-close, and when to use an explicit representation |
+| Conclusion and takeaway | 45–47 | 3 min | Restate the problem, compress the complete method, and leave one actionable decision rule |
 
 ### 4.1 Narrative Layers and Detail Admission
 
@@ -135,7 +148,7 @@ Claim
 → Next question
 ```
 
-This keeps the technical review constraints subordinate to the audience-facing argument. The main-deck flow is `why evidence is needed → how one build produces evidence → how the two gates decide one edge → how CI closes the finite contract → how that model enables one useful raw-byte contract → what the resulting Permit does and does not authorize → the complete decision rule the audience should retain`; it must not become a boundary catalog, signature grammar tour, Admission API inventory, provenance-field inventory, graph-optimization tutorial, or demo-implementation walkthrough.
+This keeps the technical review constraints subordinate to the audience-facing argument. The main-deck flow is `why evidence is needed → how one build produces evidence → how the two gates decide one edge → how CI closes the finite contract → how the model works for ordinary copy → how a separate whole-region profile supports declared server and native-client consumers → how build/CI permission differs from runtime validation → what each Permit does and does not authorize → the complete decision rule the audience should retain`; it must not become a boundary catalog, signature grammar tour, Admission API inventory, provenance-field inventory, graph-optimization tutorial, or demo-implementation walkthrough.
 
 Stages 1–7 preserve exactly two compatibility gates: Admission on build nodes and Agreement on build edges. CI provenance validates that evidence belongs to the declared producer and run; it is an input-validity condition, not a third compatibility gate.
 
@@ -148,7 +161,7 @@ Tell the story in this order:
 ```text
 We move native C++ bytes across a boundary.
 → The receiver may use a different build, a different address space, or both.
-→ We limit the claim to one strict transfer profile and a finite build set.
+→ We first limit the claim to one strict transfer profile and a finite build set.
 → That creates two separate questions.
 → Local traits and total size cannot answer both questions.
 → Each build must describe the representation it actually produced.
@@ -158,17 +171,19 @@ Start with one type and ask whether the audience would approve its bytes across 
 
 Use the build-identity × address-space-identity matrix to show what a boundary can change. Give one short example for each lost assumption, then combine them in the stored-bytes case.
 
-State the exact profile used by the talk:
+On Slide 7, complete the matrix with the both-assumptions-lost case. Show producer build A writing a stored native-byte region and declared consumer build B reading it under another build identity, address space, and load base. Preview server recovery and native-client world snapshots only as the later demo. Do not introduce the two placements, region containers, relative-pointer implementation, or runtime obligations yet.
+
+State the exact starting profile used through the ordinary-copy baseline:
 
 - ordinary object copy;
 - no fixup;
 - bytes must not depend on the producer's address space;
 - the participating build set is finite and declared in advance.
 
-This profile creates two questions:
+Define a transfer profile as the rules for one kind of byte transfer. Then name the two questions:
 
-1. May these native bytes stand on their own after they cross the boundary?
-2. Did every declared build produce the same object representation?
+1. **Admission:** may this type use this profile?
+2. **Agreement:** do the declared builds give it the same object representation?
 
 Then show why familiar checks are not enough:
 
@@ -176,7 +191,7 @@ Then show why familiar checks are not enough:
 - equal `sizeof` does not prove equal member types, offsets, alignment, bit-fields, or other representation facts;
 - code review does not produce repeatable evidence for every declared build.
 
-Slide 9 may preview the rest of the argument, but it must not introduce formulas, APIs, or CI details yet.
+Slide 8 states that the first profile is an ordinary-copy baseline, defines Admission and Agreement in plain language, and previews the later explicit `whole_region_relocation` profile. Slide 9 may preview the rest of the argument and name the world-region producer/consumer result as the final payoff, but it must not introduce formulas, APIs, or CI details yet.
 
 Keep long compiler/flag/header/ABI inventories, IPC mechanics, versioning, trust, framing, lifetime, synchronization, and crash consistency out of this stage. A short boundary footer is enough.
 
@@ -278,7 +293,7 @@ The registered contract key and both certificates match.
 → Only this one declared edge now passes.
 ```
 
-Define Agreement first. For the same registered contract key and signature-domain version, exact certificate equality establishes Agreement on one declared edge. Show one readable match and one readable difference.
+Define Agreement first because it follows directly from the certificate produced in Stage 2. State that this is the explanation order, not a priority between the gates: a Permit still needs both. Do not call Agreement the first gate. For the same registered contract key and signature-domain version, exact certificate equality establishes Agreement on one declared edge. Show one readable match and one readable difference.
 
 State its three limits plainly. Agreement does not prove:
 
@@ -299,6 +314,8 @@ For the ordinary-copy path, show:
 ```cpp
 std::is_trivially_copyable_v<T> && is_byte_copy_safe_v<T>
 ```
+
+On Slide 24, recall the connected world region without teaching its implementation: its region-relative offsets require a different profile and the complete-region invariant. This callback exists only to prove that Admission is profile-dependent.
 
 Say “no detected structural dependency,” not “proven context-independent.” Complete evidence means that every reachable component is encoded or covered by a named trust contract. It does not mean that opaque internals were reflected. If a required component is unsupported, Stage 2 rejects generation, so Admission and `EdgePass` cannot be established.
 
@@ -391,144 +408,155 @@ End with:
 
 > `A complete run gives every declared type PERMIT or REJECT; incomplete evidence remains INCOMPLETE and never produces a Permit.`
 
-Then ask: `Can this model permit one useful raw-byte type set and reject nearby designs that fail either gate?`
+Then state the application sequence: first use a small ordinary-copy contract to isolate the two failure shapes, then return to the stored world region previewed on Slide 7. Ask: `Can the same two-gate model authorize a useful producer-and-consumer contract?`
 
-### 4.6 Stage 5 — Apply the Model to a Real Raw-Byte Contract (Slides 35–39)
+### 4.6 Stage 5 — Apply the Model to Useful Raw-Byte Contracts (Slides 35–42)
 
-**Job:** apply the model to one practical result. A useful set of native C++ types crosses a declared storage boundary without field-by-field serialization. Two nearby designs fail for different reasons.
+**Job:** first complete the public ordinary-copy example, then show why the method matters for a connected world region crossing to another declared server or native-client build. The profile change must be explicit. Admission and Agreement must be shown as compile/build/CI decisions completed before deployment, while actual region validation remains runtime work.
 
-State the input and expected result:
+State the two-part result:
 
 ```text
-Input:  the closed two-gate model plus one completed portable-capture demonstration
-Output: four per-key Permits, one Admission rejection, and one Agreement rejection
+ordinary_copy
+  fixed-width set → PERMIT
+  native pointer → Admission REJECT
+  long double → Agreement REJECT
+
+whole_region_relocation
+  dynamic strings + collections + object graph
+  → four per-key Permits
+  → server consumer: relocate, validate, mutate, save, reload
+  → native-client consumer: relocate, validate, query, use
 ```
 
-Use a fixed-size telemetry capture block. Any declared recorder build may write it, and any declared analyzer build may read it.
+Treat Slides 35–37 as one three-result group rather than three new stories. Use parallel titles and verdict shapes: `Admission PASS + Agreement MATCH`, `Admission FAIL + Agreement MATCH`, and `Admission PASS + Agreement DIFFER`. The ordinary-copy baseline uses `C_capture` and the same three declared builds from the earlier design. Compress its positive set into Slide 35, retain a short separate Slide 36 for the already-explained pointer failure, and give Slide 37 enough time to resolve the opening `Measurement` question with real ABI evidence:
 
-Declare the production type set:
+- `UnsafeWithPointer`: Agreement matches, but ordinary-copy Admission fails because the stored address depends on the producer process.
+- `Measurement { uint64_t id; long double value; }`: Admission passes, but the real Linux x86-64 and Apple ARM64 representations differ, so Agreement fails.
+
+These three slides satisfy the public fixed-width pass, pointer-containing Admission rejection, and platform-divergent Agreement rejection. The packed-`Entity` case introduced later is synthetic supplemental evidence and must not replace `Measurement`.
+
+Slide 38 expands the stored-region preview from Slide 7 into the full producer-and-consumer question. Fixed records prove the decision rule, but they do not show the practical value of retaining native, connected data. Introduce two placements of the same region contract here: server to declared server for checkpoint transfer or recovery, and server to declared native client for snapshot delivery. A useful world region contains dynamic names, collections, indexes, shared targets, null links, and cycles. The server path resumes, modifies, and saves again; the client path may stop after validation and query.
+
+Slide 39 changes the contract explicitly and names it `C_world`:
 
 ```text
-R_capture = {
-  PacketHeader,
-  MeasurementSample,
-  CaptureTrailer,
-  CaptureBlock
+P_world = whole_region_relocation
+
+copy one complete contiguous region
+preserve one region-relative offset space
+do not move headers, elements, or pointees independently
+```
+
+Show `C_world = (R_world,V,E,P_world)` before listing the four keys.
+
+State that `V` contains exact pre-verified builds, which may play server or native-client roles, and `E` contains declared producer-to-consumer edges. Do not imply that a CPU architecture label establishes Agreement.
+
+Declare four Agreement keys:
+
+```text
+R_world = {
+  WorldSnapshot,
+  Entity,
+  EntityRelativePtr,
+  EntityIndexEntry
 }
 ```
 
-Declare the builds, edges, and profile:
+Under this profile, the supported `relative_ptr` and frozen region containers are admitted only because the complete-region invariant gives their stored offsets a stable interpretation. Native pointers remain address-space-dependent and fail Admission.
+
+Slide 40 separates build/CI permission from runtime execution:
 
 ```text
-V = {
-  Linux x86-64 / GCC 16,
-  Linux x86-64 / Clang P2996,
-  Apple ARM64 / Clang P2996
-}
-
-E = all three pairwise build edges; either endpoint may write or read
-P = ordinary object copy, zero fixup, source-address-independent bytes
-
-C_capture = (R_capture, V, E, P)
+each declared build
+  → compile-time Admission
+  → exported signatures
+verification build / CI
+  → complete evidence
+  → Agreement on each declared edge
+  → four contract-scoped Permits
 ```
 
-These build names are short audience labels for the exact build identities established in Stage 4. All three pairwise edges are required because either endpoint may write or read.
+State explicitly that runtime does not recompute Admission or Agreement. The visible positive lines from the demo summarize build/CI evidence materialized into the demonstration; they are not loader-time reflection checks.
 
-`PacketHeader`, `MeasurementSample`, and `CaptureTrailer` are each 16 bytes. `CaptureBlock` contains the header, four samples, and the trailer. The positive set uses fixed-width integer leaves, fixed extents, nested records, and deliberately padding-free layouts.
-
-Tell the story in this order:
+Slide 41 shows the complete runtime flow without expanding container implementations:
 
 ```text
-The decision rule is still abstract.
-→ Declare one storage boundary as C_capture.
-→ The complete run gives four independent Permits for R_capture.
-→ ClosedPermit_C(CaptureBlock) permits whole-block raw I/O.
-→ Add a cached pointer: Agreement MATCH, Admission FAIL.
-→ Replace a fixed-width value with long double: Admission PASS, Agreement DIFFER.
-→ The working set and both failures show why both gates are required.
+checkpoint file or network snapshot
+validate the envelope
+copy to a different base
+validate stored ranges and graph before dereference
+server consumer: query, mutate, save, and reload
+native-client consumer: query and use
 ```
 
-Say exactly what “without serialization” means here. The demo copies the complete object representation with `memcpy` or equivalent raw binary I/O. It does not perform per-field encoding, endian conversion, fixup, or semantic conversion.
+Make the practical result visible:
 
-Show the practical path:
+- the destination base changes;
+- stored region-relative offsets remain unchanged;
+- null, shared, cyclic, and container-stored links validate;
+- party HP is 420;
+- tick changes from 42 to 43;
+- boss HP changes from 300 to 250;
+- the second load preserves the mutation.
+
+Prefer `stored region-relative offsets remain unchanged` over `raw offsets unchanged`; the latter can be confused with TypeLayout member offsets.
+
+Slide 42 maps each negative to the phase that owns it:
 
 ```text
-CaptureBlock
-→ whole-object memcpy or raw write
-→ persistent bytes
-→ whole-object raw read or memcpy into an existing, correctly aligned object
-→ CaptureBlock value
+native pointer         build-time Admission FAIL       no Permit
+packed Entity          build/CI Agreement DIFFER       no Permit
+corrupt region offset  runtime graph REJECT before dereference
 ```
 
-This path is permitted only for the declared types and builds. It is not a universal file format. It does not prove schema evolution, semantic meaning, runtime validity, or support for an undeclared ABI.
+The first two rows fail before deployment of that native-byte path. The talk-sized demo may say `load skipped` to show that its orchestrated workflow stops, but the logical decision owner is build/CI. The corrupt-offset row is not a third TypeLayout gate. It demonstrates an application-owned runtime obligation after the two representation gates. The packed fixture demonstrates signature sensitivity inside this relocation example; it is not the real platform-divergent example promised by the public abstract.
 
-Keep negative candidates outside `R_capture`. For each candidate `K`, check `C_candidate(K) = (R_capture ∪ {K}, V, E, P)` under the same builds, edges, and profile.
+Do not present a local `producer_ok` fixture comparison as the full supported-build matrix. A slide may state the exact local demo result, while any claim over the declared multi-build set must cite the corresponding retained build artifacts.
 
-Use two candidates:
-
-- `UnsafeWithPointer`: a useful in-memory type with a cached pointer. Agreement matches on every required edge, but Admission fails on every node because the address depends on the producer process.
-- `Measurement { uint64_t id; long double value; }`: Admission passes on every node. The two Linux builds match, but the Linux–Apple edges differ, so Agreement fails.
-
-Neither candidate enters the production allowlist. Demo CI succeeds only when it sees all four positive Permits and both expected rejection shapes.
-
-End with one matrix:
-
-```text
-R_capture types       Admission PASS   Agreement MATCH   PERMIT
-UnsafeWithPointer     Admission FAIL   Agreement MATCH   REJECT
-Measurement           Admission PASS   Agreement DIFFER  REJECT
-```
-
-Move complete declarations, generated signatures, build targets, artifact names, CI commands, deterministic fixture construction, byte dumps, hashes, full round-trip checks, provenance fields, retention mechanics, detailed padding analysis, and telemetry-domain choices to the appendix or implementation notes.
+Move complete declarations, region-container implementation, builder logic, full signature strings, envelope bytes, provenance fields, all pairwise matrix rows, and detailed validation code to the appendix or implementation notes.
 
 End with:
 
-> `Inside C_capture, CaptureBlock may use native bytes as its representation layer; both non-conforming candidates stay off that path.`
+> `Build and CI can authorize a useful region contract for declared server or native-client consumers, but runtime validation and the complete-region invariant still belong to the application.`
 
-Then ask: `What exactly does that Permit authorize, and what still belongs to the application?`
+Then ask: `What exactly does each Permit authorize, and what still belongs to the application?`
 
-### 4.7 Stage 6 — Bound the Permit (Slides 40–42)
+### 4.7 Stage 6 — Bound the Permit (Slides 43–44)
 
-**Job:** stop the audience from applying the Stage 5 Permit more broadly than the evidence allows. Also explain when native bytes stop being the right representation.
+**Job:** stop the audience from applying either Stage 5 Permit more broadly than its evidence and profile allow. Also explain when native bytes stop being the right representation.
 
 Tell the story in this order:
 
 ```text
-Stage 5 gives a representation Permit inside one declared contract.
-→ It proves representation compatibility, not complete I/O correctness.
+Stage 5 gives representation Permits inside two separate contracts.
+→ Each Permit proves representation compatibility under one declared profile.
 → The application still owns lifetime, storage, synchronization, validation, and failures.
 → A finite change to V or E needs fresh evidence and a new decision.
-→ Open peers, different representations, or broader requirements need an explicit representation and conversion policy.
+→ A changed transfer model needs a new profile or an explicit representation layer.
 ```
 
 Keep this stage short, but keep all three boundaries clear.
 
-Slide 40 separates what the Permit proves from what it does not prove. The Permit proves the representation claim for the declared contract. It does not prove semantic compatibility, schema evolution, or complete runtime correctness.
+Slide 43 combines the proof boundary and the application-owned work. One table separates what a profile-specific Permit proves from the profile invariant, valid values, storage, lifetime, alignment, synchronization, transport, validation, trust, and versioning that remain with the application. State once that build and CI check the representation contract while runtime validates the actual bytes and operation. Do not repeat the corrupt-offset example from Slide 42. The detailed boundary matrix belongs on appendix slide 51.
 
-Slide 41 groups application-owned work into three parts:
-
-- object obligations: storage, lifetime, and alignment;
-- concurrency and transport obligations: publication, synchronization, and coherence;
-- external-data obligations: validation, versioning, durability, and failure handling.
-
-The detailed boundary matrix belongs on appendix slide 49.
-
-Slide 42 separates two kinds of change:
+Slide 44 separates two kinds of change:
 
 - If a finite build or edge set changes, generate fresh evidence and close the revised contract again.
+- If the transfer model changes but remains closed, declare and verify the appropriate profile.
 - If peers are open-ended, representations differ, canonical bytes are required, or meaning and schema must evolve independently, use an explicit representation and conversion layer.
 
 Untrusted input still needs validation. Serialization alone does not make it safe.
 
-Do not reopen signature generation, CI mechanics, or demo internals. This stage adds no new gate. It only limits the Permit already established.
+Do not reopen signature generation, CI mechanics, or demo internals. This stage adds no new gate. It only limits the Permits already established.
 
 End with:
 
-> `Re-close finite contract changes; use an explicit representation when the required contract cannot stay closed.`
+> `Re-close finite contract changes; change the profile explicitly; use an explicit representation when the required contract cannot stay closed.`
 
 Then ask: `What problem did we solve, how did we solve it, and what rule should the audience remember?`
 
-### 4.8 Stage 7 — Summarize the Problem, Method, and Takeaway (Slides 43–45)
+### 4.8 Stage 7 — Summarize the Problem, Method, and Takeaway (Slides 45–47)
 
 **Job:** return to the positive result after the limitations. Answer the opening question and leave one complete decision rule that the audience can reuse.
 
@@ -547,20 +575,24 @@ Return to “Can I memcpy this type across a boundary?”
 
 Use three slides because the conclusion has three jobs:
 
-- **Slide 43 — restate the problem:** local `memcpy` legality is not the same as cross-boundary permission. Return to the opening `Measurement` and show which contract dimensions were missing.
-- **Slide 44 — restate the method:** show one uninterrupted path from `C` and `K`, through per-build Admission and signature evidence, through Agreement and CI, to `ClosedPermit_C(K)` or rejection.
-- **Slide 45 — give the rule:** show the design-review checklist and the final operating rule.
+- **Slide 45 — restate the problem:** local `memcpy` legality is not the same as cross-boundary permission. Return to both running examples: `Measurement` is rejected by Agreement under the ordinary-copy candidate contract, while the world region receives build/CI Permits under its separate whole-region contract and still requires runtime validation of actual input.
+- **Slide 46 — restate the method:** show one uninterrupted path from `C` and `K`, through per-build Admission and signature evidence, through Agreement and CI, to `ClosedPermit_C(K)` or rejection.
+- **Slide 47 — give the rule:** show the design-review checklist and the final operating rule.
 
 The checklist is:
 
 1. Declare `C = (R,V,E,P)`.
 2. Check Admission and Agreement separately.
-3. Keep every Permit per-type and limited to that contract.
-4. Re-check finite changes; use an explicit representation when the required contract cannot stay closed.
+3. Keep every Permit per-type, per-profile, and limited to that contract.
+4. Re-check finite changes; change profiles explicitly; use an explicit representation when the required contract cannot stay closed.
 
 Keep the scope statement visible:
 
 > `Representation compatibility—not semantic compatibility or schema evolution.`
+
+Keep the demo callback visible on Slide 47:
+
+> `Different profile. Same two gates. Separate Permit.`
 
 This is a summary, not a new proof stage. Do not repeat signature grammar, demo layouts, ABI numbers, reporter output, or artifact mechanics. Every conclusion here must point back to something already established in Stages 1–6.
 
@@ -609,7 +641,7 @@ Each slide has one narrative job and one primary claim. Titles are audience-faci
 
 - Use the same executable/build on both sides.
 - Mark build identity as retained and address-space identity as lost.
-- Show identical pointer bits referring to a real object in A and an unknown location in B.
+- Show identical pointer bits referring to an object in Process A while no target is established in Process B.
 - Do not introduce the Admission term yet.
 
 ### 6. A shared address space does not make two builds layout-compatible
@@ -617,22 +649,25 @@ Each slide has one narrative job and one primary claim. Titles are audience-faci
 - Show Plugin build P and Host build H in one process.
 - Mark address-space identity as retained and build identity as lost.
 - List only ABI-relevant drift sources: compiler, flags, headers, packing, standard-library ABI.
-- Visible conclusion: `Pointers may still be meaningful—but layout Agreement is no longer automatic.`
+- Visible conclusion: `Pointers may still work, but matching layout is not automatic.`
 - State orally that the talk later selects a stricter address-independent profile.
 
-### 7. Stored bytes outlive both the build and the address space
+### 7. Stored native bytes may lose both assumptions
 
-- Show writer build A → file/persistent region → later reader build B.
-- Mark both assumptions as lost.
-- Small footer: versioning, trust, and crash consistency remain separate obligations.
+- Show producer build A → stored native-byte region → declared consumer build B.
+- Mark build identity, address-space identity, and load base as changed.
+- Preview the later demo only with `server recovery · native-client world snapshot`.
+- Do not introduce the two placements, supported-client definition, connected graph, profile invariant, or runtime obligations here.
 
-### 8. One strict profile makes the three scenarios comparable
+### 8. Start with one strict transfer profile
 
 - Funnel Process, Plugin, and Stored into one strict profile.
-- Show four conditions: ordinary object copy, zero fixup, source-address-independent bytes, finite declared build set.
-- Visible statement: `Even when a particular boundary shares an address space, this talk asks whether the bytes can stand without relying on that fact.`
+- Define a transfer profile as the rules for one kind of byte transfer.
+- Name the baseline `ordinary copy` and show four conditions: `memcpy`-style object transfer, zero fixup or field conversion, source-address-independent bytes, and a finite declared build set.
+- Define the two questions in plain language: `Admission — May this type use this profile?` and `Agreement — Do the declared builds give it the same object representation?`
+- Preview `whole_region_relocation` as the later connected-world profile and state orally that Stage 5 declares it separately rather than reusing this ordinary-copy Permit.
 
-### 9. Seven claims turn the question into a decision
+### 9. Seven steps turn the question into a decision
 
 - Replace the dense six-stage map with a single cumulative chain:
 
@@ -645,6 +680,8 @@ Each slide has one narrative job and one primary claim. Titles are audience-faci
   → Close the declared set in CI
   → Issue a narrow representation permit
   ```
+
+- Add one short payoff line: the small examples explain each step, and the world-region producer/consumer demo shows the combined result.
 
 - Future section markers show only the current part of the chain.
 - Treat this as a brief orientation beat. Do not explain downstream predicates, formulas, artifact formats, or CI mechanics here.
@@ -772,6 +809,7 @@ Each slide has one narrative job and one primary claim. Titles are audience-faci
 - Define `Admission_P(K,B)`.
 - Restate the strict profile compactly: ordinary copy, zero fixup, source-address independence.
 - Visible statement: `Pointer rejection is a consequence of this profile—not a universal rule for every boundary.`
+- Add one compact callback: the connected world region's relative offsets require `whole_region_relocation` plus the complete-region invariant.
 
 ### 25. Structural Admission has three independent conditions
 
@@ -843,7 +881,7 @@ Each slide has one narrative job and one primary claim. Titles are audience-faci
 
 - Show one simple binding: declared build identity + producer attestation → accepted evidence input.
 - State that provenance validates the input before Admission and Agreement; it is not a third compatibility gate.
-- Move the full source, headers, compiler, target, library, ABI flags, TypeLayout version, digest, workflow, and storage-location details to appendix slide 58.
+- Move the full source, headers, compiler, target, library, ABI flags, TypeLayout version, digest, workflow, and storage-location details to appendix slide 60.
 - Visible statement: `The artifact says what was observed; CI establishes who produced it and when.`
 
 ### 33. CI quantifies the same two gates over the declared graph
@@ -862,154 +900,156 @@ Each slide has one narrative job and one primary claim. Titles are audience-faci
   - valid evidence plus Admission or Agreement failure: `REJECT / NO PERMIT`;
   - valid evidence plus both gates passing over the complete graph: `PERMIT`.
 - State that the run is complete only after every declared key has a `PERMIT / REJECT` decision; `INCOMPLETE` means the requested closed claim was not evaluated.
-- Keep the detailed failure taxonomy in diagnostics, notes, or appendix slide 57.
+- Keep the detailed failure taxonomy in diagnostics, notes, or appendix slide 59.
 - Use actual primitive composition or current `CompatReporter`, not a fabricated API.
-- Preview the reporter's three audience-relevant diagnostic shapes—`byte-copy safe + layout match`, `Layout match (not byte-copy safe)`, and `Layout mismatch`—without explaining their implementation. Stage 5 attaches one concrete type to each shape; appendix slide 57 owns the full report.
+- Preview the reporter's three audience-relevant diagnostic shapes—`byte-copy safe + layout match`, `Layout match (not byte-copy safe)`, and `Layout mismatch`—without explaining their implementation. Stage 5 attaches one concrete type to each shape; appendix slide 59 owns the full report.
 - Visible statement: `A skipped macOS job makes the three-build claim INCOMPLETE; it does not pass or reject the type.`
+- In the transition, say that the ordinary-copy baseline comes first to isolate the gates, then the talk expands the stored-region preview from Slide 7.
 
-### 35. A real contract starts with bytes every supported build must read
+### 35. Ordinary copy: a fixed-width contract passes
 
-- Show the concrete persistent boundary: recorder build → capture file/persistent bytes → later analyzer build.
-- Show the build labels Linux x86-64/GCC 16, Linux x86-64/Clang P2996, and Apple ARM64/Clang P2996; speaker notes state that provenance binds the exact build identities behind those labels.
-- State that any declared recorder may feed any declared analyzer, so all three pairwise Agreement edges are required.
-- Introduce the production set `R_capture = { PacketHeader, MeasurementSample, CaptureTrailer, CaptureBlock }` without expanding all declarations.
-- Keep the transfer profile visible as one compact label: `P: ordinary copy · zero fixup · source-address-independent`.
-- Visible question: `Can this entire native type set use one raw-byte path?`
+- Compress the recorder → persistent bytes → analyzer boundary and `C_capture = (R_capture,V,E,P_ordinary)` into one slide.
+- Compose the 96-byte `CaptureBlock` from one 16-byte header, four 16-byte samples, and one 16-byte trailer.
+- Show four independent per-key results: Admission PASS on all declared builds, Agreement MATCH on every required edge, and four Permits.
+- State that `ClosedPermit_C(CaptureBlock)` authorizes whole-block raw I/O with no field encoding, endian conversion, or fixup.
+- Visible statement: `Inside C_capture, CaptureBlock may use its native bytes as the stored representation.`
 
-### 36. Four native types pass the complete three-build contract
+### 36. Ordinary copy: a native pointer fails Admission
 
-- Compose the 96-byte `CaptureBlock` visually from a 16-byte `PacketHeader`, four 16-byte `MeasurementSample` records, and a 16-byte `CaptureTrailer`.
-- Show one compact result for every `K ∈ R_capture`: Admission PASS on all three nodes, Agreement MATCH on every required edge, therefore the complete run establishes four independent `ClosedPermit_C(K)` results for `C = C_capture`.
-- Make the direct authorization precise: `ClosedPermit_C(CaptureBlock)` authorizes native object representation for the whole-block raw-I/O path. Show whole `CaptureBlock` → raw write or `memcpy` → bytes → raw read or `memcpy` → whole `CaptureBlock`, while leaving lifetime, storage, synchronization, and error handling to slides 40–41. The other three Permits remain independent per-key results.
-- Show the compact two-gate CI result for `CaptureBlock`: `Admission PASS + Agreement MATCH → PERMIT`. Speaker notes may map that back to trivial-copy registration plus the reporter's `byte-copy safe + layout match` wording.
-- State explicitly that the operation performs no field-by-field encoding, endian conversion, or pointer fixup.
-- Do not collapse the four per-key Permits into a new undefined global Permit; call them the permitted set.
-- Visible statement: `Inside C_capture, CaptureBlock may use native bytes as its representation layer.`
+- Add `const Metadata* cached_metadata` to the fixed-width sample.
+- Under `C_candidate(UnsafeWithPointer)`, show Agreement MATCH and Admission FAIL because the copied address depends on the producer process.
+- Keep it outside `R_capture` and use the diagnostic wording `Layout match, but not byte-copy safe`.
+- Visible statement: `Matching pointer bits do not transfer the target object.`
 
-### 37. One cached pointer removes a type from the raw-byte path
+### 37. Ordinary copy: `long double` fails Agreement across real ABIs
 
-- Start from the fixed-width `MeasurementSample`, then add a cached metadata pointer to form `UnsafeWithPointer` as a proposed candidate key.
-- Under `C_candidate(UnsafeWithPointer)`, show Agreement MATCH on every required edge and Admission FAIL on every node because the copied address depends on the producer process.
-- Keep it outside `R_capture`; label the result `Agreement MATCH / Admission FAIL / REJECT`.
-- Use the reporter's concrete diagnostic wording: `Layout match (not byte-copy safe)`.
-- Visible statement: `Matching pointer bits do not make the referent transferable.`
-
-### 38. One `long double` removes a type from the cross-ABI path
-
-- Start from the fixed-width `MeasurementSample { uint64_t id; int64_t value_microunits; }`, then replace the value representation with the opening `Measurement { uint64_t id; long double value; }` as a proposed candidate key.
-- Compare the two decisive representations side by side:
-  - Linux x86-64 Clang: `id @0:u64`, `value @16:fld80[s:16,a:16]`, record size 32/alignment 16;
-  - Apple ARM64 Clang: `id @0:u64`, `value @8:fld64[s:8,a:8]`, record size 16/alignment 8.
-- Keep the shared `[64-le]` prefix visible to demonstrate that the global envelope alone is insufficient.
-- Under `C_candidate(Measurement)`, show Admission PASS on every node, Linux GCC ↔ Linux Clang Agreement MATCH, and both required Linux ↔ Apple edges DIFFER.
+- Return to the opening `Measurement { uint64_t id; long double value; }`.
+- Compare the decisive Linux x86-64 and Apple ARM64 signature fragments, including the shared `[64-le]` prefix.
+- Show Admission PASS on every node, Linux ↔ Linux MATCH, and Linux ↔ Apple DIFFER.
 - End with `Admission PASS / Agreement DIFFER / REJECT`.
-- Use one compact `[DIFFER] Measurement layout signatures` diagnostic around the two decisive signature fragments.
 - Visible statement: `Address-independent bytes can still have different representations.`
 
-### 39. Four permits and two rejections exercise both gates
+### 38. One connected world region supports two closed boundaries
 
-- Show the final three-row matrix:
-  - every `K ∈ R_capture`: Admission PASS everywhere, Agreement MATCH everywhere, four per-key Permits;
-  - candidate `UnsafeWithPointer`: Admission FAIL everywhere, Agreement MATCH everywhere, reject;
-  - candidate `Measurement`: Admission PASS everywhere, Agreement DIFFER on the Linux–Apple edges, reject.
-- Keep the workflow success rule in speaker notes rather than on the slide.
-- Visible statement: `Agreement cannot rescue source dependence. Admission cannot rescue representation drift.`
-- Resolve the opening question: when proposed under the same `V`, `E`, and `P`, `Measurement` fails its candidate contract and therefore cannot enter `R_capture`.
+- Open by expanding the stored-region preview from Slide 7 into the producer-and-consumer question.
+- State what the fixed capture did and did not prove: it validates the two-gate method but does not show the payoff for connected application state.
+- Show server → declared server for checkpoint transfer or recovery, and server → declared native client for snapshot delivery.
+- Show the game-world requirements: dynamic names, entity collection, ID index, null/shared/cyclic links, save/load, mutation, and reload.
+- Visible goal: `Move one complete region to the consumer's base without per-object encoding or pointer fixups.`
+- End by stating that this is a different transfer contract and therefore needs a different profile.
 
-### 40. A representation permit is deliberately narrow
+### 39. Whole-region relocation is a different declared profile
+
+- Contrast `ordinary_copy` with `whole_region_relocation`; do not present one as an upgrade to the other's Permit.
+- State the invariant: copy one complete contiguous region, preserve one region-relative offset space, and never move a header, element array, or pointee independently.
+- Name the full contract `C_world = (R_world,V,E,whole_region_relocation)`.
+- Show `R_world = { WorldSnapshot, Entity, EntityRelativePtr, EntityIndexEntry }`.
+- State that `V` names exact declared server and native-client builds and `E` names declared producer-to-consumer edges.
+- State that supported relative representations are admitted under this profile; native pointers are still rejected.
+- Visible statement: `The profile changes. The two gates do not.`
+
+### 40. Build and CI establish the Permit before deployment
+
+- Show per-build compile-time Admission and signature export, followed by verification-build/CI evidence validation and Agreement on every declared edge.
+- Show four contract-scoped Permits only after complete evidence and both gates pass.
+- State explicitly that runtime does not recompute Admission or Agreement.
+- If the visible Agreement result comes from a retained local producer fixture, label it as that exact comparison. Reserve full supported-matrix language for retained native build evidence.
+- Visible statement: `Build and CI approve the native-byte path before deployment.`
+
+### 41. Runtime validates the actual region before typed access
+
+- Show the runtime flow: checkpoint file or network snapshot → validate the envelope → copy to a different base → validate stored ranges and graph before dereference.
+- Show the two consumer uses: a server queries, mutates, saves, and reloads; a native client may stop after validation, query, and use.
+- Make these outcomes visible: destination base changed; stored region-relative offsets unchanged; null/shared/cyclic/container links PASS; party HP 420; tick 42→43; boss HP 300→250; mutation persisted after reload.
+- State that network framing, reliability, and authentication remain transport obligations.
+- Visible statement: `Connected native data moved as one region, with no per-field decoding or pointer fixups.`
+
+### 42. Each failure stops at the layer that owns it
+
+- Show three rows:
+  - native pointer → build-time Admission FAIL → no Permit;
+  - packed `Entity` → build/CI Agreement DIFFER → no Permit;
+  - corrupt region offset → runtime graph REJECT before dereference.
+- Label packed `Entity` as synthetic ABI drift; it supplements but does not replace the real `Measurement` result on Slide 37.
+- State explicitly that runtime graph validation is not a third TypeLayout gate.
+- Visible statement: `TypeLayout checks representation. The application still validates the stored graph.`
+
+### 43. A Permit proves representation, not runtime safety
 
 - Split the slide into `TypeLayout proves` and `Application still owns`.
-- Proven: ordinary-copy Admission on every declared build, representation Agreement on required edges, and closed evidence for the declared contract.
-- Application-owned: schema meaning, valid values and invariants, storage/lifetime, alignment/synchronization, trust/versioning.
-- Visible statement: `Representation permit ≠ end-to-end safety.`
+- Proven: profile-specific Admission on every declared build, representation Agreement on required edges, and complete evidence for the declared contract.
+- Application-owned: the profile invariant, schema meaning, valid values, storage/lifetime/alignment, synchronization/transport, validation/trust/versioning.
+- State that the exact application work depends on the boundary, but do not repeat the corrupt-offset example from Slide 42.
+- Move the complete shared-memory / plugin / stored-bytes / network-device matrix to appendix slide 51.
+- Visible statements: `Representation Permit ≠ end-to-end safety.` and `Build and CI check the representation contract; runtime validates the actual operation and bytes.`
 
-### 41. Runtime obligations depend on the boundary
+### 44. Re-close finite changes; change the profile explicitly
 
-- Show three application-owned categories:
-  - object obligations: storage, lifetime, and alignment;
-  - concurrency/transport obligations: publication, synchronization, and coherence;
-  - external-data obligations: validation, versioning, durability, and failure handling.
-- Move the complete shared-memory / plugin / stored-bytes / network-device matrix to appendix slide 49.
-- Visible statement: `Compile time decides whether the representation is admitted; runtime still owns the operation.`
-
-### 42. Re-close finite changes; convert when the contract cannot stay closed
-
-- Contrast controlled native bytes with serialization or explicit conversion.
 - Native bytes fit closed, controlled, performance-sensitive, continuously verified contracts.
-- If a finite declared build or edge set changes, regenerate the evidence and close the revised contract again; expansion alone does not force serialization.
+- If a finite declared build or edge set changes, regenerate evidence and close the revised contract again.
+- If the transfer model changes, declare another profile and its invariants explicitly; do not reuse an old Permit.
 - Use an explicit representation/conversion layer for open-ended peers, representation divergence, canonical bytes, endian conversion, independent evolution, semantic transformation, or process-local handles.
 - Untrusted input additionally requires validation; serialization alone does not make it safe.
-- Visible statement: `Finite changes can be re-closed; contracts that cannot stay closed need an explicit representation.`
+- Visible statement: `Re-check the contract after a finite change. Change the representation when the contract cannot stay closed.`
 
-### 43. The real question is not “can I memcpy?”—it is “under which contract?”
+### 45. The real question is not “can I memcpy?”—it is “under which contract?”
 
-- Return to the opening `Measurement` and distinguish two questions:
-  - local operation: may this object be copied as bytes here?
-  - boundary contract: may these bytes stand independently, and do all declared builds give them the same representation?
-- State that `trivially_copyable` and `sizeof` can contribute local facts but cannot answer the relational question.
-- Reframe the opening result: the unqualified question was incomplete; under the demonstrated candidate contract, `Measurement` is rejected because Agreement differs.
-- Show the compact callback: `Measurement under C_candidate(Measurement) → Agreement DIFFER → REJECT`.
+- Return to the opening `Measurement` and distinguish the local operation from the boundary contract.
+- Reframe the opening result: under the demonstrated ordinary-copy candidate contract, `Measurement` is rejected because Agreement differs.
+- Show `Measurement under C_candidate(Measurement) → Agreement DIFFER → REJECT`.
+- Contrast it with the positive world-region result: under `C_world`, build and CI establish four separate Permits, a declared server or native-client consumer loads the whole region, and runtime graph validation remains application-owned.
+- State the synthesis: different profiles, the same two gates, and separate contract-scoped results.
 - Visible statement: `Across a boundary, a native C++ type becomes a binary contract.`
 
-### 44. Reflection derives representation evidence; CI closes the decision
+### 46. Reflection derives representation evidence; CI closes the decision
 
-- Show one left-to-right chain:
-
-  ```text
-  declare C = (R,V,E,P) and contract key K
-  → every B in V evaluates Admission_P(K,B)
-    and emits Signature_B(K)
-  → CI validates evidence inputs
-  → Admission on every declared build node
-    + Agreement of signatures on every required build edge
-  → CI closes K over C
-  → ClosedPermit_C(K) or REJECT
-  ```
-
+- Show one uninterrupted chain from `C`, `K`, and the selected profile through per-build Admission and signatures, input validation, node and edge checks, and the per-key result.
 - Keep Admission and Agreement visually distinct while showing that neither alone reaches the final decision.
-- Treat evidence presence, freshness, and attribution as input validation summarized in speaker notes, not as a third compatibility gate.
+- Treat evidence presence, freshness, and attribution as input validation, not as a third compatibility gate.
 - Visible statement: `The compiler supplies the facts; the declared contract gives those facts scope.`
 
-### 45. Permit native bytes only inside a closed contract
+### 47. Permit native bytes only inside a closed contract
 
 - Present four design-review takeaways:
 
   ```text
   1. Declare C = (R,V,E,P).
   2. Check Admission and Agreement separately.
-  3. Keep every Permit per-type and contract-scoped.
-  4. Re-close finite changes; use an explicit representation when C cannot stay closed.
+  3. Keep every Permit per-type, per-profile, and contract-scoped.
+  4. Re-close finite changes; change profiles explicitly;
+     use an explicit representation when C cannot stay closed.
   ```
 
 - Scope note: `Representation compatibility—not semantic compatibility or schema evolution.`
-- Final statement: `Permit native bytes only inside a closed contract. Re-close finite changes; use an explicit representation when the contract cannot stay closed.`
-- Keep the GitHub URL and a Q&A cue to appendix slide 46 in the footer.
+- Demo callback: `Different profile. Same two gates. Separate Permit.`
+- Final statement: `Permit native bytes only inside a closed contract.`
+- Keep the GitHub URL and a Q&A cue to appendix slide 48 in the footer.
 - Do not end on a generic “Thank you” slide.
 
 ## 6. Appendix Design
 
-The appendix contains 16 slides after the 45-slide main deck:
+The appendix contains 16 slides after the 47-slide main deck:
 
 | Output | Question / topic | Primary source pattern |
 |---:|---|---:|
-| 46 | Q&A map | 37 |
-| 47 | Why not `has_unique_object_representations`? | 38 |
-| 48 | Padding locations versus padding contents | 39 |
-| 49 | Implicit lifetime, storage, alignment, overlap, and synchronization | 40 |
-| 50 | Endianness and why byte swapping is conversion | 41 |
-| 51 | Why the global `[64-le]` envelope is conservative | 42 |
-| 52 | `char`, `bool`, `wchar_t`, and floating-point assumptions | 44 |
-| 53 | Opaque type trust boundary | 43 |
-| 54 | Full supported / assumed / rejected matrix | 44 |
-| 55 | Full signature grammar and recursive engine pseudocode | 48 |
-| 56 | Complete difficult-case encodings | 45 |
-| 57 | Diagnostic report anatomy | 46 |
-| 58 | Artifact format versus CI provenance | 51 |
-| 59 | Portable-capture demo: types, artifacts, and exact verdicts | 53 |
-| 60 | Ordinary copy versus relocation | 54 |
-| 61 | C++29 relocation status and project-policy limits | 55 |
+| 48 | Q&A map | 37 |
+| 49 | Why not `has_unique_object_representations`? | 38 |
+| 50 | Padding locations versus padding contents | 39 |
+| 51 | Implicit lifetime, storage, alignment, overlap, and synchronization | 40 |
+| 52 | Endianness and why byte swapping is conversion | 41 |
+| 53 | Why the global `[64-le]` envelope is conservative | 42 |
+| 54 | `char`, `bool`, `wchar_t`, and floating-point assumptions | 44 |
+| 55 | Opaque type trust boundary | 43 |
+| 56 | Full supported / assumed / rejected matrix | 44 |
+| 57 | Full signature grammar and recursive engine pseudocode | 48 |
+| 58 | Complete difficult-case encodings | 45 |
+| 59 | Diagnostic report anatomy | 46 |
+| 60 | Artifact format versus CI provenance | 51 |
+| 61 | Portable-capture demo: types, artifacts, and exact verdicts | 53 |
+| 62 | Ordinary copy versus whole-region relocation | 54 |
+| 63 | C++29 relocation status and project-policy limits | 55 |
 
-Appendix slide 59 owns the details deliberately removed from Stage 5: the complete positive and negative type declarations, the two separate exporter registries, the per-producer artifact bundle, the no-padding fixture assertions, the retained generated signatures, the three-node/three-edge verdict table, and the exact success condition.
+Appendix slide 61 owns the portable-capture details deliberately removed from Stage 5: the complete positive and negative type declarations, the two separate exporter registries, the per-producer artifact bundle, the no-padding fixture assertions, the retained generated signatures, the three-node/three-edge verdict table, and the exact success condition. Appendix slide 62 owns the complete profile comparison, region-container implementation, full relocatable-world type graph, native matrix, validation algorithm, and the distinction between build/CI permission and runtime validation.
 
 Material promoted to the main deck must not remain duplicated in the appendix. Appendix versions should contain additional detail, not a second copy of the same conclusion.
 
@@ -1019,27 +1059,27 @@ The final template frame map must resolve exact element IDs after complete sourc
 
 | Output | Source | Output | Source | Output | Source |
 |---:|---:|---:|---:|---:|---:|
-| 1 | 1 | 22 | 52 | 43 | 6 |
-| 2 | 4 | 23 | 17 | 44 | 26 |
-| 3 | 2 | 24 | 15 | 45 | 36 |
-| 4 | 2 | 25 | 18 | 46 | 37 |
-| 5 | 3 | 26 | 50 | 47 | 38 |
-| 6 | 2 | 27 | 19 | 48 | 39 |
-| 7 | 2 | 28 | 21 | 49 | 40 |
-| 8 | 3 | 29 | 23 | 50 | 41 |
-| 9 | 6 | 30 | 24 | 51 | 42 |
-| 10 | 5 | 31 | 51 | 52 | 44 |
-| 11 | 14 | 32 | 25 | 53 | 43 |
+| 1 | 1 | 22 | 52 | 43 | 34 |
+| 2 | 4 | 23 | 17 | 44 | 35 |
+| 3 | 2 | 24 | 15 | 45 | 6 |
+| 4 | 2 | 25 | 18 | 46 | 26 |
+| 5 | 3 | 26 | 50 | 47 | 36 |
+| 6 | 2 | 27 | 19 | 48 | 37 |
+| 7 | 2 | 28 | 21 | 49 | 38 |
+| 8 | 3 | 29 | 23 | 50 | 39 |
+| 9 | 6 | 30 | 24 | 51 | 40 |
+| 10 | 5 | 31 | 51 | 52 | 41 |
+| 11 | 14 | 32 | 25 | 53 | 42 |
 | 12 | 8 | 33 | 26 | 54 | 44 |
-| 13 | 9 | 34 | 27 | 55 | 48 |
-| 14 | 10 | 35 | 28 | 56 | 45 |
-| 15 | 48 | 36 | 29 | 57 | 46 |
-| 16 | 12 | 37 | 30 | 58 | 51 |
-| 17 | 52 | 38 | 31 | 59 | 53 |
-| 18 | 45 | 39 | 32 | 60 | 54 |
-| 19 | 13 | 40 | 34 | 61 | 55 |
-| 20 | 13 | 41 | 40 |  |  |
-| 21 | 13 | 42 | 35 |  |  |
+| 13 | 9 | 34 | 27 | 55 | 43 |
+| 14 | 10 | 35 | 28 | 56 | 44 |
+| 15 | 48 | 36 | 29 | 57 | 48 |
+| 16 | 12 | 37 | 30 | 58 | 45 |
+| 17 | 52 | 38 | 2 | 59 | 46 |
+| 18 | 45 | 39 | 21 | 60 | 51 |
+| 19 | 13 | 40 | 26 | 61 | 53 |
+| 20 | 13 | 41 | 40 | 62 | 54 |
+| 21 | 13 | 42 | 44 | 63 | 55 |
 
 Each output slide must duplicate one source slide and edit inherited elements in place. Secondary content references do not authorize rebuilding a slide from scratch.
 
@@ -1241,22 +1281,26 @@ The PPTX implementation must use the existing deck as the design source and foll
 
 The redesigned deck is complete when:
 
-- the main deck contains the approved 45-slide cumulative argument;
-- the appendix contains slides 46–61 as a 16-question support structure, for 61 slides total;
-- the opening `Measurement` question is answered on slides 38–39, reframed as a contract question on slide 43, and resolved by the final rule on slide 45;
+- the main deck contains the approved 47-slide cumulative argument;
+- the appendix contains slides 48–63 as a 16-question support structure, for 63 slides total;
+- the opening `Measurement` question is answered on slide 37, reframed as a contract question on slide 45, and resolved by the final rule on slide 47;
 - signature generation is the longest single technical chapter and establishes its trust properties;
 - the three boundary scenarios each state which assumption is retained and which is lost;
+- the stored-region case is previewed on Slide 7, recalled briefly on Slides 8, 9, 24, and the Slide 34 transition, expanded into server-to-server and server-to-declared-native-client placements on Slide 38, demonstrated fully on Slides 38–42, and resolved on Slides 45 and 47;
+- the world-region thread never displaces the small teaching examples: `PacketHeader` explains signatures, `UnsafeWithPointer` isolates Admission, and `Measurement` isolates real ABI Agreement drift;
 - stages 1–7 each preserve one causal spine and defer non-essential inventories, variants, and optimizations;
-- Stage 5 applies the model to one coherent persistent-storage contract, shows four per-key Permits with `CaptureBlock` authorizing native representation for the whole-object raw-byte path, and uses the pointer and `long double` alternatives to expose the two independent rejection modes;
-- Stage 6 briefly bounds that Permit, compresses application-owned runtime obligations, re-closes finite build/edge changes, and directs open-ended or representation-broader requirements to an explicit representation layer;
+- Stage 5 first completes the ordinary-copy contract and its two required rejection modes, then explicitly changes to `whole_region_relocation`, separates build/CI permission from runtime validation, and shows the practical payoff for declared server and native-client consumers;
+- Stage 5 keeps packed-`Entity` drift supplemental, retains `Measurement` as the real ABI-divergent example, and labels corrupt-offset rejection as runtime validation rather than a third TypeLayout gate;
+- Stage 6 briefly bounds both profile-specific Permits, compresses application-owned runtime obligations, re-closes finite build/edge changes, and directs open-ended or representation-broader requirements to an explicit representation layer;
 - Stage 7 uses three distinct slides to restate the problem, compress the complete method, and deliver an actionable takeaway rather than leaving the audience on a list of limitations;
-- slides 21 and 26 fulfill the promised compile-time checks with current `layout_match` and Admission primitives, while slides 34 and 36–38 expose the corresponding CI diagnostic shapes;
+- Stage 7 closes both running examples and states `Different profile. Same two gates. Separate Permit.` without broadening either Permit;
+- slides 21 and 26 fulfill the promised compile-time checks with current `layout_match` and Admission primitives, while slides 34–37 and 40–42 expose the corresponding CI and runtime diagnostic shapes;
 - Agreement, Admission, and Permit are visually and verbally distinct;
 - slide 28 establishes only `EdgePass`, while slides 29–34 establish or reject a per-key Permit over the complete declared build graph;
 - ordinary copy and relocation never share one unqualified permit;
 - no slide displays a repository API that does not exist at the implementation baseline;
 - CI claims are explicitly finite and provenance-bound, with provenance presented as evidence validation rather than a third compatibility gate;
-- the portable-capture implementation contract is recorded separately and does not interrupt the Stage 5 audience-facing chain;
+- portable-capture and relocatable-world implementation details remain in their implementation notes and appendix; Stage 5 shows only the evidence required for its audience-facing claims;
 - each slide has one primary claim and an audience-facing title;
 - no unintended overlap, clipping, placeholder prompt, broken connector, inconsistent footer, or unreadable code remains;
 - all externally sourced claims and assets are traceable in speaker notes;
@@ -1273,12 +1317,14 @@ The approved design has been reviewed for placeholders, contradictions, ambiguit
 - Stage 3 does not issue the final Permit; Stage 4 is the only stage that closes each registered key over the finite contract.
 - Stage 4 distinguishes `INCOMPLETE` input evidence from an evaluated `REJECT`; neither state issues a Permit.
 - Provenance establishes whether evidence may enter the two-gate decision and is never presented as a third gate.
-- Stage 5 preserves per-key decisions: the permitted set is four independently permitted keys, not a new aggregate compatibility predicate.
+- Stage 5 preserves per-key decisions for both contracts: each four-key permitted set is project policy over four independent Permits, not a new aggregate compatibility predicate.
 - Stage 6 introduces no new gate or mechanism; it limits the conclusion established by Stage 5 and does not treat finite contract expansion as an automatic serialization requirement.
-- Stage 7 introduces no new proof obligation; slides 43–45 form the explicit chain problem recap → method recap → actionable takeaway.
+- Stage 7 introduces no new proof obligation; slides 45–47 form the explicit chain problem recap → method recap → actionable takeaway.
 - The production `R_capture` set contains only positive boundary types; pointer and `long double` alternatives are separate expected-rejection fixtures under the same build graph and profile.
-- The recorded portable-capture implementation work remains separate from the completed-demo narrative used to design Stage 5.
+- The two demos never share one unqualified Permit: the fixed capture uses `ordinary_copy`, while the world region uses `whole_region_relocation` and its complete-region invariant.
+- The world region carries the practical question and payoff across the talk; its two application placements, containers, graph, validation, and business details remain concentrated in Stage 5.
+- Admission is always described as a per-build compile-time decision, Agreement as a verification-build/CI comparison, and actual region validation as runtime work.
 - Opaque support is consistently described as trust rather than complete evidence.
 - The deck uses actual repository primitives unless future implementation work adds a tested convenience API.
-- The 45-slide main deck targets approximately 52–55 minutes, within the section-level 50–57 minute pacing range, with the signature chapter receiving the greatest allocation.
-- Slide 45 resolves the opening question and ends on an operating rule rather than an implementation detail.
+- The 47-slide main deck targets approximately 55–56 minutes, with the signature chapter remaining the longest technical explanation and the practical demo receiving enough time to establish value.
+- Slide 47 resolves the opening question and ends on an operating rule rather than an implementation detail.
