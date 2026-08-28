@@ -68,6 +68,13 @@ target_link_libraries(compat_check PRIVATE typelayout)
 
 enable_testing()
 find_package(Python3 QUIET COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME test_cmake_compiler_target
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/test/test_cmake_compiler_target.py)
+    set_tests_properties(test_cmake_compiler_target PROPERTIES
+        LABELS "typelayout;relocatable-world;cmake")
+endif()
 
 # Core engine regression tests (signature grammar + admission predicate)
 add_executable(test_core test/test_core.cpp)
@@ -111,14 +118,12 @@ Negative\[packed Entity\]: Agreement DIFFER, load skipped
 Negative\[corrupt region offset\]: graph REJECT before dereference
 $]=])
 
-execute_process(
-    COMMAND ${CMAKE_CXX_COMPILER} -dumpmachine
-    OUTPUT_VARIABLE TYPELAYOUT_COMPILER_TARGET
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET)
-if(NOT TYPELAYOUT_COMPILER_TARGET)
-    set(TYPELAYOUT_COMPILER_TARGET "${CMAKE_SYSTEM_PROCESSOR}-${CMAKE_SYSTEM_NAME}")
-endif()
+include(cmake/ResolveCompilerTarget.cmake)
+typelayout_probe_compiler_target(
+    TYPELAYOUT_COMPILER_TARGET
+    "${CMAKE_CXX_COMPILER}"
+    "${CMAKE_CXX_COMPILER_TARGET}"
+    "${CMAKE_SYSTEM_PROCESSOR}-${CMAKE_SYSTEM_NAME}")
 
 add_executable(relocatable_world_platform_probe
     example/relocatable_world_demo/platform_probe.cpp)
