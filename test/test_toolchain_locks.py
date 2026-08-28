@@ -2343,6 +2343,81 @@ RUN set -eu; \\
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
+    def test_macos_runtime_load_validator_accepts_libsystem_unwind_baseline(self):
+        verify_script = (
+            ROOT / ".github/scripts/verify-p2996-toolchain.sh"
+        ).read_text(encoding="utf-8")
+        match = re.search(
+            r"# BEGIN MACOS RUNTIME LOAD VALIDATOR\n(.*?)\n"
+            r"# END MACOS RUNTIME LOAD VALIDATOR",
+            verify_script,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "runtime validator must be executable")
+        library_dir = self.root / "toolchain root/lib"
+        library_dir.mkdir(parents=True)
+        archive_records = []
+        for name in ("libc++.1.dylib", "libc++abi.1.dylib", "libunwind.1.dylib"):
+            path = library_dir / name
+            path.write_bytes(b"runtime")
+            archive_records.append(f"dyld[42]: {path.resolve()}")
+        system_unwind = "dyld[42]: /usr/lib/system/libunwind.dylib"
+        dyld = self.root / "dyld4-libsystem-unwind.txt"
+        command = [
+            sys.executable,
+            "-c",
+            match.group(1),
+            str(dyld),
+            str(library_dir),
+        ]
+
+        dyld.write_text(
+            "\n".join([*archive_records, system_unwind]) + "\n",
+            encoding="utf-8",
+        )
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        dyld.write_text(
+            "\n".join([*archive_records[:-1], system_unwind]) + "\n",
+            encoding="utf-8",
+        )
+        rejected = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn(
+            "active runtime libunwind is not the archive library",
+            rejected.stderr,
+        )
+
+        dyld.write_text(
+            "\n".join(
+                [*archive_records, "dyld[42]: /usr/lib/libunwind.1.dylib"]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        rejected = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn(
+            "unexpected runtime library path: /usr/lib/libunwind.1.dylib",
+            rejected.stderr,
+        )
+
     def test_macos_runtime_load_validator_accepts_dyld_delay_status_only(self):
         verify_script = (
             ROOT / ".github/scripts/verify-p2996-toolchain.sh"

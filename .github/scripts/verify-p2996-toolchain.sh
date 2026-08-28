@@ -863,7 +863,10 @@ for path in map(Path, expected.values()):
     if not path.is_file():
         raise SystemExit(f"bundled runtime library is missing: {path}")
 system_libcxx = "/usr/lib/libc++.1.dylib"
-allowed_paths = set(expected.values()) | {system_libcxx}
+# libSystem reexports its own libunwind; two-level linkage keeps it distinct
+# from the archive libunwind that remains mandatory below.
+system_libunwind = "/usr/lib/system/libunwind.dylib"
+allowed_paths = set(expected.values()) | {system_libcxx, system_libunwind}
 states = {}
 leaf_paths = {}
 non_delayable = set()
