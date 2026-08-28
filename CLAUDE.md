@@ -8,7 +8,9 @@ This project requires a P2996-capable compiler (C++26 static reflection). Suppor
 - **GCC 16+** (trunk merged P2996 on 2026-01-15) — recommended
 - **Bloomberg Clang P2996 fork** — experimental, legacy option
 
-Neither is available natively on Windows or macOS — use WSL or Docker.
+Neither is normally preinstalled on Windows or macOS, so use WSL or Docker for
+general development. The locked ARM64 macOS evidence launcher below downloads
+and verifies a checksum-pinned native Bloomberg Clang archive.
 
 ### Windows (WSL) — Primary Method
 
@@ -45,7 +47,49 @@ ctest --test-dir build --output-on-failure
 
 If P2996_MISSING, use Docker (see below).
 
-### Docker with GCC 16 — Recommended
+### ARM64 macOS — Locked Relocatable-World Evidence
+
+On an ARM64 Mac, use the repository launcher for the locked five-node local
+closure:
+
+```bash
+./tools/run-relocatable-world.sh
+```
+
+The launcher derives the exact current `HEAD` and a unique local invocation
+ID. For a repeatable invocation, pass both values explicitly:
+
+```bash
+./tools/run-relocatable-world.sh --source-sha "$(git rev-parse HEAD)" \
+  --run-id "local-$(git rev-parse --short=12 HEAD)-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+```
+
+Prerequisites are Docker Desktop with ARM64 and `linux/amd64` emulation, Xcode
+command-line tools, Python 3, CMake, Ninja, `tar`/`zstd`, the sealed
+source/output locks, and access to the private GHCR images. The launcher,
+evidence tool, lock validator, and macOS verifier must be checked out with LF
+endings; the launcher, evidence tool, and verifier must retain executable mode.
+Authenticate `gh` for `github.com` with the `read:packages` scope, or provide
+both `TYPELAYOUT_GHCR_USER` and `TYPELAYOUT_GHCR_TOKEN` using a PAT (classic)
+with `read:packages`; a fine-grained PAT is not supported for this GitHub
+Packages flow. Never put a token in the command line or documentation; the
+launcher sends it to Docker only via standard input.
+
+The executable-source paths must be tracked and clean at the same `HEAD`, and
+`build/relocatable-world-local` must not already exist. The retained result is
+local 5/6 coverage (three native-architecture nodes and two Docker-emulated
+x86-64 nodes), with 10 Agreement pairs and 20 directed loads. It is explicitly
+non-authoritative because the x86-64 macOS node is absent and a personal Mac's
+Xcode/SDK identity may differ from the hard lock. The GitHub-hosted six-node
+matrix is the authoritative closure.
+
+### Legacy Mutable Docker Smoke Tests (Non-Authoritative)
+
+The following `:latest` commands are convenience smoke tests only. They are
+mutable, do not bind the sealed toolchain/output locks, and must never be used
+as relocatable-world evidence.
+
+#### Docker with GCC 16
 
 ```bash
 docker build -t typelayout-gcc16:latest -f .github/docker/Dockerfile.gcc16 .github/docker/
@@ -53,7 +97,7 @@ docker run --rm -v $(pwd):/workspace -w /workspace typelayout-gcc16:latest \
   bash -c 'cmake -B build -DCMAKE_CXX_COMPILER=g++ && cmake --build build -j$(nproc) && ctest --test-dir build --output-on-failure'
 ```
 
-### Docker with Bloomberg Clang (legacy fallback)
+#### Docker with Bloomberg Clang
 
 ```bash
 docker run --rm -v $(pwd):/workspace -w /workspace \

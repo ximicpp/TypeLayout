@@ -1,6 +1,9 @@
 import hashlib
 import json
+import os
 from pathlib import Path
+import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -40,6 +43,364 @@ class EvidenceTests(unittest.TestCase):
     @staticmethod
     def sha256(path):
         return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    @staticmethod
+    def posix_path(path):
+        path = Path(path).resolve()
+        if os.name != "nt":
+            return str(path)
+        drive = path.drive.rstrip(":").lower()
+        suffix = path.as_posix()[2:]
+        return f"/mnt/{drive}{suffix}"
+
+    @staticmethod
+    def write_executable(path, text):
+        path.write_bytes(text.encode("utf-8"))
+        path.chmod(0o755)
+
+    @staticmethod
+    def launcher_text():
+        return (
+            Path(__file__).resolve().parents[1]
+            / "tools"
+            / "run-relocatable-world.sh"
+        ).read_text(encoding="utf-8")
+
+    @classmethod
+    def launcher_python_block(cls, name):
+        text = cls.launcher_text()
+        start_marker = f"# BEGIN TASK7 {name}"
+        end_marker = f"# END TASK7 {name}"
+        start = text.index(start_marker) + len(start_marker)
+        end = text.index(end_marker, start)
+        return text[start:end].strip() + "\n"
+
+    def make_launcher_repository(self):
+        source_repository = Path(__file__).resolve().parents[1]
+        repository = self.directory / "launcher repository"
+        fake_bin = self.directory / "launcher fake bin"
+        repository.mkdir()
+        fake_bin.mkdir()
+
+        for relative in (
+            "tools/relocatable_world_evidence.py",
+            "tools/run-relocatable-world.sh",
+        ):
+            destination = repository / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_repository / relative, destination)
+
+        sources_lock, outputs_lock = self.make_lock_files()
+        lock_directory = repository / ".github" / "docker"
+        lock_directory.mkdir(parents=True)
+        shutil.copy2(sources_lock, lock_directory / "toolchain-sources.lock")
+        shutil.copy2(outputs_lock, lock_directory / "toolchains.lock")
+
+        validator = repository / ".github" / "scripts" / "validate-toolchain-locks.py"
+        verifier = repository / ".github" / "scripts" / "verify-p2996-toolchain.sh"
+        validator.parent.mkdir(parents=True)
+        self.write_executable(
+            validator,
+            "#!/usr/bin/env python3\n"
+            "import pathlib, sys\n"
+            "if '--outputs' not in sys.argv:\n"
+            "    raise SystemExit('output lock is required')\n"
+            "for option in ('--sources', '--outputs'):\n"
+            "    path = pathlib.Path(sys.argv[sys.argv.index(option) + 1])\n"
+            "    if not path.is_file():\n"
+            "        raise SystemExit(f'missing lock: {path}')\n",
+        )
+        self.write_executable(
+            verifier,
+            "#!/usr/bin/env bash\n"
+            "printf 'verify %s\\n' \"$*\" >>\"${TYPELAYOUT_FAKE_TOOL_LOG:?}\"\n"
+            "if [[ \"${TYPELAYOUT_FAKE_VERIFIER_SUCCEED-}\" != 1 ]]; then\n"
+            "  exit 97\n"
+            "fi\n"
+            "extract=\n"
+            "metadata=\n"
+            "while (($#)); do\n"
+            "  case \"$1\" in\n"
+            "    --extract-dir) extract=${2-}; shift 2 ;;\n"
+            "    --metadata-output) metadata=${2-}; shift 2 ;;\n"
+            "    *) shift ;;\n"
+            "  esac\n"
+            "done\n"
+            "mkdir -p \"${extract}/p2996-toolchain/lib\"\n"
+            "python3 - \"${metadata}\" \"${extract}/p2996-toolchain\" <<'PY'\n"
+            "import json\n"
+            "from pathlib import Path\n"
+            "import sys\n"
+            "record = {\n"
+            "    'schema': 1,\n"
+            "    'node': 'arm64_macos_clang',\n"
+            "    'architecture': 'arm64',\n"
+            "    'archive_sha256': 'e' * 64,\n"
+            "    'compiler_revision': "
+            "'060be17654102019e14810c3f948ef85a490755f',\n"
+            "    'compiler_version': 'Bloomberg clang 21.0.0',\n"
+            "    'target': 'arm64-apple-macosx15.0.0',\n"
+            "    'stdlib': 'libc++-210000',\n"
+            "    'xcode_version': '16.4',\n"
+            "    'xcode_build': '16F6',\n"
+            "    'sdk_version': '15.5',\n"
+            "    'sdk_build': '24F74',\n"
+            "    'deployment_target': '15.0',\n"
+            "    'sdk_locked': True,\n"
+            "    'observed_runner': {'image_os': '', 'image_version': ''},\n"
+            "    'environment': {\n"
+            "        'developer_dir': "
+            "'/Applications/Xcode.app/Contents/Developer',\n"
+            "        'sdkroot': '/SDKs/MacOSX.sdk',\n"
+            "        'toolchain_root': sys.argv[2],\n"
+            "    },\n"
+            "    'flags': '-O3 -fstrict-aliasing -stdlib=libc++ "
+            "-mmacosx-version-min=15.0',\n"
+            "}\n"
+            "Path(sys.argv[1]).write_text(\n"
+            "    json.dumps(record, indent=2) + '\\n', encoding='utf-8'\n"
+            ")\n"
+            "PY\n"
+            "if [[ \"${TYPELAYOUT_DIRTY_BEFORE_EVIDENCE-}\" == 1 ]]; then\n"
+            "  printf '// persistent test modification\\n' >>"
+            "include/boost/typelayout/placeholder.hpp\n"
+            "fi\n",
+        )
+
+        tracked_placeholders = {
+            ".gitattributes": (
+                ".github/scripts/** text eol=lf\n"
+                "tools/*.py text eol=lf\n"
+                "tools/*.sh text eol=lf\n"
+            ),
+            "CMakeLists.txt": "cmake_minimum_required(VERSION 3.25)\n",
+            "cmake/placeholder.cmake": "# tracked launcher fixture\n",
+            "include/boost/typelayout/placeholder.hpp": "#pragma once\n",
+            "include/boost/typelayout.hpp": "#pragma once\n",
+            "example/relocatable_world_demo/placeholder.cpp": "int placeholder;\n",
+        }
+        for relative, text in tracked_placeholders.items():
+            destination = repository / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(text.encode("utf-8"))
+
+        tool_log = self.directory / "launcher-tool.log"
+        self.write_executable(
+            fake_bin / "uname",
+            "#!/usr/bin/env bash\n"
+            "case \"${1-}\" in\n"
+            "  -s) printf 'Darwin\\n' ;;\n"
+            "  -m) printf 'arm64\\n' ;;\n"
+            "  *) printf 'Darwin launcher-test\\n' ;;\n"
+            "esac\n",
+        )
+        self.write_executable(
+            fake_bin / "dirname",
+            "#!/usr/bin/env bash\n"
+            "if [[ -n \"${TYPELAYOUT_GHCR_USER-}\" "
+            "|| -n \"${TYPELAYOUT_GHCR_TOKEN-}\" "
+            "|| -n \"${explicit_token-}\" "
+            "|| -n \"${ghcr_token-}\" ]]; then\n"
+            "  printf 'dirname inherited credential environment\\n' >>"
+            "\"${TYPELAYOUT_FAKE_TOOL_LOG:?}\"\n"
+            "  exit 43\n"
+            "fi\n"
+            "exec /usr/bin/dirname \"$@\"\n",
+        )
+        self.write_executable(
+            fake_bin / "xcode-select",
+            "#!/usr/bin/env bash\nprintf '/Applications/Xcode.app/Contents/Developer\\n'\n",
+        )
+        self.write_executable(
+            fake_bin / "xcodebuild",
+            "#!/usr/bin/env bash\nprintf 'Xcode 16.4\\nBuild version 16F6\\n'\n",
+        )
+        self.write_executable(
+            fake_bin / "xcrun",
+            "#!/usr/bin/env bash\n"
+            "case \"$*\" in\n"
+            "  *--show-sdk-version*) printf '15.5\\n' ;;\n"
+            "  *--show-sdk-build-version*) printf '24F74\\n' ;;\n"
+            "  *--show-sdk-path*) printf '/SDKs/MacOSX.sdk\\n' ;;\n"
+            "  *) exit 2 ;;\n"
+            "esac\n",
+        )
+        self.write_executable(
+            fake_bin / "sw_vers",
+            "#!/usr/bin/env bash\n"
+            "case \"${1-}\" in\n"
+            "  -productVersion) printf '15.5\\n' ;;\n"
+            "  -buildVersion) printf '24F74\\n' ;;\n"
+            "  *) printf 'ProductName: macOS\\n' ;;\n"
+            "esac\n",
+        )
+        self.write_executable(
+            fake_bin / "gh",
+            "#!/usr/bin/env bash\nexit 1\n",
+        )
+        self.write_executable(
+            fake_bin / "curl",
+            "#!/usr/bin/env bash\n"
+            "if [[ -n \"${TYPELAYOUT_GHCR_TOKEN-}\" "
+            "|| -n \"${explicit_token-}\" "
+            "|| -n \"${ghcr_token-}\" ]]; then\n"
+            "  printf 'curl inherited credential environment\\n' >>"
+            "\"${TYPELAYOUT_FAKE_TOOL_LOG:?}\"\n"
+            "  exit 43\n"
+            "fi\n"
+            "headers=\nbody=\n"
+            "while (($#)); do\n"
+            "  case \"$1\" in\n"
+            "    --dump-header) headers=${2-}; shift 2 ;;\n"
+            "    --output) body=${2-}; shift 2 ;;\n"
+            "    *) shift ;;\n"
+            "  esac\n"
+            "done\n"
+            "cat >/dev/null\n"
+            "printf 'HTTP/2 200\\r\\nx-oauth-scopes: repo, read:packages\\r\\n\\r\\n' >\"$headers\"\n"
+            "printf '{\"login\":\"test-user\"}\\n' >\"$body\"\n",
+        )
+        self.write_executable(
+            fake_bin / "docker",
+            "#!/usr/bin/env bash\n"
+            "if [[ -n \"${TYPELAYOUT_GHCR_TOKEN-}\" "
+            "|| -n \"${explicit_token-}\" "
+            "|| -n \"${ghcr_token-}\" ]]; then\n"
+            "  printf 'docker inherited credential environment\\n' >>"
+            "\"${TYPELAYOUT_FAKE_TOOL_LOG:?}\"\n"
+            "  exit 43\n"
+            "fi\n"
+            "printf 'docker' >>\"${TYPELAYOUT_FAKE_TOOL_LOG:?}\"\n"
+            "printf ' %q' \"$@\" >>\"${TYPELAYOUT_FAKE_TOOL_LOG}\"\n"
+            "printf '\\n' >>\"${TYPELAYOUT_FAKE_TOOL_LOG}\"\n"
+            "case \"${1-}\" in\n"
+            "  info) printf 'aarch64\\n' ;;\n"
+            "  version) printf 'Docker Desktop test\\n' ;;\n"
+            "  login) cat >/dev/null ;;\n"
+            "  buildx)\n"
+            "    if [[ \"${2-}\" == version ]]; then\n"
+            "      printf 'github.com/docker/buildx v0.24.0\\n'\n"
+            "      exit 0\n"
+            "    fi\n"
+            "    case \"$*\" in\n"
+            "      *@sha256:1111111111111111111111111111111111111111111111111111111111111111*)\n"
+            "        printf '%s\\n' '{\"schemaVersion\":2,\"manifests\":[{\"digest\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"platform\":{\"os\":\"linux\",\"architecture\":\"amd64\"}},{\"digest\":\"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"platform\":{\"os\":\"linux\",\"architecture\":\"arm64\"}}]}' ;;\n"
+            "      *@sha256:3333333333333333333333333333333333333333333333333333333333333333*)\n"
+            "        printf '%s\\n' '{\"schemaVersion\":2,\"manifests\":[{\"digest\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"platform\":{\"os\":\"linux\",\"architecture\":\"amd64\"}},{\"digest\":\"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"platform\":{\"os\":\"linux\",\"architecture\":\"arm64\"}}]}' ;;\n"
+            "      *) exit 31 ;;\n"
+            "    esac ;;\n"
+            "  pull) : ;;\n"
+            "  run)\n"
+            "    if [[ \"$*\" == *TYPELAYOUT_SMOKE_NODE=x86_64_linux_clang* "
+            "&& \"${TYPELAYOUT_FAIL_SECOND_SMOKE-}\" == 1 ]]; then\n"
+            "      exit 32\n"
+            "    fi ;;\n"
+            "  *) exit 33 ;;\n"
+            "esac\n",
+        )
+        for command in ("cmake", "ninja", "otool", "shasum", "zstd"):
+            self.write_executable(
+                fake_bin / command,
+                "#!/usr/bin/env bash\n"
+                f"printf '{command} %s\\n' \"$*\" >>"
+                "\"${TYPELAYOUT_FAKE_TOOL_LOG:?}\"\n",
+            )
+
+        subprocess.run(
+            ["git", "init", "-b", "main"],
+            cwd=repository,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "launcher-test@example.invalid"],
+            cwd=repository,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Launcher Test"],
+            cwd=repository,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-c", "core.autocrlf=false", "add", "--all"],
+            cwd=repository,
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "update-index",
+                "--chmod=+x",
+                "tools/run-relocatable-world.sh",
+                "tools/relocatable_world_evidence.py",
+                ".github/scripts/verify-p2996-toolchain.sh",
+            ],
+            cwd=repository,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "launcher fixture"],
+            cwd=repository,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repository,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        return repository, fake_bin, tool_log, head
+
+    def run_launcher(
+        self,
+        repository,
+        fake_bin,
+        tool_log,
+        *arguments,
+        environment=None,
+        xtrace=False,
+        allexport=False,
+    ):
+        repository_posix = self.posix_path(repository)
+        fake_bin_posix = self.posix_path(fake_bin)
+        launcher_posix = self.posix_path(
+            repository / "tools" / "run-relocatable-world.sh"
+        )
+        launcher_command = shlex.join((launcher_posix, *arguments))
+        child_environment = os.environ.copy()
+        launcher_environment = {
+            "TYPELAYOUT_FAKE_TOOL_LOG": self.posix_path(tool_log),
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "safe.directory",
+            "GIT_CONFIG_VALUE_0": repository_posix,
+        }
+        for name in ("TYPELAYOUT_GHCR_USER", "TYPELAYOUT_GHCR_TOKEN"):
+            child_environment.pop(name, None)
+        if environment:
+            launcher_environment.update(environment)
+        exports = "; ".join(
+            f"export {name}={shlex.quote(value)}"
+            for name, value in launcher_environment.items()
+        )
+        command = (
+            f"{exports}; "
+            f"export PATH={shlex.quote(fake_bin_posix)}:/usr/local/bin:/usr/bin:/bin; "
+            f"cd {shlex.quote(repository_posix)}; "
+            f"exec bash {'-a ' if allexport else ''}"
+            f"{'-x ' if xtrace else ''}{launcher_command}"
+        )
+        return subprocess.run(
+            ["bash", "-lc", command],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=child_environment,
+        )
 
     def make_lock_files(self):
         sources_lock = self.directory / "toolchain-sources.lock"
@@ -105,8 +466,46 @@ class EvidenceTests(unittest.TestCase):
                     "llvm_targets": ["X86", "AArch64"],
                     "cmake_flags": [
                         "-DCMAKE_BUILD_TYPE=Release",
-                        "-DLLVM_ENABLE_ASSERTIONS=OFF",
+                        "-DLLVM_ENABLE_PROJECTS=clang",
+                        "-DLLVM_ENABLE_RUNTIMES=libcxx;libcxxabi;libunwind",
+                        "-DLLVM_INCLUDE_TESTS=OFF",
+                        "-DCLANG_INCLUDE_TESTS=OFF",
+                        "-DLLVM_INCLUDE_EXAMPLES=OFF",
+                        "-DLLVM_INCLUDE_BENCHMARKS=OFF",
+                        "-DLLVM_INCLUDE_DOCS=OFF",
+                        "-DCLANG_BUILD_EXAMPLES=OFF",
+                        "-DCLANG_DEFAULT_CXX_STDLIB=libc++",
+                        "-DLLVM_INSTALL_TOOLCHAIN_ONLY=ON",
+                        "-DLLVM_PARALLEL_LINK_JOBS=1",
                     ],
+                    "platform_cmake_flags": {
+                        "linux/amd64": [
+                            "-DCMAKE_INSTALL_PREFIX=/opt/p2996-toolchain",
+                            "-DLLVM_TARGETS_TO_BUILD=X86",
+                            "-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON",
+                        ],
+                        "linux/arm64": [
+                            "-DCMAKE_INSTALL_PREFIX=/opt/p2996-toolchain",
+                            "-DLLVM_TARGETS_TO_BUILD=AArch64",
+                            "-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON",
+                        ],
+                        "macos/arm64": [
+                            "-DCMAKE_INSTALL_PREFIX=${TOOLCHAIN_ROOT}",
+                            "-DCMAKE_OSX_ARCHITECTURES=arm64",
+                            "-DCMAKE_OSX_SYSROOT=${SDKROOT}",
+                            "-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0",
+                            "-DLLVM_TARGETS_TO_BUILD=AArch64",
+                            "-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF",
+                        ],
+                        "macos/x86_64": [
+                            "-DCMAKE_INSTALL_PREFIX=${TOOLCHAIN_ROOT}",
+                            "-DCMAKE_OSX_ARCHITECTURES=x86_64",
+                            "-DCMAKE_OSX_SYSROOT=${SDKROOT}",
+                            "-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0",
+                            "-DLLVM_TARGETS_TO_BUILD=X86",
+                            "-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF",
+                        ],
+                    },
                 },
                 "linux": {
                     "platforms": {
@@ -158,6 +557,9 @@ class EvidenceTests(unittest.TestCase):
                         },
                         "buildx_version": "0.24.0",
                         "buildkit_image": "moby/buildkit@sha256:" + "a" * 64,
+                        "dockerfile_frontend": (
+                            "docker.io/docker/dockerfile:1.7@sha256:" + "b" * 64
+                        ),
                     },
                 },
                 "macos": {
@@ -238,7 +640,7 @@ class EvidenceTests(unittest.TestCase):
                         "repository": "ghcr.io/ximicpp/typelayout-gcc16",
                         "index_digest": "sha256:" + "1" * 64,
                         "compiler_revision": "16.2.0",
-                        "compiler_version": "gcc 16.2.0",
+                        "compiler_version": "16.2.0",
                         "stdlib": "libstdc++-20260801",
                         "platforms": {
                             "linux/amd64": {
@@ -336,7 +738,7 @@ class EvidenceTests(unittest.TestCase):
             else "060be17654102019e14810c3f948ef85a490755f"
         )
         compiler_version = (
-            "gcc 16.2.0"
+            "16.2.0"
             if compiler_family == "gcc"
             else "Bloomberg clang 21.0.0"
         )
@@ -917,6 +1319,114 @@ class EvidenceTests(unittest.TestCase):
 
         with self.assertRaisesRegex(evidence.EvidenceError, "artifact digest"):
             self.seal(bundle)
+
+    def test_output_lock_rejects_wrong_target_for_every_platform_kind(self):
+        attacks = (
+            (
+                ("linux", "gcc", "platforms", "linux/amd64", "target"),
+                "aarch64-linux-gnu",
+            ),
+            (
+                ("linux", "gcc", "platforms", "linux/arm64", "target"),
+                "x86_64-linux-gnu",
+            ),
+            (
+                ("linux", "p2996", "platforms", "linux/amd64", "target"),
+                "x86_64-linux-gnu",
+            ),
+            (
+                ("linux", "p2996", "platforms", "linux/arm64", "target"),
+                "arm64-unknown-linux-gnu",
+            ),
+            (
+                ("macos", "arm64_macos_clang", "target"),
+                "arm64-apple-macosx15.1.0",
+            ),
+            (
+                ("macos", "x86_64_macos_clang", "target"),
+                "x86_64-apple-macosx14.0.0",
+            ),
+        )
+        for path, replacement in attacks:
+            with self.subTest(path=path):
+                bundle = self.make_ready_bundle("arm64_linux_gcc")
+                outputs = json.loads(
+                    bundle["outputs_lock"].read_text(encoding="utf-8")
+                )
+                target = outputs
+                for key in path[:-1]:
+                    target = target[key]
+                target[path[-1]] = replacement
+                self.write_json(bundle["outputs_lock"], outputs)
+
+                with self.assertRaisesRegex(evidence.EvidenceError, "target"):
+                    evidence.load_node_toolchain_policy(
+                        bundle["sources_lock"],
+                        bundle["outputs_lock"],
+                        "arm64_linux_gcc",
+                    )
+
+    def test_all_eight_output_artifact_digests_must_be_globally_unique(self):
+        attacks = (
+            (
+                ("linux", "gcc", "index_digest"),
+                ("linux", "p2996", "index_digest"),
+            ),
+            (
+                ("linux", "gcc", "index_digest"),
+                (
+                    "linux",
+                    "gcc",
+                    "platforms",
+                    "linux/amd64",
+                    "manifest_digest",
+                ),
+            ),
+            (
+                (
+                    "linux",
+                    "p2996",
+                    "platforms",
+                    "linux/arm64",
+                    "manifest_digest",
+                ),
+                ("macos", "arm64_macos_clang", "archive_sha256"),
+            ),
+            (
+                ("macos", "arm64_macos_clang", "archive_sha256"),
+                ("macos", "x86_64_macos_clang", "archive_sha256"),
+            ),
+        )
+        for destination_path, source_path in attacks:
+            with self.subTest(
+                destination_path=destination_path, source_path=source_path
+            ):
+                bundle = self.make_ready_bundle("arm64_linux_gcc")
+                outputs = json.loads(
+                    bundle["outputs_lock"].read_text(encoding="utf-8")
+                )
+
+                source = outputs
+                for key in source_path:
+                    source = source[key]
+                destination = outputs
+                for key in destination_path[:-1]:
+                    destination = destination[key]
+                if destination_path[-1] == "archive_sha256":
+                    source = source.removeprefix("sha256:")
+                elif not source.startswith("sha256:"):
+                    source = "sha256:" + source
+                destination[destination_path[-1]] = source
+                self.write_json(bundle["outputs_lock"], outputs)
+
+                with self.assertRaisesRegex(
+                    evidence.EvidenceError, "artifact digest"
+                ):
+                    evidence.load_node_toolchain_policy(
+                        bundle["sources_lock"],
+                        bundle["outputs_lock"],
+                        "arm64_linux_gcc",
+                    )
 
     def test_sealer_rejects_wrong_linux_manifest_digest(self):
         bundle = self.make_ready_bundle("arm64_linux_gcc")
@@ -1939,6 +2449,602 @@ class EvidenceTests(unittest.TestCase):
                     expect_named_permits=60,
                     expect_transfers=30,
                 )
+
+    def test_task7_local_profile_is_exact_complete_non_authoritative_graph(self):
+        expected_nodes = (
+            "x86_64_linux_gcc",
+            "x86_64_linux_clang",
+            "arm64_linux_gcc",
+            "arm64_linux_clang",
+            "arm64_macos_clang",
+        )
+        self.assertEqual(evidence.profile_nodes("local-arm64-macos"), expected_nodes)
+        self.assertEqual(set(evidence.NODES) - set(expected_nodes), {"x86_64_macos_clang"})
+
+        fallback_path = self.directory / "local-fallback-closure.json"
+        evidence.write_fallback_closure(
+            "local-arm64-macos", "local run not evaluated", fallback_path
+        )
+        fallback = evidence.validate_closure(fallback_path)
+        self.assertFalse(fallback["authoritative"])
+        self.assertEqual(len(fallback["expected"]["nodes"]), 5)
+        self.assertEqual(len(fallback["expected"]["pairs"]), 10)
+        self.assertEqual(len(fallback["expected"]["named_decisions"]), 40)
+        self.assertEqual(len(fallback["expected"]["transfers"]), 20)
+
+        fixture = self.make_complete_matrix_run("local-arm64-macos")
+
+        def audit(directory):
+            return evidence.audit_run(
+                directory=directory,
+                expect_source_sha=fixture["source_sha"],
+                expect_workflow_run=fixture["workflow_run"],
+                sources_lock=fixture["sources_lock"],
+                outputs_lock=fixture["outputs_lock"],
+                expect_nodes=5,
+                expect_pairs=10,
+                expect_named_permits=40,
+                expect_transfers=20,
+            )
+
+        closure = audit(fixture["directory"])
+        self.assertEqual(closure["status"], "PASS")
+        self.assertFalse(closure["authoritative"])
+        self.assertEqual(closure["counts"]["named_permits"], 40)
+        self.assertEqual(closure["counts"]["passes"], 20)
+
+        for node in expected_nodes:
+            with self.subTest(missing=node):
+                path = fixture["directory"] / f"{node}.provenance.json"
+                saved = path.read_bytes()
+                path.unlink()
+                try:
+                    with self.assertRaisesRegex(evidence.EvidenceError, "missing fixed files"):
+                        audit(fixture["directory"])
+                finally:
+                    path.write_bytes(saved)
+
+        unexpected = fixture["directory"] / "x86_64_macos_clang.provenance.json"
+        unexpected.write_text("{}\n", encoding="utf-8")
+        try:
+            with self.assertRaisesRegex(evidence.EvidenceError, "unexpected flat files"):
+                audit(fixture["directory"])
+        finally:
+            unexpected.unlink()
+
+        rejected_agreement = self.directory / "local rejected agreement"
+        shutil.copytree(fixture["directory"], rejected_agreement)
+        agreement_path = rejected_agreement / "agreements.json"
+        agreement = evidence.load_json(agreement_path)
+        agreement["pairs"][0]["decisions"][0]["status"] = "REJECT"
+        agreement["pairs"][0]["decisions"][0]["reason"] = "test rejection"
+        self.write_json(agreement_path, agreement)
+        with self.assertRaisesRegex(evidence.EvidenceError, "Agreement"):
+            audit(rejected_agreement)
+
+        rejected_transfer = self.directory / "local rejected transfer"
+        shutil.copytree(fixture["directory"], rejected_transfer)
+        result_path = rejected_transfer / "arm64_linux_gcc.results.json"
+        result = evidence.load_json(result_path)
+        result["transfers"][0]["status"] = "REJECT_GRAPH"
+        result["transfers"][0]["reason"] = "test rejection"
+        self.write_json(result_path, result)
+        with self.assertRaisesRegex(evidence.EvidenceError, "non-PASS"):
+            audit(rejected_transfer)
+
+    def test_task7_launcher_static_contract_is_immutable_five_node_profile(self):
+        launcher = (
+            Path(__file__).resolve().parents[1]
+            / "tools"
+            / "run-relocatable-world.sh"
+        )
+        text = launcher.read_text(encoding="utf-8")
+        lowered = text.lower()
+        for forbidden in (":latest", "--fixture-context", "xoffset", "submodule"):
+            self.assertNotIn(forbidden, lowered)
+
+        mapping_match = re.search(
+            r"readonly -a LINUX_NODE_SPECS=\(\n(?P<body>.*?)\n\)", text, re.DOTALL
+        )
+        self.assertIsNotNone(mapping_match)
+        specs = re.findall(r'^\s*"([^\"]+)"\s*$', mapping_match.group("body"), re.MULTILINE)
+        self.assertEqual(
+            specs,
+            [
+                "x86_64_linux_gcc|linux/amd64|gcc|emulated",
+                "x86_64_linux_clang|linux/amd64|p2996|emulated",
+                "arm64_linux_gcc|linux/arm64|gcc|native",
+                "arm64_linux_clang|linux/arm64|p2996|native",
+            ],
+        )
+        for required_path in (
+            ".gitattributes",
+            "CMakeLists.txt",
+            "cmake",
+            "include/boost/typelayout",
+            "include/boost/typelayout.hpp",
+            "example/relocatable_world_demo",
+            "tools/relocatable_world_evidence.py",
+            "tools/run-relocatable-world.sh",
+            ".github/docker/toolchain-sources.lock",
+            ".github/docker/toolchains.lock",
+            ".github/scripts/validate-toolchain-locks.py",
+            ".github/scripts/verify-p2996-toolchain.sh",
+        ):
+            self.assertIn(required_path, text)
+        for required in (
+            "git diff --quiet HEAD --",
+            "git ls-files --eol --",
+            "git ls-files -s --",
+            "100755",
+            "docker buildx version",
+            "xcode-select -p",
+            "xcodebuild -version",
+            "xcrun --sdk macosx --show-sdk-path",
+            'python3 "${LOCK_VALIDATOR}"',
+            'bash -n "${MACOS_VERIFIER}"',
+            "read:packages",
+            "curl --config -",
+            "--password-stdin",
+            "--allow-unlocked-sdk",
+            "shlex.split",
+            "shlex.join",
+            "macOS verifier identity field",
+            "macOS verifier environment shape is not exact",
+            "--profile local-arm64-macos",
+            "--expect-nodes 5",
+            "--expect-pairs 10",
+            "--expect-named-permits 40",
+            "--expect-transfers 20",
+            "fallback-provenance",
+            "fallback-results",
+            "fallback-agreements",
+            "fallback-closure",
+            "DYLD_PRINT_LIBRARIES=1",
+            "otool -L",
+            "otool -l",
+        ):
+            self.assertIn(required, text)
+        self.assertGreaterEqual(text.count("--allow-unlocked-sdk"), 2)
+        self.assertIn(
+            "LOCAL COVERAGE 5/6: 3 native-architecture + 2 Docker-emulated; "
+            "Agreement 10/10; directed loads 20/20; authoritative closure unavailable",
+            text,
+        )
+
+    def test_task7_launcher_copies_validated_agreement_outside_evidence_for_matrix(self):
+        text = self.launcher_text()
+        self.assertIn("# BEGIN TASK7 AGREEMENT BYTE COPY", text)
+        script = self.launcher_python_block("AGREEMENT BYTE COPY")
+
+        evidence_directory = self.directory / "evidence output with spaces"
+        source = evidence_directory / "agreements.json"
+        destination = (
+            self.directory / "independent preflight with spaces" / "agreements.json"
+        )
+        evidence_directory.mkdir()
+        original = b'{"schema":1,"sentinel":"exact bytes"}\n'
+        source.write_bytes(original)
+
+        completed = subprocess.run(
+            [sys.executable, "-c", script, str(source), str(destination)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(destination.read_bytes(), original)
+        self.assertEqual(source.read_bytes(), original)
+        self.assertNotEqual(destination.parent, evidence_directory)
+
+        validation = text.index("record = module.validate_agreements(sys.argv[2])")
+        copy = text.index("# BEGIN TASK7 AGREEMENT BYTE COPY")
+        matrix = text.index('python3 "${EVIDENCE_TOOL}" prepare-matrix')
+        self.assertLess(validation, copy)
+        self.assertLess(copy, matrix)
+        self.assertIn(
+            'agreement_matrix_input="${preflight_root}/validated-agreement/agreements.json"',
+            text,
+        )
+        matrix_command = text[matrix : text.index("c++ -std=c++20", matrix)]
+        self.assertIn('--agreements "${agreement_matrix_input}"', matrix_command)
+        self.assertNotIn(
+            '--agreements "${output_directory}/agreements.json"', matrix_command
+        )
+
+    def test_task7_macos_final_runtime_validator_rejects_mixed_or_incomplete_logs(self):
+        text = self.launcher_text()
+        self.assertIn("# BEGIN TASK7 MACOS FINAL RUNTIME VALIDATOR", text)
+        script = self.launcher_python_block("MACOS FINAL RUNTIME VALIDATOR")
+
+        library_directory = self.directory / "toolchain root with spaces" / "lib"
+        library_directory.mkdir(parents=True)
+        expected_paths = []
+        for name in ("libc++.1.dylib", "libc++abi.1.dylib", "libunwind.1.dylib"):
+            path = library_directory / name
+            path.write_bytes(b"runtime")
+            expected_paths.append(str(path.resolve()))
+
+        otool_libraries = self.directory / "final binary libraries.txt"
+        otool_load_commands = self.directory / "final binary load commands.txt"
+        dyld_libraries = self.directory / "final binary dyld.txt"
+        valid_otool_libraries = (
+            "/tmp/final executable:\n"
+            "\t@rpath/libc++.1.dylib (compatibility version 1.0.0, "
+            "current version 2100.0.0)\n"
+            "\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, "
+            "current version 1345.100.2)\n"
+        )
+        valid_otool_load_commands = (
+            "Load command 1\n"
+            "          cmd LC_RPATH\n"
+            "      cmdsize 80\n"
+            f"         path {library_directory.resolve()} (offset 12)\n"
+        )
+        legacy_dyld = "\n".join(
+            f"dyld[1]: {path}" for path in expected_paths
+        ) + "\n"
+        dyld4_uuid = "01234567-89AB-CDEF-0123-456789ABCDEF"
+        valid_dyld = "\n".join(
+            f"dyld[1]: <{dyld4_uuid}> {path}" for path in expected_paths
+        ) + f"\ndyld[1]: <{dyld4_uuid}> /usr/lib/libSystem.B.dylib\n"
+
+        def validate(libraries, load_commands, dyld):
+            otool_libraries.write_text(libraries, encoding="utf-8")
+            otool_load_commands.write_text(load_commands, encoding="utf-8")
+            dyld_libraries.write_text(dyld, encoding="utf-8")
+            return subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    script,
+                    str(otool_libraries),
+                    str(otool_load_commands),
+                    str(dyld_libraries),
+                    str(library_directory),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        legacy = validate(
+            valid_otool_libraries, valid_otool_load_commands, legacy_dyld
+        )
+        self.assertEqual(legacy.returncode, 0, legacy.stderr)
+        dyld4 = validate(
+            valid_otool_libraries, valid_otool_load_commands, valid_dyld
+        )
+        self.assertEqual(dyld4.returncode, 0, dyld4.stderr)
+
+        attacks = (
+            (
+                valid_otool_libraries
+                + "\t/usr/lib/libc++.1.dylib (compatibility version 1.0.0, "
+                "current version 1700.0.0)\n",
+                valid_otool_load_commands,
+                valid_dyld,
+            ),
+            (
+                valid_otool_libraries,
+                valid_otool_load_commands
+                + "Load command 2\n"
+                "          cmd LC_RPATH\n"
+                "      cmdsize 48\n"
+                "         path /usr/lib (offset 12)\n",
+                valid_dyld,
+            ),
+            (
+                valid_otool_libraries,
+                valid_otool_load_commands,
+                valid_dyld
+                + f"dyld[1]: <{dyld4_uuid}> /usr/lib/libc++.1.dylib\n",
+            ),
+            (
+                valid_otool_libraries,
+                valid_otool_load_commands,
+                valid_dyld
+                + "dyld[1]: unexpected-prefix /usr/lib/libc++.1.dylib\n",
+            ),
+            (
+                valid_otool_libraries,
+                valid_otool_load_commands,
+                valid_dyld
+                + "dyld[1]: <not-a-uuid> /usr/lib/libSystem.B.dylib\n",
+            ),
+            (
+                valid_otool_libraries,
+                valid_otool_load_commands,
+                "\n".join(
+                    f"dyld[1]: <{dyld4_uuid}> {path}"
+                    for path in expected_paths[:-1]
+                )
+                + "\n",
+            ),
+        )
+        for attack in attacks:
+            with self.subTest(attack=attack):
+                rejected = validate(*attack)
+                self.assertNotEqual(rejected.returncode, 0, rejected.stderr)
+
+    def test_task7_amd64_smoke_validator_requires_exact_four_admission_keys(self):
+        text = self.launcher_text()
+        self.assertIn("# BEGIN TASK7 AMD64 SMOKE VALIDATOR", text)
+        script = self.launcher_python_block("AMD64 SMOKE VALIDATOR")
+        probe_path = self.directory / "amd64 smoke probe.json"
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "TYPELAYOUT_SMOKE_NODE": "x86_64_linux_gcc",
+                "COMPILER_FAMILY": "gcc",
+                "COMPILER_REVISION": "16.2.0",
+                "COMPILER_VERSION": "16.2.0",
+                "COMPILER_TARGET": "x86_64-linux-gnu",
+                "COMPILER_STDLIB": "libstdc++-20260801",
+            }
+        )
+        base = {
+            "node": "x86_64_linux_gcc",
+            "probe": {
+                "char_bit": 8,
+                "pointer_bits": 64,
+                "endian": "little",
+                "reflection": True,
+                "memcpy_object_lifetime": True,
+                "memcpy_array_lifetime": True,
+            },
+            "compiler": {
+                "family": "gcc",
+                "revision": "16.2.0",
+                "version": "16.2.0",
+                "target": "x86_64-linux-gnu",
+                "stdlib": "libstdc++-20260801",
+            },
+        }
+
+        def validate(admission):
+            self.write_json(probe_path, {**base, "admission": admission})
+            return subprocess.run(
+                [sys.executable, "-c", script, str(probe_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=environment,
+            )
+
+        expected = {key: True for key in evidence.KEYS}
+        accepted = validate(expected)
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        attacks = (
+            {},
+            {key: True for key in evidence.KEYS[:-1]},
+            {**expected, "UnexpectedType": True},
+            {**expected, evidence.KEYS[0]: False},
+        )
+        for admission in attacks:
+            with self.subTest(admission=admission):
+                rejected = validate(admission)
+                self.assertNotEqual(rejected.returncode, 0, rejected.stderr)
+
+    def test_task7_launcher_derives_unique_defaults_and_preserves_explicit_identity(self):
+        repository, fake_bin, tool_log, head = self.make_launcher_repository()
+
+        first = self.run_launcher(repository, fake_bin, tool_log)
+        second = self.run_launcher(repository, fake_bin, tool_log)
+        for completed in (first, second):
+            combined = completed.stdout + completed.stderr
+            self.assertNotEqual(completed.returncode, 0, combined)
+            self.assertIn("private GHCR credentials", combined)
+            self.assertRegex(combined, rf"(?m)^SOURCE SHA: {head}$")
+        first_run = re.search(
+            r"(?m)^RUN ID: (local-[0-9a-f]{12}-[0-9]{8}T[0-9]{6}Z-[0-9]+)$",
+            first.stdout + first.stderr,
+        )
+        second_run = re.search(
+            r"(?m)^RUN ID: (local-[0-9a-f]{12}-[0-9]{8}T[0-9]{6}Z-[0-9]+)$",
+            second.stdout + second.stderr,
+        )
+        self.assertIsNotNone(first_run)
+        self.assertIsNotNone(second_run)
+        self.assertNotEqual(first_run.group(1), second_run.group(1))
+
+        explicit_run = "manual-arm64-macos-20260828"
+        explicit = self.run_launcher(
+            repository,
+            fake_bin,
+            tool_log,
+            "--source-sha",
+            head,
+            "--run-id",
+            explicit_run,
+        )
+        combined = explicit.stdout + explicit.stderr
+        self.assertNotEqual(explicit.returncode, 0, combined)
+        self.assertRegex(combined, rf"(?m)^SOURCE SHA: {head}$")
+        self.assertRegex(combined, rf"(?m)^RUN ID: {explicit_run}$")
+
+    def test_task7_launcher_rejects_other_commit_before_work_or_evidence(self):
+        repository, fake_bin, tool_log, head = self.make_launcher_repository()
+        other = "0" * 40 if head != "0" * 40 else "1" * 40
+        completed = self.run_launcher(
+            repository,
+            fake_bin,
+            tool_log,
+            "--source-sha",
+            other,
+            "--run-id",
+            "mismatched-source",
+        )
+        combined = completed.stdout + completed.stderr
+        self.assertNotEqual(completed.returncode, 0, combined)
+        self.assertIn("does not equal current HEAD", combined)
+        self.assertFalse((repository / "build" / "relocatable-world-local").exists())
+        log = tool_log.read_text(encoding="utf-8") if tool_log.exists() else ""
+        for forbidden_action in ("docker login", "docker pull", "docker run", "cmake "):
+            self.assertNotIn(forbidden_action, log)
+
+    def test_task7_launcher_rechecks_clean_state_before_evidence_creation(self):
+        repository, fake_bin, tool_log, _ = self.make_launcher_repository()
+        completed = self.run_launcher(
+            repository,
+            fake_bin,
+            tool_log,
+            environment={
+                "TYPELAYOUT_GHCR_USER": "test-user",
+                "TYPELAYOUT_GHCR_TOKEN": "github_pat_launcher_read_packages_token",
+                "TYPELAYOUT_FAKE_VERIFIER_SUCCEED": "1",
+                "TYPELAYOUT_DIRTY_BEFORE_EVIDENCE": "1",
+            },
+        )
+        combined = completed.stdout + completed.stderr
+        self.assertNotEqual(completed.returncode, 0, combined)
+        self.assertRegex(
+            combined,
+            r"executable source (?:differs from HEAD|contains uncommitted)",
+        )
+        self.assertFalse((repository / "build" / "relocatable-world-local").exists())
+        log = tool_log.read_text(encoding="utf-8")
+        self.assertEqual(log.count("verify "), 2, log)
+
+    def test_task7_launcher_rechecks_implementation_at_three_required_phases(self):
+        text = self.launcher_text()
+        self.assertIn("verify_implementation_state() {", text)
+        calls = [
+            match.start()
+            for match in re.finditer(
+                r"(?m)^verify_implementation_state$", text
+            )
+        ]
+        self.assertEqual(len(calls), 3)
+        output_check = text.index(
+            'output_directory="${repository_root}/${OUTPUT_RELATIVE}"'
+        )
+        create_output = text.index('mkdir -p "$(dirname -- "${output_directory}")"')
+        audit = text.index('python3 "${EVIDENCE_TOOL}" audit-run')
+        final_line = text.index("printf '%s\\n' \"${FINAL_LINE}\"")
+        self.assertLess(calls[0], output_check)
+        self.assertLess(calls[1], create_output)
+        self.assertEqual(text[calls[1] + len("verify_implementation_state") : create_output].strip(), "")
+        self.assertLess(audit, calls[2])
+        self.assertLess(calls[2], final_line)
+
+    def test_task7_launcher_rejects_invalid_explicit_identity_values(self):
+        repository, fake_bin, tool_log, head = self.make_launcher_repository()
+        cases = (
+            (("--source-sha", ""), "--source-sha must be"),
+            (
+                ("--source-sha", head, "--run-id", ""),
+                "--run-id must use",
+            ),
+            (
+                ("--source-sha", head, "--run-id", "123456789.1"),
+                "--run-id must not use",
+            ),
+        )
+        for arguments, message in cases:
+            with self.subTest(arguments=arguments):
+                completed = self.run_launcher(
+                    repository, fake_bin, tool_log, *arguments
+                )
+                combined = completed.stdout + completed.stderr
+                self.assertNotEqual(completed.returncode, 0, combined)
+                self.assertIn(message, combined)
+                self.assertFalse(
+                    (repository / "build" / "relocatable-world-local").exists()
+                )
+
+    def test_task7_launcher_missing_credential_pair_never_prints_token(self):
+        repository, fake_bin, tool_log, _ = self.make_launcher_repository()
+        secret = "launcher-secret-must-not-appear"
+        completed = self.run_launcher(
+            repository,
+            fake_bin,
+            tool_log,
+            environment={"TYPELAYOUT_GHCR_TOKEN": secret},
+            xtrace=True,
+        )
+        combined = completed.stdout + completed.stderr
+        self.assertNotEqual(completed.returncode, 0, combined)
+        self.assertIn("private GHCR credentials", combined)
+        self.assertNotIn(secret, combined)
+        log = tool_log.read_text(encoding="utf-8") if tool_log.exists() else ""
+        self.assertNotIn(secret, log)
+        self.assertNotIn("docker login", log)
+        self.assertFalse((repository / "build" / "relocatable-world-local").exists())
+
+    def test_task7_launcher_disables_allexport_before_copying_credentials(self):
+        repository, fake_bin, tool_log, _ = self.make_launcher_repository()
+        secret = "github_pat_launcher_read_packages_token"
+        completed = self.run_launcher(
+            repository,
+            fake_bin,
+            tool_log,
+            environment={
+                "TYPELAYOUT_GHCR_USER": "test-user",
+                "TYPELAYOUT_GHCR_TOKEN": secret,
+                "explicit_token": "inherited-explicit-token-name",
+                "ghcr_token": "inherited-ghcr-token-name",
+            },
+            xtrace=True,
+            allexport=True,
+        )
+        combined = completed.stdout + completed.stderr
+        self.assertNotEqual(completed.returncode, 0, combined)
+        log = tool_log.read_text(encoding="utf-8") if tool_log.exists() else ""
+        self.assertNotIn("inherited credential environment", log)
+        self.assertIn("verify ", log)
+        self.assertNotIn(secret, combined)
+        self.assertNotIn(secret, log)
+
+    def test_task7_launcher_rejects_unsafe_explicit_credentials_without_leaking(self):
+        repository, fake_bin, tool_log, _ = self.make_launcher_repository()
+        secret = "launcher-secret-must-not-appear\ninjected-curl-config"
+        completed = self.run_launcher(
+            repository,
+            fake_bin,
+            tool_log,
+            environment={
+                "TYPELAYOUT_GHCR_USER": "test-user",
+                "TYPELAYOUT_GHCR_TOKEN": secret,
+            },
+            xtrace=True,
+        )
+        combined = completed.stdout + completed.stderr
+        self.assertNotEqual(completed.returncode, 0, combined)
+        self.assertIn("private GHCR credential value is unsafe", combined)
+        self.assertNotIn(secret, combined)
+        self.assertNotIn("injected-curl-config", combined)
+        log = tool_log.read_text(encoding="utf-8") if tool_log.exists() else ""
+        self.assertNotIn("docker login", log)
+        self.assertFalse((repository / "build" / "relocatable-world-local").exists())
+
+    def test_task7_launcher_requires_both_amd64_smokes_before_evidence(self):
+        repository, fake_bin, tool_log, _ = self.make_launcher_repository()
+        completed = self.run_launcher(
+            repository,
+            fake_bin,
+            tool_log,
+            environment={
+                "TYPELAYOUT_GHCR_USER": "test-user",
+                "TYPELAYOUT_GHCR_TOKEN": "github_pat_launcher_read_packages_token",
+                "TYPELAYOUT_FAIL_SECOND_SMOKE": "1",
+            },
+        )
+        combined = completed.stdout + completed.stderr
+        self.assertNotEqual(completed.returncode, 0, combined)
+        log = tool_log.read_text(encoding="utf-8")
+        smoke_lines = [
+            line
+            for line in log.splitlines()
+            if line.startswith("docker run ") and "TYPELAYOUT_SMOKE_NODE=" in line
+        ]
+        self.assertEqual(len(smoke_lines), 2, log)
+        self.assertIn("TYPELAYOUT_SMOKE_NODE=x86_64_linux_gcc", smoke_lines[0])
+        self.assertIn("linux/amd64", smoke_lines[0])
+        self.assertIn("TYPELAYOUT_SMOKE_NODE=x86_64_linux_clang", smoke_lines[1])
+        self.assertIn("linux/amd64", smoke_lines[1])
+        self.assertNotIn("verify ", log)
+        self.assertFalse((repository / "build" / "relocatable-world-local").exists())
 
 
 if __name__ == "__main__":

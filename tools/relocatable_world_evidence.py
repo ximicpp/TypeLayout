@@ -4,6 +4,7 @@
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -19,6 +20,48 @@ NODES = (
 
 LINUX_PLATFORMS = ("linux/amd64", "linux/arm64")
 MACOS_NODES = ("arm64_macos_clang", "x86_64_macos_clang")
+P2996_CMAKE_FLAGS = (
+    "-DCMAKE_BUILD_TYPE=Release",
+    "-DLLVM_ENABLE_PROJECTS=clang",
+    "-DLLVM_ENABLE_RUNTIMES=libcxx;libcxxabi;libunwind",
+    "-DLLVM_INCLUDE_TESTS=OFF",
+    "-DCLANG_INCLUDE_TESTS=OFF",
+    "-DLLVM_INCLUDE_EXAMPLES=OFF",
+    "-DLLVM_INCLUDE_BENCHMARKS=OFF",
+    "-DLLVM_INCLUDE_DOCS=OFF",
+    "-DCLANG_BUILD_EXAMPLES=OFF",
+    "-DCLANG_DEFAULT_CXX_STDLIB=libc++",
+    "-DLLVM_INSTALL_TOOLCHAIN_ONLY=ON",
+    "-DLLVM_PARALLEL_LINK_JOBS=1",
+)
+P2996_PLATFORM_CMAKE_FLAGS = {
+    "linux/amd64": (
+        "-DCMAKE_INSTALL_PREFIX=/opt/p2996-toolchain",
+        "-DLLVM_TARGETS_TO_BUILD=X86",
+        "-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON",
+    ),
+    "linux/arm64": (
+        "-DCMAKE_INSTALL_PREFIX=/opt/p2996-toolchain",
+        "-DLLVM_TARGETS_TO_BUILD=AArch64",
+        "-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON",
+    ),
+    "macos/arm64": (
+        "-DCMAKE_INSTALL_PREFIX=${TOOLCHAIN_ROOT}",
+        "-DCMAKE_OSX_ARCHITECTURES=arm64",
+        "-DCMAKE_OSX_SYSROOT=${SDKROOT}",
+        "-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0",
+        "-DLLVM_TARGETS_TO_BUILD=AArch64",
+        "-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF",
+    ),
+    "macos/x86_64": (
+        "-DCMAKE_INSTALL_PREFIX=${TOOLCHAIN_ROOT}",
+        "-DCMAKE_OSX_ARCHITECTURES=x86_64",
+        "-DCMAKE_OSX_SYSROOT=${SDKROOT}",
+        "-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0",
+        "-DLLVM_TARGETS_TO_BUILD=X86",
+        "-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=OFF",
+    ),
+}
 LINUX_POLICY_NODES = {
     ("gcc", "linux/amd64"): "x86_64_linux_gcc",
     ("p2996", "linux/amd64"): "x86_64_linux_clang",
@@ -754,6 +797,7 @@ def load_node_toolchain_policy(sources_lock, outputs_lock, node):
             "runtimes",
             "llvm_targets",
             "cmake_flags",
+            "platform_cmake_flags",
         ),
         "source lock.p2996",
     )
@@ -837,9 +881,26 @@ def load_node_toolchain_policy(sources_lock, outputs_lock, node):
         raise EvidenceError(
             "source lock.p2996.llvm_targets must be X86 and AArch64"
         )
-    _expect_string_array(
+    cmake_flags = _expect_string_array(
         clang_source["cmake_flags"], "source lock.p2996.cmake_flags"
     )
+    if cmake_flags != list(P2996_CMAKE_FLAGS):
+        raise EvidenceError("source lock.p2996.cmake_flags are not canonical")
+    platform_cmake_flags = _expect_exact_keys(
+        clang_source["platform_cmake_flags"],
+        P2996_PLATFORM_CMAKE_FLAGS,
+        "source lock.p2996.platform_cmake_flags",
+    )
+    for platform, expected_flags in P2996_PLATFORM_CMAKE_FLAGS.items():
+        actual_flags = _expect_string_array(
+            platform_cmake_flags[platform],
+            f"source lock.p2996.platform_cmake_flags.{platform}",
+        )
+        if actual_flags != list(expected_flags):
+            raise EvidenceError(
+                "source lock.p2996.platform_cmake_flags."
+                f"{platform} are not canonical"
+            )
 
     linux_source = _expect_exact_keys(
         sources["linux"],
@@ -919,6 +980,7 @@ def load_node_toolchain_policy(sources_lock, outputs_lock, node):
             "runners",
             "buildx_version",
             "buildkit_image",
+            "dockerfile_frontend",
         ),
         "source lock.linux.docker",
     )
@@ -933,6 +995,10 @@ def load_node_toolchain_policy(sources_lock, outputs_lock, node):
     _expect_digest_qualified_image(
         docker_source["buildkit_image"],
         "source lock.linux.docker.buildkit_image",
+    )
+    _expect_digest_qualified_image(
+        docker_source["dockerfile_frontend"],
+        "source lock.linux.docker.dockerfile_frontend",
     )
     docker_runners = _expect_exact_keys(
         docker_source["runners"],
@@ -1067,9 +1133,11 @@ def load_node_toolchain_policy(sources_lock, outputs_lock, node):
             _expect_nonempty_string(
                 output_toolchain[key], f"output lock.linux.{toolchain}.{key}"
             )
-        _expect_digest_reference(
-            output_toolchain["index_digest"],
-            f"output lock.linux.{toolchain}.index_digest",
+        artifact_digests.append(
+            _expect_digest_reference(
+                output_toolchain["index_digest"],
+                f"output lock.linux.{toolchain}.index_digest",
+            )
         )
         if (
             output_toolchain["compiler_revision"]
@@ -1089,16 +1157,46 @@ def load_node_toolchain_policy(sources_lock, outputs_lock, node):
                 ("manifest_digest", "target"),
                 f"output lock.linux.{toolchain}.platforms.{platform}",
             )
-            _expect_nonempty_string(
+            target = _expect_nonempty_string(
                 platform_output["target"],
                 f"output lock.linux.{toolchain}.platforms.{platform}.target",
             )
+            target_prefix = (
+                "x86_64-" if platform == "linux/amd64" else "aarch64-"
+            )
+            if toolchain == "gcc":
+                if not target.startswith(target_prefix):
+                    raise EvidenceError(
+                        "output lock Linux GCC target does not match "
+                        f"{platform}: {target!r}"
+                    )
+            else:
+                expected_target = target_prefix + "unknown-linux-gnu"
+                if target != expected_target:
+                    raise EvidenceError(
+                        "output lock Linux P2996 target does not match "
+                        f"{platform}: {target!r}"
+                    )
             artifact_digests.append(
                 _expect_digest_reference(
                     platform_output["manifest_digest"],
                     f"output lock.linux.{toolchain}.platforms."
                     f"{platform}.manifest_digest",
                 )
+            )
+
+        if toolchain == "gcc":
+            if output_toolchain["compiler_version"] != "16.2.0":
+                raise EvidenceError(
+                    "output lock Linux GCC compiler_version must be exactly 16.2.0"
+                )
+            if re.fullmatch(r"libstdc\+\+-[0-9]+", output_toolchain["stdlib"]) is None:
+                raise EvidenceError(
+                    "output lock Linux GCC stdlib must match libstdc++-digits"
+                )
+        elif re.fullmatch(r"libc\+\+-[0-9]+", output_toolchain["stdlib"]) is None:
+            raise EvidenceError(
+                "output lock Linux P2996 stdlib must match libc++-digits"
             )
 
     for macos_node in MACOS_NODES:
@@ -1124,6 +1222,16 @@ def load_node_toolchain_policy(sources_lock, outputs_lock, node):
         ) + APPLE_IDENTITY_KEYS:
             _expect_nonempty_string(
                 output_node[key], f"output lock.macos.{macos_node}.{key}"
+            )
+        source_node = source_macos_nodes[macos_node]
+        expected_target = (
+            f"{source_node['architecture']}-apple-macosx"
+            f"{source_node['deployment_target']}.0"
+        )
+        if output_node["target"] != expected_target:
+            raise EvidenceError(
+                f"output lock macOS target differs for {macos_node}: "
+                f"{output_node['target']!r}"
             )
         _expect_immutable_archive_url(
             output_node["url"],
@@ -1158,8 +1266,29 @@ def load_node_toolchain_policy(sources_lock, outputs_lock, node):
                     f"for {macos_node}"
                 )
 
-    if len(set(artifact_digests)) != len(NODES):
-        raise EvidenceError("output lock node artifact digests must be unique")
+        if re.fullmatch(r"libc\+\+-[0-9]+", output_node["stdlib"]) is None:
+            raise EvidenceError(
+                f"output lock macOS P2996 stdlib must match libc++-digits for {macos_node}"
+            )
+
+    p2996_identities = {
+        (
+            output_linux["p2996"]["compiler_version"],
+            output_linux["p2996"]["stdlib"],
+        )
+    }
+    p2996_identities.update(
+        (record["compiler_version"], record["stdlib"])
+        for record in output_macos.values()
+    )
+    if len(p2996_identities) != 1:
+        raise EvidenceError(
+            "all Linux and macOS P2996 outputs must have identical "
+            "compiler_version and stdlib identities"
+        )
+
+    if len(artifact_digests) != 8 or len(set(artifact_digests)) != 8:
+        raise EvidenceError("all eight output lock artifact digests must be unique")
 
     if _is_macos(node):
         source_node = _require_fields(
