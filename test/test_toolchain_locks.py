@@ -170,6 +170,27 @@ def bash_path(path):
 class ToolchainLockTests(unittest.TestCase):
     maxDiff = None
 
+    @staticmethod
+    def canonical_apt_bootstrap_stage():
+        return """builder
+RUN set -eu; \\
+    bootstrap_snapshot="http://${DEBIAN_SNAPSHOT#https://}"; \\
+    printf 'deb [check-valid-until=no signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] %s trixie main\\n' "${bootstrap_snapshot}" \\
+        > /etc/apt/sources.list; \\
+    rm -f /etc/apt/sources.list.d/debian.sources; \\
+    apt-get -o Acquire::Check-Valid-Until=false update; \\
+    apt-get install -y --no-install-recommends \\
+        ca-certificates=20250419; \\
+    rm -rf /var/lib/apt/lists/*; \\
+    printf 'deb [check-valid-until=no signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] %s trixie main\\n' "${DEBIAN_SNAPSHOT}" \\
+        > /etc/apt/sources.list; \\
+    apt-get -o Acquire::Check-Valid-Until=false update; \\
+    apt-get install -y --no-install-recommends \\
+        build-essential=12.12 \\
+        ca-certificates=20250419; \\
+    rm -rf /var/lib/apt/lists/*
+"""
+
     def setUp(self):
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary_directory.name)
@@ -658,6 +679,29 @@ class ToolchainLockTests(unittest.TestCase):
 
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("Dockerfile.gcc16", completed.stderr)
+
+    def test_apt_validator_accepts_authenticated_ca_bootstrap_then_https(self):
+        validator = self.load_script(VALIDATOR, "toolchain_apt_bootstrap_test")
+        sources = self.make_sources()
+        stage = self.canonical_apt_bootstrap_stage()
+
+        validator._validate_apt_stage(stage, sources, "fixture builder")
+        self.assertEqual(
+            validator._locked_packages_in_stage(stage, "fixture builder"),
+            ["build-essential=12.12", "ca-certificates=20250419"],
+        )
+
+    def test_apt_validator_rejects_ignored_https_refresh_failure(self):
+        validator = self.load_script(
+            VALIDATOR, "toolchain_apt_refresh_failure_test"
+        )
+        sources = self.make_sources()
+        update = "apt-get -o Acquire::Check-Valid-Until=false update"
+        prefix, suffix = self.canonical_apt_bootstrap_stage().rsplit(update, 1)
+        stage = prefix + update + " || true" + suffix
+
+        with self.assertRaises(validator.LockError):
+            validator._validate_apt_stage(stage, sources, "fixture builder")
 
     def test_package_parser_is_scoped_to_install_and_expands_ninja_mapping(self):
         validator = self.load_script(VALIDATOR, "toolchain_package_parser_test")

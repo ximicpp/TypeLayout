@@ -215,10 +215,10 @@ RECIPE_PATHS = (
 # The workflow joins this table only after Task 5 freezes its final bytes.
 REVIEWED_RECIPE_SHA256 = {
     ".github/docker/Dockerfile.gcc16": (
-        "9568ddbf9232b744135d7d58c29e89cfe09b91b244a4a72ef5ccd73535232989"
+        "60b9e77c8a4e054b994b8dc5ff0a646587f92d09ed98f39e0afd7acbdc8f104c"
     ),
     ".github/docker/Dockerfile.p2996": (
-        "423e10c979b4a49a7ee091b43b660aa067a00ee8c90211c9138937072c42ad10"
+        "9df5355b7a0e5f1af96779767f3436fa1ce44913f2dab311eedd53eb1f938304"
     ),
     ".github/docker/docker-bake.hcl": (
         "ec7978e3b34056c46745623579889d416db0f5c6faa9df8a86bb933633e7f18b"
@@ -827,18 +827,20 @@ def _locked_packages_in_stage(stage, where):
         if not line.lstrip().startswith("#")
         and re.search(r"\bapt(?:-get)?\b[^\n]*\binstall\b", line)
     ]
-    if len(install_lines) != 1:
-        raise LockError(f"{where} must contain exactly one package install command")
-    install_command = install_lines[0].strip()
-    if install_command not in (
-        f"{marker} \\",
-        f"&& {marker} \\",
-        f"RUN {marker} \\",
-    ):
-        raise LockError(f"{where} package install command is not canonical")
+    if len(install_lines) not in (1, 2):
+        raise LockError(f"{where} must contain one locked install and optional CA bootstrap")
+    for install_line in install_lines:
+        install_command = install_line.strip()
+        if install_command not in (
+            f"{marker} \\",
+            f"&& {marker} \\",
+            f"RUN {marker} \\",
+        ):
+            raise LockError(f"{where} package install command is not canonical")
     starts = [index for index, line in enumerate(lines) if marker in line]
-    if len(starts) != 1:
-        raise LockError(f"{where} must contain exactly one locked apt install command")
+    if len(starts) not in (1, 2):
+        raise LockError(f"{where} must contain one locked install and optional CA bootstrap")
+    locked_start = starts[-1]
     package_pattern = re.compile(
         r"[a-z][a-z0-9.+-]*(?::(?:amd64|arm64))?=[^\s'\";\\]+"
     )
@@ -851,7 +853,7 @@ def _locked_packages_in_stage(stage, where):
         raise LockError(f"{where} contains an extra Ninja package assignment")
     packages = []
     used_ninja_mapping = False
-    for line in lines[starts[0] + 1 :]:
+    for line in lines[locked_start + 1 :]:
         token = line.strip()
         if token.endswith("\\"):
             token = token[:-1].rstrip()
@@ -895,22 +897,84 @@ def _validate_apt_stage(stage, sources, where):
     apt_commands = re.findall(
         r"(?<![A-Za-z0-9_.-])(?:apt-get|apt)(?=\s)", uncommented
     )
-    if len(apt_commands) != 2:
-        raise LockError(f"{where} must contain exactly update and locked apt install")
+    if len(apt_commands) != 4:
+        raise LockError(
+            f"{where} must contain exactly the CA bootstrap and locked apt commands"
+        )
     update = "apt-get -o Acquire::Check-Valid-Until=false update"
     install = "apt-get install -y --no-install-recommends"
-    if uncommented.count(update) != 1 or uncommented.count(install) != 1:
+    if uncommented.count(update) != 2 or uncommented.count(install) != 2:
         raise LockError(f"{where} contains a noncanonical apt command")
+    update_lines = [
+        line.strip() for line in uncommented.splitlines() if update in line
+    ]
+    if update_lines != [f"{update}; \\", f"{update}; \\"]:
+        raise LockError(f"{where} may not ignore a Debian index refresh failure")
     apt = sources["linux"]["apt"]
-    source_line = (
-        "printf 'deb [check-valid-until=no] %s "
+    source_options = (
+        "check-valid-until=no "
+        "signed-by=/usr/share/keyrings/debian-archive-keyring.gpg"
+    )
+    bootstrap_assignment = (
+        'bootstrap_snapshot="http://${DEBIAN_SNAPSHOT#https://}"'
+    )
+    bootstrap_source_line = (
+        f"printf 'deb [{source_options}] %s "
+        f"{apt['suites'][0]} {apt['components'][0]}\\n' "
+        '"${bootstrap_snapshot}"'
+    )
+    secure_source_line = (
+        f"printf 'deb [{source_options}] %s "
         f"{apt['suites'][0]} {apt['components'][0]}\\n' "
         '"${DEBIAN_SNAPSHOT}"'
     )
-    if uncommented.count(source_line) != 1:
-        raise LockError(f"{where} does not consume the locked Debian snapshot")
+    ca_packages = {
+        package
+        for packages in sources["linux"]["packages"].values()
+        for package in packages
+        if package.startswith("ca-certificates=")
+    }
+    if len(ca_packages) != 1:
+        raise LockError("linux package locks disagree on ca-certificates")
+    bootstrap_install = (
+        f"{install} \\\n        {next(iter(ca_packages))};"
+    )
+    if (
+        uncommented.count(bootstrap_assignment) != 1
+        or uncommented.count(bootstrap_source_line) != 1
+        or uncommented.count(secure_source_line) != 1
+        or uncommented.count(bootstrap_install) != 1
+    ):
+        raise LockError(f"{where} does not use the canonical authenticated CA bootstrap")
     if uncommented.count("${DEBIAN_SNAPSHOT}") != 1:
         raise LockError(f"{where} reuses or bypasses the locked Debian snapshot")
+    forbidden = (
+        "trusted=yes",
+        "AllowInsecureRepositories",
+        "AllowUnauthenticated",
+        "Verify-Peer=false",
+        "Verify-Host=false",
+    )
+    if any(token in uncommented for token in forbidden):
+        raise LockError(f"{where} weakens Debian repository authentication")
+    first_update = uncommented.index(update)
+    second_update = uncommented.index(update, first_update + len(update))
+    first_install = uncommented.index(install)
+    second_install = uncommented.index(install, first_install + len(install))
+    first_cleanup = uncommented.find(
+        "rm -rf /var/lib/apt/lists/*", first_install + len(install)
+    )
+    if not (
+        uncommented.index(bootstrap_assignment)
+        < uncommented.index(bootstrap_source_line)
+        < first_update
+        < first_install
+        < first_cleanup
+        < uncommented.index(secure_source_line)
+        < second_update
+        < second_install
+    ):
+        raise LockError(f"{where} does not refresh indexes after CA bootstrap")
 
 
 def _continued_command_options(

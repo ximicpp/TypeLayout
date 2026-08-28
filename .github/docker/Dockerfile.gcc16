@@ -21,11 +21,19 @@ RUN set -eu; \
     test "${BUILDARCH}" = "${TARGETARCH}"; \
     test "${BUILDARCH}" = "${native_arch}"
 
-RUN printf 'deb [check-valid-until=no] %s trixie main\n' "${DEBIAN_SNAPSHOT}" \
-        > /etc/apt/sources.list \
-    && rm -f /etc/apt/sources.list.d/debian.sources \
-    && apt-get -o Acquire::Check-Valid-Until=false update \
-    && apt-get install -y --no-install-recommends \
+RUN set -eu; \
+    bootstrap_snapshot="http://${DEBIAN_SNAPSHOT#https://}"; \
+    printf 'deb [check-valid-until=no signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] %s trixie main\n' "${bootstrap_snapshot}" \
+        > /etc/apt/sources.list; \
+    rm -f /etc/apt/sources.list.d/debian.sources; \
+    apt-get -o Acquire::Check-Valid-Until=false update; \
+    apt-get install -y --no-install-recommends \
+        ca-certificates=20250419; \
+    rm -rf /var/lib/apt/lists/*; \
+    printf 'deb [check-valid-until=no signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] %s trixie main\n' "${DEBIAN_SNAPSHOT}" \
+        > /etc/apt/sources.list; \
+    apt-get -o Acquire::Check-Valid-Until=false update; \
+    apt-get install -y --no-install-recommends \
         build-essential=12.12 \
         bison=2:3.8.2+dfsg-1+b2 \
         ca-certificates=20250419 \
@@ -39,8 +47,8 @@ RUN printf 'deb [check-valid-until=no] %s trixie main\n' "${DEBIAN_SNAPSHOT}" \
         xz-utils=5.8.1-1+deb13u1 \
         bzip2=1.0.8-6 \
         zlib1g-dev=1:1.3.dfsg+really1.3.1-1+b1 \
-        libzstd-dev=1.5.7+dfsg-1 \
-    && rm -rf /var/lib/apt/lists/*
+        libzstd-dev=1.5.7+dfsg-1; \
+    rm -rf /var/lib/apt/lists/*
 
 ARG GCC_URL=https://gcc.gnu.org/pub/gcc/releases/gcc-16.2.0/gcc-16.2.0.tar.xz
 ARG GCC_FILE=gcc-16.2.0.tar.xz
@@ -130,9 +138,16 @@ RUN set -eu; \
         arm64) ninja_package='ninja-build:arm64=1.12.1-1+b1' ;; \
         *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
-    printf 'deb [check-valid-until=no] %s trixie main\n' "${DEBIAN_SNAPSHOT}" \
+    bootstrap_snapshot="http://${DEBIAN_SNAPSHOT#https://}"; \
+    printf 'deb [check-valid-until=no signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] %s trixie main\n' "${bootstrap_snapshot}" \
         > /etc/apt/sources.list; \
     rm -f /etc/apt/sources.list.d/debian.sources; \
+    apt-get -o Acquire::Check-Valid-Until=false update; \
+    apt-get install -y --no-install-recommends \
+        ca-certificates=20250419; \
+    rm -rf /var/lib/apt/lists/*; \
+    printf 'deb [check-valid-until=no signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] %s trixie main\n' "${DEBIAN_SNAPSHOT}" \
+        > /etc/apt/sources.list; \
     apt-get -o Acquire::Check-Valid-Until=false update; \
     apt-get install -y --no-install-recommends \
         binutils=2.44-3 \
