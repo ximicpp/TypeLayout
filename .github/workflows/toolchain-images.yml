@@ -383,8 +383,6 @@ jobs:
             --builder "${BUILDER_NAME}" \
             --file .github/docker/docker-bake.hcl \
             --metadata-file build/candidate-gcc-amd64/build-metadata.json \
-            --set "${BAKE_TARGET}.provenance=false" \
-            --set "${BAKE_TARGET}.sbom=false" \
             --set "${BAKE_TARGET}.output=type=image,push-by-digest=true,name-canonical=true,oci-mediatypes=true,push=true" \
             "gcc16-amd64"
 
@@ -659,8 +657,6 @@ jobs:
             --builder "${BUILDER_NAME}" \
             --file .github/docker/docker-bake.hcl \
             --metadata-file build/candidate-gcc-arm64/build-metadata.json \
-            --set "${BAKE_TARGET}.provenance=false" \
-            --set "${BAKE_TARGET}.sbom=false" \
             --set "${BAKE_TARGET}.output=type=image,push-by-digest=true,name-canonical=true,oci-mediatypes=true,push=true" \
             "gcc16-arm64"
 
@@ -934,8 +930,6 @@ jobs:
             --builder "${BUILDER_NAME}" \
             --file .github/docker/docker-bake.hcl \
             --metadata-file build/candidate-p2996-amd64/build-metadata.json \
-            --set "${BAKE_TARGET}.provenance=false" \
-            --set "${BAKE_TARGET}.sbom=false" \
             --set "${BAKE_TARGET}.output=type=image,push-by-digest=true,name-canonical=true,oci-mediatypes=true,push=true" \
             "p2996-amd64"
 
@@ -1248,8 +1242,6 @@ jobs:
             --builder "${BUILDER_NAME}" \
             --file .github/docker/docker-bake.hcl \
             --metadata-file build/candidate-p2996-arm64/build-metadata.json \
-            --set "${BAKE_TARGET}.provenance=false" \
-            --set "${BAKE_TARGET}.sbom=false" \
             --set "${BAKE_TARGET}.output=type=image,push-by-digest=true,name-canonical=true,oci-mediatypes=true,push=true" \
             "p2996-arm64"
 

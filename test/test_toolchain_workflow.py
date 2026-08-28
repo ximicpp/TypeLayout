@@ -858,8 +858,9 @@ rollback_alias() {
                     "push-by-digest=true,name-canonical=true,oci-mediatypes=true,push=true",
                     block,
                 )
-                self.assertIn("provenance=false", block)
-                self.assertIn("sbom=false", block)
+                self.assertNotIn("--provenance", block)
+                self.assertNotIn("--sbom", block)
+                self.assertNotRegex(block, r"(?i)\.(?:provenance|sbom)=")
                 self.assertIn("manifest_digest", block)
                 self.assertIn("/tmp/toolchain-probe", block)
                 self.assertIn("relocatable_world_platform_probe", block)

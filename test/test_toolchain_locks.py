@@ -1017,16 +1017,31 @@ RUN set -eu; \\
                 (self.root / relative).write_bytes((ROOT / relative).read_bytes())
 
         workflow = ".github/workflows/toolchain-images.yml"
-        completed = self.rebase_recipe(
-            workflow,
-            lambda text: text.replace(
-                '            --set "${BAKE_TARGET}.provenance=false" \\\n',
-                '            --set "${BAKE_TARGET}.args.UNREVIEWED=1" \\\n'
-                '            --set "${BAKE_TARGET}.provenance=false" \\\n',
-                1,
-            ),
+        output_override = (
+            '            --set "${BAKE_TARGET}.output=type=image,'
+            'push-by-digest=true,name-canonical=true,oci-mediatypes=true,push=true" \\\n'
         )
-        self.assertNotEqual(completed.returncode, 0, completed.stdout)
+        for override in (
+            "args.UNREVIEWED=1",
+            "provenance=true",
+            "sbom=0",
+        ):
+            with self.subTest(kind="workflow", override=override):
+                completed = self.rebase_recipe(
+                    workflow,
+                    lambda text, override=override: text.replace(
+                        output_override,
+                        f'            --set "${{BAKE_TARGET}}.{override}" \\\n'
+                        + output_override,
+                        1,
+                    ),
+                )
+                self.assertNotEqual(completed.returncode, 0, completed.stdout)
+                self.assertIn(
+                    "must not override bake build inputs",
+                    completed.stderr,
+                )
+                (self.root / workflow).write_bytes((ROOT / workflow).read_bytes())
 
     def test_rebased_frozen_workflow_rejects_unreviewed_bytes(self):
         relative = ".github/workflows/toolchain-images.yml"

@@ -230,7 +230,7 @@ REVIEWED_RECIPE_SHA256 = {
         "bea411c7367438b9e603a1a3208de0e0f830582a5716c5429e5306da2161540f"
     ),
     ".github/workflows/toolchain-images.yml": (
-        "639fccc545c8118100eccf941d6649bf81351729689da784e5255b74cd4ac1f0"
+        "a3c4b556546ea72ade8b441bb58df3cbb202dc9f0ff0ecac733a2c4329ffd5f1"
     ),
 }
 
@@ -1091,7 +1091,8 @@ def _validate_workflow_build_inputs(content):
         if "--set" not in line:
             continue
         if re.search(
-            r"\.((?:args)(?:\.|=)|contexts?(?:\.|=)|dockerfile=|platforms?=)",
+            r"\.((?:args)(?:\.|=)|contexts?(?:\.|=)|dockerfile=|platforms?="
+            r"|provenance=|sbom=)",
             line,
             re.IGNORECASE,
         ):
