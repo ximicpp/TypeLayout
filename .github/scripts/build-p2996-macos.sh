@@ -154,7 +154,7 @@ available_memory="$(vm_stat | awk '
         gsub(/[^0-9]/, "", pages)
         available_pages += pages
     }
-    END { printf "%.0f\\n", page_size * available_pages }
+    END { printf "%.0f\n", page_size * available_pages }
 ')"
 if [[ -z "${available_memory}" || "${available_memory}" == 0 ]]; then
     available_memory="$(sysctl -n hw.memsize)"

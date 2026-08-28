@@ -224,13 +224,13 @@ REVIEWED_RECIPE_SHA256 = {
         "ec7978e3b34056c46745623579889d416db0f5c6faa9df8a86bb933633e7f18b"
     ),
     ".github/scripts/build-p2996-macos.sh": (
-        "07001c96ae7235a69b5d938f2f33ace1457fab99aedb1a07ef30cefde2f741fd"
+        "5dd189f68eed06050fd53dd8aef3e6eba00bfcd3ba89c18eb352a98836f2393a"
     ),
     ".github/scripts/verify-p2996-toolchain.sh": (
         "bea411c7367438b9e603a1a3208de0e0f830582a5716c5429e5306da2161540f"
     ),
     ".github/workflows/toolchain-images.yml": (
-        "1a1e62e98f9a1b43de5263e70ea04f38326caaec1d99f6cdfa35d4001e9de433"
+        "639fccc545c8118100eccf941d6649bf81351729689da784e5255b74cd4ac1f0"
     ),
 }
 

@@ -2193,6 +2193,46 @@ export -f xcodebuild xcode-select xcrun zstd shasum otool uname
         self.assertIn('record["flags"]', verify_content)
         self.assertIn("shlex.split(sys.argv[1])", verify_content)
 
+    def test_macos_available_memory_probe_emits_only_decimal_bytes(self):
+        build_content = (
+            ROOT / ".github/scripts/build-p2996-macos.sh"
+        ).read_text(encoding="utf-8")
+        match = re.search(
+            r"available_memory=\"\$\(vm_stat \| awk '\n(.*?)\n'\)\"",
+            build_content,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "missing vm_stat memory probe")
+        with tempfile.TemporaryDirectory() as directory:
+            temporary = Path(directory)
+            awk_script = temporary / "memory.awk"
+            vm_stat = temporary / "vm-stat.txt"
+            awk_script.write_text(match.group(1), encoding="utf-8")
+            vm_stat.write_text(
+                "Mach Virtual Memory Statistics: (page size of 4096 bytes)\n"
+                "Pages free:                               2.\n"
+                "Pages inactive:                           3.\n"
+                "Pages speculative:                        1.\n",
+                encoding="utf-8",
+            )
+            command = ["awk", "-f", str(awk_script), str(vm_stat)]
+            if os.name == "nt":
+                command = [
+                    "wsl",
+                    "awk",
+                    "-f",
+                    bash_path(awk_script),
+                    bash_path(vm_stat),
+                ]
+            completed = subprocess.run(
+                command,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout, "24576\n")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -333,8 +333,37 @@ jobs:
               raise SystemExit(f"Buildx version mismatch: {output!r} != {expected!r}")
           PY
           docker buildx inspect "${BUILDER_NAME}" --bootstrap | tee buildx-inspect.txt
-          grep -F 'Driver: docker-container' buildx-inspect.txt
-          grep -F "${LOCKED_BUILDKIT_IMAGE}" buildx-inspect.txt
+          python3 - "${LOCKED_BUILDKIT_IMAGE}" buildx-inspect.txt <<'PY'
+          # BEGIN BUILDX INSPECT VERIFIER
+          import shlex
+          import sys
+
+          expected_image, path = sys.argv[1:]
+          fields = {}
+          with open(path, encoding="utf-8") as source:
+              for line in source:
+                  key, separator, value = line.partition(":")
+                  key = key.strip()
+                  if separator and key in {"Driver", "Driver Options"}:
+                      fields.setdefault(key, []).append(value.strip())
+
+          if fields.get("Driver") != ["docker-container"]:
+              raise SystemExit(f"unexpected Buildx driver fields: {fields.get('Driver')!r}")
+          driver_options = fields.get("Driver Options", [])
+          if len(driver_options) != 1:
+              raise SystemExit(f"unexpected Buildx driver option fields: {driver_options!r}")
+          parsed_options = {}
+          for option in shlex.split(driver_options[0]):
+              name, separator, value = option.partition("=")
+              if not separator or not name or name in parsed_options:
+                  raise SystemExit(f"malformed Buildx driver options: {driver_options[0]!r}")
+              parsed_options[name] = value
+          if parsed_options != {"image": expected_image}:
+              raise SystemExit(
+                  f"BuildKit driver options mismatch: {parsed_options!r}"
+              )
+          # END BUILDX INSPECT VERIFIER
+          PY
 
       - name: Log in to private GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
@@ -580,8 +609,37 @@ jobs:
               raise SystemExit(f"Buildx version mismatch: {output!r} != {expected!r}")
           PY
           docker buildx inspect "${BUILDER_NAME}" --bootstrap | tee buildx-inspect.txt
-          grep -F 'Driver: docker-container' buildx-inspect.txt
-          grep -F "${LOCKED_BUILDKIT_IMAGE}" buildx-inspect.txt
+          python3 - "${LOCKED_BUILDKIT_IMAGE}" buildx-inspect.txt <<'PY'
+          # BEGIN BUILDX INSPECT VERIFIER
+          import shlex
+          import sys
+
+          expected_image, path = sys.argv[1:]
+          fields = {}
+          with open(path, encoding="utf-8") as source:
+              for line in source:
+                  key, separator, value = line.partition(":")
+                  key = key.strip()
+                  if separator and key in {"Driver", "Driver Options"}:
+                      fields.setdefault(key, []).append(value.strip())
+
+          if fields.get("Driver") != ["docker-container"]:
+              raise SystemExit(f"unexpected Buildx driver fields: {fields.get('Driver')!r}")
+          driver_options = fields.get("Driver Options", [])
+          if len(driver_options) != 1:
+              raise SystemExit(f"unexpected Buildx driver option fields: {driver_options!r}")
+          parsed_options = {}
+          for option in shlex.split(driver_options[0]):
+              name, separator, value = option.partition("=")
+              if not separator or not name or name in parsed_options:
+                  raise SystemExit(f"malformed Buildx driver options: {driver_options[0]!r}")
+              parsed_options[name] = value
+          if parsed_options != {"image": expected_image}:
+              raise SystemExit(
+                  f"BuildKit driver options mismatch: {parsed_options!r}"
+              )
+          # END BUILDX INSPECT VERIFIER
+          PY
 
       - name: Log in to private GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
@@ -826,8 +884,37 @@ jobs:
               raise SystemExit(f"Buildx version mismatch: {output!r} != {expected!r}")
           PY
           docker buildx inspect "${BUILDER_NAME}" --bootstrap | tee buildx-inspect.txt
-          grep -F 'Driver: docker-container' buildx-inspect.txt
-          grep -F "${LOCKED_BUILDKIT_IMAGE}" buildx-inspect.txt
+          python3 - "${LOCKED_BUILDKIT_IMAGE}" buildx-inspect.txt <<'PY'
+          # BEGIN BUILDX INSPECT VERIFIER
+          import shlex
+          import sys
+
+          expected_image, path = sys.argv[1:]
+          fields = {}
+          with open(path, encoding="utf-8") as source:
+              for line in source:
+                  key, separator, value = line.partition(":")
+                  key = key.strip()
+                  if separator and key in {"Driver", "Driver Options"}:
+                      fields.setdefault(key, []).append(value.strip())
+
+          if fields.get("Driver") != ["docker-container"]:
+              raise SystemExit(f"unexpected Buildx driver fields: {fields.get('Driver')!r}")
+          driver_options = fields.get("Driver Options", [])
+          if len(driver_options) != 1:
+              raise SystemExit(f"unexpected Buildx driver option fields: {driver_options!r}")
+          parsed_options = {}
+          for option in shlex.split(driver_options[0]):
+              name, separator, value = option.partition("=")
+              if not separator or not name or name in parsed_options:
+                  raise SystemExit(f"malformed Buildx driver options: {driver_options[0]!r}")
+              parsed_options[name] = value
+          if parsed_options != {"image": expected_image}:
+              raise SystemExit(
+                  f"BuildKit driver options mismatch: {parsed_options!r}"
+              )
+          # END BUILDX INSPECT VERIFIER
+          PY
 
       - name: Log in to private GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
@@ -1111,8 +1198,37 @@ jobs:
               raise SystemExit(f"Buildx version mismatch: {output!r} != {expected!r}")
           PY
           docker buildx inspect "${BUILDER_NAME}" --bootstrap | tee buildx-inspect.txt
-          grep -F 'Driver: docker-container' buildx-inspect.txt
-          grep -F "${LOCKED_BUILDKIT_IMAGE}" buildx-inspect.txt
+          python3 - "${LOCKED_BUILDKIT_IMAGE}" buildx-inspect.txt <<'PY'
+          # BEGIN BUILDX INSPECT VERIFIER
+          import shlex
+          import sys
+
+          expected_image, path = sys.argv[1:]
+          fields = {}
+          with open(path, encoding="utf-8") as source:
+              for line in source:
+                  key, separator, value = line.partition(":")
+                  key = key.strip()
+                  if separator and key in {"Driver", "Driver Options"}:
+                      fields.setdefault(key, []).append(value.strip())
+
+          if fields.get("Driver") != ["docker-container"]:
+              raise SystemExit(f"unexpected Buildx driver fields: {fields.get('Driver')!r}")
+          driver_options = fields.get("Driver Options", [])
+          if len(driver_options) != 1:
+              raise SystemExit(f"unexpected Buildx driver option fields: {driver_options!r}")
+          parsed_options = {}
+          for option in shlex.split(driver_options[0]):
+              name, separator, value = option.partition("=")
+              if not separator or not name or name in parsed_options:
+                  raise SystemExit(f"malformed Buildx driver options: {driver_options[0]!r}")
+              parsed_options[name] = value
+          if parsed_options != {"image": expected_image}:
+              raise SystemExit(
+                  f"BuildKit driver options mismatch: {parsed_options!r}"
+              )
+          # END BUILDX INSPECT VERIFIER
+          PY
 
       - name: Log in to private GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9

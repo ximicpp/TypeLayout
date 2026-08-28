@@ -100,6 +100,30 @@ class ToolchainWorkflowTests(unittest.TestCase):
         self.assertIsNotNone(match, "missing executable P2996 ldd verifier")
         return textwrap.dedent(match.group(1))
 
+    def buildx_inspect_verifier_scripts(self):
+        matches = re.findall(
+            r"(?ms)^          # BEGIN BUILDX INSPECT VERIFIER\n"
+            r"(.*?)"
+            r"^          # END BUILDX INSPECT VERIFIER$",
+            self.workflow,
+        )
+        return [textwrap.dedent(match) for match in matches]
+
+    def run_buildx_inspect_verifier(self, script, inspect_output):
+        expected_image = (
+            "docker.io/moby/buildkit@sha256:"
+            + "a" * 64
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "buildx-inspect.txt"
+            path.write_text(inspect_output, encoding="utf-8")
+            return subprocess.run(
+                [sys.executable, "-", expected_image, str(path)],
+                input=script,
+                text=True,
+                capture_output=True,
+            )
+
     def run_p2996_ldd_verifier(self, text):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "ldd.txt"
@@ -859,6 +883,38 @@ rollback_alias() {
                 )
                 self.assertNotIn("__GLIBCXX__", block)
                 self.assertNotIn("_LIBCPP_VERSION", block)
+
+    def test_buildx_inspect_verifier_accepts_aligned_fields_and_fails_closed(self):
+        scripts = self.buildx_inspect_verifier_scripts()
+        self.assertEqual(len(scripts), 4)
+        expected_image = "docker.io/moby/buildkit@sha256:" + "a" * 64
+        valid = (
+            "Name:          builder\n"
+            "Driver:        docker-container\n"
+            "Nodes:\n"
+            f'Driver Options:        image="{expected_image}"\n'
+        )
+        invalid_outputs = (
+            valid.replace("docker-container", "docker"),
+            valid + "Driver:        docker-container\n",
+            valid.replace("a" * 64, "b" * 64),
+            valid.replace(
+                f'image="{expected_image}"',
+                f'image="{expected_image}" image="{expected_image}"',
+            ),
+            valid.replace(
+                f'image="{expected_image}"',
+                f'image="{expected_image}" network=host',
+            ),
+        )
+        for script in scripts:
+            completed = self.run_buildx_inspect_verifier(script, valid)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            for inspect_output in invalid_outputs:
+                completed = self.run_buildx_inspect_verifier(script, inspect_output)
+                self.assertNotEqual(completed.returncode, 0, inspect_output)
+
+        self.assertNotIn("grep -F 'Driver: docker-container'", self.workflow)
 
     def test_p2996_runtime_linkage_rejects_mixed_bundled_and_host_libraries(self):
         prefix = "/opt/p2996-toolchain/lib/x86_64-unknown-linux-gnu"
