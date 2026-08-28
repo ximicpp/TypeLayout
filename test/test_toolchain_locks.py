@@ -1939,7 +1939,7 @@ RUN set -eu; \\
             ],
         )
 
-    def test_macos_runtime_load_validator_rejects_host_or_mixed_libraries(self):
+    def test_macos_runtime_load_validator_tracks_delayed_system_libcxx(self):
         verify_script = (
             ROOT / ".github/scripts/verify-p2996-toolchain.sh"
         ).read_text(encoding="utf-8")
@@ -1954,12 +1954,18 @@ RUN set -eu; \\
         library_dir.mkdir(parents=True)
         expected = []
         for name in ("libc++.1.dylib", "libc++abi.1.dylib", "libunwind.1.dylib"):
-            path = library_dir / name
-            path.write_bytes(b"runtime")
-            expected.append(str(path.resolve()))
+            real_path = library_dir / name.replace(".1.dylib", ".1.0.dylib")
+            real_path.write_bytes(b"runtime")
+            alias = library_dir / name
+            alias.symlink_to(real_path.name)
+            expected.append(str(real_path.resolve()))
         dyld = self.root / "dyld.txt"
         dyld.write_text(
-            "\n".join(f"dyld[1]: {path}" for path in expected) + "\n",
+            "\n".join(f"dyld[1]: {path}" for path in expected)
+            + "\n"
+            + "dyld[1]: /usr/lib/libc++.1.dylib\n"
+            + "dyld[1]: move loaded to delayed: XPCSupport\n"
+            + "dyld[1]: move loaded to delayed: libc++.1.dylib\n",
             encoding="utf-8",
         )
         command = [
@@ -1969,16 +1975,313 @@ RUN set -eu; \\
             str(dyld),
             str(library_dir),
         ]
-        self.assertEqual(subprocess.run(command, check=False).returncode, 0)
+        completed = subprocess.run(
+            command, capture_output=True, text=True, check=False
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
         dyld.write_text(
             dyld.read_text(encoding="utf-8")
-            + "dyld[1]: /usr/lib/libc++.1.dylib\n",
+            + "dyld[1]: move delayed to loaded: libc++.1.dylib\n",
             encoding="utf-8",
         )
         rejected = subprocess.run(command, capture_output=True, text=True, check=False)
         self.assertNotEqual(rejected.returncode, 0)
-        self.assertIn("only from the archive", rejected.stderr)
+        self.assertIn("system runtime became active", rejected.stderr)
+
+    def test_macos_runtime_load_validator_rejects_invalid_active_graph(self):
+        verify_script = (
+            ROOT / ".github/scripts/verify-p2996-toolchain.sh"
+        ).read_text(encoding="utf-8")
+        match = re.search(
+            r"# BEGIN MACOS RUNTIME LOAD VALIDATOR\n(.*?)\n"
+            r"# END MACOS RUNTIME LOAD VALIDATOR",
+            verify_script,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "runtime validator must be executable")
+        library_dir = self.root / "toolchain root/lib"
+        library_dir.mkdir(parents=True)
+        archive_records = []
+        for name in ("libc++.1.dylib", "libc++abi.1.dylib", "libunwind.1.dylib"):
+            real_path = library_dir / name.replace(".1.dylib", ".1.0.dylib")
+            real_path.write_bytes(b"runtime")
+            (library_dir / name).symlink_to(real_path.name)
+            archive_records.append(f"dyld[7]: {real_path.resolve()}")
+        system_record = "dyld[7]: /usr/lib/libc++.1.dylib"
+        system_delay = "dyld[7]: move loaded to delayed: libc++.1.dylib"
+        dyld = self.root / "invalid-active-graph.txt"
+        command = [
+            sys.executable,
+            "-c",
+            match.group(1),
+            str(dyld),
+            str(library_dir),
+        ]
+
+        cases = {
+            "system remains active": archive_records + [system_record],
+            "system transition precedes image": archive_records
+            + [system_delay, system_record],
+            "duplicate delay transition": archive_records
+            + [system_record, system_delay, system_delay],
+            "system reactivates": archive_records
+            + [
+                system_record,
+                system_delay,
+                "dyld[7]: move delayed to loaded: libc++.1.dylib",
+            ],
+            "archive becomes delayed": archive_records
+            + [
+                "dyld[7]: move loaded to delayed: libc++.1.0.dylib",
+            ],
+            "host libcxxabi": archive_records
+            + ["dyld[7]: /usr/lib/libc++abi.1.dylib"],
+            "multiple pids": archive_records + ["dyld[8]: /usr/lib/libSystem.B.dylib"],
+            "duplicate image": archive_records + [archive_records[0]],
+            "weak-def system runtime cannot become delayed": archive_records
+            + [
+                system_record,
+                "dyld[7]: libc++.1.dylib has weak-def (or flat lookup) "
+                "symbol used by platform-probe, so cannot be delayed",
+                system_delay,
+            ],
+            "interposing system runtime cannot become delayed": archive_records
+            + [
+                system_record,
+                "dyld[7]: has interposing tuples so cannot be delayed: "
+                "libc++.1.dylib",
+                system_delay,
+            ],
+        }
+        for name, lines in cases.items():
+            with self.subTest(name=name):
+                dyld.write_text("\n".join(lines) + "\n", encoding="utf-8")
+                rejected = subprocess.run(
+                    command, capture_output=True, text=True, check=False
+                )
+                self.assertNotEqual(rejected.returncode, 0, rejected.stdout)
+
+        accepted = archive_records + [
+            system_record,
+            "dyld[7]: libc++.1.0.dylib has weak-def (or flat lookup) "
+            "symbol used by platform-probe, so cannot be delayed",
+            "dyld[7]: has interposing tuples so cannot be delayed: XPCSupport",
+            "dyld[7]: move loaded to delayed: XPCSupport",
+            "dyld[7]: move delayed to loaded: XPCSupport",
+            system_delay,
+        ]
+        dyld.write_text("\n".join(accepted) + "\n", encoding="utf-8")
+        completed = subprocess.run(
+            command, capture_output=True, text=True, check=False
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_macos_runtime_link_chain_validator_is_exact_and_two_level(self):
+        verify_script = (
+            ROOT / ".github/scripts/verify-p2996-toolchain.sh"
+        ).read_text(encoding="utf-8")
+        match = re.search(
+            r"# BEGIN MACOS RUNTIME LINK CHAIN VALIDATOR\n(.*?)\n"
+            r"# END MACOS RUNTIME LINK CHAIN VALIDATOR",
+            verify_script,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "runtime link-chain validator must be executable")
+
+        reports = {
+            "probe": [
+                ("LC_LOAD_DYLIB", "@rpath/libc++.1.dylib"),
+                ("LC_LOAD_DYLIB", "@rpath/libunwind.1.dylib"),
+                ("LC_LOAD_DYLIB", "/usr/lib/libSystem.B.dylib"),
+            ],
+            "libcxx": [
+                ("LC_ID_DYLIB", "@rpath/libc++.1.dylib"),
+                ("LC_REEXPORT_DYLIB", "@rpath/libc++abi.1.dylib"),
+                ("LC_LOAD_DYLIB", "/usr/lib/libSystem.B.dylib"),
+            ],
+            "libcxxabi": [
+                ("LC_ID_DYLIB", "@rpath/libc++abi.1.dylib"),
+                ("LC_REEXPORT_DYLIB", "@rpath/libunwind.1.dylib"),
+                ("LC_LOAD_DYLIB", "/usr/lib/libSystem.B.dylib"),
+            ],
+            "libunwind": [
+                ("LC_ID_DYLIB", "@rpath/libunwind.1.dylib"),
+                ("LC_LOAD_DYLIB", "/usr/lib/libSystem.B.dylib"),
+            ],
+        }
+        load_paths = {name: self.root / f"{name}.loads.txt" for name in reports}
+        header_paths = {
+            name: self.root / f"{name}.header.txt" for name in reports
+        }
+
+        def write_load_report(name, commands):
+            load_paths[name].write_text(
+                "".join(
+                    f"Load command {index}\n"
+                    f"          cmd {command}\n"
+                    "      cmdsize 56\n"
+                    f"         name {install_name} (offset 24)\n"
+                    "   time stamp 2 Thu Jan  1 08:00:02 1970\n"
+                    "      current version 1.0.0\n"
+                    "compatibility version 1.0.0\n"
+                    for index, (command, install_name) in enumerate(commands)
+                ),
+                encoding="utf-8",
+            )
+
+        def validate(
+            overrides=None,
+            flags=None,
+            filetypes=None,
+            raw_headers=None,
+        ):
+            values = {name: list(entries) for name, entries in reports.items()}
+            values.update(overrides or {})
+            header_flags = {
+                name: "NOUNDEFS DYLDLINK TWOLEVEL PIE" for name in reports
+            }
+            header_flags.update(flags or {})
+            header_filetypes = {
+                "probe": "EXECUTE",
+                "libcxx": "DYLIB",
+                "libcxxabi": "DYLIB",
+                "libunwind": "DYLIB",
+            }
+            header_filetypes.update(filetypes or {})
+            for name, commands in values.items():
+                write_load_report(name, commands)
+                if raw_headers and name in raw_headers:
+                    header_text = raw_headers[name]
+                else:
+                    header_text = (
+                        f"/tmp/{name}:\n"
+                        "Mach header\n"
+                        "      magic cputype cpusubtype caps filetype ncmds "
+                        "sizeofcmds flags\n"
+                        f"MH_MAGIC_64 ARM64 ALL 0x00 "
+                        f"{header_filetypes[name]} 20 2048 "
+                        f"{header_flags[name]}\n"
+                    )
+                header_paths[name].write_text(header_text, encoding="utf-8")
+            return subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    match.group(1),
+                    *(str(load_paths[name]) for name in reports),
+                    *(str(header_paths[name]) for name in reports),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        completed = validate()
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        invalid_cases = {
+            "host probe runtime": {
+                "probe": [
+                    ("LC_LOAD_DYLIB", "@rpath/libc++.1.dylib"),
+                    ("LC_LOAD_DYLIB", "/usr/lib/libc++.1.dylib"),
+                    ("LC_LOAD_DYLIB", "/usr/lib/libSystem.B.dylib"),
+                ]
+            },
+            "suffix spoof": {
+                "probe": [
+                    ("LC_LOAD_DYLIB", "@rpath/libc++.1.dylib"),
+                    ("LC_LOAD_DYLIB", "@rpath/libc++.1.dylib.evil"),
+                    ("LC_LOAD_DYLIB", "/usr/lib/libSystem.B.dylib"),
+                ]
+            },
+            "wrong libcxx id": {
+                "libcxx": [
+                    ("LC_ID_DYLIB", "/usr/lib/libc++.1.dylib"),
+                    ("LC_REEXPORT_DYLIB", "@rpath/libc++abi.1.dylib"),
+                    ("LC_LOAD_DYLIB", "/usr/lib/libSystem.B.dylib"),
+                ]
+            },
+            "weak libcxx runtime edge": {
+                "libcxx": [
+                    ("LC_ID_DYLIB", "@rpath/libc++.1.dylib"),
+                    ("LC_LOAD_WEAK_DYLIB", "@rpath/libc++abi.1.dylib"),
+                    ("LC_LOAD_DYLIB", "/usr/lib/libSystem.B.dylib"),
+                ]
+            },
+            "missing libcxxabi edge": {
+                "libcxx": [
+                    ("LC_ID_DYLIB", "@rpath/libc++.1.dylib"),
+                    ("LC_LOAD_DYLIB", "/usr/lib/libSystem.B.dylib"),
+                ]
+            },
+            "duplicate probe runtime edge": {
+                "probe": [
+                    ("LC_LOAD_DYLIB", "@rpath/libc++.1.dylib"),
+                    ("LC_LOAD_DYLIB", "@rpath/libc++.1.dylib"),
+                    ("LC_LOAD_DYLIB", "/usr/lib/libSystem.B.dylib"),
+                ]
+            },
+            "probe reexports runtime": {
+                "probe": [
+                    ("LC_REEXPORT_DYLIB", "@rpath/libc++.1.dylib"),
+                    ("LC_LOAD_DYLIB", "/usr/lib/libSystem.B.dylib"),
+                ]
+            },
+        }
+        for name, override in invalid_cases.items():
+            with self.subTest(name=name):
+                rejected = validate(override)
+                self.assertNotEqual(rejected.returncode, 0)
+
+        rejected = validate(flags={"probe": "NOUNDEFS DYLDLINK PIE"})
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("two-level", rejected.stderr)
+
+        rejected = validate(
+            flags={"libcxx": "NOUNDEFS DYLDLINK TWOLEVEL FORCE_FLAT PIE"}
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("two-level", rejected.stderr)
+
+        rejected = validate(filetypes={"libcxx": "EXECUTE"})
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("Mach-O header", rejected.stderr)
+
+        rejected = validate(
+            raw_headers={
+                "probe": (
+                    "TWOLEVEL filename-spoof:\n"
+                    "Mach header\n"
+                    "magic cputype cpusubtype caps filetype ncmds sizeofcmds flags\n"
+                    "MH_MAGIC_64 ARM64 ALL 0x00 EXECUTE 20 2048 "
+                    "NOUNDEFS DYLDLINK PIE\n"
+                )
+            }
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("two-level", rejected.stderr)
+
+        duplicate_header = (
+            "/tmp/probe:\n"
+            "Mach header\n"
+            "magic cputype cpusubtype caps filetype ncmds sizeofcmds flags\n"
+            "MH_MAGIC_64 ARM64 ALL 0x00 EXECUTE 20 2048 "
+            "NOUNDEFS DYLDLINK TWOLEVEL PIE\n"
+        )
+        rejected = validate(
+            raw_headers={"probe": duplicate_header + duplicate_header}
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("Mach-O header", rejected.stderr)
+
+    def test_macos_probe_runtime_audit_uses_a_clean_environment(self):
+        verify_script = (
+            ROOT / ".github/scripts/verify-p2996-toolchain.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            'env -i DYLD_PRINT_LIBRARIES=1 "${probe_binary}"', verify_script
+        )
 
     def test_macos_runtime_load_validator_accepts_dyld4_uuid_records(self):
         verify_script = (
@@ -2030,9 +2333,10 @@ RUN set -eu; \\
         library_dir.mkdir(parents=True)
         records = []
         for name in ("libc++.1.dylib", "libc++abi.1.dylib", "libunwind.1.dylib"):
-            path = library_dir / name
-            path.write_bytes(b"runtime")
-            records.append(f"dyld[42]: {path.resolve()}")
+            real_path = library_dir / name.replace(".1.dylib", ".1.0.dylib")
+            real_path.write_bytes(b"runtime")
+            (library_dir / name).symlink_to(real_path.name)
+            records.append(f"dyld[42]: {real_path.resolve()}")
         records.append("dyld[42]: move loaded to delayed: XPCSupport")
         dyld = self.root / "dyld4-delay-status.txt"
         dyld.write_text("\n".join(records) + "\n", encoding="utf-8")
@@ -2094,9 +2398,10 @@ RUN set -eu; \\
         library_dir.mkdir(parents=True)
         records = []
         for name in ("libc++.1.dylib", "libc++abi.1.dylib", "libunwind.1.dylib"):
-            path = library_dir / name
-            path.write_bytes(b"runtime")
-            records.append(f"dyld[42]: {path.resolve()}")
+            real_path = library_dir / name.replace(".1.dylib", ".1.0.dylib")
+            real_path.write_bytes(b"runtime")
+            (library_dir / name).symlink_to(real_path.name)
+            records.append(f"dyld[42]: {real_path.resolve()}")
         records.append(
             "dyld[42]: <3456789A-BCDE-F012-3456-789ABCDEF012> "
             "/usr/lib/libc++.1.dylib"
@@ -2110,7 +2415,7 @@ RUN set -eu; \\
             check=False,
         )
         self.assertNotEqual(rejected.returncode, 0)
-        self.assertIn("only from the archive", rejected.stderr)
+        self.assertIn("active runtime libc++", rejected.stderr)
 
     def test_macos_runtime_load_validator_rejects_malformed_dyld4_record(self):
         verify_script = (

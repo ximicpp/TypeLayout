@@ -230,7 +230,7 @@ REVIEWED_RECIPE_SHA256 = {
         "5dd189f68eed06050fd53dd8aef3e6eba00bfcd3ba89c18eb352a98836f2393a"
     ),
     ".github/scripts/verify-p2996-toolchain.sh": (
-        "bcf5546686e6983e111a9e7518f28914571158c588c41227b560ba6e82b39530"
+        "5a1fcbea6f5cf1c31155d7d6b842811dd549eea92315959732295d9926d40750"
     ),
     ".github/workflows/toolchain-images.yml": (
         "a3c4b556546ea72ade8b441bb58df3cbb202dc9f0ff0ecac733a2c4329ffd5f1"

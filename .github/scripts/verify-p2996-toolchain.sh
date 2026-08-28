@@ -84,7 +84,7 @@ if [[ -n "${outputs}" ]]; then
     outputs="$(cd "$(dirname "${outputs}")" && pwd)/$(basename "${outputs}")"
 fi
 
-for command in python3 xcodebuild xcode-select xcrun tar zstd shasum otool stat; do
+for command in env python3 xcodebuild xcode-select xcrun tar zstd shasum otool stat; do
     command -v "${command}" >/dev/null 2>&1 || {
         echo "required command is missing: ${command}" >&2
         exit 1
@@ -536,19 +536,210 @@ probe_json="${temporary_root}/platform-probe.json"
     "${repository_root}/example/relocatable_world_demo/platform_probe.cpp" \
     -o "${probe_binary}"
 
-otool_output="${temporary_root}/otool-libraries.txt"
-otool -L "${probe_binary}" >"${otool_output}"
-grep -F '@rpath/libc++.1.dylib' "${otool_output}" >/dev/null
-libcxx_otool_output="${temporary_root}/otool-libcxx-libraries.txt"
-otool -L "${library_dir}/libc++.1.dylib" >"${libcxx_otool_output}"
-grep -F '@rpath/libc++.1.dylib' "${libcxx_otool_output}" >/dev/null
-grep -F '@rpath/libc++abi.1.dylib' "${libcxx_otool_output}" >/dev/null
-libcxxabi_otool_output="${temporary_root}/otool-libcxxabi-libraries.txt"
-otool -L "${library_dir}/libc++abi.1.dylib" >"${libcxxabi_otool_output}"
-grep -F '@rpath/libc++abi.1.dylib' "${libcxxabi_otool_output}" >/dev/null
-grep -F '@rpath/libunwind.1.dylib' "${libcxxabi_otool_output}" >/dev/null
-rpath_output="${temporary_root}/otool-rpaths.txt"
-otool -l "${probe_binary}" >"${rpath_output}"
+probe_load_output="${temporary_root}/otool-probe-load-commands.txt"
+libcxx_load_output="${temporary_root}/otool-libcxx-load-commands.txt"
+libcxxabi_load_output="${temporary_root}/otool-libcxxabi-load-commands.txt"
+libunwind_load_output="${temporary_root}/otool-libunwind-load-commands.txt"
+probe_header_output="${temporary_root}/otool-probe-header.txt"
+libcxx_header_output="${temporary_root}/otool-libcxx-header.txt"
+libcxxabi_header_output="${temporary_root}/otool-libcxxabi-header.txt"
+libunwind_header_output="${temporary_root}/otool-libunwind-header.txt"
+otool -l "${probe_binary}" >"${probe_load_output}"
+otool -l "${library_dir}/libc++.1.dylib" >"${libcxx_load_output}"
+otool -l "${library_dir}/libc++abi.1.dylib" >"${libcxxabi_load_output}"
+otool -l "${library_dir}/libunwind.1.dylib" >"${libunwind_load_output}"
+otool -hv "${probe_binary}" >"${probe_header_output}"
+otool -hv "${library_dir}/libc++.1.dylib" >"${libcxx_header_output}"
+otool -hv "${library_dir}/libc++abi.1.dylib" >"${libcxxabi_header_output}"
+otool -hv "${library_dir}/libunwind.1.dylib" >"${libunwind_header_output}"
+python3 - \
+    "${probe_load_output}" \
+    "${libcxx_load_output}" \
+    "${libcxxabi_load_output}" \
+    "${libunwind_load_output}" \
+    "${probe_header_output}" \
+    "${libcxx_header_output}" \
+    "${libcxxabi_header_output}" \
+    "${libunwind_header_output}" <<'PY'
+# BEGIN MACOS RUNTIME LINK CHAIN VALIDATOR
+from pathlib import Path
+import re
+import sys
+
+
+images = ("probe", "libcxx", "libcxxabi", "libunwind")
+logical_names = {
+    "libcxx": "@rpath/libc++.1.dylib",
+    "libcxxabi": "@rpath/libc++abi.1.dylib",
+    "libunwind": "@rpath/libunwind.1.dylib",
+}
+
+
+def load_commands(path):
+    lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
+    starts = [
+        index
+        for index, line in enumerate(lines)
+        if re.fullmatch(r"Load command [0-9]+", line)
+    ]
+    if not starts:
+        raise SystemExit(f"otool did not report load commands: {path}")
+    starts.append(len(lines))
+    records = []
+    for begin, end in zip(starts, starts[1:]):
+        block = lines[begin + 1 : end]
+        commands = [
+            match.group(1)
+            for line in block
+            if (match := re.fullmatch(r"\s*cmd (LC_[A-Z0-9_]+)", line))
+        ]
+        if len(commands) != 1:
+            raise SystemExit(f"malformed Mach-O load command in {path}")
+        command = commands[0]
+        if "DYLIB" not in command:
+            continue
+        names = [
+            match.group(1)
+            for line in block
+            if (match := re.fullmatch(r"\s*name (.*?) \(offset [0-9]+\)", line))
+        ]
+        if len(names) != 1 or not names[0]:
+            raise SystemExit(f"malformed {command} in {path}")
+        records.append((command, names[0]))
+    return records
+
+
+def runtime_like(name):
+    leaf = name.rsplit("/", 1)[-1]
+    return leaf.startswith("libc++") or leaf.startswith("libunwind")
+
+
+def validate_image(
+    label, records, expected_id, required, optional, allowed_edge_commands
+):
+    ids = [record for record in records if record[0] == "LC_ID_DYLIB"]
+    if expected_id is None:
+        if ids:
+            raise SystemExit(f"{label} unexpectedly declares a dylib install id")
+    elif ids != [("LC_ID_DYLIB", expected_id)]:
+        raise SystemExit(
+            f"{label} dylib install id mismatch: {ids!r} != {expected_id!r}"
+        )
+
+    runtime_edges = []
+    for command, name in records:
+        if command == "LC_ID_DYLIB" or not runtime_like(name):
+            continue
+        if name not in logical_names.values():
+            raise SystemExit(f"{label} has an unknown runtime edge: {name!r}")
+        if command not in allowed_edge_commands:
+            raise SystemExit(
+                f"{label} has a non-strong runtime edge: {command} {name}"
+            )
+        runtime_edges.append(name)
+    if len(runtime_edges) != len(set(runtime_edges)):
+        raise SystemExit(f"{label} has duplicate runtime edges: {runtime_edges!r}")
+    observed = set(runtime_edges)
+    if not required.issubset(observed) or not observed.issubset(required | optional):
+        raise SystemExit(
+            f"{label} runtime edges mismatch: observed={sorted(observed)!r}, "
+            f"required={sorted(required)!r}, optional={sorted(optional)!r}"
+        )
+
+
+records = {
+    name: load_commands(path) for name, path in zip(images, sys.argv[1:5])
+}
+for label, image_records in records.items():
+    for _command, install_name in image_records:
+        if runtime_like(install_name) and install_name not in logical_names.values():
+            raise SystemExit(
+                f"{label} has an unrecognized runtime install name: {install_name!r}"
+            )
+
+validate_image(
+    "probe",
+    records["probe"],
+    None,
+    {logical_names["libcxx"]},
+    {logical_names["libcxxabi"], logical_names["libunwind"]},
+    {"LC_LOAD_DYLIB"},
+)
+validate_image(
+    "libc++",
+    records["libcxx"],
+    logical_names["libcxx"],
+    {logical_names["libcxxabi"]},
+    set(),
+    {"LC_LOAD_DYLIB", "LC_REEXPORT_DYLIB"},
+)
+validate_image(
+    "libc++abi",
+    records["libcxxabi"],
+    logical_names["libcxxabi"],
+    {logical_names["libunwind"]},
+    set(),
+    {"LC_LOAD_DYLIB", "LC_REEXPORT_DYLIB"},
+)
+validate_image(
+    "libunwind",
+    records["libunwind"],
+    logical_names["libunwind"],
+    set(),
+    set(),
+    {"LC_LOAD_DYLIB", "LC_REEXPORT_DYLIB"},
+)
+
+expected_filetypes = {
+    "probe": "EXECUTE",
+    "libcxx": "DYLIB",
+    "libcxxabi": "DYLIB",
+    "libunwind": "DYLIB",
+}
+expected_columns = [
+    "magic",
+    "cputype",
+    "cpusubtype",
+    "caps",
+    "filetype",
+    "ncmds",
+    "sizeofcmds",
+    "flags",
+]
+for label, path in zip(images, sys.argv[5:9]):
+    lines = Path(path).read_text(
+        encoding="utf-8", errors="replace"
+    ).splitlines()
+    headers = [
+        index for index, line in enumerate(lines) if line.strip() == "Mach header"
+    ]
+    if len(headers) != 1 or headers[0] + 2 >= len(lines):
+        raise SystemExit(f"{label} has a malformed Mach-O header report")
+    header = headers[0]
+    if lines[header + 1].split() != expected_columns:
+        raise SystemExit(f"{label} has a malformed Mach-O header report")
+    values = lines[header + 2].split()
+    if len(values) < len(expected_columns):
+        raise SystemExit(f"{label} has a malformed Mach-O header report")
+    magic, _cpu, _subtype, _caps, filetype, ncmds, sizeofcmds, *flag_values = (
+        values
+    )
+    try:
+        int(ncmds)
+        int(sizeofcmds)
+    except ValueError as error:
+        raise SystemExit(f"{label} has a malformed Mach-O header report") from error
+    if magic != "MH_MAGIC_64" or filetype != expected_filetypes[label]:
+        raise SystemExit(f"{label} has an unexpected Mach-O header")
+    if len(flag_values) != len(set(flag_values)):
+        raise SystemExit(f"{label} has a malformed Mach-O header report")
+    flags = set(flag_values)
+    if "TWOLEVEL" not in flags or "FORCE_FLAT" in flags:
+        raise SystemExit(f"{label} is not a two-level Mach-O image")
+# END MACOS RUNTIME LINK CHAIN VALIDATOR
+PY
+
+rpath_output="${probe_load_output}"
 python3 - "${rpath_output}" "${library_dir}" <<'PY'
 # BEGIN MACOS RPATH VALIDATOR
 from pathlib import Path
@@ -574,7 +765,7 @@ PY
 
 runner_image="${ImageOS-}/${ImageVersion-}"
 dyld_output="${temporary_root}/dyld-libraries.txt"
-DYLD_PRINT_LIBRARIES=1 "${probe_binary}" \
+env -i DYLD_PRINT_LIBRARIES=1 "${probe_binary}" \
     "${node}" "${probe_json}" \
     --runner "${runner}" \
     --runner-image "${runner_image}" \
@@ -636,52 +827,156 @@ PY
 python3 - "${dyld_output}" "${library_dir}" <<'PY'
 # BEGIN MACOS RUNTIME LOAD VALIDATOR
 from pathlib import Path
+from pathlib import PurePosixPath
+import posixpath
 import re
 import sys
 
 
 relevant = re.compile(r"^(libc\+\+|libc\+\+abi|libunwind)(?:\.[^/]*)?\.dylib$")
 dyld_record = re.compile(
-    r"^dyld\[[0-9]+\]: "
+    r"^dyld\[(?P<pid>[0-9]+)\]: "
     r"(?:<[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}> )?"
     r"(?P<path>.+)$"
 )
-dyld_delay_status = re.compile(
-    r"^dyld\[[0-9]+\]: move loaded to delayed: [^/\r\n]+$"
+dyld_move_status = re.compile(
+    r"^dyld\[(?P<pid>[0-9]+)\]: move "
+    r"(?P<direction>loaded to delayed|delayed to loaded): "
+    r"(?P<leaf>[^/\r\n]+)$"
+)
+dyld_weak_status = re.compile(
+    r"^dyld\[(?P<pid>[0-9]+)\]: (?P<leaf>[^/\r\n]+) has weak-def "
+    r"\(or flat lookup\) symbol used by (?P<source>[^/\r\n]+), "
+    r"so cannot be delayed$"
+)
+dyld_interpose_status = re.compile(
+    r"^dyld\[(?P<pid>[0-9]+)\]: has interposing tuples so cannot be "
+    r"delayed: (?P<leaf>[^/\r\n]+)$"
 )
 library_dir = Path(sys.argv[2]).resolve()
 expected = {
-    "libc++": (library_dir / "libc++.1.dylib").resolve(),
-    "libc++abi": (library_dir / "libc++abi.1.dylib").resolve(),
-    "libunwind": (library_dir / "libunwind.1.dylib").resolve(),
+    "libc++": str((library_dir / "libc++.1.dylib").resolve()),
+    "libc++abi": str((library_dir / "libc++abi.1.dylib").resolve()),
+    "libunwind": str((library_dir / "libunwind.1.dylib").resolve()),
 }
-for path in expected.values():
+for path in map(Path, expected.values()):
     if not path.is_file():
         raise SystemExit(f"bundled runtime library is missing: {path}")
-observed = {key: set() for key in expected}
+system_libcxx = "/usr/lib/libc++.1.dylib"
+allowed_paths = set(expected.values()) | {system_libcxx}
+states = {}
+leaf_paths = {}
+non_delayable = set()
+pids = set()
+
+
+def path_parts(candidate):
+    if candidate.startswith("/"):
+        return posixpath.normpath(candidate), PurePosixPath(candidate).name
+    path = Path(candidate)
+    if not path.is_absolute():
+        raise ValueError(candidate)
+    return str(path.resolve()), path.name
+
+
+def register_pid(match):
+    pids.add(match.group("pid"))
+    if len(pids) != 1:
+        raise SystemExit(f"dyld runtime trace contains multiple pids: {sorted(pids)!r}")
+
+
 for line in Path(sys.argv[1]).read_text(
     encoding="utf-8", errors="replace"
 ).splitlines():
     if not line.startswith("dyld["):
         continue
-    if dyld_delay_status.fullmatch(line):
+    move = dyld_move_status.fullmatch(line)
+    if move is not None:
+        register_pid(move)
+        leaf = move.group("leaf")
+        if relevant.fullmatch(leaf):
+            paths = leaf_paths.get(leaf, set())
+            if len(paths) != 1:
+                raise SystemExit(
+                    f"runtime transition leaf is not unique: {leaf!r} -> "
+                    f"{sorted(paths)!r}"
+                )
+            path = next(iter(paths))
+            before, after = {
+                "loaded to delayed": ("loaded", "delayed"),
+                "delayed to loaded": ("delayed", "loaded"),
+            }[move.group("direction")]
+            if states.get(path) != before:
+                raise SystemExit(
+                    f"invalid runtime transition for {leaf}: "
+                    f"{states.get(path)!r} -> {after!r}"
+                )
+            if (
+                move.group("direction") == "loaded to delayed"
+                and path in non_delayable
+            ):
+                raise SystemExit(f"non-delayable runtime became delayed: {path}")
+            if (
+                move.group("direction") == "loaded to delayed"
+                and path in expected.values()
+            ):
+                raise SystemExit(f"archive runtime became delayed: {path}")
+            if (
+                move.group("direction") == "delayed to loaded"
+                and path == system_libcxx
+            ):
+                raise SystemExit(f"system runtime became active: {path}")
+            states[path] = after
+        continue
+    status = dyld_weak_status.fullmatch(line)
+    if status is None:
+        status = dyld_interpose_status.fullmatch(line)
+    if status is not None:
+        register_pid(status)
+        leaf = status.group("leaf")
+        if relevant.fullmatch(leaf):
+            paths = leaf_paths.get(leaf, set())
+            if len(paths) != 1 or states.get(next(iter(paths), "")) != "loaded":
+                raise SystemExit(
+                    f"non-delayed runtime leaf is not uniquely loaded: "
+                    f"{leaf!r} -> {sorted(paths)!r}"
+                )
+            non_delayable.add(next(iter(paths)))
         continue
     record = dyld_record.fullmatch(line)
     if record is None:
         raise SystemExit(f"malformed dyld library record: {line!r}")
+    register_pid(record)
     candidate = record.group("path")
-    if not candidate.startswith("/") and not Path(candidate).is_absolute():
+    try:
+        canonical, name = path_parts(candidate)
+    except ValueError:
         raise SystemExit(f"malformed dyld library record: {line!r}")
-    name = Path(candidate).name
     match = relevant.fullmatch(name)
     if match:
-        observed[match.group(1)].add(Path(candidate).resolve())
-for name, expected_path in expected.items():
-    if observed[name] != {expected_path}:
+        if canonical not in allowed_paths:
+            raise SystemExit(f"unexpected runtime library path: {canonical}")
+        if canonical in states:
+            raise SystemExit(f"duplicate runtime library record: {canonical}")
+        states[canonical] = "loaded"
+        leaf_paths.setdefault(name, set()).add(canonical)
+
+for leaf, paths in leaf_paths.items():
+    if len(paths) != 1:
         raise SystemExit(
-            f"runtime {name} did not load only from the archive: "
-            f"observed={sorted(map(str, observed[name]))!r}, expected={expected_path}"
+            f"runtime library leaf is not unique: {leaf!r} -> {sorted(paths)!r}"
         )
+for name, expected_path in expected.items():
+    if states.get(expected_path) != "loaded":
+        raise SystemExit(
+            f"active runtime {name} is not the archive library: "
+            f"state={states.get(expected_path)!r}, expected={expected_path}"
+        )
+if system_libcxx in states and states[system_libcxx] != "delayed":
+    raise SystemExit(
+        "active runtime libc++ includes the system library: "
+        f"state={states[system_libcxx]!r}, path={system_libcxx}"
+    )
 # END MACOS RUNTIME LOAD VALIDATOR
 PY
 
