@@ -110,6 +110,7 @@ PACKAGE_LOCKS = {
         "cmake=3.31.6-2",
         "git=1:2.47.3-0+deb13u1",
         "libc6-dev=2.41-12+deb13u3",
+        "libgcc-14-dev=14.2.0-19",
         "libtinfo6=6.5+20250216-2",
         "libxml2=2.12.7+dfsg+really2.9.14-2.1+deb13u3",
         "libzstd1=1.5.7+dfsg-1",
@@ -1685,6 +1686,26 @@ RUN set -eu; \\
                 with self.subTest(package_set=package_set, package=package):
                     self.assertIn(package, sources["linux"]["packages"][package_set])
                     self.assertIn(package, runtime)
+
+        p2996_runtime = re.split(
+            r"(?m)^FROM ",
+            (ROOT / ".github/docker/Dockerfile.p2996").read_text(
+                encoding="utf-8"
+            ),
+        )[2]
+        libgcc_packages = [
+            package
+            for package in sources["linux"]["packages"]["p2996_runtime"]
+            if package.startswith("libgcc-14-dev=")
+        ]
+        self.assertEqual(len(libgcc_packages), 1)
+        self.assertIn(libgcc_packages[0], p2996_runtime)
+        self.assertIn(
+            'crtbegin="$(clang++ --print-file-name=crtbeginS.o)"',
+            p2996_runtime,
+        )
+        self.assertIn('test "${crtbegin}" != crtbeginS.o', p2996_runtime)
+        self.assertIn('test -f "${crtbegin}"', p2996_runtime)
 
     def test_linux_p2996_uses_target_config_before_generic_libcxx_headers(self):
         sources = json.loads(SOURCE_LOCK.read_text(encoding="utf-8"))

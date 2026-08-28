@@ -192,6 +192,7 @@ PACKAGE_LOCKS = {
         "cmake=3.31.6-2",
         "git=1:2.47.3-0+deb13u1",
         "libc6-dev=2.41-12+deb13u3",
+        "libgcc-14-dev=14.2.0-19",
         "libtinfo6=6.5+20250216-2",
         "libxml2=2.12.7+dfsg+really2.9.14-2.1+deb13u3",
         "libzstd1=1.5.7+dfsg-1",
@@ -220,7 +221,7 @@ REVIEWED_RECIPE_SHA256 = {
         "b2ab4c2cdab754ca863621248402dd6e05f5aabfeb88b03fd86d169dfa2c2253"
     ),
     ".github/docker/Dockerfile.p2996": (
-        "95dc970db86fed84ed29eb0cc379be432b4b3fd98b145fe4bb0341ed683e8a93"
+        "ecd9900e0778f8a20d60edc4d5fb9f5812543ac4cd4f98594b59bf23adf1630e"
     ),
     ".github/docker/docker-bake.hcl": (
         "ec7978e3b34056c46745623579889d416db0f5c6faa9df8a86bb933633e7f18b"

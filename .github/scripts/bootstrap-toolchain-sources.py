@@ -119,6 +119,7 @@ PACKAGE_NAMES = {
         "cmake",
         "git",
         "libc6-dev",
+        "libgcc-14-dev",
         "libtinfo6",
         "libxml2",
         "libzstd1",
