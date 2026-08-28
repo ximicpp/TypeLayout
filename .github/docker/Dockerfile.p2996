@@ -105,6 +105,8 @@ RUN set -eu; \
     test -x /opt/p2996-toolchain/bin/clang++; \
     test -f /opt/p2996-toolchain/include/c++/v1/vector; \
     runtime_triple="$(/opt/p2996-toolchain/bin/clang++ -dumpmachine)"; \
+    target_include_dir="/opt/p2996-toolchain/include/${runtime_triple}/c++/v1"; \
+    test -f "${target_include_dir}/__config_site"; \
     runtime_dir="/opt/p2996-toolchain/lib/${runtime_triple}"; \
     test -d "${runtime_dir}"; \
     for runtime_pattern in 'libc++.*' 'libc++abi.*' 'libunwind.*'; do \
@@ -180,6 +182,8 @@ case "${TARGETARCH}" in
     amd64) [ "${runtime_triple}" = x86_64-unknown-linux-gnu ] ;;
     arm64) [ "${runtime_triple}" = aarch64-unknown-linux-gnu ] ;;
 esac
+target_include_dir="/opt/p2996-toolchain/include/${runtime_triple}/c++/v1"
+test -f "${target_include_dir}/__config_site"
 runtime_dir="/opt/p2996-toolchain/lib/${runtime_triple}"
 test -d "${runtime_dir}"
 cat >/tmp/toolchain-probe.cpp <<'CPP'
@@ -224,7 +228,8 @@ int main(int argc, char**) {
 CPP
 clang++ -std=c++26 -freflection -freflection-latest -stdlib=libc++ \
     -O3 -fstrict-aliasing \
-    -nostdinc++ -isystem /opt/p2996-toolchain/include/c++/v1 \
+    -nostdinc++ -isystem "${target_include_dir}" \
+    -isystem /opt/p2996-toolchain/include/c++/v1 \
     -L "${runtime_dir}" -Wl,-rpath,"${runtime_dir}" \
     /tmp/toolchain-probe.cpp -o /tmp/toolchain-probe
 ldd /tmp/toolchain-probe >/tmp/toolchain-probe.ldd

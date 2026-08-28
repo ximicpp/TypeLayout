@@ -539,7 +539,9 @@ def build_source_lock(
     )
     clang_flags = (
         clang_core_flags
-        + " -nostdinc++ -isystem ${TOOLCHAIN_ROOT}/include/c++/v1 "
+        + " -nostdinc++ "
+        "-isystem ${TOOLCHAIN_ROOT}/include/${TARGET_TRIPLE}/c++/v1 "
+        "-isystem ${TOOLCHAIN_ROOT}/include/c++/v1 "
         "-L ${TOOLCHAIN_ROOT}/lib/${TARGET_TRIPLE} "
         "-Wl,-rpath,${TOOLCHAIN_ROOT}/lib/${TARGET_TRIPLE}"
     )

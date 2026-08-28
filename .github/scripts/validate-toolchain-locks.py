@@ -41,7 +41,9 @@ CLANG_CORE_FLAGS = (
 )
 CLANG_FLAGS = (
     CLANG_CORE_FLAGS
-    + " -nostdinc++ -isystem ${TOOLCHAIN_ROOT}/include/c++/v1 "
+    + " -nostdinc++ "
+    "-isystem ${TOOLCHAIN_ROOT}/include/${TARGET_TRIPLE}/c++/v1 "
+    "-isystem ${TOOLCHAIN_ROOT}/include/c++/v1 "
     "-L ${TOOLCHAIN_ROOT}/lib/${TARGET_TRIPLE} "
     "-Wl,-rpath,${TOOLCHAIN_ROOT}/lib/${TARGET_TRIPLE}"
 )
@@ -218,7 +220,7 @@ REVIEWED_RECIPE_SHA256 = {
         "b2ab4c2cdab754ca863621248402dd6e05f5aabfeb88b03fd86d169dfa2c2253"
     ),
     ".github/docker/Dockerfile.p2996": (
-        "aae5fb581d0c22a28bc131554e4fbfb42d658e66f3b9724fe7046e60e568bbc5"
+        "95dc970db86fed84ed29eb0cc379be432b4b3fd98b145fe4bb0341ed683e8a93"
     ),
     ".github/docker/docker-bake.hcl": (
         "ec7978e3b34056c46745623579889d416db0f5c6faa9df8a86bb933633e7f18b"

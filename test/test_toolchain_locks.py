@@ -255,7 +255,9 @@ RUN set -eu; \\
         )
         clang_flags = (
             clang_core_flags
-            + " -nostdinc++ -isystem ${TOOLCHAIN_ROOT}/include/c++/v1 "
+            + " -nostdinc++ "
+            "-isystem ${TOOLCHAIN_ROOT}/include/${TARGET_TRIPLE}/c++/v1 "
+            "-isystem ${TOOLCHAIN_ROOT}/include/c++/v1 "
             "-L ${TOOLCHAIN_ROOT}/lib/${TARGET_TRIPLE} "
             "-Wl,-rpath,${TOOLCHAIN_ROOT}/lib/${TARGET_TRIPLE}"
         )
@@ -1683,6 +1685,47 @@ RUN set -eu; \\
                 with self.subTest(package_set=package_set, package=package):
                     self.assertIn(package, sources["linux"]["packages"][package_set])
                     self.assertIn(package, runtime)
+
+    def test_linux_p2996_uses_target_config_before_generic_libcxx_headers(self):
+        sources = json.loads(SOURCE_LOCK.read_text(encoding="utf-8"))
+        flags = shlex.split(sources["p2996"]["flags"])
+        target_include = (
+            "${TOOLCHAIN_ROOT}/include/${TARGET_TRIPLE}/c++/v1"
+        )
+        generic_include = "${TOOLCHAIN_ROOT}/include/c++/v1"
+        self.assertEqual(
+            flags[flags.index("-nostdinc++") : flags.index(generic_include) + 1],
+            [
+                "-nostdinc++",
+                "-isystem",
+                target_include,
+                "-isystem",
+                generic_include,
+            ],
+        )
+
+        stages = re.split(
+            r"(?m)^FROM ",
+            (ROOT / ".github/docker/Dockerfile.p2996").read_text(
+                encoding="utf-8"
+            ),
+        )[1:]
+        self.assertEqual(len(stages), 2)
+        for stage in stages:
+            self.assertIn(
+                'target_include_dir="/opt/p2996-toolchain/include/'
+                '${runtime_triple}/c++/v1"',
+                stage,
+            )
+            self.assertIn(
+                'test -f "${target_include_dir}/__config_site"', stage
+            )
+        runtime = stages[1]
+        self.assertIn(
+            '-nostdinc++ -isystem "${target_include_dir}" \\\n'
+            '    -isystem /opt/p2996-toolchain/include/c++/v1 \\',
+            runtime,
+        )
 
     def test_dockerfile_frontend_is_digest_locked(self):
         sources = json.loads(SOURCE_LOCK.read_text(encoding="utf-8"))
