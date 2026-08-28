@@ -646,6 +646,9 @@ dyld_record = re.compile(
     r"(?:<[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}> )?"
     r"(?P<path>.+)$"
 )
+dyld_delay_status = re.compile(
+    r"^dyld\[[0-9]+\]: move loaded to delayed: [^/\r\n]+$"
+)
 library_dir = Path(sys.argv[2]).resolve()
 expected = {
     "libc++": (library_dir / "libc++.1.dylib").resolve(),
@@ -660,6 +663,8 @@ for line in Path(sys.argv[1]).read_text(
     encoding="utf-8", errors="replace"
 ).splitlines():
     if not line.startswith("dyld["):
+        continue
+    if dyld_delay_status.fullmatch(line):
         continue
     record = dyld_record.fullmatch(line)
     if record is None:

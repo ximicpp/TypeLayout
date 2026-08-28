@@ -2015,6 +2015,70 @@ RUN set -eu; \\
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
+    def test_macos_runtime_load_validator_accepts_dyld_delay_status_only(self):
+        verify_script = (
+            ROOT / ".github/scripts/verify-p2996-toolchain.sh"
+        ).read_text(encoding="utf-8")
+        match = re.search(
+            r"# BEGIN MACOS RUNTIME LOAD VALIDATOR\n(.*?)\n"
+            r"# END MACOS RUNTIME LOAD VALIDATOR",
+            verify_script,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "runtime validator must be executable")
+        library_dir = self.root / "toolchain root/lib"
+        library_dir.mkdir(parents=True)
+        records = []
+        for name in ("libc++.1.dylib", "libc++abi.1.dylib", "libunwind.1.dylib"):
+            path = library_dir / name
+            path.write_bytes(b"runtime")
+            records.append(f"dyld[42]: {path.resolve()}")
+        records.append("dyld[42]: move loaded to delayed: XPCSupport")
+        dyld = self.root / "dyld4-delay-status.txt"
+        dyld.write_text("\n".join(records) + "\n", encoding="utf-8")
+        command = [
+            sys.executable,
+            "-c",
+            match.group(1),
+            str(dyld),
+            str(library_dir),
+        ]
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        dyld.write_text(
+            dyld.read_text(encoding="utf-8")
+            + "dyld[42]: arbitrary status: XPCSupport\n",
+            encoding="utf-8",
+        )
+        rejected = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("malformed dyld library record", rejected.stderr)
+
+        dyld.write_text(
+            "\n".join(records) + "\n"
+            + "dyld[42]: move loaded to delayed: /usr/lib/libc++.1.dylib\n",
+            encoding="utf-8",
+        )
+        rejected = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("malformed dyld library record", rejected.stderr)
+
     def test_macos_runtime_load_validator_rejects_dyld4_uuid_host_library(self):
         verify_script = (
             ROOT / ".github/scripts/verify-p2996-toolchain.sh"
