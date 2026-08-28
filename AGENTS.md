@@ -29,34 +29,19 @@ Name new test files and CTest entries `test_<area>`. Define fixture types inside
 
 Use `type: imperative summary`, matching history (`feat:`, `fix:`, `test:`, `docs:`, `refactor:`, `chore:`). Keep commits focused. Pull requests should explain the rationale and user-visible effect, list the compiler and CTest commands run, link relevant issues, and include sample compatibility output when reports or signature diagnostics change. Ensure both standard CI and compatibility-pipeline checks pass.
 
-## CppCon 2026 Talk Sources
+## CppCon 2026 Talk Authoring
 
-The repository-local snapshot of the published session listing is
-`docs/talk/cppcon2026-sched-listing.md`. Treat its title, abstract, session
-metadata, examples, and explicit non-goals as an external communication
-contract when editing the deck. The approved narrative design is
-`docs/superpowers/specs/2026-08-23-cppcon2026-typelayout-deck-design.md`, and
-the implementation plan is
-`docs/superpowers/plans/2026-08-23-cppcon2026-typelayout-deck-implementation.md`.
-The current audience-facing content draft for main-deck Slides 1–47 is
-`docs/talk/cppcon2026-main-deck-content-and-script.md`. It contains the exact
-on-screen content, English speaker script, transitions, timing targets, and
-source notes. Treat it as the review artifact for content approval; it does
-not authorize creating the PowerPoint before that review is complete.
-The relocatable-world scenario, its declared server-to-server and
-server-to-native-client placements, and the separation between build/CI
-permission and runtime validation are defined in
-`docs/superpowers/specs/2026-08-27-relocatable-world-demo-design.md`.
+Authoritative talk narrative, Sched snapshots, deck design, speaker scripts,
+and production plans live in the dedicated repository:
 
-Use this source order when claims differ:
+`https://github.com/ximicpp/CppCon2026TypeLayout`
 
-1. The Sched snapshot controls what the public talk has promised.
-2. The approved deck design controls the presentation's narrative and scope.
-3. The reviewed main-deck content script controls slide copy and spoken wording.
-4. Repository code and tests control technical/API claims and examples.
+The current local checkout is normally `E:\workspace\CppCon2026TypeLayout`,
+with primary documents under `decks/cppcon2026/docs/`. Do not edit talk content
+in this TypeLayout repository. The four retained files at the former talk paths
+are migration pointers for historical links.
 
-Deck revisions must preserve the public two-gate problem: whether a type may
-be transported as bytes at all, and whether every declared ABI gives it the
-same object representation. They must also preserve the narrow non-goal:
-representation compatibility is not semantic compatibility or schema
-evolution.
+This repository continues to own the library code, tests, generated signature
+evidence, and the relocatable-world implementation design and plans. Technical
+and API claims in the talk must be checked against this repository, which is
+pinned as `vendor/TypeLayout` by the talk repository.
