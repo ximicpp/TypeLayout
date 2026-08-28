@@ -669,7 +669,7 @@ validate_image(
     "libc++",
     records["libcxx"],
     logical_names["libcxx"],
-    {logical_names["libcxxabi"]},
+    {logical_names["libcxxabi"], logical_names["libunwind"]},
     set(),
     {"LC_LOAD_DYLIB", "LC_REEXPORT_DYLIB"},
 )

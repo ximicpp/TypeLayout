@@ -2098,6 +2098,7 @@ RUN set -eu; \\
             "libcxx": [
                 ("LC_ID_DYLIB", "@rpath/libc++.1.dylib"),
                 ("LC_REEXPORT_DYLIB", "@rpath/libc++abi.1.dylib"),
+                ("LC_LOAD_DYLIB", "@rpath/libunwind.1.dylib"),
                 ("LC_LOAD_DYLIB", "/usr/lib/libSystem.B.dylib"),
             ],
             "libcxxabi": [
@@ -2209,9 +2210,33 @@ RUN set -eu; \\
                     ("LC_LOAD_DYLIB", "/usr/lib/libSystem.B.dylib"),
                 ]
             },
+            "weak direct libcxx unwind edge": {
+                "libcxx": [
+                    ("LC_ID_DYLIB", "@rpath/libc++.1.dylib"),
+                    ("LC_REEXPORT_DYLIB", "@rpath/libc++abi.1.dylib"),
+                    ("LC_LOAD_WEAK_DYLIB", "@rpath/libunwind.1.dylib"),
+                    ("LC_LOAD_DYLIB", "/usr/lib/libSystem.B.dylib"),
+                ]
+            },
+            "host direct libcxx unwind edge": {
+                "libcxx": [
+                    ("LC_ID_DYLIB", "@rpath/libc++.1.dylib"),
+                    ("LC_REEXPORT_DYLIB", "@rpath/libc++abi.1.dylib"),
+                    ("LC_LOAD_DYLIB", "/usr/lib/libunwind.1.dylib"),
+                    ("LC_LOAD_DYLIB", "/usr/lib/libSystem.B.dylib"),
+                ]
+            },
             "missing libcxxabi edge": {
                 "libcxx": [
                     ("LC_ID_DYLIB", "@rpath/libc++.1.dylib"),
+                    ("LC_LOAD_DYLIB", "@rpath/libunwind.1.dylib"),
+                    ("LC_LOAD_DYLIB", "/usr/lib/libSystem.B.dylib"),
+                ]
+            },
+            "missing direct libcxx unwind edge": {
+                "libcxx": [
+                    ("LC_ID_DYLIB", "@rpath/libc++.1.dylib"),
+                    ("LC_REEXPORT_DYLIB", "@rpath/libc++abi.1.dylib"),
                     ("LC_LOAD_DYLIB", "/usr/lib/libSystem.B.dylib"),
                 ]
             },
