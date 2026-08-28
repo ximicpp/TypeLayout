@@ -1,0 +1,1080 @@
+name: Relocatable world authoritative matrix
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - codex/cppcon2026-deck
+    paths:
+      - .gitattributes
+      - CMakeLists.txt
+      - cmake/**
+      - include/**
+      - example/relocatable_world_demo/**
+      - tools/relocatable_world_evidence.py
+      - tools/run-relocatable-world.sh
+      - .github/docker/**
+      - .github/scripts/bootstrap-toolchain-sources.py
+      - .github/scripts/build-p2996-macos.sh
+      - .github/scripts/validate-toolchain-locks.py
+      - .github/scripts/verify-p2996-toolchain.sh
+      - .github/workflows/toolchain-images.yml
+      - .github/workflows/relocatable-world-matrix.yml
+
+permissions:
+  contents: read
+
+jobs:
+  producer_linux:
+    name: producer / ${{ matrix.node }}
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node: x86_64_linux_gcc
+            runner: ubuntu-24.04
+            platform: linux/amd64
+            host_arch: x86_64
+            toolchain: gcc
+          - node: x86_64_linux_clang
+            runner: ubuntu-24.04
+            platform: linux/amd64
+            host_arch: x86_64
+            toolchain: p2996
+          - node: arm64_linux_gcc
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            host_arch: aarch64
+            toolchain: gcc
+          - node: arm64_linux_clang
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            host_arch: aarch64
+            toolchain: p2996
+    runs-on: ${{ matrix.runner }}
+    env:
+      SOURCE_SHA: ${{ github.sha }}
+      WORKFLOW_RUN: ${{ github.run_id }}.${{ github.run_attempt }}
+      SOURCES_LOCK: .github/docker/toolchain-sources.lock
+      OUTPUTS_LOCK: .github/docker/toolchains.lock
+      NODE: ${{ matrix.node }}
+      PLATFORM: ${{ matrix.platform }}
+      HOST_ARCH: ${{ matrix.host_arch }}
+      TOOLCHAIN: ${{ matrix.toolchain }}
+      RUNNER_LABEL: ${{ matrix.runner }}
+      BUNDLE: build/relocatable-world/producer/${{ matrix.node }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Initialize INCOMPLETE producer evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${BUNDLE}"
+          python3 tools/relocatable_world_evidence.py fallback-provenance \
+            --node "${NODE}" \
+            --reason "producer job did not seal complete evidence" \
+            --output "${BUNDLE}/${NODE}.provenance.json"
+
+      - name: Validate locks and resolve immutable Linux image
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/validate-toolchain-locks.py \
+            --sources "${SOURCES_LOCK}" --outputs "${OUTPUTS_LOCK}" \
+            --recipe-root .
+          python3 - "${SOURCES_LOCK}" "${OUTPUTS_LOCK}" "${NODE}" \
+              "${TOOLCHAIN}" "${PLATFORM}" >>"${GITHUB_ENV}" <<'PY'
+          import importlib.util
+          import sys
+          from pathlib import Path
+
+          source, output, node, toolchain, platform = sys.argv[1:]
+          spec = importlib.util.spec_from_file_location(
+              "relocatable_world_evidence", "tools/relocatable_world_evidence.py"
+          )
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          policy, _, _ = module.load_node_toolchain_policy(source, output, node)
+          lock = module.load_json(output)
+          image = lock["linux"][toolchain]
+          manifest = image["platforms"][platform]["manifest_digest"]
+          values = {
+              "REPOSITORY": image["repository"],
+              "INDEX_DIGEST": image["index_digest"],
+              "MANIFEST_DIGEST": manifest.removeprefix("sha256:"),
+              "ARTIFACT_SHA256": policy["toolchain_artifact_sha256"],
+              "COMPILER_REVISION": policy["compiler_revision"],
+              "LOCKED_FLAGS": policy["flags"].replace(
+                  "${TOOLCHAIN_ROOT}", "/opt/p2996-toolchain"
+              ).replace("${TARGET_TRIPLE}", policy["target"]),
+          }
+          if "${" in values["LOCKED_FLAGS"]:
+              raise SystemExit("unexpanded compiler flag placeholder")
+          for key, value in values.items():
+              if not isinstance(value, str) or not value or any(c in value for c in "\r\n"):
+                  raise SystemExit(f"unsafe resolved value for {key}")
+              print(f"{key}={value}")
+          PY
+
+      - name: Authenticate to the package registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify locked index and native manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(docker info --format '{{.Architecture}}')" = "${HOST_ARCH}"
+          INDEX_REF="${REPOSITORY}@${INDEX_DIGEST}"
+          docker buildx imagetools inspect "${INDEX_REF}" --raw > build/index.json
+          python3 - build/index.json "${OUTPUTS_LOCK}" "${TOOLCHAIN}" \
+              "${PLATFORM}" "sha256:${MANIFEST_DIGEST}" <<'PY'
+          import json
+          import sys
+
+          def unique(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise SystemExit(f"duplicate index key {key!r}")
+                  result[key] = value
+              return result
+
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              index = json.load(stream, object_pairs_hook=unique)
+          with open(sys.argv[2], encoding="utf-8") as stream:
+              lock = json.load(stream, object_pairs_hook=unique)
+          expected = {
+              platform: record["manifest_digest"]
+              for platform, record in lock["linux"][sys.argv[3]]["platforms"].items()
+          }
+          actual = {}
+          for descriptor in index.get("manifests", []):
+              platform = descriptor.get("platform", {})
+              key = f'{platform.get("os")}/{platform.get("architecture")}'
+              if key in actual:
+                  raise SystemExit(f"duplicate manifest platform {key}")
+              actual[key] = descriptor.get("digest")
+          if actual != expected or expected.get(sys.argv[4]) != sys.argv[5]:
+              raise SystemExit(f"remote index differs from sealed lock: {actual!r}")
+          PY
+          IMAGE_REF="${REPOSITORY}@sha256:${MANIFEST_DIGEST}"
+          docker pull "${IMAGE_REF}"
+
+      - name: Build, run the complete demo contract, and seal producer evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE_REF="${REPOSITORY}@sha256:${MANIFEST_DIGEST}"
+          docker run --rm --platform "${PLATFORM}" \
+            -v "${GITHUB_WORKSPACE}:/workspace" -w /workspace \
+            -e NODE -e RUNNER_LABEL -e LOCKED_FLAGS -e COMPILER_REVISION \
+            -e ImageOS -e ImageVersion \
+            "${IMAGE_REF}" bash -euo pipefail -c '
+              rm -rf build/relocatable-world/linux-producer-build
+              cmake -S . -B build/relocatable-world/linux-producer-build -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_CXX_COMPILER="${CXX}" \
+                -DCMAKE_CXX_FLAGS="${LOCKED_FLAGS}" \
+                -DTYPELAYOUT_TOOLCHAIN_REVISION="${COMPILER_REVISION}"
+              cmake --build build/relocatable-world/linux-producer-build \
+                --target relocatable_world_demo \
+                  relocatable_world_platform_probe relocatable_world_producer \
+                --parallel
+              ctest --test-dir "build/relocatable-world/linux-producer-build" \
+                -R "^relocatable_world_demo$" --output-on-failure \
+                --no-tests=error
+              build/relocatable-world/linux-producer-build/relocatable_world_platform_probe \
+                "${NODE}" "build/relocatable-world/${NODE}.probe.json" \
+                --runner "${RUNNER_LABEL}" --runner-image "${ImageOS-}/${ImageVersion-}" \
+                --xcode-version none --xcode-build none --sdk-version none \
+                --sdk-build none --deployment-target none --sdk-locked true
+              build/relocatable-world/linux-producer-build/relocatable_world_producer \
+                "${NODE}" "build/relocatable-world/producer/${NODE}"
+              if test -f "build/relocatable-world/producer/${NODE}/${NODE}.region"; then
+                cmake --build build/relocatable-world/linux-producer-build \
+                  --target relocatable_world_export_ok --parallel
+                build/relocatable-world/linux-producer-build/relocatable_world_export_ok \
+                  "build/relocatable-world/producer/${NODE}" "${NODE}"
+              fi
+            '
+          seal=(python3 tools/relocatable_world_evidence.py seal-producer
+            --node "${NODE}" --profile authoritative --execution native
+            --probe "build/relocatable-world/${NODE}.probe.json"
+            --facts "${BUNDLE}/${NODE}.producer-facts.json"
+            --sources-lock "${SOURCES_LOCK}" --outputs-lock "${OUTPUTS_LOCK}"
+            --runner "${RUNNER_LABEL}" --source-sha "${SOURCE_SHA}"
+            --workflow-run "${WORKFLOW_RUN}"
+            --toolchain-artifact-sha256 "${ARTIFACT_SHA256}"
+            --output "${BUNDLE}/${NODE}.provenance.json")
+          if test -f "${BUNDLE}/${NODE}.region"; then
+            seal+=(--signature "${BUNDLE}/${NODE}.sig.hpp"
+                   --region "${BUNDLE}/${NODE}.region")
+          fi
+          "${seal[@]}"
+
+      - name: Upload producer diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rw-producer-${{ matrix.node }}
+          path: |
+            build/relocatable-world/producer/${{ matrix.node }}/${{ matrix.node }}.provenance.json
+            build/relocatable-world/producer/${{ matrix.node }}/${{ matrix.node }}.sig.hpp
+            build/relocatable-world/producer/${{ matrix.node }}/${{ matrix.node }}.region
+          if-no-files-found: error
+
+      - name: gate producer result
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "${BUNDLE}/${NODE}.provenance.json" <<'PY'
+          import importlib.util
+          import sys
+          spec = importlib.util.spec_from_file_location("evidence", "tools/relocatable_world_evidence.py")
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          record = module.validate_provenance(sys.argv[1])
+          if record["status"] != "READY":
+              raise SystemExit(f"producer status is {record['status']}")
+          PY
+
+  producer_macos:
+    name: producer / ${{ matrix.node }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node: arm64_macos_clang
+            runner: macos-15
+          - node: x86_64_macos_clang
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    env:
+      SOURCE_SHA: ${{ github.sha }}
+      WORKFLOW_RUN: ${{ github.run_id }}.${{ github.run_attempt }}
+      SOURCES_LOCK: .github/docker/toolchain-sources.lock
+      OUTPUTS_LOCK: .github/docker/toolchains.lock
+      NODE: ${{ matrix.node }}
+      RUNNER_LABEL: ${{ matrix.runner }}
+      BUNDLE: build/relocatable-world/producer/${{ matrix.node }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Initialize INCOMPLETE producer evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${BUNDLE}"
+          python3 tools/relocatable_world_evidence.py fallback-provenance \
+            --node "${NODE}" --reason "producer job did not seal complete evidence" \
+            --output "${BUNDLE}/${NODE}.provenance.json"
+
+      - name: Verify and retain locked macOS toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          extract_dir="${RUNNER_TEMP}/p2996-${NODE}-${WORKFLOW_RUN}"
+          metadata="${RUNNER_TEMP}/${NODE}.verification.json"
+          rm -rf "${extract_dir}"
+          .github/scripts/verify-p2996-toolchain.sh \
+            --sources "${SOURCES_LOCK}" --outputs "${OUTPUTS_LOCK}" \
+            --node "${NODE}" --require-locked-sdk \
+            --extract-dir "${extract_dir}" --metadata-output "${metadata}"
+          python3 - "${SOURCES_LOCK}" "${OUTPUTS_LOCK}" "${NODE}" \
+              "${metadata}" >>"${GITHUB_ENV}" <<'PY'
+          import importlib.util
+          import sys
+          spec = importlib.util.spec_from_file_location("evidence", "tools/relocatable_world_evidence.py")
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          policy, _, _ = module.load_node_toolchain_policy(*sys.argv[1:4])
+          metadata = module.load_json(sys.argv[4])
+          environment = metadata["environment"]
+          flags = policy["flags"].replace("${TOOLCHAIN_ROOT}", environment["toolchain_root"])
+          flags = flags.replace("${SDKROOT}", environment["sdkroot"]).replace("${TARGET_TRIPLE}", policy["target"])
+          values = {
+              "TOOLCHAIN_ROOT": environment["toolchain_root"],
+              "DEVELOPER_DIR": environment["developer_dir"],
+              "SDKROOT": environment["sdkroot"],
+              "LOCKED_FLAGS": flags,
+              "COMPILER_REVISION": policy["compiler_revision"],
+              "COMPILER_TARGET": policy["target"],
+              "ARCHITECTURE": metadata["architecture"],
+              "ARTIFACT_SHA256": policy["toolchain_artifact_sha256"],
+              "XCODE_VERSION": policy["xcode_version"], "XCODE_BUILD": policy["xcode_build"],
+              "SDK_VERSION": policy["sdk_version"], "SDK_BUILD": policy["sdk_build"],
+              "DEPLOYMENT_TARGET": policy["deployment_target"],
+          }
+          for key, value in values.items():
+              if not isinstance(value, str) or not value or "${" in value or any(c in value for c in "\r\n"):
+                  raise SystemExit(f"unsafe resolved value for {key}")
+              print(f"{key}={value}")
+          PY
+
+      - name: Build, run the complete demo contract, verify runtime, and seal evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DEVELOPER_DIR
+          rm -rf build/relocatable-world/macos-producer-build
+          cmake -S . -B build/relocatable-world/macos-producer-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER="${TOOLCHAIN_ROOT}/bin/clang++" \
+            -DCMAKE_CXX_COMPILER_TARGET="${COMPILER_TARGET}" \
+            -DCMAKE_OSX_ARCHITECTURES="${ARCHITECTURE}" \
+            -DCMAKE_OSX_SYSROOT="${SDKROOT}" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET}" \
+            -DCMAKE_CXX_FLAGS="${LOCKED_FLAGS}" \
+            -DTYPELAYOUT_TOOLCHAIN_REVISION="${COMPILER_REVISION}"
+          cmake --build build/relocatable-world/macos-producer-build \
+            --target relocatable_world_demo \
+              relocatable_world_platform_probe relocatable_world_producer \
+            --parallel
+          ctest --test-dir "build/relocatable-world/macos-producer-build" \
+            -R "^relocatable_world_demo$" --output-on-failure \
+            --no-tests=error
+          build/relocatable-world/macos-producer-build/relocatable_world_platform_probe \
+            "${NODE}" "build/relocatable-world/${NODE}.probe.json" \
+            --runner "${RUNNER_LABEL}" --runner-image "${ImageOS-}/${ImageVersion-}" \
+            --xcode-version "${XCODE_VERSION}" --xcode-build "${XCODE_BUILD}" \
+            --sdk-version "${SDK_VERSION}" --sdk-build "${SDK_BUILD}" \
+            --deployment-target "${DEPLOYMENT_TARGET}" --sdk-locked true
+          producer=build/relocatable-world/macos-producer-build/relocatable_world_producer
+          otool -L "${producer}" | tee build/relocatable-world/${NODE}.producer.otool-L
+          otool -l "${producer}" | tee build/relocatable-world/${NODE}.producer.otool-l
+          grep -F '@rpath/libc++.1.dylib' build/relocatable-world/${NODE}.producer.otool-L
+          grep -F "${TOOLCHAIN_ROOT}/lib" build/relocatable-world/${NODE}.producer.otool-l
+          DYLD_PRINT_LIBRARIES=1 "${producer}" "${NODE}" "${BUNDLE}" \
+            2>build/relocatable-world/${NODE}.producer.dyld
+          grep -F "${TOOLCHAIN_ROOT}/lib/libc++.1.dylib" build/relocatable-world/${NODE}.producer.dyld
+          grep -F "${TOOLCHAIN_ROOT}/lib/libc++abi.1.dylib" build/relocatable-world/${NODE}.producer.dyld
+          if test -f "${BUNDLE}/${NODE}.region"; then
+            cmake --build build/relocatable-world/macos-producer-build \
+              --target relocatable_world_export_ok --parallel
+            build/relocatable-world/macos-producer-build/relocatable_world_export_ok \
+              "${BUNDLE}" "${NODE}"
+          fi
+          seal=(python3 tools/relocatable_world_evidence.py seal-producer
+            --node "${NODE}" --profile authoritative --execution native
+            --probe "build/relocatable-world/${NODE}.probe.json"
+            --facts "${BUNDLE}/${NODE}.producer-facts.json"
+            --sources-lock "${SOURCES_LOCK}" --outputs-lock "${OUTPUTS_LOCK}"
+            --runner "${RUNNER_LABEL}" --source-sha "${SOURCE_SHA}"
+            --workflow-run "${WORKFLOW_RUN}"
+            --toolchain-artifact-sha256 "${ARTIFACT_SHA256}"
+            --output "${BUNDLE}/${NODE}.provenance.json")
+          if test -f "${BUNDLE}/${NODE}.region"; then
+            seal+=(--signature "${BUNDLE}/${NODE}.sig.hpp" --region "${BUNDLE}/${NODE}.region")
+          fi
+          "${seal[@]}"
+
+      - name: Upload producer diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rw-producer-${{ matrix.node }}
+          path: |
+            build/relocatable-world/producer/${{ matrix.node }}/${{ matrix.node }}.provenance.json
+            build/relocatable-world/producer/${{ matrix.node }}/${{ matrix.node }}.sig.hpp
+            build/relocatable-world/producer/${{ matrix.node }}/${{ matrix.node }}.region
+          if-no-files-found: error
+
+      - name: gate producer result
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          python3 - "${BUNDLE}/${NODE}.provenance.json" <<'PY'
+          import importlib.util, sys
+          spec = importlib.util.spec_from_file_location("evidence", "tools/relocatable_world_evidence.py")
+          module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+          record = module.validate_provenance(sys.argv[1])
+          if record["status"] != "READY": raise SystemExit(f"producer status is {record['status']}")
+          PY
+
+  consumer_linux:
+    name: consumer / ${{ matrix.node }}
+    needs: [producer_linux, producer_macos]
+    if: ${{ always() && !cancelled() }}
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node: x86_64_linux_gcc
+            runner: ubuntu-24.04
+            platform: linux/amd64
+            host_arch: x86_64
+            toolchain: gcc
+          - node: x86_64_linux_clang
+            runner: ubuntu-24.04
+            platform: linux/amd64
+            host_arch: x86_64
+            toolchain: p2996
+          - node: arm64_linux_gcc
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            host_arch: aarch64
+            toolchain: gcc
+          - node: arm64_linux_clang
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            host_arch: aarch64
+            toolchain: p2996
+    runs-on: ${{ matrix.runner }}
+    env:
+      SOURCE_SHA: ${{ github.sha }}
+      WORKFLOW_RUN: ${{ github.run_id }}.${{ github.run_attempt }}
+      SOURCES_LOCK: .github/docker/toolchain-sources.lock
+      OUTPUTS_LOCK: .github/docker/toolchains.lock
+      NODE: ${{ matrix.node }}
+      PLATFORM: ${{ matrix.platform }}
+      HOST_ARCH: ${{ matrix.host_arch }}
+      TOOLCHAIN: ${{ matrix.toolchain }}
+      RUNNER_LABEL: ${{ matrix.runner }}
+      RESULT: build/relocatable-world/results/${{ matrix.node }}.results.json
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Initialize INCOMPLETE consumer evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/relocatable-world/results build/relocatable-world/downloaded-producers
+          python3 tools/relocatable_world_evidence.py fallback-results \
+            --profile authoritative --consumer "${NODE}" \
+            --reason "consumer job did not produce complete results" \
+            --output "${RESULT}"
+
+      - name: Download available producer artifacts
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: rw-producer-*
+          path: build/relocatable-world/downloaded-producers
+
+      - name: Validate locks, curate producer evidence, and resolve image
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/validate-toolchain-locks.py \
+            --sources "${SOURCES_LOCK}" --outputs "${OUTPUTS_LOCK}" --recipe-root .
+          python3 - "${SOURCES_LOCK}" "${OUTPUTS_LOCK}" "${NODE}" \
+              "${TOOLCHAIN}" "${PLATFORM}" >>"${GITHUB_ENV}" <<'PY'
+          import importlib.util
+          import shutil
+          import sys
+          from pathlib import Path
+
+          spec = importlib.util.spec_from_file_location("evidence", "tools/relocatable_world_evidence.py")
+          module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+          source, output, node, toolchain, platform = sys.argv[1:]
+          policy, _, _ = module.load_node_toolchain_policy(source, output, node)
+          lock = module.load_json(output)
+          image = lock["linux"][toolchain]
+          evidence = Path("build/relocatable-world/evidence")
+          evidence.mkdir(parents=True, exist_ok=True)
+          seen = set()
+          for path in Path("build/relocatable-world/downloaded-producers").rglob("*.provenance.json"):
+              record = module.validate_provenance(path)
+              producer = record["node"]
+              if producer in seen or path.name != f"{producer}.provenance.json":
+                  raise SystemExit(f"duplicate or unexpected producer provenance {path}")
+              seen.add(producer)
+              shutil.copyfile(path, evidence / path.name)
+              for key in ("signature", "region"):
+                  artifact = record.get("artifacts", {}).get(key)
+                  if artifact:
+                      source_path = path.parent / artifact["filename"]
+                      if module._sha256(source_path) != artifact["sha256"]:
+                          raise SystemExit(f"producer artifact digest mismatch: {source_path}")
+                      shutil.copyfile(source_path, evidence / source_path.name)
+          manifest = image["platforms"][platform]["manifest_digest"]
+          flags = policy["flags"].replace("${TOOLCHAIN_ROOT}", "/opt/p2996-toolchain").replace("${TARGET_TRIPLE}", policy["target"])
+          values = {
+              "REPOSITORY": image["repository"], "INDEX_DIGEST": image["index_digest"],
+              "MANIFEST_DIGEST": manifest.removeprefix("sha256:"),
+              "ARTIFACT_SHA256": policy["toolchain_artifact_sha256"],
+              "COMPILER_REVISION": policy["compiler_revision"], "LOCKED_FLAGS": flags,
+          }
+          for key, value in values.items():
+              if not isinstance(value, str) or not value or "${" in value or any(c in value for c in "\r\n"):
+                  raise SystemExit(f"unsafe resolved value for {key}")
+              print(f"{key}={value}")
+          PY
+
+      - name: Authenticate to the package registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify locked index and native manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(docker info --format '{{.Architecture}}')" = "${HOST_ARCH}"
+          docker buildx imagetools inspect "${REPOSITORY}@${INDEX_DIGEST}" --raw \
+            > build/relocatable-world/index.json
+          python3 - build/relocatable-world/index.json "${OUTPUTS_LOCK}" \
+              "${TOOLCHAIN}" "${PLATFORM}" "sha256:${MANIFEST_DIGEST}" <<'PY'
+          import json, sys
+          def unique(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result: raise SystemExit(f"duplicate index key {key}")
+                  result[key] = value
+              return result
+          with open(sys.argv[1], encoding="utf-8") as stream: index = json.load(stream, object_pairs_hook=unique)
+          with open(sys.argv[2], encoding="utf-8") as stream: lock = json.load(stream, object_pairs_hook=unique)
+          expected = {key: value["manifest_digest"] for key, value in lock["linux"][sys.argv[3]]["platforms"].items()}
+          actual = {}
+          for item in index.get("manifests", []):
+              platform = item.get("platform", {})
+              key = f'{platform.get("os")}/{platform.get("architecture")}'
+              if key in actual: raise SystemExit(f"duplicate manifest platform {key}")
+              actual[key] = item.get("digest")
+          if actual != expected or expected.get(sys.argv[4]) != sys.argv[5]:
+              raise SystemExit("remote index differs from sealed lock")
+          PY
+          IMAGE_REF="${REPOSITORY}@sha256:${MANIFEST_DIGEST}"
+          docker pull "${IMAGE_REF}"
+
+      - name: Probe, build, and run five directed transfers
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE_REF="${REPOSITORY}@sha256:${MANIFEST_DIGEST}"
+          docker run --rm --platform "${PLATFORM}" \
+            -v "${GITHUB_WORKSPACE}:/workspace" -w /workspace \
+            -e NODE -e RUNNER_LABEL -e LOCKED_FLAGS -e COMPILER_REVISION \
+            -e ARTIFACT_SHA256 -e SOURCE_SHA -e WORKFLOW_RUN \
+            -e ImageOS -e ImageVersion \
+            "${IMAGE_REF}" bash -euo pipefail -c '
+              rm -rf build/relocatable-world/linux-consumer-build
+              cmake -S . -B build/relocatable-world/linux-consumer-build -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER="${CXX}" \
+                -DCMAKE_CXX_FLAGS="${LOCKED_FLAGS}" \
+                -DTYPELAYOUT_TOOLCHAIN_REVISION="${COMPILER_REVISION}" \
+                -DTYPELAYOUT_RELOCATABLE_WORLD_EVIDENCE_MODE=production \
+                -DTYPELAYOUT_RELOCATABLE_WORLD_PROFILE=authoritative \
+                -DTYPELAYOUT_RELOCATABLE_WORLD_CONSUMER_NODE="${NODE}" \
+                -DTYPELAYOUT_RELOCATABLE_WORLD_EVIDENCE_DIR=/workspace/build/relocatable-world/evidence \
+                -DTYPELAYOUT_RELOCATABLE_WORLD_CONSUMER_PROBE=/workspace/build/relocatable-world/consumer.probe.json \
+                -DTYPELAYOUT_RELOCATABLE_WORLD_TOOLCHAIN_ARTIFACT_SHA256="${ARTIFACT_SHA256}" \
+                -DTYPELAYOUT_RELOCATABLE_WORLD_SOURCE_SHA="${SOURCE_SHA}" \
+                -DTYPELAYOUT_RELOCATABLE_WORLD_WORKFLOW_RUN="${WORKFLOW_RUN}" \
+                -DTYPELAYOUT_RELOCATABLE_WORLD_SOURCES_LOCK=/workspace/.github/docker/toolchain-sources.lock \
+                -DTYPELAYOUT_RELOCATABLE_WORLD_OUTPUTS_LOCK=/workspace/.github/docker/toolchains.lock
+              cmake --build build/relocatable-world/linux-consumer-build \
+                --target relocatable_world_platform_probe --parallel
+              build/relocatable-world/linux-consumer-build/relocatable_world_platform_probe \
+                "${NODE}" build/relocatable-world/consumer.probe.json \
+                --runner "${RUNNER_LABEL}" --runner-image "${ImageOS-}/${ImageVersion-}" \
+                --xcode-version none --xcode-build none --sdk-version none \
+                --sdk-build none --deployment-target none --sdk-locked true
+              python3 tools/relocatable_world_evidence.py prepare-consumer \
+                --profile authoritative --consumer "${NODE}" \
+                --evidence /workspace/build/relocatable-world/evidence \
+                --consumer-probe /workspace/build/relocatable-world/consumer.probe.json \
+                --toolchain-artifact-sha256 "${ARTIFACT_SHA256}" \
+                --expect-source-sha "${SOURCE_SHA}" \
+                --expect-workflow-run "${WORKFLOW_RUN}" \
+                --sources-lock /workspace/.github/docker/toolchain-sources.lock \
+                --outputs-lock /workspace/.github/docker/toolchains.lock \
+                --output-header /workspace/build/relocatable-world/linux-consumer-build/relocatable-world-matrix/generated/relocatable_world_consumer_input.hpp
+              cmake --build build/relocatable-world/linux-consumer-build \
+                --target relocatable_world_consumer --parallel
+              build/relocatable-world/linux-consumer-build/relocatable_world_consumer \
+                authoritative "${NODE}" /workspace/build/relocatable-world/evidence \
+                "/workspace/build/relocatable-world/results/${NODE}.results.json"
+            '
+
+      - name: Upload consumer diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rw-consumer-${{ matrix.node }}
+          path: build/relocatable-world/results/${{ matrix.node }}.results.json
+          if-no-files-found: error
+
+      - name: gate consumer passes
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          python3 - "${RESULT}" "${NODE}" <<'PY'
+          import importlib.util, sys
+          spec = importlib.util.spec_from_file_location("evidence", "tools/relocatable_world_evidence.py")
+          module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+          record = module.validate_results(sys.argv[1])
+          if record["consumer"] != sys.argv[2] or len(record["transfers"]) != 5:
+              raise SystemExit("consumer result identity/count mismatch")
+          if any(transfer["status"] != 'PASS' or not transfer["producer_provenance_sha256"] for transfer in record["transfers"]):
+              raise SystemExit("consumer contains a non-PASS or unbound transfer")
+          PY
+
+  agreement:
+    name: Agreement / 15 unordered pairs
+    needs: [producer_linux, producer_macos]
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-24.04
+    env:
+      SOURCE_SHA: ${{ github.sha }}
+      WORKFLOW_RUN: ${{ github.run_id }}.${{ github.run_attempt }}
+      SOURCES_LOCK: .github/docker/toolchain-sources.lock
+      OUTPUTS_LOCK: .github/docker/toolchains.lock
+      AGREEMENT: build/relocatable-world/agreement/agreements.json
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Initialize INCOMPLETE Agreement
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/relocatable-world/agreement build/relocatable-world/downloaded-producers
+          python3 tools/relocatable_world_evidence.py fallback-agreements \
+            --profile authoritative --reason "Agreement job did not complete" \
+            --output "${AGREEMENT}"
+
+      - name: Download available producer artifacts
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: rw-producer-*
+          path: build/relocatable-world/downloaded-producers
+
+      - name: Curate strict producer evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/validate-toolchain-locks.py \
+            --sources "${SOURCES_LOCK}" --outputs "${OUTPUTS_LOCK}" --recipe-root .
+          python3 - <<'PY'
+          import importlib.util
+          import shutil
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("evidence", "tools/relocatable_world_evidence.py")
+          module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+          target = Path("build/relocatable-world/evidence"); target.mkdir(parents=True, exist_ok=True)
+          seen = set()
+          for path in Path("build/relocatable-world/downloaded-producers").rglob("*.provenance.json"):
+              record = module.validate_provenance(path); node = record["node"]
+              if node in seen or path.name != f"{node}.provenance.json":
+                  raise SystemExit(f"duplicate or unexpected producer provenance {path}")
+              seen.add(node); shutil.copyfile(path, target / path.name)
+              for key in ("signature", "region"):
+                  artifact = record.get("artifacts", {}).get(key)
+                  if artifact:
+                      payload = path.parent / artifact["filename"]
+                      if module._sha256(payload) != artifact["sha256"]:
+                          raise SystemExit(f"producer artifact digest mismatch: {payload}")
+                      shutil.copyfile(payload, target / payload.name)
+          PY
+
+      - name: Compute Agreement with a direct C++20 build
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/relocatable-world/agreement-generated build/relocatable-world/bin
+          python3 tools/relocatable_world_evidence.py prepare-agreements \
+            --profile authoritative \
+            --evidence build/relocatable-world/evidence \
+            --expect-source-sha "${SOURCE_SHA}" \
+            --expect-workflow-run "${WORKFLOW_RUN}" \
+            --sources-lock "${SOURCES_LOCK}" --outputs-lock "${OUTPUTS_LOCK}" \
+            --output-header build/relocatable-world/agreement-generated/relocatable_world_agreement_input.hpp
+          c++ -std=c++20 -O2 \
+            -I example/relocatable_world_demo \
+            -I build/relocatable-world/agreement-generated \
+            example/relocatable_world_demo/agreement_check.cpp \
+            -o build/relocatable-world/bin/agreement-check
+          build/relocatable-world/bin/agreement-check "${AGREEMENT}"
+
+      - name: Upload Agreement diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rw-agreements
+          path: build/relocatable-world/agreement/agreements.json
+          if-no-files-found: error
+
+      - name: gate Agreement permits
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          python3 - "${AGREEMENT}" <<'PY'
+          import importlib.util, sys
+          spec = importlib.util.spec_from_file_location("evidence", "tools/relocatable_world_evidence.py")
+          module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+          record = module.validate_agreements(sys.argv[1])
+          decisions = [decision for pair in record["pairs"] for decision in pair["decisions"]]
+          if len(record["pairs"]) != 15 or len(decisions) != 60:
+              raise SystemExit("Agreement identity/count mismatch")
+          if any(decision["status"] != 'PERMIT' for decision in decisions):
+              raise SystemExit("Agreement contains a non-PERMIT decision")
+          PY
+
+  closure:
+    name: authoritative audit closure
+    needs: [producer_linux, producer_macos, consumer_linux, consumer_macos, agreement]
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-24.04
+    env:
+      SOURCE_SHA: ${{ github.sha }}
+      WORKFLOW_RUN: ${{ github.run_id }}.${{ github.run_attempt }}
+      SOURCES_LOCK: .github/docker/toolchain-sources.lock
+      OUTPUTS_LOCK: .github/docker/toolchains.lock
+      AUDIT: build/relocatable-world/audit
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Initialize flat INCOMPLETE audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${AUDIT}" build/relocatable-world/downloaded-producers \
+            build/relocatable-world/downloaded-consumers build/relocatable-world/downloaded-agreement \
+            build/relocatable-world/matrix-input
+          python3 tools/relocatable_world_evidence.py fallback-closure \
+            --profile authoritative --reason "closure job did not complete" \
+            --output "${AUDIT}/closure.json"
+          python3 tools/relocatable_world_evidence.py fallback-agreements \
+            --profile authoritative --reason "Agreement artifact unavailable" \
+            --output "${AUDIT}/agreements.json"
+          for node in x86_64_linux_gcc x86_64_linux_clang arm64_linux_gcc \
+              arm64_linux_clang arm64_macos_clang x86_64_macos_clang; do
+            python3 tools/relocatable_world_evidence.py fallback-provenance \
+              --node "${node}" --reason "producer artifact unavailable" \
+              --output "${AUDIT}/${node}.provenance.json"
+            python3 tools/relocatable_world_evidence.py fallback-results \
+              --profile authoritative --consumer "${node}" \
+              --reason "consumer artifact unavailable" \
+              --output "${AUDIT}/${node}.results.json"
+          done
+          printf '%s\n' "${SOURCE_SHA}" > "${AUDIT}/source-sha.txt"
+          printf '%s\n' "${WORKFLOW_RUN}" > "${AUDIT}/workflow-run.txt"
+
+      - name: Download available producer artifacts
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: rw-producer-*
+          path: build/relocatable-world/downloaded-producers
+
+      - name: Download available consumer artifacts
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: rw-consumer-*
+          path: build/relocatable-world/downloaded-consumers
+
+      - name: Download available Agreement artifact
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: rw-agreements
+          path: build/relocatable-world/downloaded-agreement
+
+      - name: Curate fixed identities into the flat audit directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/validate-toolchain-locks.py \
+            --sources "${SOURCES_LOCK}" --outputs "${OUTPUTS_LOCK}" --recipe-root .
+          python3 - "${AUDIT}" <<'PY'
+          import importlib.util
+          import shutil
+          import sys
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("evidence", "tools/relocatable_world_evidence.py")
+          module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+          audit = Path(sys.argv[1])
+          matrix_input = Path("build/relocatable-world/matrix-input/agreements.json")
+
+          producer_seen = set()
+          for path in Path("build/relocatable-world/downloaded-producers").rglob("*.provenance.json"):
+              record = module.validate_provenance(path); node = record["node"]
+              if node in producer_seen or path.name != f"{node}.provenance.json":
+                  raise SystemExit(f"duplicate or unexpected producer {path}")
+              producer_seen.add(node); shutil.copyfile(path, audit / path.name)
+              for key in ("signature", "region"):
+                  artifact = record.get("artifacts", {}).get(key)
+                  if artifact:
+                      payload = path.parent / artifact["filename"]
+                      if module._sha256(payload) != artifact["sha256"]:
+                          raise SystemExit(f"producer artifact digest mismatch: {payload}")
+                      shutil.copyfile(payload, audit / payload.name)
+
+          consumer_seen = set()
+          for path in Path("build/relocatable-world/downloaded-consumers").rglob("*.results.json"):
+              record = module.validate_results(path); node = record["consumer"]
+              if node in consumer_seen or path.name != f"{node}.results.json":
+                  raise SystemExit(f"duplicate or unexpected consumer {path}")
+              consumer_seen.add(node); shutil.copyfile(path, audit / path.name)
+
+          agreement_paths = list(Path("build/relocatable-world/downloaded-agreement").rglob("agreements.json"))
+          if len(agreement_paths) > 1:
+              raise SystemExit("duplicate Agreement artifacts")
+          if agreement_paths:
+              module.validate_agreements(agreement_paths[0])
+              shutil.copyfile(agreement_paths[0], audit / "agreements.json")
+          shutil.copyfile(audit / "agreements.json", matrix_input)
+          PY
+
+      - name: Compute C++20 matrix closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/relocatable-world/matrix-generated build/relocatable-world/bin
+          python3 tools/relocatable_world_evidence.py prepare-matrix \
+            --profile authoritative --evidence "${AUDIT}" --results "${AUDIT}" \
+            --agreements build/relocatable-world/matrix-input/agreements.json \
+            --expect-source-sha "${SOURCE_SHA}" \
+            --expect-workflow-run "${WORKFLOW_RUN}" \
+            --sources-lock "${SOURCES_LOCK}" --outputs-lock "${OUTPUTS_LOCK}" \
+            --output-header build/relocatable-world/matrix-generated/relocatable_world_matrix_input.hpp
+          c++ -std=c++20 -O2 \
+            -I example/relocatable_world_demo \
+            -I build/relocatable-world/matrix-generated \
+            example/relocatable_world_demo/matrix_check.cpp \
+            -o build/relocatable-world/bin/matrix-check
+          build/relocatable-world/bin/matrix-check "${AUDIT}/closure.json"
+          EXPECTED_FLAT_FILE_COUNT=28
+          actual_count="$(find "${AUDIT}" -mindepth 1 -maxdepth 1 -type f | wc -l | tr -d '[:space:]')"
+          {
+            echo '## Relocatable-world authoritative matrix'
+            echo
+            echo "Flat files: ${actual_count}/${EXPECTED_FLAT_FILE_COUNT}"
+            python3 - "${AUDIT}/closure.json" <<'PY'
+          import json, sys
+          record = json.load(open(sys.argv[1], encoding="utf-8"))
+          counts = record.get("counts", {})
+          print(f"Status: {record.get('status', 'INCOMPLETE')}")
+          print(f"Nodes: {counts.get('nodes', 0)}; pairs: {counts.get('pairs', 0)}; "
+                f"permits: {counts.get('named_permits', 0)}; passes: {counts.get('passes', 0)}")
+          PY
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload the authoritative flat audit
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rw-authoritative-audit
+          path: build/relocatable-world/audit
+          if-no-files-found: error
+
+      - name: audit-run
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_FLAT_FILE_COUNT=28
+          test "$(find "${AUDIT}" -mindepth 1 -maxdepth 1 -type f | wc -l | tr -d '[:space:]')" \
+            = "${EXPECTED_FLAT_FILE_COUNT}"
+          python3 tools/relocatable_world_evidence.py audit-run \
+            --directory "${AUDIT}" \
+            --expect-source-sha "${SOURCE_SHA}" \
+            --expect-workflow-run "${WORKFLOW_RUN}" \
+            --sources-lock "${SOURCES_LOCK}" --outputs-lock "${OUTPUTS_LOCK}" \
+            --expect-nodes 6 --expect-pairs 15 \
+            --expect-named-permits 60 --expect-transfers 30
+
+  consumer_macos:
+    name: consumer / ${{ matrix.node }}
+    needs: [producer_linux, producer_macos]
+    if: ${{ always() && !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node: arm64_macos_clang
+            runner: macos-15
+          - node: x86_64_macos_clang
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    env:
+      SOURCE_SHA: ${{ github.sha }}
+      WORKFLOW_RUN: ${{ github.run_id }}.${{ github.run_attempt }}
+      SOURCES_LOCK: .github/docker/toolchain-sources.lock
+      OUTPUTS_LOCK: .github/docker/toolchains.lock
+      NODE: ${{ matrix.node }}
+      RUNNER_LABEL: ${{ matrix.runner }}
+      RESULT: build/relocatable-world/results/${{ matrix.node }}.results.json
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Initialize INCOMPLETE consumer evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/relocatable-world/results build/relocatable-world/downloaded-producers
+          python3 tools/relocatable_world_evidence.py fallback-results \
+            --profile authoritative --consumer "${NODE}" \
+            --reason "consumer job did not produce complete results" \
+            --output "${RESULT}"
+
+      - name: Download available producer artifacts
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: rw-producer-*
+          path: build/relocatable-world/downloaded-producers
+
+      - name: Curate producer evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import importlib.util
+          import shutil
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("evidence", "tools/relocatable_world_evidence.py")
+          module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+          evidence = Path("build/relocatable-world/evidence"); evidence.mkdir(parents=True, exist_ok=True)
+          seen = set()
+          for path in Path("build/relocatable-world/downloaded-producers").rglob("*.provenance.json"):
+              record = module.validate_provenance(path); node = record["node"]
+              if node in seen or path.name != f"{node}.provenance.json":
+                  raise SystemExit(f"duplicate or unexpected producer provenance {path}")
+              seen.add(node); shutil.copyfile(path, evidence / path.name)
+              for key in ("signature", "region"):
+                  artifact = record.get("artifacts", {}).get(key)
+                  if artifact:
+                      payload = path.parent / artifact["filename"]
+                      if module._sha256(payload) != artifact["sha256"]:
+                          raise SystemExit(f"producer artifact digest mismatch: {payload}")
+                      shutil.copyfile(payload, evidence / payload.name)
+          PY
+
+      - name: Verify and retain locked macOS toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          extract_dir="${RUNNER_TEMP}/p2996-${NODE}-${WORKFLOW_RUN}"
+          metadata="${RUNNER_TEMP}/${NODE}.verification.json"
+          rm -rf "${extract_dir}"
+          .github/scripts/verify-p2996-toolchain.sh \
+            --sources "${SOURCES_LOCK}" --outputs "${OUTPUTS_LOCK}" \
+            --node "${NODE}" --require-locked-sdk \
+            --extract-dir "${extract_dir}" --metadata-output "${metadata}"
+          python3 - "${SOURCES_LOCK}" "${OUTPUTS_LOCK}" "${NODE}" \
+              "${metadata}" >>"${GITHUB_ENV}" <<'PY'
+          import importlib.util, sys
+          spec = importlib.util.spec_from_file_location("evidence", "tools/relocatable_world_evidence.py")
+          module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+          policy, _, _ = module.load_node_toolchain_policy(*sys.argv[1:4])
+          metadata = module.load_json(sys.argv[4]); environment = metadata["environment"]
+          flags = policy["flags"].replace("${TOOLCHAIN_ROOT}", environment["toolchain_root"])
+          flags = flags.replace("${SDKROOT}", environment["sdkroot"]).replace("${TARGET_TRIPLE}", policy["target"])
+          values = {
+              "TOOLCHAIN_ROOT": environment["toolchain_root"], "DEVELOPER_DIR": environment["developer_dir"],
+              "SDKROOT": environment["sdkroot"], "LOCKED_FLAGS": flags,
+              "COMPILER_REVISION": policy["compiler_revision"],
+              "COMPILER_TARGET": policy["target"], "ARCHITECTURE": metadata["architecture"],
+              "ARTIFACT_SHA256": policy["toolchain_artifact_sha256"],
+              "XCODE_VERSION": policy["xcode_version"], "XCODE_BUILD": policy["xcode_build"],
+              "SDK_VERSION": policy["sdk_version"], "SDK_BUILD": policy["sdk_build"],
+              "DEPLOYMENT_TARGET": policy["deployment_target"],
+          }
+          for key, value in values.items():
+              if not isinstance(value, str) or not value or "${" in value or any(c in value for c in "\r\n"):
+                  raise SystemExit(f"unsafe resolved value for {key}")
+              print(f"{key}={value}")
+          PY
+
+      - name: Probe, build, and run five directed transfers
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DEVELOPER_DIR
+          rm -rf build/relocatable-world/macos-consumer-build
+          cmake -S . -B build/relocatable-world/macos-consumer-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER="${TOOLCHAIN_ROOT}/bin/clang++" \
+            -DCMAKE_CXX_COMPILER_TARGET="${COMPILER_TARGET}" \
+            -DCMAKE_OSX_ARCHITECTURES="${ARCHITECTURE}" \
+            -DCMAKE_OSX_SYSROOT="${SDKROOT}" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET}" \
+            -DCMAKE_CXX_FLAGS="${LOCKED_FLAGS}" \
+            -DTYPELAYOUT_TOOLCHAIN_REVISION="${COMPILER_REVISION}" \
+            -DTYPELAYOUT_RELOCATABLE_WORLD_EVIDENCE_MODE=production \
+            -DTYPELAYOUT_RELOCATABLE_WORLD_PROFILE=authoritative \
+            -DTYPELAYOUT_RELOCATABLE_WORLD_CONSUMER_NODE="${NODE}" \
+            -DTYPELAYOUT_RELOCATABLE_WORLD_EVIDENCE_DIR="${GITHUB_WORKSPACE}/build/relocatable-world/evidence" \
+            -DTYPELAYOUT_RELOCATABLE_WORLD_CONSUMER_PROBE="${GITHUB_WORKSPACE}/build/relocatable-world/consumer.probe.json" \
+            -DTYPELAYOUT_RELOCATABLE_WORLD_TOOLCHAIN_ARTIFACT_SHA256="${ARTIFACT_SHA256}" \
+            -DTYPELAYOUT_RELOCATABLE_WORLD_SOURCE_SHA="${SOURCE_SHA}" \
+            -DTYPELAYOUT_RELOCATABLE_WORLD_WORKFLOW_RUN="${WORKFLOW_RUN}" \
+            -DTYPELAYOUT_RELOCATABLE_WORLD_SOURCES_LOCK="${GITHUB_WORKSPACE}/${SOURCES_LOCK}" \
+            -DTYPELAYOUT_RELOCATABLE_WORLD_OUTPUTS_LOCK="${GITHUB_WORKSPACE}/${OUTPUTS_LOCK}"
+          cmake --build build/relocatable-world/macos-consumer-build \
+            --target relocatable_world_platform_probe --parallel
+          build/relocatable-world/macos-consumer-build/relocatable_world_platform_probe \
+            "${NODE}" build/relocatable-world/consumer.probe.json \
+            --runner "${RUNNER_LABEL}" --runner-image "${ImageOS-}/${ImageVersion-}" \
+            --xcode-version "${XCODE_VERSION}" --xcode-build "${XCODE_BUILD}" \
+            --sdk-version "${SDK_VERSION}" --sdk-build "${SDK_BUILD}" \
+            --deployment-target "${DEPLOYMENT_TARGET}" --sdk-locked true
+          python3 tools/relocatable_world_evidence.py prepare-consumer \
+            --profile authoritative --consumer "${NODE}" \
+            --evidence "${GITHUB_WORKSPACE}/build/relocatable-world/evidence" \
+            --consumer-probe "${GITHUB_WORKSPACE}/build/relocatable-world/consumer.probe.json" \
+            --toolchain-artifact-sha256 "${ARTIFACT_SHA256}" \
+            --expect-source-sha "${SOURCE_SHA}" \
+            --expect-workflow-run "${WORKFLOW_RUN}" \
+            --sources-lock "${GITHUB_WORKSPACE}/${SOURCES_LOCK}" \
+            --outputs-lock "${GITHUB_WORKSPACE}/${OUTPUTS_LOCK}" \
+            --output-header "${GITHUB_WORKSPACE}/build/relocatable-world/macos-consumer-build/relocatable-world-matrix/generated/relocatable_world_consumer_input.hpp"
+          cmake --build build/relocatable-world/macos-consumer-build \
+            --target relocatable_world_consumer --parallel
+          consumer=build/relocatable-world/macos-consumer-build/relocatable_world_consumer
+          otool -L "${consumer}" | tee build/relocatable-world/${NODE}.consumer.otool-L
+          otool -l "${consumer}" | tee build/relocatable-world/${NODE}.consumer.otool-l
+          grep -F '@rpath/libc++.1.dylib' build/relocatable-world/${NODE}.consumer.otool-L
+          grep -F "${TOOLCHAIN_ROOT}/lib" build/relocatable-world/${NODE}.consumer.otool-l
+          DYLD_PRINT_LIBRARIES=1 "${consumer}" authoritative "${NODE}" \
+            "${GITHUB_WORKSPACE}/build/relocatable-world/evidence" "${RESULT}" \
+            2>build/relocatable-world/${NODE}.consumer.dyld
+          grep -F "${TOOLCHAIN_ROOT}/lib/libc++.1.dylib" build/relocatable-world/${NODE}.consumer.dyld
+          grep -F "${TOOLCHAIN_ROOT}/lib/libc++abi.1.dylib" build/relocatable-world/${NODE}.consumer.dyld
+
+      - name: Upload consumer diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rw-consumer-${{ matrix.node }}
+          path: build/relocatable-world/results/${{ matrix.node }}.results.json
+          if-no-files-found: error
+
+      - name: gate consumer passes
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          python3 - "${RESULT}" "${NODE}" <<'PY'
+          import importlib.util, sys
+          spec = importlib.util.spec_from_file_location("evidence", "tools/relocatable_world_evidence.py")
+          module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+          record = module.validate_results(sys.argv[1])
+          if record["consumer"] != sys.argv[2] or len(record["transfers"]) != 5:
+              raise SystemExit("consumer result identity/count mismatch")
+          if any(transfer["status"] != 'PASS' or not transfer["producer_provenance_sha256"] for transfer in record["transfers"]):
+              raise SystemExit("consumer contains a non-PASS or unbound transfer")
+          PY
