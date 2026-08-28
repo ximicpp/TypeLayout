@@ -862,11 +862,16 @@ expected = {
 for path in map(Path, expected.values()):
     if not path.is_file():
         raise SystemExit(f"bundled runtime library is missing: {path}")
+# dyld4 may enumerate the shared-cache libc++ images before moving them to
+# delayed. They are allowed only in that final state; the archive copies below
+# remain mandatory and active.
 system_libcxx = "/usr/lib/libc++.1.dylib"
+system_libcxxabi = "/usr/lib/libc++abi.dylib"
 # libSystem reexports its own libunwind; two-level linkage keeps it distinct
 # from the archive libunwind that remains mandatory below.
 system_libunwind = "/usr/lib/system/libunwind.dylib"
-allowed_paths = set(expected.values()) | {system_libcxx, system_libunwind}
+delayed_system_runtimes = {system_libcxx, system_libcxxabi}
+allowed_paths = set(expected.values()) | delayed_system_runtimes | {system_libunwind}
 states = {}
 leaf_paths = {}
 non_delayable = set()
@@ -926,7 +931,7 @@ for line in Path(sys.argv[1]).read_text(
                 raise SystemExit(f"archive runtime became delayed: {path}")
             if (
                 move.group("direction") == "delayed to loaded"
-                and path == system_libcxx
+                and path in delayed_system_runtimes
             ):
                 raise SystemExit(f"system runtime became active: {path}")
             states[path] = after
@@ -975,11 +980,15 @@ for name, expected_path in expected.items():
             f"active runtime {name} is not the archive library: "
             f"state={states.get(expected_path)!r}, expected={expected_path}"
         )
-if system_libcxx in states and states[system_libcxx] != "delayed":
-    raise SystemExit(
-        "active runtime libc++ includes the system library: "
-        f"state={states[system_libcxx]!r}, path={system_libcxx}"
-    )
+for name, path in {
+    "libc++": system_libcxx,
+    "libc++abi": system_libcxxabi,
+}.items():
+    if path in states and states[path] != "delayed":
+        raise SystemExit(
+            f"active runtime {name} includes the system library: "
+            f"state={states[path]!r}, path={path}"
+        )
 # END MACOS RUNTIME LOAD VALIDATOR
 PY
 

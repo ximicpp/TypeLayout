@@ -1989,6 +1989,92 @@ RUN set -eu; \\
         self.assertNotEqual(rejected.returncode, 0)
         self.assertIn("system runtime became active", rejected.stderr)
 
+    def test_macos_runtime_load_validator_tracks_delayed_system_libcxxabi(self):
+        verify_script = (
+            ROOT / ".github/scripts/verify-p2996-toolchain.sh"
+        ).read_text(encoding="utf-8")
+        match = re.search(
+            r"# BEGIN MACOS RUNTIME LOAD VALIDATOR\n(.*?)\n"
+            r"# END MACOS RUNTIME LOAD VALIDATOR",
+            verify_script,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "runtime validator must be executable")
+        library_dir = self.root / "toolchain root/lib"
+        library_dir.mkdir(parents=True)
+        expected = []
+        for name in ("libc++.1.dylib", "libc++abi.1.dylib", "libunwind.1.dylib"):
+            real_path = library_dir / name.replace(".1.dylib", ".1.0.dylib")
+            real_path.write_bytes(b"runtime")
+            alias = library_dir / name
+            alias.symlink_to(real_path.name)
+            expected.append(str(real_path.resolve()))
+        dyld = self.root / "dyld-libcxxabi.txt"
+        active_trace = (
+            "\n".join(f"dyld[1]: {path}" for path in expected)
+            + "\n"
+            + "dyld[1]: /usr/lib/libc++abi.dylib\n"
+        )
+        command = [
+            sys.executable,
+            "-c",
+            match.group(1),
+            str(dyld),
+            str(library_dir),
+        ]
+        dyld.write_text(active_trace, encoding="utf-8")
+        rejected = subprocess.run(command, capture_output=True, text=True, check=False)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("active runtime libc++abi", rejected.stderr)
+
+        dyld.write_text(
+            active_trace
+            + "dyld[1]: move loaded to delayed: libc++abi.dylib\n",
+            encoding="utf-8",
+        )
+        completed = subprocess.run(
+            command, capture_output=True, text=True, check=False
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        dyld.write_text(
+            dyld.read_text(encoding="utf-8")
+            + "dyld[1]: move delayed to loaded: libc++abi.dylib\n",
+            encoding="utf-8",
+        )
+        rejected = subprocess.run(command, capture_output=True, text=True, check=False)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("system runtime became active", rejected.stderr)
+
+        dyld.write_text(
+            "\n".join(
+                [
+                    f"dyld[1]: {expected[0]}",
+                    f"dyld[1]: {expected[2]}",
+                    "dyld[1]: /usr/lib/libc++abi.dylib",
+                    "dyld[1]: move loaded to delayed: libc++abi.dylib",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        rejected = subprocess.run(command, capture_output=True, text=True, check=False)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn(
+            "active runtime libc++abi is not the archive library",
+            rejected.stderr,
+        )
+
+        dyld.write_text(
+            "\n".join(f"dyld[1]: {path}" for path in expected)
+            + "\n"
+            + "dyld[1]: move loaded to delayed: libc++abi.1.0.dylib\n",
+            encoding="utf-8",
+        )
+        rejected = subprocess.run(command, capture_output=True, text=True, check=False)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("archive runtime became delayed", rejected.stderr)
+
     def test_macos_runtime_load_validator_rejects_invalid_active_graph(self):
         verify_script = (
             ROOT / ".github/scripts/verify-p2996-toolchain.sh"
