@@ -1,0 +1,78 @@
+{
+  "linux": {
+    "gcc": {
+      "compiler_revision": "16.2.0",
+      "compiler_version": "16.2.0",
+      "index_digest": "sha256:139f831f384cdc63beb2cde7b9b407adb8f3296426aadad9a815f29dd55dadb7",
+      "platforms": {
+        "linux/amd64": {
+          "manifest_digest": "sha256:187efe5a34344022bb4207368b06c3c4299a9aca5f19c8277a40cc11b2ab26c9",
+          "target": "x86_64-pc-linux-gnu"
+        },
+        "linux/arm64": {
+          "manifest_digest": "sha256:74ddff70c83e05c2c52212073d9606f6823d462a9e6fb9e97852f19b749fe462",
+          "target": "aarch64-unknown-linux-gnu"
+        }
+      },
+      "repository": "ghcr.io/ximicpp/typelayout-gcc16",
+      "stdlib": "libstdc++-20260807"
+    },
+    "p2996": {
+      "compiler_revision": "060be17654102019e14810c3f948ef85a490755f",
+      "compiler_version": "21.0.0git (https://github.com/bloomberg/clang-p2996.git 060be17654102019e14810c3f948ef85a490755f)",
+      "index_digest": "sha256:255fc00463f583307fde97fe3ba1455cdbec04698083a19af7682468caef2a72",
+      "platforms": {
+        "linux/amd64": {
+          "manifest_digest": "sha256:dd7f4f69694bca46161f8773741dfb50ea01bbaf97d449ab1186b8ed3e42f38a",
+          "target": "x86_64-unknown-linux-gnu"
+        },
+        "linux/arm64": {
+          "manifest_digest": "sha256:37ac6ea697fbdfad43b18c6f445b2e1e5627513a8f91a111b91d83f63a31f61e",
+          "target": "aarch64-unknown-linux-gnu"
+        }
+      },
+      "repository": "ghcr.io/ximicpp/typelayout-p2996",
+      "stdlib": "libc++-210000"
+    }
+  },
+  "macos": {
+    "arm64_macos_clang": {
+      "archive_sha256": "4c2757ece8c230fd771231e90e4139b0d340111cf0494966ef5965750bb74943",
+      "compiler_revision": "060be17654102019e14810c3f948ef85a490755f",
+      "compiler_version": "21.0.0git (https://github.com/bloomberg/clang-p2996.git 060be17654102019e14810c3f948ef85a490755f)",
+      "deployment_target": "15.0",
+      "observed_runner": {
+        "image_os": "macos15",
+        "image_version": "20260727.0256.1"
+      },
+      "sdk_build": "24F74",
+      "sdk_version": "15.5",
+      "stdlib": "libc++-210000",
+      "target": "arm64-apple-macosx15.0.0",
+      "url": "https://github.com/ximicpp/TypeLayout/releases/download/typelayout-toolchains-8d77efcae65cf3ca75d14d0524cf98d44341d3aa43441becbca631218fee54f4/p2996-macos-arm64-060be17654102019e14810c3f948ef85a490755f.tar.zst",
+      "xcode_build": "16F6",
+      "xcode_version": "16.4"
+    },
+    "x86_64_macos_clang": {
+      "archive_sha256": "0c64fb5389d775e11b485cbe458dc09dd7d8c6bbe2164d2ff9d48fdf5ff92751",
+      "compiler_revision": "060be17654102019e14810c3f948ef85a490755f",
+      "compiler_version": "21.0.0git (https://github.com/bloomberg/clang-p2996.git 060be17654102019e14810c3f948ef85a490755f)",
+      "deployment_target": "15.0",
+      "observed_runner": {
+        "image_os": "macos15",
+        "image_version": "20260824.0482.1"
+      },
+      "sdk_build": "24F74",
+      "sdk_version": "15.5",
+      "stdlib": "libc++-210000",
+      "target": "x86_64-apple-macosx15.0.0",
+      "url": "https://github.com/ximicpp/TypeLayout/releases/download/typelayout-toolchains-8d77efcae65cf3ca75d14d0524cf98d44341d3aa43441becbca631218fee54f4/p2996-macos-x86_64-060be17654102019e14810c3f948ef85a490755f.tar.zst",
+      "xcode_build": "16F6",
+      "xcode_version": "16.4"
+    }
+  },
+  "schema": 1,
+  "source_sha": "0c7e8aa4f8589a9247fe1e1934d8255f4fd64704",
+  "sources_sha256": "8d77efcae65cf3ca75d14d0524cf98d44341d3aa43441becbca631218fee54f4",
+  "workflow_run": "33249808376.1"
+}
