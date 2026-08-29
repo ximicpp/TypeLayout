@@ -14,9 +14,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLCHAIN_WORKFLOW = ROOT / ".github/workflows/toolchain-images.yml"
-MACOS_DIAGNOSTIC_WORKFLOW = (
-    ROOT / ".github/workflows/toolchain-macos-diagnostic.yml"
-)
 CI_WORKFLOW = ROOT / ".github/workflows/ci.yml"
 COMPAT_WORKFLOW = ROOT / ".github/workflows/compat-pipeline.yml"
 BUILDX_EXACT_MATCHER = (
@@ -29,9 +26,6 @@ class ToolchainWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.workflow = TOOLCHAIN_WORKFLOW.read_text(encoding="utf-8")
-        cls.macos_diagnostic_workflow = MACOS_DIAGNOSTIC_WORKFLOW.read_text(
-            encoding="utf-8"
-        )
         cls.ci_workflow = CI_WORKFLOW.read_text(encoding="utf-8")
         cls.compat_workflow = COMPAT_WORKFLOW.read_text(encoding="utf-8")
 
@@ -389,36 +383,47 @@ rollback_alias() {
             with self.subTest(path=path):
                 self.assertIn(f"- {path}", self.workflow)
 
-    def test_macos_diagnostic_runs_only_the_two_native_macos_nodes(self):
-        parsed = yaml.safe_load(self.macos_diagnostic_workflow)
-        self.assertEqual(parsed["permissions"], {"contents": "read"})
-        self.assertEqual(set(parsed["jobs"]), {"diagnose_macos"})
-        job = parsed["jobs"]["diagnose_macos"]
-        self.assertEqual(job["strategy"]["fail-fast"], False)
-        self.assertEqual(
-            job["strategy"]["matrix"]["include"],
-            [
-                {"node": "arm64_macos_clang", "runner": "macos-15"},
-                {
-                    "node": "x86_64_macos_clang",
-                    "runner": "macos-15-intel",
-                },
-            ],
+    def test_dispatch_scope_can_isolate_the_two_native_macos_nodes(self):
+        self.assertRegex(
+            self.workflow,
+            r"(?ms)^  workflow_dispatch:\n"
+            r"    inputs:\n"
+            r"      scope:\n"
+            r"        description: Candidate build scope\n"
+            r"        required: true\n"
+            r"        default: all\n"
+            r"        type: choice\n"
+            r"        options:\n"
+            r"          - all\n"
+            r"          - macos-diagnostic$",
         )
-        self.assertEqual(job["runs-on"], "${{ matrix.runner }}")
-        self.assertEqual(job["timeout-minutes"], 300)
-        self.assertIn("persist-credentials: false", self.macos_diagnostic_workflow)
-        self.assertIn(
-            ".github/scripts/validate-toolchain-locks.py",
-            self.macos_diagnostic_workflow,
+        all_only = (
+            "build_gcc_amd64",
+            "build_gcc_arm64",
+            "build_p2996_amd64",
+            "build_p2996_arm64",
+            "index_gcc",
+            "index_p2996",
+            "publish_macos_release",
+            "seal_candidate_lock",
         )
-        self.assertIn(
-            ".github/scripts/build-p2996-macos.sh",
-            self.macos_diagnostic_workflow,
-        )
-        self.assertNotIn("upload-artifact", self.macos_diagnostic_workflow)
-        self.assertNotIn("secrets.", self.macos_diagnostic_workflow)
-        self.assertNotIn("packages:", self.macos_diagnostic_workflow)
+        for name in all_only:
+            with self.subTest(name=name):
+                self.assertIn(
+                    "if: github.event_name == 'workflow_dispatch' && "
+                    "inputs.scope == 'all'",
+                    self.job(name),
+                )
+        for name in (
+            "build_p2996_macos_arm64",
+            "build_p2996_macos_x86_64",
+        ):
+            with self.subTest(name=name):
+                self.assertIn(
+                    "if: github.event_name == 'workflow_dispatch'",
+                    self.job(name),
+                )
+                self.assertNotIn("inputs.scope == 'all'", self.job(name))
 
     def test_permissions_are_least_privilege_per_mutation_boundary(self):
         top_permissions = re.search(
