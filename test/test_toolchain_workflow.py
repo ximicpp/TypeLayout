@@ -833,6 +833,9 @@ rollback_alias() {
             "GH_TOKEN: ${{ secrets.TOOLCHAIN_RELEASE_TOKEN }}",
             verified_release.group(1),
         )
+        self.assertIn('asset.get("url")', verified_release.group(1))
+        self.assertIn("/releases/assets/{asset['id']}", verified_release.group(1))
+        self.assertNotIn("browser_download_url", verified_release.group(1))
         self.assertIn(
             "if: steps.verified_release.outputs.finalize == 'true'", release
         )

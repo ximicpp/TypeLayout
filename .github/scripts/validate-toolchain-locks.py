@@ -237,7 +237,7 @@ REVIEWED_RECIPE_SHA256 = {
         "ffcb3f6cf403f4ad70cb0d57854c950602ea2ad77f0913d2a237b7546bd0a3ca"
     ),
     ".github/workflows/toolchain-images.yml": (
-        "3a97ba3b45344e4fbef183a6c86d83073886e48381fb0524d8b36317b265e447"
+        "53dcfd27c155995c59d43dfe7b258dbb644a83d253310e5976005d2ea4d0ed39"
     ),
 }
 
