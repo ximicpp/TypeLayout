@@ -902,7 +902,7 @@ rollback_alias() {
                 )
                 self.assertNotIn("--provenance", block)
                 self.assertNotIn("--sbom", block)
-                self.assertNotRegex(block, r"(?i)\.(?:provenance|sbom)=")
+                self.assertNotRegex(block, r"(?i)\.(?:attest|provenance|sbom)=")
                 self.assertIn("manifest_digest", block)
                 self.assertIn("/tmp/toolchain-probe", block)
                 self.assertIn("relocatable_world_platform_probe", block)

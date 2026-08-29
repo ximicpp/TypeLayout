@@ -12,11 +12,13 @@ group "default" {
 }
 
 target "native" {
-  context    = "."
-  pull       = true
-  provenance = false
-  sbom       = false
-  output     = ["type=image,push-by-digest=true,name-canonical=true,push=true"]
+  context = "."
+  pull    = true
+  attest = [
+    "type=provenance,disabled=true",
+    "type=sbom,disabled=true",
+  ]
+  output = ["type=image,push-by-digest=true,name-canonical=true,push=true"]
 }
 
 target "gcc16-amd64" {

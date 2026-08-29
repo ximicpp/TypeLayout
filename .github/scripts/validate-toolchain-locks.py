@@ -225,7 +225,7 @@ REVIEWED_RECIPE_SHA256 = {
         "ecd9900e0778f8a20d60edc4d5fb9f5812543ac4cd4f98594b59bf23adf1630e"
     ),
     ".github/docker/docker-bake.hcl": (
-        "ec7978e3b34056c46745623579889d416db0f5c6faa9df8a86bb933633e7f18b"
+        "c4ae5468ca129f07fdec071ae97dd322269906e5307e294e0ed5705171385ed0"
     ),
     ".github/scripts/build-p2996-macos.sh": (
         "5dd189f68eed06050fd53dd8aef3e6eba00bfcd3ba89c18eb352a98836f2393a"
@@ -1135,6 +1135,22 @@ def _validate_bake_recipe(content):
         raise LockError("docker-bake.hcl contains noncanonical declarations")
     if re.search(r"(?mi)^\s*args\s*=", content):
         raise LockError("docker-bake.hcl must not inject build args")
+    native_matches = re.findall(r'(?ms)^target "native" \{(.*?)^\}', content)
+    if len(native_matches) != 1:
+        raise LockError("docker-bake.hcl must define native exactly once")
+    native = native_matches[0]
+    expected_attestations = (
+        '"type=provenance,disabled=true"',
+        '"type=sbom,disabled=true"',
+    )
+    if (
+        native.count("attest = [") != 1
+        or any(native.count(value) != 1 for value in expected_attestations)
+        or re.search(r"(?mi)^\s*(?:provenance|sbom)\s*=", native)
+    ):
+        raise LockError(
+            "docker-bake.hcl must explicitly disable provenance and SBOM attestations"
+        )
     for target, (dockerfile, platform) in expected.items():
         matches = re.findall(
             rf'(?ms)^target "{re.escape(target)}" \{{(.*?)^\}}', content
@@ -1163,7 +1179,7 @@ def _validate_workflow_build_inputs(content):
             continue
         if re.search(
             r"\.((?:args)(?:\.|=)|contexts?(?:\.|=)|dockerfile=|platforms?="
-            r"|provenance=|sbom=)",
+            r"|attest=|provenance=|sbom=)",
             line,
             re.IGNORECASE,
         ):

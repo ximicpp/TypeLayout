@@ -1071,6 +1071,7 @@ RUN set -eu; \\
         )
         for override in (
             "args.UNREVIEWED=1",
+            "attest=type=provenance,mode=max",
             "provenance=true",
             "sbom=0",
         ):
@@ -1601,8 +1602,9 @@ RUN set -eu; \\
             self.assertEqual(bake.count(f'target "{target}"'), 1)
         self.assertEqual(bake.count('platforms  = ["linux/amd64"]'), 2)
         self.assertEqual(bake.count('platforms  = ["linux/arm64"]'), 2)
-        self.assertIn("provenance = false", bake)
-        self.assertIn("sbom       = false", bake)
+        self.assertIn('"type=provenance,disabled=true"', bake)
+        self.assertIn('"type=sbom,disabled=true"', bake)
+        self.assertNotRegex(bake, r"(?m)^\s*(?:provenance|sbom)\s*=")
         self.assertIn("push-by-digest=true", bake)
         self.assertNotIn("qemu", bake.lower())
         self.assertNotIn(":latest", bake)
