@@ -1,0 +1,48 @@
+name: macOS Toolchain Diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: typelayout-macos-diagnostic-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  diagnose_macos:
+    name: Diagnose Bloomberg P2996 (${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node: arm64_macos_clang
+            runner: macos-15
+          - node: x86_64_macos_clang
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 300
+    steps:
+      - name: Check out the diagnostic commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate the committed source lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/validate-toolchain-locks.py \
+            --sources .github/docker/toolchain-sources.lock \
+            --recipe-root .
+
+      - name: Build and diagnose the locked native archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          .github/scripts/build-p2996-macos.sh \
+            --sources .github/docker/toolchain-sources.lock \
+            --node "${{ matrix.node }}" \
+            --output-dir build/macos-toolchain-diagnostic

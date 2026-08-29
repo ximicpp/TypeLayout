@@ -898,6 +898,8 @@ for line in Path(sys.argv[1]).read_text(
 ).splitlines():
     if not line.startswith("dyld["):
         continue
+    if "libc++" in line or "libunwind" in line:
+        print(f"MACOS RUNTIME TRACE {line}", file=sys.stderr)
     move = dyld_move_status.fullmatch(line)
     if move is not None:
         register_pid(move)

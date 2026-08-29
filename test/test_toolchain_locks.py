@@ -1979,6 +1979,15 @@ RUN set -eu; \\
             command, capture_output=True, text=True, check=False
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn(
+            "MACOS RUNTIME TRACE dyld[1]: /usr/lib/libc++.1.dylib",
+            completed.stderr,
+        )
+        self.assertIn(
+            "MACOS RUNTIME TRACE dyld[1]: move loaded to delayed: "
+            "libc++.1.dylib",
+            completed.stderr,
+        )
 
         dyld.write_text(
             dyld.read_text(encoding="utf-8")
