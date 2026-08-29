@@ -50,6 +50,7 @@ readonly -a IMPLEMENTATION_PATHS=(
     ".github/docker/toolchain-sources.lock"
     ".github/docker/toolchains.lock"
     ".github/scripts/validate-toolchain-locks.py"
+    ".github/scripts/macos-runtime-origin-probe.cpp"
     ".github/scripts/verify-p2996-toolchain.sh"
 )
 

@@ -98,7 +98,11 @@ class EvidenceTests(unittest.TestCase):
 
         validator = repository / ".github" / "scripts" / "validate-toolchain-locks.py"
         verifier = repository / ".github" / "scripts" / "verify-p2996-toolchain.sh"
+        runtime_probe = (
+            repository / ".github" / "scripts" / "macos-runtime-origin-probe.cpp"
+        )
         validator.parent.mkdir(parents=True)
+        runtime_probe.write_text("// launcher fixture\n", encoding="utf-8")
         self.write_executable(
             validator,
             "#!/usr/bin/env python3\n"
@@ -615,8 +619,9 @@ class EvidenceTests(unittest.TestCase):
                     ".github/docker/Dockerfile.p2996": "3" * 64,
                     ".github/docker/docker-bake.hcl": "4" * 64,
                     ".github/scripts/build-p2996-macos.sh": "5" * 64,
-                    ".github/scripts/verify-p2996-toolchain.sh": "6" * 64,
-                    ".github/workflows/toolchain-images.yml": "7" * 64,
+                    ".github/scripts/macos-runtime-origin-probe.cpp": "6" * 64,
+                    ".github/scripts/verify-p2996-toolchain.sh": "7" * 64,
+                    ".github/workflows/toolchain-images.yml": "8" * 64,
                 },
             },
         )
@@ -2569,6 +2574,7 @@ class EvidenceTests(unittest.TestCase):
             ".github/docker/toolchain-sources.lock",
             ".github/docker/toolchains.lock",
             ".github/scripts/validate-toolchain-locks.py",
+            ".github/scripts/macos-runtime-origin-probe.cpp",
             ".github/scripts/verify-p2996-toolchain.sh",
         ):
             self.assertIn(required_path, text)

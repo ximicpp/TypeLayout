@@ -66,6 +66,7 @@ RECIPE_PATHS = (
     ".github/docker/Dockerfile.p2996",
     ".github/docker/docker-bake.hcl",
     ".github/scripts/build-p2996-macos.sh",
+    ".github/scripts/macos-runtime-origin-probe.cpp",
     ".github/scripts/verify-p2996-toolchain.sh",
     ".github/workflows/toolchain-images.yml",
 )

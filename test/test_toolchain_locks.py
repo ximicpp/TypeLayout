@@ -128,6 +128,7 @@ RECIPE_PATHS = (
     ".github/docker/Dockerfile.p2996",
     ".github/docker/docker-bake.hcl",
     ".github/scripts/build-p2996-macos.sh",
+    ".github/scripts/macos-runtime-origin-probe.cpp",
     ".github/scripts/verify-p2996-toolchain.sh",
     ".github/workflows/toolchain-images.yml",
 )
@@ -557,7 +558,7 @@ RUN set -eu; \\
         self.assertEqual(
             completed.stdout.strip(),
             "SOURCE LOCK PASS gcc=16.2.0 "
-            f"clang={CLANG_COMMIT} recipes=7",
+            f"clang={CLANG_COMMIT} recipes=8",
         )
 
     def test_nested_unknown_source_field_is_rejected(self):
@@ -1939,7 +1940,7 @@ RUN set -eu; \\
             ],
         )
 
-    def test_macos_runtime_load_validator_tracks_delayed_system_libcxx(self):
+    def test_macos_runtime_load_validator_tracks_system_libcxx_transitions(self):
         verify_script = (
             ROOT / ".github/scripts/verify-p2996-toolchain.sh"
         ).read_text(encoding="utf-8")
@@ -1994,11 +1995,12 @@ RUN set -eu; \\
             + "dyld[1]: move delayed to loaded: libc++.1.dylib\n",
             encoding="utf-8",
         )
-        rejected = subprocess.run(command, capture_output=True, text=True, check=False)
-        self.assertNotEqual(rejected.returncode, 0)
-        self.assertIn("system runtime became active", rejected.stderr)
+        completed = subprocess.run(
+            command, capture_output=True, text=True, check=False
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
-    def test_macos_runtime_load_validator_tracks_delayed_system_libcxxabi(self):
+    def test_macos_runtime_load_validator_tracks_system_libcxxabi_transitions(self):
         verify_script = (
             ROOT / ".github/scripts/verify-p2996-toolchain.sh"
         ).read_text(encoding="utf-8")
@@ -2032,9 +2034,10 @@ RUN set -eu; \\
             str(library_dir),
         ]
         dyld.write_text(active_trace, encoding="utf-8")
-        rejected = subprocess.run(command, capture_output=True, text=True, check=False)
-        self.assertNotEqual(rejected.returncode, 0)
-        self.assertIn("active runtime libc++abi", rejected.stderr)
+        completed = subprocess.run(
+            command, capture_output=True, text=True, check=False
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
         dyld.write_text(
             active_trace
@@ -2051,9 +2054,10 @@ RUN set -eu; \\
             + "dyld[1]: move delayed to loaded: libc++abi.dylib\n",
             encoding="utf-8",
         )
-        rejected = subprocess.run(command, capture_output=True, text=True, check=False)
-        self.assertNotEqual(rejected.returncode, 0)
-        self.assertIn("system runtime became active", rejected.stderr)
+        completed = subprocess.run(
+            command, capture_output=True, text=True, check=False
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
         dyld.write_text(
             "\n".join(
@@ -2115,17 +2119,10 @@ RUN set -eu; \\
         ]
 
         cases = {
-            "system remains active": archive_records + [system_record],
             "system transition precedes image": archive_records
             + [system_delay, system_record],
             "duplicate delay transition": archive_records
             + [system_record, system_delay, system_delay],
-            "system reactivates": archive_records
-            + [
-                system_record,
-                system_delay,
-                "dyld[7]: move delayed to loaded: libc++.1.dylib",
-            ],
             "archive becomes delayed": archive_records
             + [
                 "dyld[7]: move loaded to delayed: libc++.1.0.dylib",
@@ -2134,6 +2131,18 @@ RUN set -eu; \\
             + ["dyld[7]: /usr/lib/libc++abi.1.dylib"],
             "multiple pids": archive_records + ["dyld[8]: /usr/lib/libSystem.B.dylib"],
             "duplicate image": archive_records + [archive_records[0]],
+            "weak-def system runtime participates": archive_records
+            + [
+                system_record,
+                "dyld[7]: libc++.1.dylib has weak-def (or flat lookup) "
+                "symbol used by platform-probe, so cannot be delayed",
+            ],
+            "interposing system runtime participates": archive_records
+            + [
+                system_record,
+                "dyld[7]: has interposing tuples so cannot be delayed: "
+                "libc++.1.dylib",
+            ],
             "weak-def system runtime cannot become delayed": archive_records
             + [
                 system_record,
@@ -2578,7 +2587,7 @@ RUN set -eu; \\
         self.assertNotEqual(rejected.returncode, 0)
         self.assertIn("malformed dyld library record", rejected.stderr)
 
-    def test_macos_runtime_load_validator_rejects_dyld4_uuid_host_library(self):
+    def test_macos_runtime_load_validator_accepts_known_shared_cache_runtimes(self):
         verify_script = (
             ROOT / ".github/scripts/verify-p2996-toolchain.sh"
         ).read_text(encoding="utf-8")
@@ -2601,16 +2610,112 @@ RUN set -eu; \\
             "dyld[42]: <3456789A-BCDE-F012-3456-789ABCDEF012> "
             "/usr/lib/libc++.1.dylib"
         )
+        records.append(
+            "dyld[42]: <456789AB-CDEF-0123-4567-89ABCDEF0123> "
+            "/usr/lib/libc++abi.dylib"
+        )
         dyld = self.root / "dyld4-mixed.txt"
         dyld.write_text("\n".join(records) + "\n", encoding="utf-8")
-        rejected = subprocess.run(
+        completed = subprocess.run(
             [sys.executable, "-c", match.group(1), str(dyld), str(library_dir)],
             capture_output=True,
             text=True,
             check=False,
         )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_macos_runtime_origin_validator_requires_archive_symbol_origins(self):
+        verify_script = (
+            ROOT / ".github/scripts/verify-p2996-toolchain.sh"
+        ).read_text(encoding="utf-8")
+        match = re.search(
+            r"# BEGIN MACOS RUNTIME ORIGIN VALIDATOR\n(.*?)\n"
+            r"# END MACOS RUNTIME ORIGIN VALIDATOR",
+            verify_script,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "runtime origin validator must be executable")
+        library_dir = self.root / "toolchain root/lib"
+        library_dir.mkdir(parents=True)
+        origins = []
+        for label, name in (
+            ("libc++", "libc++.1.dylib"),
+            ("libc++abi", "libc++abi.1.dylib"),
+            ("libunwind", "libunwind.1.dylib"),
+        ):
+            real_path = library_dir / name.replace(".1.dylib", ".1.0.dylib")
+            real_path.write_bytes(b"runtime")
+            (library_dir / name).symlink_to(real_path.name)
+            origins.append(f"{label}\t{real_path.resolve()}")
+        origin_output = self.root / "runtime-origins.txt"
+        origin_output.write_text("\n".join(origins) + "\n", encoding="utf-8")
+        command = [
+            sys.executable,
+            "-c",
+            match.group(1),
+            str(origin_output),
+            str(library_dir),
+        ]
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+        host_directory = self.root / "host"
+        host_directory.mkdir()
+        for index, origin in enumerate(origins):
+            label = origin.split("\t", 1)[0]
+            with self.subTest(host_origin=label):
+                host_runtime = host_directory / f"{label}-{index}.dylib"
+                host_runtime.write_bytes(b"host runtime")
+                changed = list(origins)
+                changed[index] = f"{label}\t{host_runtime.resolve()}"
+                origin_output.write_text(
+                    "\n".join(changed) + "\n",
+                    encoding="utf-8",
+                )
+                rejected = subprocess.run(
+                    command,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertNotEqual(rejected.returncode, 0)
+                self.assertIn("runtime symbol origin mismatch", rejected.stderr)
+
+        origin_output.write_text(
+            "\n".join([*origins, origins[0]]) + "\n",
+            encoding="utf-8",
+        )
+        rejected = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
         self.assertNotEqual(rejected.returncode, 0)
-        self.assertIn("active runtime libc++", rejected.stderr)
+        self.assertIn("runtime origin report labels", rejected.stderr)
+
+    def test_macos_runtime_origin_probe_is_compiled_and_run_clean(self):
+        verify_script = (
+            ROOT / ".github/scripts/verify-p2996-toolchain.sh"
+        ).read_text(encoding="utf-8")
+        probe_source = (
+            ROOT / ".github/scripts/macos-runtime-origin-probe.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn('print_origin("libc++", &std::cout)', probe_source)
+        self.assertIn("&__cxxabiv1::__cxa_demangle", probe_source)
+        self.assertIn("&_Unwind_GetIP", probe_source)
+        compile_marker = '"${script_dir}/macos-runtime-origin-probe.cpp"'
+        run_marker = 'env -i "${runtime_origin_binary}" >"${runtime_origin_output}"'
+        validator_marker = "# BEGIN MACOS RUNTIME ORIGIN VALIDATOR"
+        self.assertIn(compile_marker, verify_script)
+        self.assertIn(run_marker, verify_script)
+        self.assertLess(verify_script.index(compile_marker), verify_script.index(run_marker))
+        self.assertLess(verify_script.index(run_marker), verify_script.index(validator_marker))
 
     def test_macos_runtime_load_validator_rejects_malformed_dyld4_record(self):
         verify_script = (

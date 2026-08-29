@@ -536,6 +536,50 @@ probe_json="${temporary_root}/platform-probe.json"
     "${repository_root}/example/relocatable_world_demo/platform_probe.cpp" \
     -o "${probe_binary}"
 
+runtime_origin_binary="${temporary_root}/runtime-origin-probe"
+runtime_origin_output="${temporary_root}/runtime-origins.txt"
+"${cxx}" "${effective_flags[@]}" \
+    "${script_dir}/macos-runtime-origin-probe.cpp" \
+    -o "${runtime_origin_binary}"
+env -i "${runtime_origin_binary}" >"${runtime_origin_output}"
+python3 - "${runtime_origin_output}" "${library_dir}" <<'PY'
+# BEGIN MACOS RUNTIME ORIGIN VALIDATOR
+from pathlib import Path
+import sys
+
+
+expected = {
+    "libc++": Path(sys.argv[2], "libc++.1.dylib").resolve(strict=True),
+    "libc++abi": Path(sys.argv[2], "libc++abi.1.dylib").resolve(strict=True),
+    "libunwind": Path(sys.argv[2], "libunwind.1.dylib").resolve(strict=True),
+}
+observed = {}
+for line in Path(sys.argv[1]).read_text(
+    encoding="utf-8", errors="strict"
+).splitlines():
+    fields = line.split("\t")
+    if len(fields) != 2 or not all(fields):
+        raise SystemExit(f"malformed runtime origin record: {line!r}")
+    label, raw_path = fields
+    if label in observed:
+        raise SystemExit(f"runtime origin report labels are not exact: {label!r}")
+    try:
+        observed[label] = Path(raw_path).resolve(strict=True)
+    except OSError as error:
+        raise SystemExit(f"runtime origin path cannot be resolved: {raw_path!r}") from error
+if set(observed) != set(expected):
+    raise SystemExit(
+        f"runtime origin report labels are not exact: {sorted(observed)!r}"
+    )
+for label, expected_path in expected.items():
+    if observed[label] != expected_path:
+        raise SystemExit(
+            f"runtime symbol origin mismatch for {label}: "
+            f"{str(observed[label])!r} != {str(expected_path)!r}"
+        )
+# END MACOS RUNTIME ORIGIN VALIDATOR
+PY
+
 probe_load_output="${temporary_root}/otool-probe-load-commands.txt"
 libcxx_load_output="${temporary_root}/otool-libcxx-load-commands.txt"
 libcxxabi_load_output="${temporary_root}/otool-libcxxabi-load-commands.txt"
@@ -862,16 +906,17 @@ expected = {
 for path in map(Path, expected.values()):
     if not path.is_file():
         raise SystemExit(f"bundled runtime library is missing: {path}")
-# dyld4 may enumerate the shared-cache libc++ images before moving them to
-# delayed. They are allowed only in that final state; the archive copies below
-# remain mandatory and active.
+# dyld4 may keep the shared-cache C++ runtime images resident even when the
+# executable's two-level bindings resolve to the archive runtimes. The separate
+# runtime-origin probe above verifies the actual symbol providers. The archive
+# copies below remain mandatory in this load trace.
 system_libcxx = "/usr/lib/libc++.1.dylib"
 system_libcxxabi = "/usr/lib/libc++abi.dylib"
 # libSystem reexports its own libunwind; two-level linkage keeps it distinct
 # from the archive libunwind that remains mandatory below.
 system_libunwind = "/usr/lib/system/libunwind.dylib"
-delayed_system_runtimes = {system_libcxx, system_libcxxabi}
-allowed_paths = set(expected.values()) | delayed_system_runtimes | {system_libunwind}
+system_cache_runtimes = {system_libcxx, system_libcxxabi}
+allowed_paths = set(expected.values()) | system_cache_runtimes | {system_libunwind}
 states = {}
 leaf_paths = {}
 non_delayable = set()
@@ -931,11 +976,6 @@ for line in Path(sys.argv[1]).read_text(
                 and path in expected.values()
             ):
                 raise SystemExit(f"archive runtime became delayed: {path}")
-            if (
-                move.group("direction") == "delayed to loaded"
-                and path in delayed_system_runtimes
-            ):
-                raise SystemExit(f"system runtime became active: {path}")
             states[path] = after
         continue
     status = dyld_weak_status.fullmatch(line)
@@ -982,15 +1022,12 @@ for name, expected_path in expected.items():
             f"active runtime {name} is not the archive library: "
             f"state={states.get(expected_path)!r}, expected={expected_path}"
         )
-for name, path in {
-    "libc++": system_libcxx,
-    "libc++abi": system_libcxxabi,
-}.items():
-    if path in states and states[path] != "delayed":
-        raise SystemExit(
-            f"active runtime {name} includes the system library: "
-            f"state={states[path]!r}, path={path}"
-        )
+participating_system_runtimes = non_delayable & system_cache_runtimes
+if participating_system_runtimes:
+    raise SystemExit(
+        "system runtime participates through weak binding or interposition: "
+        f"{sorted(participating_system_runtimes)!r}"
+    )
 # END MACOS RUNTIME LOAD VALIDATOR
 PY
 

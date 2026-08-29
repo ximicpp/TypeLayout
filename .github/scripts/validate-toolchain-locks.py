@@ -210,6 +210,7 @@ RECIPE_PATHS = (
     ".github/docker/Dockerfile.p2996",
     ".github/docker/docker-bake.hcl",
     ".github/scripts/build-p2996-macos.sh",
+    ".github/scripts/macos-runtime-origin-probe.cpp",
     ".github/scripts/verify-p2996-toolchain.sh",
     ".github/workflows/toolchain-images.yml",
 )
@@ -229,8 +230,11 @@ REVIEWED_RECIPE_SHA256 = {
     ".github/scripts/build-p2996-macos.sh": (
         "5dd189f68eed06050fd53dd8aef3e6eba00bfcd3ba89c18eb352a98836f2393a"
     ),
+    ".github/scripts/macos-runtime-origin-probe.cpp": (
+        "1c650c21b942f9c9c880c6543d8e8b24dbd5596d24865091491b432a41bb6dd8"
+    ),
     ".github/scripts/verify-p2996-toolchain.sh": (
-        "cb8597b111b572d64c7d81d2d713db80a0b7646b8a931f95303a87c1f00bd2c8"
+        "ffcb3f6cf403f4ad70cb0d57854c950602ea2ad77f0913d2a237b7546bd0a3ca"
     ),
     ".github/workflows/toolchain-images.yml": (
         "f9f9a526c33c1c6c0fe0ee1aa3f23abb43c9bd5d6c657dd1483fd1a21651de49"
