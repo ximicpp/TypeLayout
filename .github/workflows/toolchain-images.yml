@@ -2726,7 +2726,7 @@ jobs:
         env:
           BATCH_WORKFLOW_RUN: ${{ steps.candidate_identity.outputs.batch_workflow_run }}
           CANDIDATE_BATCH_ID: ${{ steps.source.outputs.candidate_batch_id }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TOOLCHAIN_RELEASE_TOKEN }}
           RELEASE_TAG: ${{ steps.source.outputs.tag }}
         run: |
           set -euo pipefail
@@ -3005,7 +3005,7 @@ jobs:
         env:
           BATCH_WORKFLOW_RUN: ${{ steps.candidate_identity.outputs.batch_workflow_run }}
           CANDIDATE_BATCH_ID: ${{ steps.source.outputs.candidate_batch_id }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.TOOLCHAIN_RELEASE_TOKEN }}
           RELEASE_ID: ${{ steps.release_plan.outputs.release_id || steps.create_release.outputs.id }}
           RELEASE_PRODUCER_WORKFLOW_RUN: ${{ steps.release_plan.outputs.release_producer_workflow_run }}
           RELEASE_TAG: ${{ steps.source.outputs.tag }}

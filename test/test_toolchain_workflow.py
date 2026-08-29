@@ -498,11 +498,11 @@ rollback_alias() {
             r"GH_TOKEN: \$\{\{ secrets\.TOOLCHAIN_RELEASE_TOKEN \}\}.*?"
             r"gh api --method PATCH",
         )
-        self.assertGreaterEqual(
-            release.count("GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}"), 3
+        self.assertEqual(
+            release.count("GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}"), 1
         )
         self.assertEqual(
-            self.workflow.count("secrets.TOOLCHAIN_RELEASE_TOKEN"), 4
+            self.workflow.count("secrets.TOOLCHAIN_RELEASE_TOKEN"), 6
         )
 
     def test_release_planner_reuses_exact_bytes_and_uploads_only_missing(self):
@@ -813,6 +813,26 @@ rollback_alias() {
             release,
         )
         self.assertIn("id: verified_release", release)
+        release_plan = re.search(
+            r"(?ms)^      - name: Read and plan the exact release state\n"
+            r"(.*?)(?=^      - name:)",
+            release,
+        )
+        self.assertIsNotNone(release_plan)
+        self.assertIn(
+            "GH_TOKEN: ${{ secrets.TOOLCHAIN_RELEASE_TOKEN }}",
+            release_plan.group(1),
+        )
+        verified_release = re.search(
+            r"(?ms)^      - name: Verify complete release bytes before finalization\n"
+            r"(.*?)(?=^      - name:)",
+            release,
+        )
+        self.assertIsNotNone(verified_release)
+        self.assertIn(
+            "GH_TOKEN: ${{ secrets.TOOLCHAIN_RELEASE_TOKEN }}",
+            verified_release.group(1),
+        )
         self.assertIn(
             "if: steps.verified_release.outputs.finalize == 'true'", release
         )
