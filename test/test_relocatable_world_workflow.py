@@ -290,9 +290,9 @@ dyld[42]: <00000000-0000-0000-0000-000000000003> /usr/lib/libc++.1.dylib
       cmdsize 48
          path /opt/p2996-toolchain/lib (offset 12)
 """,
-            """dyld[7]: /opt/p2996-toolchain/lib/libc++.1.dylib
-dyld[7]: /opt/p2996-toolchain/lib/libc++abi.1.dylib
-dyld[7]: /opt/p2996-toolchain/lib/libunwind.1.dylib
+            """dyld[7]: /opt/p2996-toolchain/lib/libc++.1.0.dylib
+dyld[7]: /opt/p2996-toolchain/lib/libc++abi.1.0.dylib
+dyld[7]: /opt/p2996-toolchain/lib/libunwind.1.0.dylib
 """,
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)

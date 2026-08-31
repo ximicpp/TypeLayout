@@ -9,7 +9,7 @@ from pathlib import Path, PurePosixPath
 
 
 RELEVANT_RUNTIME = re.compile(
-    r"^(libc\+\+|libc\+\+abi|libunwind)(?:\.[^/]*)?\.dylib$"
+    r"^(libc\+\+|libc\+\+abi|libunwind)(?:\.[0-9]+)*\.dylib$"
 )
 DYLD_RECORD = re.compile(
     r"^dyld\[(?P<pid>[0-9]+)\]: "
@@ -100,17 +100,11 @@ def verify_rpaths(text, library_dir):
 
 
 def verify_trace(text, library_dir):
-    archive_paths = {
-        posixpath.join(library_dir, "libc++.1.dylib"),
-        posixpath.join(library_dir, "libc++abi.1.dylib"),
-        posixpath.join(library_dir, "libunwind.1.dylib"),
-    }
     system_cache_paths = {
         "/usr/lib/libc++.1.dylib",
         "/usr/lib/libc++abi.dylib",
         "/usr/lib/system/libunwind.dylib",
     }
-    allowed_paths = archive_paths | system_cache_paths
     pids = set()
     observed_paths = set()
     observed_families = set()
@@ -142,7 +136,8 @@ def verify_trace(text, library_dir):
         match = RELEVANT_RUNTIME.fullmatch(runtime_leaf(canonical))
         if match is None:
             continue
-        if canonical not in allowed_paths:
+        from_archive = posixpath.dirname(canonical) == library_dir
+        if not from_archive and canonical not in system_cache_paths:
             raise VerificationError(f"unexpected runtime library path: {canonical}")
         if canonical in observed_paths:
             raise VerificationError(f"duplicate runtime library record: {canonical}")
