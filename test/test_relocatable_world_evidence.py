@@ -2716,7 +2716,9 @@ class EvidenceTests(unittest.TestCase):
         self.assertGreaterEqual(text.count("--allow-unlocked-sdk"), 2)
         self.assertIn(
             "LOCAL COVERAGE 5/6: 3 native-architecture + 2 Docker-emulated; "
-            "Agreement 10/10; directed loads 20/20; authoritative closure unavailable",
+            "WORLD Agreement 40/40 transfers 20/20; "
+            "UNIT Agreement 40/40 handoffs 20/20; "
+            "authoritative closure unavailable",
             text,
         )
 
