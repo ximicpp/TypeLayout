@@ -212,6 +212,18 @@ class RelocatableWorldWorkflowTests(unittest.TestCase):
             self.assertIn("--rpaths", block)
             self.assertIn("--trace", block)
             self.assertIn("--library-dir", block)
+            evidence_paths = re.findall(
+                r"build/relocatable-world/\$\{NODE\}\."
+                r"(?:producer|consumer)\.(?:dependencies|load-commands)\.txt",
+                block,
+            )
+            self.assertEqual(len(evidence_paths), 4)
+            self.assertEqual(
+                len({path.casefold() for path in evidence_paths}),
+                2,
+                "macOS runtime evidence names must remain distinct on the "
+                "default case-insensitive filesystem",
+            )
             self.assertNotRegex(
                 block,
                 r"grep -F .*libc\+\+(?:abi)?\.1\.dylib.*\.dyld",
