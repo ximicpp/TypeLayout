@@ -151,6 +151,7 @@ public:
             ? entries_.data()
             : entries_.data() + entries_.size();
     }
+    std::size_t size() const noexcept { return entries_.size(); }
 
     const_iterator find(const K& key) const {
         std::size_t first = 0;

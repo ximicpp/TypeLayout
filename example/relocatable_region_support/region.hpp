@@ -17,6 +17,7 @@ class RegionBuilder;
 class RegionView;
 class WorldRegionValidator;
 struct WorldRegionAccess;
+struct RegionDescriptorAccess;
 template <typename T> class relative_ptr;
 
 template <typename T>
@@ -75,6 +76,7 @@ private:
     friend class RegionBuilder;
     friend class RegionView;
     friend class WorldRegionValidator;
+    friend struct RegionDescriptorAccess;
 };
 
 template <typename T>
@@ -92,6 +94,7 @@ private:
     friend class RegionBuilder;
     friend class RegionView;
     friend class WorldRegionValidator;
+    friend struct RegionDescriptorAccess;
 };
 
 template <typename K, typename V>
@@ -114,6 +117,31 @@ private:
     friend class RegionBuilder;
     friend class RegionView;
     friend class WorldRegionValidator;
+    friend struct RegionDescriptorAccess;
+};
+
+struct RegionDescriptorAccess {
+    static std::uint32_t data_offset(const region_string& value) noexcept {
+        return value.data_.raw_offset_plus_one();
+    }
+
+    template <typename T>
+    static std::uint32_t data_offset(
+        const region_vector<T>& value) noexcept {
+        return value.data_.raw_offset_plus_one();
+    }
+
+    template <typename K, typename V>
+    static std::uint32_t data_offset(
+        const region_flat_map<K, V>& value) noexcept {
+        return value.entries_.data_.raw_offset_plus_one();
+    }
+
+    template <typename K, typename V>
+    static std::uint32_t size(
+        const region_flat_map<K, V>& value) noexcept {
+        return value.entries_.size_;
+    }
 };
 
 } // namespace relocatable_world_demo
