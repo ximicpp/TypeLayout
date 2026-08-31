@@ -92,6 +92,15 @@ add_test(NAME test_relocatable_region COMMAND test_relocatable_region)
 set_tests_properties(test_relocatable_region PROPERTIES
     LABELS "typelayout;example;relocatable-world")
 
+add_executable(test_relocatable_unit
+    test/test_relocatable_unit.cpp)
+target_link_libraries(test_relocatable_unit PRIVATE typelayout)
+target_include_directories(test_relocatable_unit PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/example/relocatable_unit_handoff_demo)
+add_test(NAME test_relocatable_unit COMMAND test_relocatable_unit)
+set_tests_properties(test_relocatable_unit PROPERTIES
+    LABELS "typelayout;example;relocatable-unit")
+
 add_library(relocatable_region_support STATIC
     example/relocatable_region_support/checkpoint_envelope.cpp)
 target_link_libraries(relocatable_region_support PUBLIC typelayout)
