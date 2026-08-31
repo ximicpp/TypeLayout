@@ -21,7 +21,7 @@ readonly LOCK_VALIDATOR=.github/scripts/validate-toolchain-locks.py
 readonly MACOS_VERIFIER=.github/scripts/verify-p2996-toolchain.sh
 readonly EVIDENCE_TOOL=tools/relocatable_world_evidence.py
 readonly LOCAL_RUNNER=local-arm64-macos
-readonly FINAL_LINE="LOCAL COVERAGE 5/6: 3 native-architecture + 2 Docker-emulated; Agreement 10/10; directed loads 20/20; authoritative closure unavailable"
+readonly FINAL_LINE="LOCAL COVERAGE 5/6: 3 native-architecture + 2 Docker-emulated; WORLD Agreement 40/40 transfers 20/20; UNIT Agreement 40/40 handoffs 20/20; authoritative closure unavailable"
 
 readonly -a LOCAL_NODES=(
     "x86_64_linux_gcc"
@@ -857,10 +857,12 @@ seal_producer_bundle() {
         --toolchain-artifact-sha256 "${artifact_sha256}"
         --output "${output_directory}/${node}.provenance.json"
     )
-    if [[ -f "${output_directory}/${node}.region" ]]; then
+    if [[ -f "${output_directory}/${node}.world.region" &&
+          -f "${output_directory}/${node}.unit.region" ]]; then
         seal+=(
             --signature "${output_directory}/${node}.sig.hpp"
-            --region "${output_directory}/${node}.region"
+            --world-region "${output_directory}/${node}.world.region"
+            --unit-region "${output_directory}/${node}.unit.region"
         )
     fi
     "${seal[@]}"
@@ -908,7 +910,8 @@ run_linux_producer() {
                 --sdk-version none --sdk-build none \
                 --deployment-target none --sdk-locked true
             "${build_dir}/relocatable_world_producer" "${NODE}" /artifacts
-            if test -f "/artifacts/${NODE}.region"; then
+            if test -f "/artifacts/${NODE}.world.region" || \
+                test -f "/artifacts/${NODE}.unit.region"; then
                 cmake --build "${build_dir}" \
                     --target relocatable_world_export_ok --parallel
                 "${build_dir}/relocatable_world_export_ok" /artifacts "${NODE}"
@@ -970,7 +973,8 @@ run_macos_producer() {
         "${preflight_root}/macos-producer.otool-l" \
         "${preflight_root}/macos-producer.dyld" \
         "${toolchain_root}/lib"
-    if [[ -f "${output_directory}/arm64_macos_clang.region" ]]; then
+    if [[ -f "${output_directory}/arm64_macos_clang.world.region" ||
+          -f "${output_directory}/arm64_macos_clang.unit.region" ]]; then
         cmake --build "${build_dir}" \
             --target relocatable_world_export_ok --parallel
         "${build_dir}/relocatable_world_export_ok" \
@@ -1003,8 +1007,13 @@ spec = importlib.util.spec_from_file_location("evidence", sys.argv[1])
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 record = module.validate_agreements(sys.argv[2])
-decisions = [decision for pair in record["pairs"] for decision in pair["decisions"]]
-if len(record["pairs"]) != 10 or len(decisions) != 40:
+decisions = [
+    decision
+    for pair in record["pairs"]
+    for scenario in ("world", "unit_handoff")
+    for decision in pair["scenarios"][scenario]
+]
+if len(record["pairs"]) != 10 or len(decisions) != 80:
     raise SystemExit("local Agreement count mismatch")
 if any(decision["status"] != "PERMIT" for decision in decisions):
     raise SystemExit("local Agreement contains a non-PERMIT decision")

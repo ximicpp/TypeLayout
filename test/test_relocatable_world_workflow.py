@@ -352,8 +352,9 @@ dyld[7]: /opt/p2996-toolchain/lib/libunwind.1.0.dylib
             self.assertIn("--toolchain-artifact-sha256", block)
             self.assertIn("producer_provenance_sha256", block)
             self.assertRegex(
-                block, r'transfer\["status"\]\s*!=\s*[\'\"]PASS[\'\"]'
+                block, r'outcome\["status"\]\s*!=\s*[\'\"]PASS[\'\"]'
             )
+            self.assertIn('transfer["scenarios"].values()', block)
         agreement = self.job_text("agreement")
         self.assertIn("c++ -std=c++20", agreement)
         self.assertRegex(
@@ -371,7 +372,19 @@ dyld[7]: /opt/p2996-toolchain/lib/libunwind.1.0.dylib
         self.assertIn("--expect-pairs 15", closure)
         self.assertIn("--expect-named-permits 60", closure)
         self.assertIn("--expect-transfers 30", closure)
-        self.assertIn("EXPECTED_FLAT_FILE_COUNT=28", closure)
+        self.assertIn("EXPECTED_FLAT_FILE_COUNT=34", closure)
+
+    def test_each_producer_artifact_contains_both_scenario_regions(self):
+        for job in ("producer_linux", "producer_macos"):
+            block = self.job_text(job)
+            self.assertIn(".world.region", block)
+            self.assertIn(".unit.region", block)
+            self.assertIn("--world-region", block)
+            self.assertIn("--unit-region", block)
+            self.assertIn(
+                'for key in ("signature", "world", "unit_handoff")',
+                self.workflow_text(),
+            )
 
     def test_macos_builds_preserve_the_locked_compiler_target(self):
         for job in ("producer_macos", "consumer_macos"):

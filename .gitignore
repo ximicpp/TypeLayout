@@ -17,6 +17,8 @@ bin/
 Thumbs.db
 
 # Compiled binaries
+__pycache__/
+*.pyc
 *.o
 *.a
 *.so

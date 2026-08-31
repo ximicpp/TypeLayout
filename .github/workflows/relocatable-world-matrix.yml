@@ -200,7 +200,8 @@ jobs:
                 --sdk-build none --deployment-target none --sdk-locked true
               build/relocatable-world/linux-producer-build/relocatable_world_producer \
                 "${NODE}" "build/relocatable-world/producer/${NODE}"
-              if test -f "build/relocatable-world/producer/${NODE}/${NODE}.region"; then
+              if test -f "build/relocatable-world/producer/${NODE}/${NODE}.world.region" || \
+                  test -f "build/relocatable-world/producer/${NODE}/${NODE}.unit.region"; then
                 cmake --build build/relocatable-world/linux-producer-build \
                   --target relocatable_world_export_ok --parallel
                 build/relocatable-world/linux-producer-build/relocatable_world_export_ok \
@@ -216,9 +217,11 @@ jobs:
             --workflow-run "${WORKFLOW_RUN}"
             --toolchain-artifact-sha256 "${ARTIFACT_SHA256}"
             --output "${BUNDLE}/${NODE}.provenance.json")
-          if test -f "${BUNDLE}/${NODE}.region"; then
+          if test -f "${BUNDLE}/${NODE}.world.region" && \
+              test -f "${BUNDLE}/${NODE}.unit.region"; then
             seal+=(--signature "${BUNDLE}/${NODE}.sig.hpp"
-                   --region "${BUNDLE}/${NODE}.region")
+                   --world-region "${BUNDLE}/${NODE}.world.region"
+                   --unit-region "${BUNDLE}/${NODE}.unit.region")
           fi
           "${seal[@]}"
 
@@ -230,7 +233,8 @@ jobs:
           path: |
             build/relocatable-world/producer/${{ matrix.node }}/${{ matrix.node }}.provenance.json
             build/relocatable-world/producer/${{ matrix.node }}/${{ matrix.node }}.sig.hpp
-            build/relocatable-world/producer/${{ matrix.node }}/${{ matrix.node }}.region
+            build/relocatable-world/producer/${{ matrix.node }}/${{ matrix.node }}.world.region
+            build/relocatable-world/producer/${{ matrix.node }}/${{ matrix.node }}.unit.region
           if-no-files-found: error
 
       - name: gate producer result
@@ -364,7 +368,8 @@ jobs:
             --rpaths build/relocatable-world/${NODE}.producer.load-commands.txt \
             --trace build/relocatable-world/${NODE}.producer.dyld \
             --library-dir "${TOOLCHAIN_ROOT}/lib"
-          if test -f "${BUNDLE}/${NODE}.region"; then
+          if test -f "${BUNDLE}/${NODE}.world.region" || \
+              test -f "${BUNDLE}/${NODE}.unit.region"; then
             cmake --build build/relocatable-world/macos-producer-build \
               --target relocatable_world_export_ok --parallel
             build/relocatable-world/macos-producer-build/relocatable_world_export_ok \
@@ -379,8 +384,11 @@ jobs:
             --workflow-run "${WORKFLOW_RUN}"
             --toolchain-artifact-sha256 "${ARTIFACT_SHA256}"
             --output "${BUNDLE}/${NODE}.provenance.json")
-          if test -f "${BUNDLE}/${NODE}.region"; then
-            seal+=(--signature "${BUNDLE}/${NODE}.sig.hpp" --region "${BUNDLE}/${NODE}.region")
+          if test -f "${BUNDLE}/${NODE}.world.region" && \
+              test -f "${BUNDLE}/${NODE}.unit.region"; then
+            seal+=(--signature "${BUNDLE}/${NODE}.sig.hpp"
+                   --world-region "${BUNDLE}/${NODE}.world.region"
+                   --unit-region "${BUNDLE}/${NODE}.unit.region")
           fi
           "${seal[@]}"
 
@@ -392,7 +400,8 @@ jobs:
           path: |
             build/relocatable-world/producer/${{ matrix.node }}/${{ matrix.node }}.provenance.json
             build/relocatable-world/producer/${{ matrix.node }}/${{ matrix.node }}.sig.hpp
-            build/relocatable-world/producer/${{ matrix.node }}/${{ matrix.node }}.region
+            build/relocatable-world/producer/${{ matrix.node }}/${{ matrix.node }}.world.region
+            build/relocatable-world/producer/${{ matrix.node }}/${{ matrix.node }}.unit.region
           if-no-files-found: error
 
       - name: gate producer result
@@ -500,7 +509,7 @@ jobs:
                   raise SystemExit(f"duplicate or unexpected producer provenance {path}")
               seen.add(producer)
               shutil.copyfile(path, evidence / path.name)
-              for key in ("signature", "region"):
+              for key in ("signature", "world", "unit_handoff"):
                   artifact = record.get("artifacts", {}).get(key)
                   if artifact:
                       source_path = path.parent / artifact["filename"]
@@ -628,7 +637,11 @@ jobs:
           record = module.validate_results(sys.argv[1])
           if record["consumer"] != sys.argv[2] or len(record["transfers"]) != 5:
               raise SystemExit("consumer result identity/count mismatch")
-          if any(transfer["status"] != 'PASS' or not transfer["producer_provenance_sha256"] for transfer in record["transfers"]):
+          if any(
+              outcome["status"] != 'PASS' or not transfer["producer_provenance_sha256"]
+              for transfer in record["transfers"]
+              for outcome in transfer["scenarios"].values()
+          ):
               raise SystemExit("consumer contains a non-PASS or unbound transfer")
           PY
 
@@ -682,7 +695,7 @@ jobs:
               if node in seen or path.name != f"{node}.provenance.json":
                   raise SystemExit(f"duplicate or unexpected producer provenance {path}")
               seen.add(node); shutil.copyfile(path, target / path.name)
-              for key in ("signature", "region"):
+              for key in ("signature", "world", "unit_handoff"):
                   artifact = record.get("artifacts", {}).get(key)
                   if artifact:
                       payload = path.parent / artifact["filename"]
@@ -727,8 +740,13 @@ jobs:
           spec = importlib.util.spec_from_file_location("evidence", "tools/relocatable_world_evidence.py")
           module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
           record = module.validate_agreements(sys.argv[1])
-          decisions = [decision for pair in record["pairs"] for decision in pair["decisions"]]
-          if len(record["pairs"]) != 15 or len(decisions) != 60:
+          decisions = [
+              decision
+              for pair in record["pairs"]
+              for scenario in ("world", "unit_handoff")
+              for decision in pair["scenarios"][scenario]
+          ]
+          if len(record["pairs"]) != 15 or len(decisions) != 120:
               raise SystemExit("Agreement identity/count mismatch")
           if any(decision["status"] != 'PERMIT' for decision in decisions):
               raise SystemExit("Agreement contains a non-PERMIT decision")
@@ -820,7 +838,7 @@ jobs:
               if node in producer_seen or path.name != f"{node}.provenance.json":
                   raise SystemExit(f"duplicate or unexpected producer {path}")
               producer_seen.add(node); shutil.copyfile(path, audit / path.name)
-              for key in ("signature", "region"):
+              for key in ("signature", "world", "unit_handoff"):
                   artifact = record.get("artifacts", {}).get(key)
                   if artifact:
                       payload = path.parent / artifact["filename"]
@@ -862,7 +880,7 @@ jobs:
             example/relocatable_world_demo/matrix_check.cpp \
             -o build/relocatable-world/bin/matrix-check
           build/relocatable-world/bin/matrix-check "${AUDIT}/closure.json"
-          EXPECTED_FLAT_FILE_COUNT=28
+          EXPECTED_FLAT_FILE_COUNT=34
           actual_count="$(find "${AUDIT}" -mindepth 1 -maxdepth 1 -type f | wc -l | tr -d '[:space:]')"
           {
             echo '## Relocatable-world authoritative matrix'
@@ -873,8 +891,11 @@ jobs:
           record = json.load(open(sys.argv[1], encoding="utf-8"))
           counts = record.get("counts", {})
           print(f"Status: {record.get('status', 'INCOMPLETE')}")
-          print(f"Nodes: {counts.get('nodes', 0)}; pairs: {counts.get('pairs', 0)}; "
-                f"permits: {counts.get('named_permits', 0)}; passes: {counts.get('passes', 0)}")
+          print(f"Nodes: {counts.get('nodes', 0)}")
+          for scenario, values in counts.get("scenarios", {}).items():
+              print(f"{scenario}: pairs={values.get('pairs', 0)}; "
+                    f"permits={values.get('named_permits', 0)}; "
+                    f"passes={values.get('passes', 0)}")
           PY
           } >> "${GITHUB_STEP_SUMMARY}"
 
@@ -891,7 +912,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          EXPECTED_FLAT_FILE_COUNT=28
+          EXPECTED_FLAT_FILE_COUNT=34
           test "$(find "${AUDIT}" -mindepth 1 -maxdepth 1 -type f | wc -l | tr -d '[:space:]')" \
             = "${EXPECTED_FLAT_FILE_COUNT}"
           python3 tools/relocatable_world_evidence.py audit-run \
@@ -961,7 +982,7 @@ jobs:
               if node in seen or path.name != f"{node}.provenance.json":
                   raise SystemExit(f"duplicate or unexpected producer provenance {path}")
               seen.add(node); shutil.copyfile(path, evidence / path.name)
-              for key in ("signature", "region"):
+              for key in ("signature", "world", "unit_handoff"):
                   artifact = record.get("artifacts", {}).get(key)
                   if artifact:
                       payload = path.parent / artifact["filename"]
@@ -1086,6 +1107,10 @@ jobs:
           record = module.validate_results(sys.argv[1])
           if record["consumer"] != sys.argv[2] or len(record["transfers"]) != 5:
               raise SystemExit("consumer result identity/count mismatch")
-          if any(transfer["status"] != 'PASS' or not transfer["producer_provenance_sha256"] for transfer in record["transfers"]):
+          if any(
+              outcome["status"] != 'PASS' or not transfer["producer_provenance_sha256"]
+              for transfer in record["transfers"]
+              for outcome in transfer["scenarios"].values()
+          ):
               raise SystemExit("consumer contains a non-PASS or unbound transfer")
           PY
