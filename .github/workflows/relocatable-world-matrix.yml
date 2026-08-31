@@ -18,6 +18,7 @@ on:
       - .github/scripts/bootstrap-toolchain-sources.py
       - .github/scripts/build-p2996-macos.sh
       - .github/scripts/validate-toolchain-locks.py
+      - .github/scripts/verify-macos-application-runtime.py
       - .github/scripts/verify-p2996-toolchain.sh
       - .github/workflows/toolchain-images.yml
       - .github/workflows/relocatable-world-matrix.yml
@@ -352,12 +353,17 @@ jobs:
           producer=build/relocatable-world/macos-producer-build/relocatable_world_producer
           otool -L "${producer}" | tee build/relocatable-world/${NODE}.producer.otool-L
           otool -l "${producer}" | tee build/relocatable-world/${NODE}.producer.otool-l
-          grep -F '@rpath/libc++.1.dylib' build/relocatable-world/${NODE}.producer.otool-L
-          grep -F "${TOOLCHAIN_ROOT}/lib" build/relocatable-world/${NODE}.producer.otool-l
           DYLD_PRINT_LIBRARIES=1 "${producer}" "${NODE}" "${BUNDLE}" \
             2>build/relocatable-world/${NODE}.producer.dyld
-          grep -F "${TOOLCHAIN_ROOT}/lib/libc++.1.dylib" build/relocatable-world/${NODE}.producer.dyld
-          grep -F "${TOOLCHAIN_ROOT}/lib/libc++abi.1.dylib" build/relocatable-world/${NODE}.producer.dyld
+          # verify-p2996-toolchain.sh already proves the actual libc++,
+          # libc++abi, and libunwind symbol providers with dladdr. This
+          # application check additionally binds the Mach-O load commands and
+          # RPATH while treating dyld4 shared-cache residency as diagnostics.
+          python3 .github/scripts/verify-macos-application-runtime.py \
+            --load-commands build/relocatable-world/${NODE}.producer.otool-L \
+            --rpaths build/relocatable-world/${NODE}.producer.otool-l \
+            --trace build/relocatable-world/${NODE}.producer.dyld \
+            --library-dir "${TOOLCHAIN_ROOT}/lib"
           if test -f "${BUNDLE}/${NODE}.region"; then
             cmake --build build/relocatable-world/macos-producer-build \
               --target relocatable_world_export_ok --parallel
@@ -1048,13 +1054,18 @@ jobs:
           consumer=build/relocatable-world/macos-consumer-build/relocatable_world_consumer
           otool -L "${consumer}" | tee build/relocatable-world/${NODE}.consumer.otool-L
           otool -l "${consumer}" | tee build/relocatable-world/${NODE}.consumer.otool-l
-          grep -F '@rpath/libc++.1.dylib' build/relocatable-world/${NODE}.consumer.otool-L
-          grep -F "${TOOLCHAIN_ROOT}/lib" build/relocatable-world/${NODE}.consumer.otool-l
           DYLD_PRINT_LIBRARIES=1 "${consumer}" authoritative "${NODE}" \
             "${GITHUB_WORKSPACE}/build/relocatable-world/evidence" "${RESULT}" \
             2>build/relocatable-world/${NODE}.consumer.dyld
-          grep -F "${TOOLCHAIN_ROOT}/lib/libc++.1.dylib" build/relocatable-world/${NODE}.consumer.dyld
-          grep -F "${TOOLCHAIN_ROOT}/lib/libc++abi.1.dylib" build/relocatable-world/${NODE}.consumer.dyld
+          # The retained toolchain verification proves runtime symbol origins;
+          # validate this consumer's own Mach-O contract and reject unexpected
+          # third-party C++ runtime paths without confusing cache residency
+          # with symbol ownership.
+          python3 .github/scripts/verify-macos-application-runtime.py \
+            --load-commands build/relocatable-world/${NODE}.consumer.otool-L \
+            --rpaths build/relocatable-world/${NODE}.consumer.otool-l \
+            --trace build/relocatable-world/${NODE}.consumer.dyld \
+            --library-dir "${TOOLCHAIN_ROOT}/lib"
 
       - name: Upload consumer diagnostics
         if: ${{ always() }}

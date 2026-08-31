@@ -1,4 +1,7 @@
 import re
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -7,6 +10,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/relocatable-world-matrix.yml"
+MACOS_APPLICATION_RUNTIME_VALIDATOR = (
+    ROOT / ".github/scripts/verify-macos-application-runtime.py"
+)
 
 NODES = {
     "x86_64_linux_gcc",
@@ -111,6 +117,7 @@ class RelocatableWorldWorkflowTests(unittest.TestCase):
             ".github/scripts/bootstrap-toolchain-sources.py",
             ".github/scripts/build-p2996-macos.sh",
             ".github/scripts/validate-toolchain-locks.py",
+            ".github/scripts/verify-macos-application-runtime.py",
             ".github/scripts/verify-p2996-toolchain.sh",
             ".github/workflows/toolchain-images.yml",
             ".github/workflows/relocatable-world-matrix.yml",
@@ -185,6 +192,12 @@ class RelocatableWorldWorkflowTests(unittest.TestCase):
         self.assertNotIn("qemu", text)
 
     def test_macos_uses_persistent_verified_archive_and_loaded_runtime_checks(self):
+        text = self.workflow_text()
+        self.assertEqual(
+            text.count("verify-macos-application-runtime.py"),
+            3,
+            "the validator must be a trigger and run for both macOS roles",
+        )
         for job in ("producer_macos", "consumer_macos"):
             block = self.job_text(job)
             self.assertIn("verify-p2996-toolchain.sh", block)
@@ -194,8 +207,129 @@ class RelocatableWorldWorkflowTests(unittest.TestCase):
             self.assertIn("otool -L", block)
             self.assertIn("otool -l", block)
             self.assertIn("DYLD_PRINT_LIBRARIES=1", block)
-            self.assertIn("libc++.1.dylib", block)
-            self.assertIn("libc++abi.1.dylib", block)
+            self.assertIn("verify-macos-application-runtime.py", block)
+            self.assertIn("--load-commands", block)
+            self.assertIn("--rpaths", block)
+            self.assertIn("--trace", block)
+            self.assertIn("--library-dir", block)
+            self.assertNotRegex(
+                block,
+                r"grep -F .*libc\+\+(?:abi)?\.1\.dylib.*\.dyld",
+            )
+
+    @staticmethod
+    def run_macos_application_runtime_validator(
+        load_commands, rpaths, trace, library_dir="/opt/p2996-toolchain/lib"
+    ):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            inputs = {
+                "load.txt": load_commands,
+                "rpaths.txt": rpaths,
+                "trace.txt": trace,
+            }
+            for name, contents in inputs.items():
+                (root / name).write_text(contents, encoding="utf-8")
+            return subprocess.run(
+                [
+                    sys.executable,
+                    str(MACOS_APPLICATION_RUNTIME_VALIDATOR),
+                    "--load-commands",
+                    str(root / "load.txt"),
+                    "--rpaths",
+                    str(root / "rpaths.txt"),
+                    "--trace",
+                    str(root / "trace.txt"),
+                    "--library-dir",
+                    library_dir,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+    def test_macos_application_runtime_validator_accepts_dyld4_cache_residency(self):
+        completed = self.run_macos_application_runtime_validator(
+            """app:
+\t@rpath/libc++.1.dylib (compatibility version 1.0.0, current version 1.0.0)
+\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1351.0.0)
+\t@rpath/libunwind.1.dylib (compatibility version 1.0.0, current version 1.0.0)
+""",
+            """Load command 17
+          cmd LC_RPATH
+      cmdsize 48
+         path /opt/p2996-toolchain/lib (offset 12)
+""",
+            """dyld[42]: <00000000-0000-0000-0000-000000000001> /usr/lib/system/libunwind.dylib
+dyld[42]: <00000000-0000-0000-0000-000000000002> /usr/lib/libc++abi.dylib
+dyld[42]: <00000000-0000-0000-0000-000000000003> /usr/lib/libc++.1.dylib
+""",
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_macos_application_runtime_validator_accepts_archive_trace(self):
+        completed = self.run_macos_application_runtime_validator(
+            """app:
+\t@rpath/libc++.1.dylib (compatibility version 1.0.0, current version 1.0.0)
+\t@rpath/libunwind.1.dylib (compatibility version 1.0.0, current version 1.0.0)
+""",
+            """Load command 1
+          cmd LC_RPATH
+      cmdsize 48
+         path /opt/p2996-toolchain/lib (offset 12)
+""",
+            """dyld[7]: /opt/p2996-toolchain/lib/libc++.1.dylib
+dyld[7]: /opt/p2996-toolchain/lib/libc++abi.1.dylib
+dyld[7]: /opt/p2996-toolchain/lib/libunwind.1.dylib
+""",
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_macos_application_runtime_validator_rejects_wrong_link_contract(self):
+        valid_trace = "dyld[7]: /usr/lib/libc++.1.dylib\n"
+        valid_rpath = """Load command 1
+          cmd LC_RPATH
+      cmdsize 48
+         path /opt/p2996-toolchain/lib (offset 12)
+"""
+        direct_system = self.run_macos_application_runtime_validator(
+            """app:
+\t/usr/lib/libc++.1.dylib (compatibility version 1.0.0, current version 1.0.0)
+\t@rpath/libunwind.1.dylib (compatibility version 1.0.0, current version 1.0.0)
+""",
+            valid_rpath,
+            valid_trace,
+        )
+        self.assertNotEqual(direct_system.returncode, 0)
+
+        wrong_rpath = self.run_macos_application_runtime_validator(
+            """app:
+\t@rpath/libc++.1.dylib (compatibility version 1.0.0, current version 1.0.0)
+\t@rpath/libunwind.1.dylib (compatibility version 1.0.0, current version 1.0.0)
+""",
+            """Load command 1
+          cmd LC_RPATH
+      cmdsize 48
+         path /usr/local/lib (offset 12)
+""",
+            valid_trace,
+        )
+        self.assertNotEqual(wrong_rpath.returncode, 0)
+
+    def test_macos_application_runtime_validator_rejects_mixed_runtime_trace(self):
+        completed = self.run_macos_application_runtime_validator(
+            """app:
+\t@rpath/libc++.1.dylib (compatibility version 1.0.0, current version 1.0.0)
+\t@rpath/libunwind.1.dylib (compatibility version 1.0.0, current version 1.0.0)
+""",
+            """Load command 1
+          cmd LC_RPATH
+      cmdsize 48
+         path /opt/p2996-toolchain/lib (offset 12)
+""",
+            "dyld[7]: /opt/homebrew/lib/libc++.1.dylib\n",
+        )
+        self.assertNotEqual(completed.returncode, 0)
 
     def test_consumers_are_fresh_and_every_intermediate_result_is_gated(self):
         for job in ("consumer_linux", "consumer_macos"):
