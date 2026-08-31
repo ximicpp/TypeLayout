@@ -77,12 +77,22 @@ LOCAL_NODES = (
     "arm64_macos_clang",
 )
 
-KEYS = (
-    "WorldSnapshot",
-    "Entity",
-    "EntityRelativePtr",
-    "EntityIndexEntry",
-)
+SCENARIO_KEYS = {
+    "world": (
+        "WorldSnapshot",
+        "Entity",
+        "EntityRelativePtr",
+        "EntityIndexEntry",
+    ),
+    "unit_handoff": (
+        "UnitSnapshot",
+        "Effect",
+        "EffectRelativePtr",
+        "AttributeEntry",
+    ),
+}
+SCENARIOS = tuple(SCENARIO_KEYS)
+KEYS = tuple(key for scenario in SCENARIOS for key in SCENARIO_KEYS[scenario])
 
 TRANSFER_STATUSES = (
     "PASS",
@@ -125,15 +135,14 @@ CLOSURE_IDENTITY_KEYS = (
     "consumers",
     "transfers",
 )
-CLOSURE_COUNT_KEYS = (
-    "nodes",
+CLOSURE_SCENARIO_COUNT_KEYS = (
     "pairs",
     "named_decisions",
     "named_permits",
-    "consumers",
     "transfers",
     "passes",
 )
+CLOSURE_COUNT_KEYS = ("nodes", "consumers", "scenarios")
 
 PROFILES = ("authoritative", "local-arm64-macos")
 LOCAL_WORKFLOW_RUN_MAX_LENGTH = 128
@@ -397,17 +406,35 @@ def profile_nodes(profile):
     return NODES if profile == "authoritative" else LOCAL_NODES
 
 
-def _validate_keyed_booleans(value, where):
-    value = _expect_exact_keys(value, KEYS, where)
-    for key in KEYS:
+def _validate_keyed_booleans(value, where, keys=KEYS):
+    value = _expect_exact_keys(value, keys, where)
+    for key in keys:
         _expect_boolean(value[key], f"{where}.{key}")
     return value
 
 
-def _validate_signatures(value, where):
-    value = _expect_exact_keys(value, KEYS, where)
-    for key in KEYS:
+def _validate_signatures(value, where, keys=KEYS):
+    value = _expect_exact_keys(value, keys, where)
+    for key in keys:
         _expect_nonempty_string(value[key], f"{where}.{key}")
+    return value
+
+
+def _validate_contracts(value, where):
+    value = _expect_exact_keys(value, SCENARIOS, where)
+    for scenario in SCENARIOS:
+        contract_where = f"{where}.{scenario}"
+        contract = _expect_exact_keys(
+            value[scenario], ("admission", "signatures"), contract_where
+        )
+        _validate_keyed_booleans(
+            contract["admission"], f"{contract_where}.admission",
+            SCENARIO_KEYS[scenario]
+        )
+        _validate_signatures(
+            contract["signatures"], f"{contract_where}.signatures",
+            SCENARIO_KEYS[scenario]
+        )
     return value
 
 
@@ -454,14 +481,19 @@ def validate_probe(path):
     record = load_json(path)
     _expect_exact_keys(
         record,
-        ("schema", "node", "probe", "admission", "compiler", "environment"),
+        ("schema", "node", "probe", "contracts", "compiler", "environment"),
         "probe top-level",
     )
-    if type(record["schema"]) is not int or record["schema"] != 1:
-        raise EvidenceError("probe schema must be integer 1")
+    if type(record["schema"]) is not int or record["schema"] != 2:
+        raise EvidenceError("probe schema must be integer 2")
     node = validate_node(record["node"])
     _validate_probe_values(record["probe"])
-    _validate_keyed_booleans(record["admission"], "admission")
+    contracts = _expect_exact_keys(record["contracts"], SCENARIOS, "contracts")
+    for scenario in SCENARIOS:
+        _validate_keyed_booleans(
+            contracts[scenario], f"contracts.{scenario}",
+            SCENARIO_KEYS[scenario]
+        )
     _validate_compiler(record["compiler"], node)
     environment = _expect_exact_keys(
         record["environment"], ("runner", "runner_image"), "environment"
@@ -478,19 +510,18 @@ def _validate_facts(path):
     record = load_json(path)
     _expect_exact_keys(
         record,
-        ("schema", "node", "admission", "signatures"),
+        ("schema", "node", "contracts"),
         "producer facts top-level",
     )
-    if type(record["schema"]) is not int or record["schema"] != 1:
-        raise EvidenceError("producer facts schema must be integer 1")
+    if type(record["schema"]) is not int or record["schema"] != 2:
+        raise EvidenceError("producer facts schema must be integer 2")
     node = validate_node(record["node"])
     expected_filename = f"{node}.producer-facts.json"
     if path.name != expected_filename:
         raise EvidenceError(
             f"producer facts filename must be exactly {expected_filename!r}"
         )
-    _validate_keyed_booleans(record["admission"], "producer facts admission")
-    _validate_signatures(record["signatures"], "producer facts signatures")
+    _validate_contracts(record["contracts"], "producer facts contracts")
     return record
 
 
@@ -511,7 +542,14 @@ def _validate_filename(value, expected, where):
 
 def _validate_artifact(entry, kind, node, provenance_path):
     entry = _expect_exact_keys(entry, ("filename", "sha256"), f"artifacts.{kind}")
-    suffix = ".sig.hpp" if kind == "signature" else ".region"
+    suffixes = {
+        "signature": ".sig.hpp",
+        "world": ".world.region",
+        "unit_handoff": ".unit.region",
+    }
+    if kind not in suffixes:
+        raise EvidenceError(f"unknown artifact kind {kind!r}")
+    suffix = suffixes[kind]
     filename = _validate_filename(
         entry["filename"], f"{node}{suffix}", f"artifacts.{kind}"
     )
@@ -578,8 +616,8 @@ def validate_provenance(path):
             ("schema", "node", "status", "error"),
             "provenance top-level",
         )
-        if type(record["schema"]) is not int or record["schema"] != 1:
-            raise EvidenceError("provenance schema must be integer 1")
+        if type(record["schema"]) is not int or record["schema"] != 2:
+            raise EvidenceError("provenance schema must be integer 2")
         node = validate_node(record["node"])
         _validate_provenance_filename(path, node)
         _expect_nonempty_string(record["error"], "provenance.error")
@@ -592,8 +630,7 @@ def validate_provenance(path):
             "node",
             "status",
             "probe",
-            "admission",
-            "signatures",
+            "contracts",
             "compiler",
             "build",
             "locks",
@@ -601,8 +638,8 @@ def validate_provenance(path):
         ),
         "provenance top-level",
     )
-    if type(record["schema"]) is not int or record["schema"] != 1:
-        raise EvidenceError("provenance schema must be integer 1")
+    if type(record["schema"]) is not int or record["schema"] != 2:
+        raise EvidenceError("provenance schema must be integer 2")
     node = validate_node(record["node"])
     _validate_provenance_filename(path, node)
     if status not in ("READY", "REJECT"):
@@ -618,8 +655,7 @@ def validate_provenance(path):
         or not probe["memcpy_array_lifetime"]
     ):
         raise EvidenceError("evaluated provenance requires all platform probe gates")
-    admission = _validate_keyed_booleans(record["admission"], "admission")
-    _validate_signatures(record["signatures"], "signatures")
+    contracts = _validate_contracts(record["contracts"], "contracts")
     _validate_compiler(record["compiler"], node)
     build = _validate_build(record["build"], node)
     locks = _expect_exact_keys(
@@ -628,19 +664,34 @@ def validate_provenance(path):
     _expect_sha256(locks["sources_sha256"], "locks.sources_sha256")
     _expect_sha256(locks["outputs_sha256"], "locks.outputs_sha256")
 
-    all_admitted = all(admission[key] for key in KEYS)
+    admitted_scenarios = {
+        scenario: all(
+            contracts[scenario]["admission"][key]
+            for key in SCENARIO_KEYS[scenario]
+        )
+        for scenario in SCENARIOS
+    }
+    all_admitted = all(admitted_scenarios.values())
     artifacts = _expect_object(record["artifacts"], "artifacts")
     if status == "READY":
         if not all_admitted:
-            raise EvidenceError("READY provenance requires four admitted keys")
-        _expect_exact_keys(artifacts, ("signature", "region"), "artifacts")
+            raise EvidenceError("READY provenance requires both admitted scenarios")
+        _expect_exact_keys(
+            artifacts, ("signature", "world", "unit_handoff"), "artifacts"
+        )
         _validate_artifact(artifacts["signature"], "signature", node, path)
-        _validate_artifact(artifacts["region"], "region", node, path)
+        for scenario in SCENARIOS:
+            _validate_artifact(artifacts[scenario], scenario, node, path)
     else:
         if all_admitted:
-            raise EvidenceError("REJECT provenance requires at least one Admission false")
-        if artifacts:
-            raise EvidenceError("REJECT provenance artifacts must be empty")
+            raise EvidenceError("REJECT provenance requires rejected Admission")
+        allowed = {"signature"} | {
+            scenario for scenario in SCENARIOS if admitted_scenarios[scenario]
+        }
+        if set(artifacts) - allowed:
+            raise EvidenceError("REJECT provenance contains an inadmitted scenario")
+        for kind in artifacts:
+            _validate_artifact(artifacts[kind], kind, node, path)
 
     if build["profile"] == "authoritative" and not record["compiler"]["sdk_locked"]:
         raise EvidenceError("authoritative compiler.sdk_locked must be true")
@@ -1456,7 +1507,7 @@ def _read_generated_signature_header(path, node):
         or text.count("_byte_copy_safe =") != len(KEYS)
     ):
         raise EvidenceError(
-            "signature header must declare exactly four contract types"
+            "signature header must declare exactly eight contract types"
         )
 
     signatures = {}
@@ -1530,29 +1581,40 @@ def validate_producer_artifacts(node, directory):
         f"{node}.sig.hpp",
         "producer signature",
     )
-    region_path = _require_bundle_artifact(
-        directory / f"{node}.region",
-        anchor,
-        f"{node}.region",
-        "producer region",
-    )
+    region_paths = {
+        "world": _require_bundle_artifact(
+            directory / f"{node}.world.region", anchor,
+            f"{node}.world.region", "producer world region"
+        ),
+        "unit_handoff": _require_bundle_artifact(
+            directory / f"{node}.unit.region", anchor,
+            f"{node}.unit.region", "producer unit region"
+        ),
+    }
     facts = _validate_facts(facts_path)
     if facts["node"] != node:
         raise EvidenceError("producer facts node does not match requested node")
-    if not all(facts["admission"][key] for key in KEYS):
+    if not all(
+        facts["contracts"][scenario]["admission"][key]
+        for scenario in SCENARIOS for key in SCENARIO_KEYS[scenario]
+    ):
         raise EvidenceError("producer integration bundle is not READY")
 
-    if region_path.stat().st_size == 0:
-        raise EvidenceError("producer region artifact is empty")
+    if any(path.stat().st_size == 0 for path in region_paths.values()):
+        raise EvidenceError("producer scenario region artifact is empty")
 
     signatures, byte_copy_safe = _read_generated_signature_header(
         signature_path, node
     )
-    for key in KEYS:
-        if signatures[key] != facts["signatures"][key]:
-            raise EvidenceError(f"producer {key} signature disagrees with facts")
-        if byte_copy_safe[key] != facts["admission"][key]:
-            raise EvidenceError(f"producer {key} Admission disagrees with signature")
+    for scenario in SCENARIOS:
+        contract = facts["contracts"][scenario]
+        for key in SCENARIO_KEYS[scenario]:
+            if signatures[key] != contract["signatures"][key]:
+                raise EvidenceError(f"producer {key} signature disagrees with facts")
+            if byte_copy_safe[key] != contract["admission"][key]:
+                raise EvidenceError(
+                    f"producer {key} Admission disagrees with signature"
+                )
     return facts
 
 
@@ -1581,7 +1643,9 @@ def verify_producer_bundle(node, directory, producer, exporter):
     node = validate_node(node)
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
-    for suffix in (".producer-facts.json", ".region", ".sig.hpp"):
+    for suffix in (
+        ".producer-facts.json", ".world.region", ".unit.region", ".sig.hpp"
+    ):
         artifact = directory / f"{node}{suffix}"
         if artifact.exists():
             if not artifact.is_file():
@@ -1594,7 +1658,8 @@ def verify_producer_bundle(node, directory, producer, exporter):
         producer, (node, directory), "relocatable-world producer"
     )
     expected_stdout = (
-        f"PRODUCER READY node={node} admission=4/4 region={node}.region"
+        f"PRODUCER READY node={node} admission=8/8 "
+        f"world={node}.world.region unit={node}.unit.region"
     )
     if produced.returncode != 0 or produced.stdout.strip() != expected_stdout:
         raise EvidenceError(
@@ -1656,7 +1721,8 @@ def seal_producer(
     toolchain_artifact_sha256,
     output,
     signature=None,
-    region=None,
+    world_region=None,
+    unit_region=None,
 ):
     node = validate_node(node)
     profile = validate_profile(profile)
@@ -1680,7 +1746,13 @@ def seal_producer(
     facts_record = _validate_facts(facts)
     if probe_record["node"] != node or facts_record["node"] != node:
         raise EvidenceError("probe and producer facts node must match --node")
-    if probe_record["admission"] != facts_record["admission"]:
+    probe_contracts = probe_record["contracts"]
+    facts_contracts = facts_record["contracts"]
+    if any(
+        probe_contracts[scenario]
+        != facts_contracts[scenario]["admission"]
+        for scenario in SCENARIOS
+    ):
         raise EvidenceError("probe and producer facts Admission decisions differ")
     _require_platform_probe_pass(probe_record)
     if probe_record["environment"]["runner"] != runner:
@@ -1741,48 +1813,88 @@ def seal_producer(
         if compiler["sdk_locked"] != actual_match:
             raise EvidenceError("local macOS sdk_locked is not truthful")
 
-    all_admitted = all(facts_record["admission"][key] for key in KEYS)
+    admitted_scenarios = {
+        scenario: all(
+            facts_contracts[scenario]["admission"][key]
+            for key in SCENARIO_KEYS[scenario]
+        )
+        for scenario in SCENARIOS
+    }
+    all_admitted = all(admitted_scenarios.values())
     artifacts = {}
-    if all_admitted:
-        if signature is None or region is None:
-            raise EvidenceError("READY producer requires signature and region artifacts")
+    supplied_regions = {
+        "world": world_region,
+        "unit_handoff": unit_region,
+    }
+    if signature is not None:
         signature_path = _require_bundle_artifact(
             signature, output, f"{node}.sig.hpp", "signature artifact"
-        )
-        region_path = _require_bundle_artifact(
-            region, output, f"{node}.region", "region artifact"
         )
         header_signatures, header_admission = _read_generated_signature_header(
             signature_path, node
         )
-        for key in KEYS:
-            if header_signatures[key] != facts_record["signatures"][key]:
-                raise EvidenceError(f"{key} signature disagrees with generated header")
-            if header_admission[key] != facts_record["admission"][key]:
-                raise EvidenceError(f"{key} Admission disagrees with generated header")
-        artifacts = {
-            "signature": {
-                "filename": signature_path.name,
-                "sha256": _sha256(signature_path),
-            },
-            "region": {
+        for scenario in SCENARIOS:
+            for key in SCENARIO_KEYS[scenario]:
+                if (
+                    header_signatures[key]
+                    != facts_contracts[scenario]["signatures"][key]
+                ):
+                    raise EvidenceError(
+                        f"{key} signature disagrees with generated header"
+                    )
+                if (
+                    header_admission[key]
+                    != facts_contracts[scenario]["admission"][key]
+                ):
+                    raise EvidenceError(
+                        f"{key} Admission disagrees with generated header"
+                    )
+        artifacts["signature"] = {
+            "filename": signature_path.name,
+            "sha256": _sha256(signature_path),
+        }
+    elif all_admitted:
+        raise EvidenceError("READY producer requires a signature artifact")
+
+    for scenario in SCENARIOS:
+        region = supplied_regions[scenario]
+        if admitted_scenarios[scenario]:
+            if region is None:
+                raise EvidenceError(
+                    f"admitted {scenario} producer requires its region artifact"
+                )
+            suffix = "world.region" if scenario == "world" else "unit.region"
+            region_path = _require_bundle_artifact(
+                region, output, f"{node}.{suffix}", f"{scenario} region artifact"
+            )
+            artifacts[scenario] = {
                 "filename": region_path.name,
                 "sha256": _sha256(region_path),
-            },
-        }
-        status = "READY"
-    else:
-        if signature is not None or region is not None:
-            raise EvidenceError("REJECT producer must not supply payload artifacts")
-        status = "REJECT"
+            }
+        elif region is not None:
+            raise EvidenceError(
+                f"inadmitted {scenario} producer must not supply a region"
+            )
+    status = "READY" if all_admitted else "REJECT"
 
     provenance = {
-        "schema": 1,
+        "schema": 2,
         "node": node,
         "status": status,
         "probe": {key: probe_record["probe"][key] for key in PROBE_KEYS},
-        "admission": {key: facts_record["admission"][key] for key in KEYS},
-        "signatures": {key: facts_record["signatures"][key] for key in KEYS},
+        "contracts": {
+            scenario: {
+                "admission": {
+                    key: facts_contracts[scenario]["admission"][key]
+                    for key in SCENARIO_KEYS[scenario]
+                },
+                "signatures": {
+                    key: facts_contracts[scenario]["signatures"][key]
+                    for key in SCENARIO_KEYS[scenario]
+                },
+            }
+            for scenario in SCENARIOS
+        },
         "compiler": {key: compiler[key] for key in COMPILER_KEYS},
         "build": {
             "profile": profile,
@@ -1809,7 +1921,7 @@ def write_fallback_provenance(node, reason, output):
     _expect_nonempty_string(reason, "reason")
     _validate_provenance_filename(output, node)
     record = {
-        "schema": 1,
+        "schema": 2,
         "node": node,
         "status": "INCOMPLETE",
         "error": reason,
@@ -1830,14 +1942,19 @@ def write_fallback_results(profile, consumer, reason, output):
         transfers.append(
             {
                 "producer": producer,
-                "status": "INCOMPLETE",
-                "reason": reason,
                 "producer_provenance_sha256": None,
-                "region_sha256": None,
+                "scenarios": {
+                    scenario: {
+                        "status": "INCOMPLETE",
+                        "reason": reason,
+                        "region_sha256": None,
+                    }
+                    for scenario in SCENARIOS
+                },
             }
         )
     record = {
-        "schema": 1,
+        "schema": 2,
         "profile": profile,
         "consumer": consumer,
         "consumer_provenance_sha256": None,
@@ -1872,14 +1989,15 @@ def write_fallback_agreements(profile, reason, output):
     _expect_nonempty_string(reason, "reason")
     pairs = []
     for left, right in _profile_pairs(profile):
-        decisions = []
-        for key in KEYS:
-            decisions.append(
+        scenarios = {}
+        for scenario in SCENARIOS:
+            scenarios[scenario] = [
                 {"key": key, "status": "INCOMPLETE", "reason": reason}
-            )
-        pairs.append({"left": left, "right": right, "decisions": decisions})
+                for key in SCENARIO_KEYS[scenario]
+            ]
+        pairs.append({"left": left, "right": right, "scenarios": scenarios})
     record = {
-        "schema": 1,
+        "schema": 2,
         "profile": profile,
         "producer_provenance_sha256": {node: None for node in nodes},
         "pairs": pairs,
@@ -1900,17 +2018,27 @@ def write_fallback_closure(profile, reason, output):
     ]
     expected = {
         "nodes": list(nodes),
-        "pairs": pair_identities,
+        "pairs": [
+            {**identity, "scenario": scenario}
+            for scenario in SCENARIOS for identity in pair_identities
+        ],
         "named_decisions": [
-            {"left": left, "right": right, "key": key}
+            {
+                "left": left, "right": right,
+                "scenario": scenario, "key": key,
+            }
+            for scenario in SCENARIOS
             for left, right in _profile_pairs(profile)
-            for key in KEYS
+            for key in SCENARIO_KEYS[scenario]
         ],
         "consumers": list(nodes),
-        "transfers": transfer_identities,
+        "transfers": [
+            {**identity, "scenario": scenario}
+            for scenario in SCENARIOS for identity in transfer_identities
+        ],
     }
     record = {
-        "schema": 1,
+        "schema": 2,
         "profile": profile,
         "authoritative": False,
         "run": None,
@@ -1918,12 +2046,13 @@ def write_fallback_closure(profile, reason, output):
         "expected": expected,
         "counts": {
             "nodes": 0,
-            "pairs": 0,
-            "named_decisions": 0,
-            "named_permits": 0,
             "consumers": 0,
-            "transfers": 0,
-            "passes": 0,
+            "scenarios": {
+                scenario: {
+                    key: 0 for key in CLOSURE_SCENARIO_COUNT_KEYS
+                }
+                for scenario in SCENARIOS
+            },
         },
         "missing": expected,
         "duplicates": {
@@ -2012,8 +2141,8 @@ def validate_results(path):
         ),
         "results top-level",
     )
-    if type(record["schema"]) is not int or record["schema"] != 1:
-        raise EvidenceError("results schema must be integer 1")
+    if type(record["schema"]) is not int or record["schema"] != 2:
+        raise EvidenceError("results schema must be integer 2")
     profile = validate_profile(record["profile"])
     consumer = validate_node(record["consumer"])
     nodes = profile_nodes(profile)
@@ -2052,10 +2181,8 @@ def validate_results(path):
             transfer,
             (
                 "producer",
-                "status",
-                "reason",
                 "producer_provenance_sha256",
-                "region_sha256",
+                "scenarios",
             ),
             where,
         )
@@ -2063,30 +2190,39 @@ def validate_results(path):
             raise EvidenceError(
                 f"{where}.producer must be fixed profile-order {expected_producer}"
             )
-        status = transfer["status"]
-        if status not in TRANSFER_STATUSES:
-            raise EvidenceError(f"{where}.status is unknown")
-        _expect_nonempty_string(transfer["reason"], f"{where}.reason")
         provenance_digest = _expect_nullable_sha256(
             transfer["producer_provenance_sha256"],
             f"{where}.producer_provenance_sha256",
         )
-        region_digest = _expect_nullable_sha256(
-            transfer["region_sha256"], f"{where}.region_sha256"
+        scenarios = _expect_exact_keys(
+            transfer["scenarios"], SCENARIOS, f"{where}.scenarios"
         )
-        if status in (
-            "PASS",
-            "REJECT_ENVELOPE",
-            "REJECT_REGION",
-            "REJECT_GRAPH",
-        ) and (provenance_digest is None or region_digest is None):
-            raise EvidenceError(f"{where}.{status} requires both digests")
-        if status == "SKIPPED_TYPELAYOUT_REJECT" and provenance_digest is None:
-            raise EvidenceError(
-                f"{where}.SKIPPED_TYPELAYOUT_REJECT requires provenance"
+        for scenario in SCENARIOS:
+            outcome_where = f"{where}.scenarios.{scenario}"
+            outcome = _expect_exact_keys(
+                scenarios[scenario], ("status", "reason", "region_sha256"),
+                outcome_where,
             )
-        if build is None and status != "INCOMPLETE":
-            raise EvidenceError("fallback results must contain only INCOMPLETE")
+            status = outcome["status"]
+            if status not in TRANSFER_STATUSES:
+                raise EvidenceError(f"{outcome_where}.status is unknown")
+            _expect_nonempty_string(outcome["reason"], f"{outcome_where}.reason")
+            region_digest = _expect_nullable_sha256(
+                outcome["region_sha256"], f"{outcome_where}.region_sha256"
+            )
+            if status in (
+                "PASS", "REJECT_ENVELOPE", "REJECT_REGION", "REJECT_GRAPH"
+            ) and (provenance_digest is None or region_digest is None):
+                raise EvidenceError(f"{outcome_where}.{status} requires both digests")
+            if (
+                status == "SKIPPED_TYPELAYOUT_REJECT"
+                and provenance_digest is None
+            ):
+                raise EvidenceError(
+                    f"{outcome_where}.SKIPPED_TYPELAYOUT_REJECT requires provenance"
+                )
+            if build is None and status != "INCOMPLETE":
+                raise EvidenceError("fallback results must contain only INCOMPLETE")
     return record
 
 
@@ -2095,37 +2231,42 @@ def _expected_agreement(profile, producers):
     by_node = {slot["node"]: slot for slot in producers}
     pairs = []
     for left, right in _profile_pairs(profile):
-        decisions = []
-        for key_index, key in enumerate(KEYS):
-            left_record = by_node[left]
-            right_record = by_node[right]
-            if (
-                not left_record["present"]
-                or not right_record["present"]
-                or not left_record["signatures"][key_index]
-                or not right_record["signatures"][key_index]
-            ):
-                status = "INCOMPLETE"
-                reason = "producer evidence incomplete"
-            elif (
-                not left_record["admission"][key_index]
-                or not right_record["admission"][key_index]
-            ):
-                status = "REJECT"
-                reason = "Admission rejected"
-            elif (
-                left_record["signatures"][key_index]
-                != right_record["signatures"][key_index]
-            ):
-                status = "REJECT"
-                reason = "layout signature differs"
-            else:
-                status = "PERMIT"
-                reason = "Admission and signature agree"
-            decisions.append({"key": key, "status": status, "reason": reason})
-        pairs.append({"left": left, "right": right, "decisions": decisions})
+        scenarios = {}
+        for scenario in SCENARIOS:
+            decisions = []
+            for key_index, key in enumerate(SCENARIO_KEYS[scenario]):
+                left_record = by_node[left]
+                right_record = by_node[right]
+                left_contract = left_record["contracts"][scenario]
+                right_contract = right_record["contracts"][scenario]
+                if (
+                    not left_record["present"]
+                    or not right_record["present"]
+                    or not left_contract["signatures"][key_index]
+                    or not right_contract["signatures"][key_index]
+                ):
+                    status = "INCOMPLETE"
+                    reason = "producer evidence incomplete"
+                elif (
+                    not left_contract["admission"][key_index]
+                    or not right_contract["admission"][key_index]
+                ):
+                    status = "REJECT"
+                    reason = "Admission rejected"
+                elif (
+                    left_contract["signatures"][key_index]
+                    != right_contract["signatures"][key_index]
+                ):
+                    status = "REJECT"
+                    reason = "layout signature differs"
+                else:
+                    status = "PERMIT"
+                    reason = "Admission and signature agree"
+                decisions.append({"key": key, "status": status, "reason": reason})
+            scenarios[scenario] = decisions
+        pairs.append({"left": left, "right": right, "scenarios": scenarios})
     return {
-        "schema": 1,
+        "schema": 2,
         "profile": profile,
         "producer_provenance_sha256": {
             node: (
@@ -2146,8 +2287,8 @@ def validate_agreements(path):
         ("schema", "profile", "producer_provenance_sha256", "pairs"),
         "agreements top-level",
     )
-    if type(record["schema"]) is not int or record["schema"] != 1:
-        raise EvidenceError("agreements schema must be integer 1")
+    if type(record["schema"]) is not int or record["schema"] != 2:
+        raise EvidenceError("agreements schema must be integer 2")
     profile = validate_profile(record["profile"])
     nodes = profile_nodes(profile)
     bindings = _expect_exact_keys(
@@ -2166,33 +2307,42 @@ def validate_agreements(path):
         raise EvidenceError("agreements must preserve every fixed pair")
     for pair_index, (pair, expected_pair) in enumerate(zip(pairs, expected_pairs)):
         where = f"pairs[{pair_index}]"
-        pair = _expect_exact_keys(pair, ("left", "right", "decisions"), where)
+        pair = _expect_exact_keys(pair, ("left", "right", "scenarios"), where)
         if (pair["left"], pair["right"]) != expected_pair:
             raise EvidenceError(f"{where} must use fixed profile pair order")
-        decisions = _expect_array(pair["decisions"], f"{where}.decisions")
-        if len(decisions) != len(KEYS):
-            raise EvidenceError(f"{where} must contain four named decisions")
+        scenarios = _expect_exact_keys(
+            pair["scenarios"], SCENARIOS, f"{where}.scenarios"
+        )
         missing_producer = (
             bindings[pair["left"]] is None or bindings[pair["right"]] is None
         )
-        for key_index, (decision, key) in enumerate(zip(decisions, KEYS)):
-            decision_where = f"{where}.decisions[{key_index}]"
-            decision = _expect_exact_keys(
-                decision, ("key", "status", "reason"), decision_where
+        for scenario in SCENARIOS:
+            decisions = _expect_array(
+                scenarios[scenario], f"{where}.scenarios.{scenario}"
             )
-            if decision["key"] != key:
+            keys = SCENARIO_KEYS[scenario]
+            if len(decisions) != len(keys):
                 raise EvidenceError(
-                    f"{decision_where}.key must use fixed key order"
+                    f"{where}.{scenario} must contain four named decisions"
                 )
-            if decision["status"] not in AGREEMENT_STATUSES:
-                raise EvidenceError(f"{decision_where}.status is unknown")
-            _expect_nonempty_string(
-                decision["reason"], f"{decision_where}.reason"
-            )
-            if missing_producer != (decision["status"] == "INCOMPLETE"):
-                raise EvidenceError(
-                    f"{decision_where}.status disagrees with provenance presence"
+            for key_index, (decision, key) in enumerate(zip(decisions, keys)):
+                decision_where = f"{where}.scenarios.{scenario}[{key_index}]"
+                decision = _expect_exact_keys(
+                    decision, ("key", "status", "reason"), decision_where
                 )
+                if decision["key"] != key:
+                    raise EvidenceError(
+                        f"{decision_where}.key must use fixed key order"
+                    )
+                if decision["status"] not in AGREEMENT_STATUSES:
+                    raise EvidenceError(f"{decision_where}.status is unknown")
+                _expect_nonempty_string(
+                    decision["reason"], f"{decision_where}.reason"
+                )
+                if missing_producer != (decision["status"] == "INCOMPLETE"):
+                    raise EvidenceError(
+                        f"{decision_where}.status disagrees with provenance presence"
+                    )
     return record
 
 
@@ -2201,17 +2351,26 @@ def _identity_contract(profile):
     return {
         "nodes": list(nodes),
         "pairs": [
-            {"left": left, "right": right}
+            {"left": left, "right": right, "scenario": scenario}
+            for scenario in SCENARIOS
             for left, right in _profile_pairs(profile)
         ],
         "named_decisions": [
-            {"left": left, "right": right, "key": key}
+            {
+                "left": left, "right": right,
+                "scenario": scenario, "key": key,
+            }
+            for scenario in SCENARIOS
             for left, right in _profile_pairs(profile)
-            for key in KEYS
+            for key in SCENARIO_KEYS[scenario]
         ],
         "consumers": list(nodes),
         "transfers": [
-            {"consumer": consumer, "producer": producer}
+            {
+                "consumer": consumer, "producer": producer,
+                "scenario": scenario,
+            }
+            for scenario in SCENARIOS
             for consumer, producer in _profile_transfers(profile)
         ],
     }
@@ -2221,10 +2380,12 @@ def _identity_token(value):
     if isinstance(value, str):
         return (value,)
     if "key" in value:
-        return (value["left"], value["right"], value["key"])
+        return (
+            value["left"], value["right"], value["scenario"], value["key"]
+        )
     if "consumer" in value:
-        return (value["consumer"], value["producer"])
-    return (value["left"], value["right"])
+        return (value["consumer"], value["producer"], value["scenario"])
+    return (value["left"], value["right"], value["scenario"])
 
 
 def _validate_identity_map(value, profile, where, *, complete):
@@ -2245,9 +2406,9 @@ def _validate_identity_map(value, profile, where, *, complete):
                 token = (entry,)
             else:
                 keys = {
-                    "pairs": ("left", "right"),
-                    "named_decisions": ("left", "right", "key"),
-                    "transfers": ("consumer", "producer"),
+                    "pairs": ("left", "right", "scenario"),
+                    "named_decisions": ("left", "right", "scenario", "key"),
+                    "transfers": ("consumer", "producer", "scenario"),
                 }[kind]
                 entry = _expect_exact_keys(
                     entry, keys, f"{where}.{kind}[{index}]"
@@ -2283,8 +2444,8 @@ def validate_closure(path):
         ),
         "closure top-level",
     )
-    if type(record["schema"]) is not int or record["schema"] != 1:
-        raise EvidenceError("closure schema must be integer 1")
+    if type(record["schema"]) is not int or record["schema"] != 2:
+        raise EvidenceError("closure schema must be integer 2")
     profile = validate_profile(record["profile"])
     _expect_boolean(record["authoritative"], "closure.authoritative")
     _validate_identity_map(record["expected"], profile, "expected", complete=True)
@@ -2301,16 +2462,25 @@ def validate_closure(path):
         if overlap:
             raise EvidenceError(f"missing and duplicates overlap for {kind}")
 
-    counts = _expect_exact_keys(
-        record["counts"], CLOSURE_COUNT_KEYS, "counts"
-    )
-    for key in CLOSURE_COUNT_KEYS:
+    counts = _expect_exact_keys(record["counts"], CLOSURE_COUNT_KEYS, "counts")
+    for key in ("nodes", "consumers"):
         if _expect_integer(counts[key], f"counts.{key}") < 0:
             raise EvidenceError(f"counts.{key} must be non-negative")
-    if counts["named_permits"] > counts["named_decisions"]:
-        raise EvidenceError("counts.named_permits exceeds named_decisions")
-    if counts["passes"] > counts["transfers"]:
-        raise EvidenceError("counts.passes exceeds transfers")
+    scenario_counts = _expect_exact_keys(
+        counts["scenarios"], SCENARIOS, "counts.scenarios"
+    )
+    for scenario in SCENARIOS:
+        values = _expect_exact_keys(
+            scenario_counts[scenario], CLOSURE_SCENARIO_COUNT_KEYS,
+            f"counts.scenarios.{scenario}",
+        )
+        for key in CLOSURE_SCENARIO_COUNT_KEYS:
+            if _expect_integer(values[key], f"counts.{scenario}.{key}") < 0:
+                raise EvidenceError(f"counts.{scenario}.{key} must be non-negative")
+        if values["named_permits"] > values["named_decisions"]:
+            raise EvidenceError(f"counts.{scenario}.named_permits exceeds decisions")
+        if values["passes"] > values["transfers"]:
+            raise EvidenceError(f"counts.{scenario}.passes exceeds transfers")
     status = record["status"]
     if status not in ("PASS", "REJECT", "INCOMPLETE"):
         raise EvidenceError("closure.status is unknown")
@@ -2321,7 +2491,11 @@ def validate_closure(path):
         _expect_nonempty_string(record["error"], "closure.error")
         if record["authoritative"]:
             raise EvidenceError("fallback closure cannot be authoritative")
-        if any(counts[key] != 0 for key in CLOSURE_COUNT_KEYS):
+        if counts["nodes"] != 0 or counts["consumers"] != 0 or any(
+            scenario_counts[scenario][key] != 0
+            for scenario in SCENARIOS
+            for key in CLOSURE_SCENARIO_COUNT_KEYS
+        ):
             raise EvidenceError("fallback closure counts must all be zero")
         if record["missing"] != record["expected"] or any(
             record["duplicates"][key] for key in CLOSURE_IDENTITY_KEYS
@@ -2337,28 +2511,49 @@ def validate_closure(path):
 
     expected_counts = {
         "nodes": len(profile_nodes(profile)),
-        "pairs": len(_profile_pairs(profile)),
-        "named_decisions": len(_profile_pairs(profile)) * len(KEYS),
         "consumers": len(profile_nodes(profile)),
-        "transfers": len(_profile_transfers(profile)),
+        "scenarios": {
+            scenario: {
+                "pairs": len(_profile_pairs(profile)),
+                "named_decisions": (
+                    len(_profile_pairs(profile)) * len(SCENARIO_KEYS[scenario])
+                ),
+                "transfers": len(_profile_transfers(profile)),
+            }
+            for scenario in SCENARIOS
+        },
     }
     diagnostics_empty = all(
         not missing[key] and not duplicates[key] for key in CLOSURE_IDENTITY_KEYS
     )
-    complete_counts = all(counts[key] == value for key, value in expected_counts.items())
+    complete_counts = (
+        counts["nodes"] == expected_counts["nodes"]
+        and counts["consumers"] == expected_counts["consumers"]
+        and all(
+            scenario_counts[scenario][key] == expected_counts["scenarios"][scenario][key]
+            for scenario in SCENARIOS
+            for key in ("pairs", "named_decisions", "transfers")
+        )
+    )
     if status in ("PASS", "REJECT") and not (
         diagnostics_empty and complete_counts
     ):
         raise EvidenceError(f"{status} closure must contain every fixed identity")
     if status == "PASS":
-        if (
-            counts["named_permits"] != expected_counts["named_decisions"]
-            or counts["passes"] != expected_counts["transfers"]
+        if any(
+            scenario_counts[scenario]["named_permits"]
+            != expected_counts["scenarios"][scenario]["named_decisions"]
+            or scenario_counts[scenario]["passes"]
+            != expected_counts["scenarios"][scenario]["transfers"]
+            for scenario in SCENARIOS
         ):
             raise EvidenceError("PASS closure requires every decision and transfer")
-    elif status == "REJECT" and (
-        counts["named_permits"] == expected_counts["named_decisions"]
-        and counts["passes"] == expected_counts["transfers"]
+    elif status == "REJECT" and all(
+        scenario_counts[scenario]["named_permits"]
+        == expected_counts["scenarios"][scenario]["named_decisions"]
+        and scenario_counts[scenario]["passes"]
+        == expected_counts["scenarios"][scenario]["transfers"]
+        for scenario in SCENARIOS
     ):
         raise EvidenceError("REJECT closure requires a rejected decision or transfer")
     if profile == "local-arm64-macos" and record["authoritative"]:
@@ -2535,11 +2730,16 @@ def _producer_slot(node, evidence_root, context):
         "provenance_sha256": "",
         "run": {key: "" for key in RUN_IDENTITY_KEYS},
         "authoritative_eligible": False,
-        "admission": [False] * len(KEYS),
-        "signatures": [""] * len(KEYS),
-        "region_present": False,
-        "region_filename": "",
-        "region_sha256": "",
+        "contracts": {
+            scenario: {
+                "admission": [False] * len(SCENARIO_KEYS[scenario]),
+                "signatures": [""] * len(SCENARIO_KEYS[scenario]),
+                "region_present": False,
+                "region_filename": "",
+                "region_sha256": "",
+            }
+            for scenario in SCENARIOS
+        },
     }
     path = evidence_root / f"{node}.provenance.json"
     if not path.exists():
@@ -2573,7 +2773,6 @@ def _producer_slot(node, evidence_root, context):
         _policy_matches_compiler(
             compiler, policy, context["profile"], node, "producer compiler"
         )
-        region = record["artifacts"].get("region")
         authoritative_eligible = (
             context["profile"] == "authoritative"
             and build["execution"] == "native"
@@ -2591,11 +2790,28 @@ def _producer_slot(node, evidence_root, context):
                 "outputs_sha256": locks["outputs_sha256"],
             },
             "authoritative_eligible": authoritative_eligible,
-            "admission": [record["admission"][key] for key in KEYS],
-            "signatures": [record["signatures"][key] for key in KEYS],
-            "region_present": region is not None,
-            "region_filename": region["filename"] if region else "",
-            "region_sha256": region["sha256"] if region else "",
+            "contracts": {
+                scenario: {
+                    "admission": [
+                        record["contracts"][scenario]["admission"][key]
+                        for key in SCENARIO_KEYS[scenario]
+                    ],
+                    "signatures": [
+                        record["contracts"][scenario]["signatures"][key]
+                        for key in SCENARIO_KEYS[scenario]
+                    ],
+                    "region_present": scenario in record["artifacts"],
+                    "region_filename": (
+                        record["artifacts"][scenario]["filename"]
+                        if scenario in record["artifacts"] else ""
+                    ),
+                    "region_sha256": (
+                        record["artifacts"][scenario]["sha256"]
+                        if scenario in record["artifacts"] else ""
+                    ),
+                }
+                for scenario in SCENARIOS
+            },
         }
     except EvidenceError as error:
         empty["error"] = str(error)
@@ -2612,11 +2828,16 @@ def _producer_slots(profile, evidence_root, context):
                 "provenance_sha256": "",
                 "run": {key: "" for key in RUN_IDENTITY_KEYS},
                 "authoritative_eligible": False,
-                "admission": [False] * len(KEYS),
-                "signatures": [""] * len(KEYS),
-                "region_present": False,
-                "region_filename": "",
-                "region_sha256": "",
+                "contracts": {
+                    scenario: {
+                        "admission": [False] * len(SCENARIO_KEYS[scenario]),
+                        "signatures": [""] * len(SCENARIO_KEYS[scenario]),
+                        "region_present": False,
+                        "region_filename": "",
+                        "region_sha256": "",
+                    }
+                    for scenario in SCENARIOS
+                },
             }
             for node in profile_nodes(profile)
         ]
@@ -2682,6 +2903,10 @@ _CPP_KEY_NAMES = {
     "Entity": "entity",
     "EntityRelativePtr": "entity_relative_ptr",
     "EntityIndexEntry": "entity_index_entry",
+    "UnitSnapshot": "unit_snapshot",
+    "Effect": "effect",
+    "EffectRelativePtr": "effect_relative_ptr",
+    "AttributeEntry": "attribute_entry",
 }
 _CPP_AGREEMENT_STATUS = {
     "PERMIT": "permit",
@@ -2763,6 +2988,10 @@ def _cpp_node(node):
     return f"matrix::node_id::{_CPP_NODE_NAMES[node]}"
 
 
+def _cpp_scenario(scenario):
+    return f"matrix::scenario_id::{scenario}"
+
+
 def _cpp_run(builder, run, label):
     values = [builder.string(run[key], f"{label}.{key}") for key in RUN_IDENTITY_KEYS]
     return "matrix::run_identity{" + ", ".join(values) + "}"
@@ -2774,26 +3003,41 @@ def _cpp_producer(builder, slot):
         slot["provenance_sha256"], f"{slot['node']} provenance"
     )
     run = _cpp_run(builder, slot["run"], f"{slot['node']} run")
-    signatures = [
-        builder.string(value, f"{slot['node']} signature")
-        for value in slot["signatures"]
-    ]
-    region_filename = builder.string(
-        slot["region_filename"], f"{slot['node']} region filename"
-    )
-    region_digest = builder.string(
-        slot["region_sha256"], f"{slot['node']} region digest"
-    )
-    admission = ", ".join(_cpp_bool(value) for value in slot["admission"])
+    contracts = []
+    for scenario in SCENARIOS:
+        contract = slot["contracts"][scenario]
+        signatures = [
+            builder.string(value, f"{slot['node']} {scenario} signature")
+            for value in contract["signatures"]
+        ]
+        region_filename = builder.string(
+            contract["region_filename"],
+            f"{slot['node']} {scenario} region filename",
+        )
+        region_digest = builder.string(
+            contract["region_sha256"],
+            f"{slot['node']} {scenario} region digest",
+        )
+        admission = ", ".join(
+            _cpp_bool(value) for value in contract["admission"]
+        )
+        contracts.append(
+            "matrix::scenario_contract_record{"
+            f"{_cpp_scenario(scenario)}, "
+            f"std::array<bool, matrix::key_count>{{{admission}}}, "
+            "std::array<std::string_view, matrix::key_count>{"
+            + ", ".join(signatures)
+            + "}, "
+            f"{_cpp_bool(contract['region_present'])}, "
+            f"{region_filename}, {region_digest}}}"
+        )
     return (
         "matrix::producer_record{"
         f"{_cpp_node(slot['node'])}, {_cpp_bool(slot['present'])}, {error}, "
         f"{provenance}, {run}, {_cpp_bool(slot['authoritative_eligible'])}, "
-        f"std::array<bool, matrix::key_count>{{{admission}}}, "
-        "std::array<std::string_view, matrix::key_count>{"
-        + ", ".join(signatures)
-        + "}, "
-        f"{_cpp_bool(slot['region_present'])}, {region_filename}, {region_digest}"
+        "std::array<matrix::scenario_contract_record, matrix::scenario_count>{"
+        + ", ".join(contracts)
+        + "}"
         "}"
     )
 
@@ -3025,7 +3269,12 @@ def _consumer_slot(node, results_root, producers, context):
         "run": {key: "" for key in RUN_IDENTITY_KEYS},
         "authoritative_eligible": False,
         "transfers": [
-            {"consumer": node, "producer": producer, "status": "INCOMPLETE"}
+            {
+                "consumer": node, "producer": producer,
+                "scenarios": {
+                    scenario: "INCOMPLETE" for scenario in SCENARIOS
+                },
+            }
             for producer in expected_producers
         ],
     }
@@ -3055,9 +3304,11 @@ def _consumer_slot(node, results_root, producers, context):
         transfers = []
         for transfer in record["transfers"]:
             producer = producer_by_node[transfer["producer"]]
-            status = transfer["status"]
             if not producer["present"]:
-                if status != "INCOMPLETE":
+                if any(
+                    transfer["scenarios"][scenario]["status"] != "INCOMPLETE"
+                    for scenario in SCENARIOS
+                ):
                     raise EvidenceError(
                         "missing producer requires INCOMPLETE transfer"
                     )
@@ -3068,35 +3319,48 @@ def _consumer_slot(node, results_root, producers, context):
                     and supplied_provenance != producer["provenance_sha256"]
                 ):
                     raise EvidenceError("transfer producer provenance digest differs")
-                supplied_region = transfer["region_sha256"]
-                if (
-                    supplied_region is not None
-                    and supplied_region != producer["region_sha256"]
-                ):
-                    raise EvidenceError("transfer region digest differs")
-                gate_permits = all(
-                    own_producer["admission"][key_index]
-                    and producer["admission"][key_index]
-                    and own_producer["signatures"][key_index]
-                    == producer["signatures"][key_index]
-                    for key_index in range(len(KEYS))
-                )
-                if gate_permits and status == "SKIPPED_TYPELAYOUT_REJECT":
-                    raise EvidenceError("consumer skipped after a permitting TypeLayout gate")
-                if not gate_permits and status != "SKIPPED_TYPELAYOUT_REJECT":
-                    raise EvidenceError("consumer loaded after a rejecting TypeLayout gate")
-                if status in (
-                    "PASS",
-                    "REJECT_ENVELOPE",
-                    "REJECT_REGION",
-                    "REJECT_GRAPH",
-                ) and not producer["region_present"]:
-                    raise EvidenceError("loader result requires a verified region")
+                for scenario in SCENARIOS:
+                    outcome = transfer["scenarios"][scenario]
+                    status = outcome["status"]
+                    supplied_region = outcome["region_sha256"]
+                    producer_contract = producer["contracts"][scenario]
+                    own_contract = own_producer["contracts"][scenario]
+                    if (
+                        supplied_region is not None
+                        and supplied_region != producer_contract["region_sha256"]
+                    ):
+                        raise EvidenceError(
+                            f"{scenario} transfer region digest differs"
+                        )
+                    gate_permits = all(
+                        own_contract["admission"][key_index]
+                        and producer_contract["admission"][key_index]
+                        and own_contract["signatures"][key_index]
+                        == producer_contract["signatures"][key_index]
+                        for key_index in range(len(SCENARIO_KEYS[scenario]))
+                    )
+                    if gate_permits and status == "SKIPPED_TYPELAYOUT_REJECT":
+                        raise EvidenceError(
+                            f"{scenario} consumer skipped after permitting gate"
+                        )
+                    if not gate_permits and status != "SKIPPED_TYPELAYOUT_REJECT":
+                        raise EvidenceError(
+                            f"{scenario} consumer loaded after rejecting gate"
+                        )
+                    if status in (
+                        "PASS", "REJECT_ENVELOPE", "REJECT_REGION", "REJECT_GRAPH"
+                    ) and not producer_contract["region_present"]:
+                        raise EvidenceError(
+                            f"{scenario} loader result requires verified region"
+                        )
             transfers.append(
                 {
                     "consumer": node,
                     "producer": transfer["producer"],
-                    "status": status,
+                    "scenarios": {
+                        scenario: transfer["scenarios"][scenario]["status"]
+                        for scenario in SCENARIOS
+                    },
                 }
             )
         return {
@@ -3128,7 +3392,9 @@ def _fixture_consumer_slots(profile):
                 {
                     "consumer": consumer,
                     "producer": producer,
-                    "status": "INCOMPLETE",
+                    "scenarios": {
+                        scenario: "INCOMPLETE" for scenario in SCENARIOS
+                    },
                 }
                 for producer in profile_nodes(profile)
                 if producer != consumer
@@ -3141,17 +3407,28 @@ def _fixture_consumer_slots(profile):
 def _cpp_agreement_pairs(agreement):
     records = []
     for pair in agreement["pairs"]:
-        decisions = ", ".join(
-            "matrix::named_decision{"
-            f"matrix::key_id::{_CPP_KEY_NAMES[decision['key']]}, "
-            "matrix::agreement_status::"
-            f"{_CPP_AGREEMENT_STATUS[decision['status']]}}}"
-            for decision in pair["decisions"]
-        )
+        scenarios = []
+        for scenario in SCENARIOS:
+            decisions = ", ".join(
+                "matrix::named_decision{"
+                f"matrix::key_id::{_CPP_KEY_NAMES[decision['key']]}, "
+                "matrix::agreement_status::"
+                f"{_CPP_AGREEMENT_STATUS[decision['status']]}}}"
+                for decision in pair["scenarios"][scenario]
+            )
+            scenarios.append(
+                "matrix::scenario_decisions{"
+                f"{_cpp_scenario(scenario)}, "
+                "std::array<matrix::named_decision, matrix::key_count>{"
+                f"{decisions}}}"
+                "}"
+            )
         records.append(
             "matrix::pair_record{"
             f"{_cpp_node(pair['left'])}, {_cpp_node(pair['right'])}, "
-            f"std::array<matrix::named_decision, matrix::key_count>{{{decisions}}}"
+            "std::array<matrix::scenario_decisions, matrix::scenario_count>{"
+            + ", ".join(scenarios)
+            + "}"
             "}"
         )
     return (
@@ -3221,7 +3498,8 @@ def prepare_matrix(
         ) or any(
             decision["status"] != "INCOMPLETE"
             for pair in agreement["pairs"]
-            for decision in pair["decisions"]
+            for scenario in SCENARIOS
+            for decision in pair["scenarios"][scenario]
         ):
             raise EvidenceError("fixture Agreement must contain only missing slots")
         consumers = _fixture_consumer_slots(profile)
@@ -3279,7 +3557,14 @@ def prepare_matrix(
     transfer_records = [
         "matrix::transfer_record{"
         f"{_cpp_node(transfer['consumer'])}, {_cpp_node(transfer['producer'])}, "
-        f"matrix::transfer_status::{_CPP_TRANSFER_STATUS[transfer['status']]}}}"
+        "std::array<matrix::scenario_transfer_record, matrix::scenario_count>{"
+        + ", ".join(
+            "matrix::scenario_transfer_record{"
+            f"{_cpp_scenario(scenario)}, matrix::transfer_status::"
+            f"{_CPP_TRANSFER_STATUS[transfer['scenarios'][scenario]]}}}"
+            for scenario in SCENARIOS
+        )
+        + "}}"
         for consumer in consumers
         for transfer in consumer["transfers"]
     ]
@@ -3318,7 +3603,8 @@ def _require_flat_run_directory(directory, profile):
             {
                 f"{node}.provenance.json",
                 f"{node}.sig.hpp",
-                f"{node}.region",
+                f"{node}.world.region",
+                f"{node}.unit.region",
                 f"{node}.results.json",
             }
         )
@@ -3384,7 +3670,9 @@ def audit_run(
     fixed_counts = {
         "nodes": len(profile_nodes(profile)),
         "pairs": len(_profile_pairs(profile)),
-        "named_permits": len(_profile_pairs(profile)) * len(KEYS),
+        "named_permits": (
+            len(_profile_pairs(profile)) * len(SCENARIO_KEYS["world"])
+        ),
         "transfers": len(_profile_transfers(profile)),
     }
     supplied_counts = {
@@ -3420,7 +3708,10 @@ def audit_run(
             raise EvidenceError(
                 f"producer {producer['node']} is incomplete: {producer['error']}"
             )
-        if not producer["region_present"]:
+        if any(
+            not producer["contracts"][scenario]["region_present"]
+            for scenario in SCENARIOS
+        ):
             raise EvidenceError(f"producer {producer['node']} is not READY")
         if profile == "authoritative" and not producer["authoritative_eligible"]:
             raise EvidenceError(
@@ -3434,7 +3725,8 @@ def audit_run(
     if any(
         decision["status"] != "PERMIT"
         for pair in agreement["pairs"]
-        for decision in pair["decisions"]
+        for scenario in SCENARIOS
+        for decision in pair["scenarios"][scenario]
     ):
         raise EvidenceError("audited Agreement contains a non-PERMIT decision")
 
@@ -3452,8 +3744,9 @@ def audit_run(
                 f"consumer {consumer['consumer']} is not authoritative evidence"
             )
         if any(
-            transfer["status"] != "PASS"
+            transfer["scenarios"][scenario] != "PASS"
             for transfer in consumer["transfers"]
+            for scenario in SCENARIOS
         ):
             raise EvidenceError(
                 f"consumer {consumer['consumer']} contains a non-PASS transfer"
@@ -3471,12 +3764,17 @@ def audit_run(
         raise EvidenceError("closure expected identities differ from fixed profile")
     expected_closure_counts = {
         "nodes": fixed_counts["nodes"],
-        "pairs": fixed_counts["pairs"],
-        "named_decisions": fixed_counts["named_permits"],
-        "named_permits": fixed_counts["named_permits"],
         "consumers": fixed_counts["nodes"],
-        "transfers": fixed_counts["transfers"],
-        "passes": fixed_counts["transfers"],
+        "scenarios": {
+            scenario: {
+                "pairs": fixed_counts["pairs"],
+                "named_decisions": fixed_counts["named_permits"],
+                "named_permits": fixed_counts["named_permits"],
+                "transfers": fixed_counts["transfers"],
+                "passes": fixed_counts["transfers"],
+            }
+            for scenario in SCENARIOS
+        },
     }
     if closure["counts"] != expected_closure_counts:
         raise EvidenceError("closure counts differ from audited fixed graph")
@@ -3544,7 +3842,8 @@ def _build_parser():
     seal.add_argument("--probe", required=True, type=Path)
     seal.add_argument("--facts", required=True, type=Path)
     seal.add_argument("--signature", type=Path)
-    seal.add_argument("--region", type=Path)
+    seal.add_argument("--world-region", type=Path)
+    seal.add_argument("--unit-region", type=Path)
     seal.add_argument("--sources-lock", required=True, type=Path)
     seal.add_argument("--outputs-lock", required=True, type=Path)
     seal.add_argument("--runner", required=True)
@@ -3659,7 +3958,8 @@ def main(arguments=None):
                 probe=args.probe,
                 facts=args.facts,
                 signature=args.signature,
-                region=args.region,
+                world_region=args.world_region,
+                unit_region=args.unit_region,
                 sources_lock=args.sources_lock,
                 outputs_lock=args.outputs_lock,
                 runner=args.runner,
@@ -3721,9 +4021,11 @@ def main(arguments=None):
             print(
                 f"AUDIT PASS profile={record['profile']} "
                 f"nodes={record['counts']['nodes']} "
-                f"pairs={record['counts']['pairs']} "
-                f"named_permits={record['counts']['named_permits']} "
-                f"transfers={record['counts']['transfers']}"
+                f"pairs={record['counts']['scenarios']['world']['pairs']} "
+                "named_permits="
+                f"{record['counts']['scenarios']['world']['named_permits']} "
+                "transfers="
+                f"{record['counts']['scenarios']['world']['transfers']}"
             )
     except EvidenceError as error:
         parser.exit(2, f"evidence error: {error}\n")

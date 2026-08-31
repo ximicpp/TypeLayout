@@ -734,8 +734,23 @@ class EvidenceTests(unittest.TestCase):
             "Entity": "[64-le]entity",
             "EntityRelativePtr": "[64-le]relative",
             "EntityIndexEntry": "[64-le]index",
+            "UnitSnapshot": "[64-le]unit",
+            "Effect": "[64-le]effect",
+            "EffectRelativePtr": "[64-le]effect-relative",
+            "AttributeEntry": "[64-le]attribute",
         }
-        admission = {key: True for key in evidence.KEYS}
+        contracts = {
+            scenario: {
+                "admission": {
+                    key: True for key in evidence.SCENARIO_KEYS[scenario]
+                },
+                "signatures": {
+                    key: signatures[key]
+                    for key in evidence.SCENARIO_KEYS[scenario]
+                },
+            }
+            for scenario in evidence.SCENARIOS
+        }
         compiler_family = "gcc" if node.endswith("_gcc") else "clang"
         revision = (
             "16.2.0"
@@ -782,7 +797,7 @@ class EvidenceTests(unittest.TestCase):
         self.write_json(
             probe,
             {
-                "schema": 1,
+                "schema": 2,
                 "node": node,
                 "probe": {
                     "char_bit": 8,
@@ -792,7 +807,10 @@ class EvidenceTests(unittest.TestCase):
                     "memcpy_object_lifetime": True,
                     "memcpy_array_lifetime": True,
                 },
-                "admission": admission,
+                "contracts": {
+                    scenario: contracts[scenario]["admission"]
+                    for scenario in evidence.SCENARIOS
+                },
                 "compiler": {
                     "family": compiler_family,
                     "revision": revision,
@@ -813,10 +831,9 @@ class EvidenceTests(unittest.TestCase):
         self.write_json(
             facts,
             {
-                "schema": 1,
+                "schema": 2,
                 "node": node,
-                "admission": admission,
-                "signatures": signatures,
+                "contracts": contracts,
             },
         )
 
@@ -836,8 +853,10 @@ class EvidenceTests(unittest.TestCase):
         signature_lines.append(f"}} // namespace {node}")
         signature.write_text("\n".join(signature_lines) + "\n", encoding="utf-8")
 
-        region = self.directory / f"{node}.region"
-        region.write_bytes(b"TLWORLD\0fixture")
+        world_region = self.directory / f"{node}.world.region"
+        world_region.write_bytes(b"TLWORLD\0fixture")
+        unit_region = self.directory / f"{node}.unit.region"
+        unit_region.write_bytes(b"TLUNIT\0\0fixture")
         output = self.directory / f"{node}.provenance.json"
         return {
             "node": node,
@@ -846,7 +865,8 @@ class EvidenceTests(unittest.TestCase):
             "probe": probe,
             "facts": facts,
             "signature": signature,
-            "region": region,
+            "world_region": world_region,
+            "unit_region": unit_region,
             "sources_lock": sources_lock,
             "outputs_lock": outputs_lock,
             "runner": runner,
@@ -883,16 +903,19 @@ class EvidenceTests(unittest.TestCase):
                 "node",
                 "status",
                 "probe",
-                "admission",
-                "signatures",
+                "contracts",
                 "compiler",
                 "build",
                 "locks",
                 "artifacts",
             },
         )
-        self.assertEqual(list(record["admission"]), list(evidence.KEYS))
-        self.assertEqual(list(record["signatures"]), list(evidence.KEYS))
+        self.assertEqual(list(record["contracts"]), list(evidence.SCENARIOS))
+        for scenario in evidence.SCENARIOS:
+            self.assertEqual(
+                list(record["contracts"][scenario]["admission"]),
+                list(evidence.SCENARIO_KEYS[scenario]),
+            )
         self.assertEqual(
             set(record["build"]),
             {
@@ -913,16 +936,20 @@ class EvidenceTests(unittest.TestCase):
                     "filename": bundle["signature"].name,
                     "sha256": self.sha256(bundle["signature"]),
                 },
-                "region": {
-                    "filename": bundle["region"].name,
-                    "sha256": self.sha256(bundle["region"]),
+                "world": {
+                    "filename": bundle["world_region"].name,
+                    "sha256": self.sha256(bundle["world_region"]),
+                },
+                "unit_handoff": {
+                    "filename": bundle["unit_region"].name,
+                    "sha256": self.sha256(bundle["unit_region"]),
                 },
             },
         )
         evidence.validate_provenance(bundle["output"])
-        with bundle["region"].open("ab") as stream:
+        with bundle["unit_region"].open("ab") as stream:
             stream.write(b"x")
-        with self.assertRaisesRegex(evidence.EvidenceError, "region.*SHA256"):
+        with self.assertRaisesRegex(evidence.EvidenceError, "SHA256"):
             evidence.validate_provenance(bundle["output"])
 
     def test_sealer_requires_node_named_producer_facts(self):
@@ -943,9 +970,9 @@ class EvidenceTests(unittest.TestCase):
         )
 
         self.assertEqual(record["node"], bundle["node"])
-        self.assertEqual(set(record["admission"]), set(evidence.KEYS))
-        self.assertEqual(set(record["signatures"]), set(evidence.KEYS))
-        self.assertGreater(bundle["region"].stat().st_size, 0)
+        self.assertEqual(set(record["contracts"]), set(evidence.SCENARIOS))
+        self.assertGreater(bundle["world_region"].stat().st_size, 0)
+        self.assertGreater(bundle["unit_region"].stat().st_size, 0)
 
     def test_producer_artifact_validator_rejects_wrong_signature_namespace(self):
         bundle = self.make_ready_bundle()
@@ -964,7 +991,7 @@ class EvidenceTests(unittest.TestCase):
 
     def test_producer_artifact_validator_rejects_empty_region(self):
         bundle = self.make_ready_bundle()
-        bundle["region"].write_bytes(b"")
+        bundle["unit_region"].write_bytes(b"")
 
         with self.assertRaisesRegex(evidence.EvidenceError, "region.*empty"):
             evidence.validate_producer_artifacts(
@@ -975,9 +1002,25 @@ class EvidenceTests(unittest.TestCase):
         bundle = self.make_ready_bundle()
         self.seal(bundle)
         record = json.loads(bundle["output"].read_text(encoding="utf-8"))
-        record["admission"]["Unexpected"] = True
+        record["contracts"]["world"]["admission"]["Unexpected"] = True
         self.write_json(bundle["output"], record)
         with self.assertRaisesRegex(evidence.EvidenceError, "admission.*keys"):
+            evidence.validate_provenance(bundle["output"])
+
+    def test_schema_1_and_missing_unit_scenario_are_rejected(self):
+        bundle = self.make_ready_bundle()
+        self.seal(bundle)
+        record = evidence.load_json(bundle["output"])
+
+        record["schema"] = 1
+        self.write_json(bundle["output"], record)
+        with self.assertRaisesRegex(evidence.EvidenceError, "schema.*integer 2"):
+            evidence.validate_provenance(bundle["output"])
+
+        record["schema"] = 2
+        del record["contracts"]["unit_handoff"]
+        self.write_json(bundle["output"], record)
+        with self.assertRaisesRegex(evidence.EvidenceError, "contracts.*keys"):
             evidence.validate_provenance(bundle["output"])
 
     def test_duplicate_json_key_is_rejected(self):
@@ -1022,7 +1065,7 @@ class EvidenceTests(unittest.TestCase):
         bundle = self.make_ready_bundle()
         self.seal(bundle)
         record = json.loads(bundle["output"].read_text(encoding="utf-8"))
-        record["artifacts"]["region"]["sha256"] = "ABC123"
+        record["artifacts"]["world"]["sha256"] = "ABC123"
         self.write_json(bundle["output"], record)
         with self.assertRaisesRegex(evidence.EvidenceError, "SHA256"):
             evidence.validate_provenance(bundle["output"])
@@ -1031,7 +1074,7 @@ class EvidenceTests(unittest.TestCase):
         bundle = self.make_ready_bundle()
         self.seal(bundle)
         record = json.loads(bundle["output"].read_text(encoding="utf-8"))
-        record["artifacts"]["region"]["filename"] = "../escaped.region"
+        record["artifacts"]["world"]["filename"] = "../escaped.region"
         self.write_json(bundle["output"], record)
         with self.assertRaisesRegex(evidence.EvidenceError, "filename"):
             evidence.validate_provenance(bundle["output"])
@@ -1058,9 +1101,9 @@ class EvidenceTests(unittest.TestCase):
         self.seal(bundle)
         record = json.loads(bundle["output"].read_text(encoding="utf-8"))
         record["status"] = "REJECT"
-        record["admission"]["Entity"] = False
+        record["contracts"]["world"]["admission"]["Entity"] = False
         self.write_json(bundle["output"], record)
-        with self.assertRaisesRegex(evidence.EvidenceError, "REJECT.*artifacts"):
+        with self.assertRaisesRegex(evidence.EvidenceError, "inadmitted scenario"):
             evidence.validate_provenance(bundle["output"])
 
     def test_incomplete_provenance_cannot_invent_signatures(self):
@@ -1068,7 +1111,7 @@ class EvidenceTests(unittest.TestCase):
         self.write_json(
             provenance,
             {
-                "schema": 1,
+                "schema": 2,
                 "node": "arm64_linux_gcc",
                 "status": "INCOMPLETE",
                 "error": "compiler failed",
@@ -1090,19 +1133,25 @@ class EvidenceTests(unittest.TestCase):
         bundle = self.make_ready_bundle()
         for path_key in ("probe", "facts"):
             record = json.loads(bundle[path_key].read_text(encoding="utf-8"))
-            record["admission"]["Entity"] = False
+            if path_key == "probe":
+                record["contracts"]["world"]["Entity"] = False
+            else:
+                record["contracts"]["world"]["admission"]["Entity"] = False
             self.write_json(bundle[path_key], record)
         bundle["signature"].unlink()
-        bundle["region"].unlink()
+        bundle["world_region"].unlink()
         del bundle["signature"]
-        del bundle["region"]
+        del bundle["world_region"]
 
         record = self.seal(bundle)
 
         self.assertEqual(record["status"], "REJECT")
-        self.assertFalse(record["admission"]["Entity"])
-        self.assertEqual(record["artifacts"], {})
-        self.assertEqual(record["signatures"]["Entity"], "[64-le]entity")
+        self.assertFalse(record["contracts"]["world"]["admission"]["Entity"])
+        self.assertEqual(set(record["artifacts"]), {"unit_handoff"})
+        self.assertEqual(
+            record["contracts"]["world"]["signatures"]["Entity"],
+            "[64-le]entity",
+        )
 
     def test_sealer_rejects_lock_and_probe_compiler_mismatch(self):
         bundle = self.make_ready_bundle()
@@ -1504,8 +1553,10 @@ class EvidenceTests(unittest.TestCase):
                 str(bundle["facts"]),
                 "--signature",
                 str(bundle["signature"]),
-                "--region",
-                str(bundle["region"]),
+                "--world-region",
+                str(bundle["world_region"]),
+                "--unit-region",
+                str(bundle["unit_region"]),
                 "--sources-lock",
                 str(bundle["sources_lock"]),
                 "--outputs-lock",
@@ -1657,7 +1708,7 @@ class EvidenceTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        with self.assertRaisesRegex(evidence.EvidenceError, "exactly four contract"):
+        with self.assertRaisesRegex(evidence.EvidenceError, "exactly eight contract"):
             self.seal(bundle)
 
     def test_fallback_results_preserve_every_directed_identity(self):
@@ -1675,7 +1726,11 @@ class EvidenceTests(unittest.TestCase):
             [node for node in evidence.NODES if node != "arm64_linux_gcc"],
         )
         self.assertTrue(
-            all(transfer["status"] == "INCOMPLETE" for transfer in record["transfers"])
+            all(
+                outcome["status"] == "INCOMPLETE"
+                for transfer in record["transfers"]
+                for outcome in transfer["scenarios"].values()
+            )
         )
 
     def test_fallback_provenance_refuses_a_misnamed_output(self):
@@ -1695,9 +1750,10 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(len(record["pairs"]), 15)
         self.assertTrue(
             all(
-                [decision["key"] for decision in pair["decisions"]]
-                == list(evidence.KEYS)
+                [decision["key"] for decision in pair["scenarios"][scenario]]
+                == list(evidence.SCENARIO_KEYS[scenario])
                 for pair in record["pairs"]
+                for scenario in evidence.SCENARIOS
             )
         )
 
@@ -1724,7 +1780,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(
             evidence.validate_provenance(output),
             {
-                "schema": 1,
+                "schema": 2,
                 "node": "x86_64_linux_clang",
                 "status": "INCOMPLETE",
                 "error": "probe did not run",
@@ -1749,7 +1805,9 @@ class EvidenceTests(unittest.TestCase):
             if profile == "local-arm64-macos" and node.startswith("x86_64_"):
                 bundle["execution"] = "emulated"
             record = self.seal(bundle)
-            for suffix in (".provenance.json", ".sig.hpp", ".region"):
+            for suffix in (
+                ".provenance.json", ".sig.hpp", ".world.region", ".unit.region"
+            ):
                 shutil.copy2(
                     self.directory / f"{node}{suffix}",
                     run_directory / f"{node}{suffix}",
@@ -1769,7 +1827,10 @@ class EvidenceTests(unittest.TestCase):
             for node in nodes
         }
         region_digests = {
-            node: provenance[node]["artifacts"]["region"]["sha256"]
+            node: {
+                scenario: provenance[node]["artifacts"][scenario]["sha256"]
+                for scenario in evidence.SCENARIOS
+            }
             for node in nodes
         }
 
@@ -1780,18 +1841,21 @@ class EvidenceTests(unittest.TestCase):
                     {
                         "left": left,
                         "right": right,
-                        "decisions": [
-                            {
-                                "key": key,
-                                "status": "PERMIT",
-                                "reason": "Admission and signature agree",
-                            }
-                            for key in evidence.KEYS
-                        ],
+                        "scenarios": {
+                            scenario: [
+                                {
+                                    "key": key,
+                                    "status": "PERMIT",
+                                    "reason": "Admission and signature agree",
+                                }
+                                for key in evidence.SCENARIO_KEYS[scenario]
+                            ]
+                            for scenario in evidence.SCENARIOS
+                        },
                     }
                 )
         agreements = {
-            "schema": 1,
+            "schema": 2,
             "profile": profile,
             "producer_provenance_sha256": provenance_digests,
             "pairs": pairs,
@@ -1831,7 +1895,7 @@ class EvidenceTests(unittest.TestCase):
                 "sdk_locked": compiler["sdk_locked"],
             }
             results = {
-                "schema": 1,
+                "schema": 2,
                 "profile": profile,
                 "consumer": consumer,
                 "consumer_provenance_sha256": provenance_digests[consumer],
@@ -1839,10 +1903,17 @@ class EvidenceTests(unittest.TestCase):
                 "transfers": [
                     {
                         "producer": producer,
-                        "status": "PASS",
-                        "reason": "checkpoint loaded and canonical world validated",
                         "producer_provenance_sha256": provenance_digests[producer],
-                        "region_sha256": region_digests[producer],
+                        "scenarios": {
+                            scenario: {
+                                "status": "PASS",
+                                "reason": (
+                                    f"{scenario} checkpoint loaded and validated"
+                                ),
+                                "region_sha256": region_digests[producer][scenario],
+                            }
+                            for scenario in evidence.SCENARIOS
+                        },
                     }
                     for producer in nodes
                     if producer != consumer
@@ -1853,20 +1924,30 @@ class EvidenceTests(unittest.TestCase):
             )
 
         pair_identities = [
-            {"left": pair["left"], "right": pair["right"]}
+            {
+                "left": pair["left"], "right": pair["right"],
+                "scenario": scenario,
+            }
+            for scenario in evidence.SCENARIOS
             for pair in pairs
         ]
         named_identities = [
             {
                 "left": pair["left"],
                 "right": pair["right"],
+                "scenario": scenario,
                 "key": decision["key"],
             }
+            for scenario in evidence.SCENARIOS
             for pair in pairs
-            for decision in pair["decisions"]
+            for decision in pair["scenarios"][scenario]
         ]
         transfers = [
-            {"consumer": consumer, "producer": producer}
+            {
+                "consumer": consumer, "producer": producer,
+                "scenario": scenario,
+            }
+            for scenario in evidence.SCENARIOS
             for consumer in nodes
             for producer in nodes
             if consumer != producer
@@ -1879,7 +1960,7 @@ class EvidenceTests(unittest.TestCase):
             "transfers": transfers,
         }
         closure = {
-            "schema": 1,
+            "schema": 2,
             "profile": profile,
             "authoritative": profile == "authoritative",
             "run": run_identity,
@@ -1887,12 +1968,21 @@ class EvidenceTests(unittest.TestCase):
             "expected": identities,
             "counts": {
                 "nodes": len(nodes),
-                "pairs": len(pairs),
-                "named_decisions": len(named_identities),
-                "named_permits": len(named_identities),
                 "consumers": len(nodes),
-                "transfers": len(transfers),
-                "passes": len(transfers),
+                "scenarios": {
+                    scenario: {
+                        "pairs": len(pairs),
+                        "named_decisions": (
+                            len(pairs) * len(evidence.SCENARIO_KEYS[scenario])
+                        ),
+                        "named_permits": (
+                            len(pairs) * len(evidence.SCENARIO_KEYS[scenario])
+                        ),
+                        "transfers": len(transfers) // len(evidence.SCENARIOS),
+                        "passes": len(transfers) // len(evidence.SCENARIOS),
+                    }
+                    for scenario in evidence.SCENARIOS
+                },
             },
             "missing": {key: [] for key in identities},
             "duplicates": {key: [] for key in identities},
@@ -1926,10 +2016,13 @@ class EvidenceTests(unittest.TestCase):
         self.write_json(
             output,
             {
-                "schema": 1,
+                "schema": 2,
                 "node": record["node"],
                 "probe": record["probe"],
-                "admission": record["admission"],
+                "contracts": {
+                    scenario: record["contracts"][scenario]["admission"]
+                    for scenario in evidence.SCENARIOS
+                },
                 "compiler": record["compiler"],
                 "environment": {
                     "runner": record["build"]["runner"],
@@ -2103,7 +2196,9 @@ class EvidenceTests(unittest.TestCase):
         ):
             directory.mkdir()
         for node in evidence.NODES:
-            for suffix in (".provenance.json", ".sig.hpp", ".region"):
+            for suffix in (
+                ".provenance.json", ".sig.hpp", ".world.region", ".unit.region"
+            ):
                 shutil.copy2(
                     run_directory / f"{node}{suffix}",
                     producer_directory / f"{node}{suffix}",
@@ -2163,7 +2258,7 @@ class EvidenceTests(unittest.TestCase):
         bundle = self.make_ready_bundle(node)
         hostile = 'layout";\n#error injected\\path\u2603'
         facts = evidence.load_json(bundle["facts"])
-        facts["signatures"]["Entity"] = hostile
+        facts["contracts"]["world"]["signatures"]["Entity"] = hostile
         self.write_json(bundle["facts"], facts)
         signature_text = bundle["signature"].read_text(encoding="utf-8")
         bundle["signature"].write_text(
@@ -2178,7 +2273,9 @@ class EvidenceTests(unittest.TestCase):
         generated = self.directory / "hostile generated"
         producer_directory.mkdir()
         generated.mkdir()
-        for suffix in (".provenance.json", ".sig.hpp", ".region"):
+        for suffix in (
+            ".provenance.json", ".sig.hpp", ".world.region", ".unit.region"
+        ):
             shutil.copy2(
                 self.directory / f"{node}{suffix}",
                 producer_directory / f"{node}{suffix}",
@@ -2408,14 +2505,14 @@ class EvidenceTests(unittest.TestCase):
         alter_json(
             "non permit",
             "agreements.json",
-            lambda record: record["pairs"][0]["decisions"][0].__setitem__(
+            lambda record: record["pairs"][0]["scenarios"]["world"][0].__setitem__(
                 "status", "REJECT"
             ),
         )
         alter_json(
             "stale agreement",
             "agreements.json",
-            lambda record: record["pairs"][0]["decisions"][0].__setitem__(
+            lambda record: record["pairs"][0]["scenarios"]["world"][0].__setitem__(
                 "reason", "stale decision"
             ),
         )
@@ -2434,7 +2531,7 @@ class EvidenceTests(unittest.TestCase):
 
         altered_region = self.directory / "altered region"
         shutil.copytree(baseline, altered_region)
-        (altered_region / "x86_64_linux_gcc.region").write_bytes(b"altered")
+        (altered_region / "x86_64_linux_gcc.unit.region").write_bytes(b"altered")
         cases["altered region"] = altered_region
         missing_agreement = self.directory / "missing agreement"
         shutil.copytree(baseline, missing_agreement)
@@ -2473,9 +2570,9 @@ class EvidenceTests(unittest.TestCase):
         fallback = evidence.validate_closure(fallback_path)
         self.assertFalse(fallback["authoritative"])
         self.assertEqual(len(fallback["expected"]["nodes"]), 5)
-        self.assertEqual(len(fallback["expected"]["pairs"]), 10)
-        self.assertEqual(len(fallback["expected"]["named_decisions"]), 40)
-        self.assertEqual(len(fallback["expected"]["transfers"]), 20)
+        self.assertEqual(len(fallback["expected"]["pairs"]), 20)
+        self.assertEqual(len(fallback["expected"]["named_decisions"]), 80)
+        self.assertEqual(len(fallback["expected"]["transfers"]), 40)
 
         fixture = self.make_complete_matrix_run("local-arm64-macos")
 
@@ -2495,8 +2592,13 @@ class EvidenceTests(unittest.TestCase):
         closure = audit(fixture["directory"])
         self.assertEqual(closure["status"], "PASS")
         self.assertFalse(closure["authoritative"])
-        self.assertEqual(closure["counts"]["named_permits"], 40)
-        self.assertEqual(closure["counts"]["passes"], 20)
+        for scenario in evidence.SCENARIOS:
+            self.assertEqual(
+                closure["counts"]["scenarios"][scenario]["named_permits"], 40
+            )
+            self.assertEqual(
+                closure["counts"]["scenarios"][scenario]["passes"], 20
+            )
 
         for node in expected_nodes:
             with self.subTest(missing=node):
@@ -2521,8 +2623,8 @@ class EvidenceTests(unittest.TestCase):
         shutil.copytree(fixture["directory"], rejected_agreement)
         agreement_path = rejected_agreement / "agreements.json"
         agreement = evidence.load_json(agreement_path)
-        agreement["pairs"][0]["decisions"][0]["status"] = "REJECT"
-        agreement["pairs"][0]["decisions"][0]["reason"] = "test rejection"
+        agreement["pairs"][0]["scenarios"]["unit_handoff"][0]["status"] = "REJECT"
+        agreement["pairs"][0]["scenarios"]["unit_handoff"][0]["reason"] = "test rejection"
         self.write_json(agreement_path, agreement)
         with self.assertRaisesRegex(evidence.EvidenceError, "Agreement"):
             audit(rejected_agreement)
@@ -2531,8 +2633,8 @@ class EvidenceTests(unittest.TestCase):
         shutil.copytree(fixture["directory"], rejected_transfer)
         result_path = rejected_transfer / "arm64_linux_gcc.results.json"
         result = evidence.load_json(result_path)
-        result["transfers"][0]["status"] = "REJECT_GRAPH"
-        result["transfers"][0]["reason"] = "test rejection"
+        result["transfers"][0]["scenarios"]["unit_handoff"]["status"] = "REJECT_GRAPH"
+        result["transfers"][0]["scenarios"]["unit_handoff"]["reason"] = "test rejection"
         self.write_json(result_path, result)
         with self.assertRaisesRegex(evidence.EvidenceError, "non-PASS"):
             audit(rejected_transfer)
@@ -2773,7 +2875,7 @@ class EvidenceTests(unittest.TestCase):
                 rejected = validate(*attack)
                 self.assertNotEqual(rejected.returncode, 0, rejected.stderr)
 
-    def test_task7_amd64_smoke_validator_requires_exact_four_admission_keys(self):
+    def test_task7_amd64_smoke_validator_requires_both_exact_contracts(self):
         text = self.launcher_text()
         self.assertIn("# BEGIN TASK7 AMD64 SMOKE VALIDATOR", text)
         script = self.launcher_python_block("AMD64 SMOKE VALIDATOR")
@@ -2808,8 +2910,10 @@ class EvidenceTests(unittest.TestCase):
             },
         }
 
-        def validate(admission):
-            self.write_json(probe_path, {**base, "admission": admission})
+        def validate(contracts):
+            self.write_json(
+                probe_path, {**base, "schema": 2, "contracts": contracts}
+            )
             return subprocess.run(
                 [sys.executable, "-c", script, str(probe_path)],
                 capture_output=True,
@@ -2818,18 +2922,29 @@ class EvidenceTests(unittest.TestCase):
                 env=environment,
             )
 
-        expected = {key: True for key in evidence.KEYS}
+        expected = {
+            scenario: {
+                key: True for key in evidence.SCENARIO_KEYS[scenario]
+            }
+            for scenario in evidence.SCENARIOS
+        }
         accepted = validate(expected)
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
         attacks = (
             {},
-            {key: True for key in evidence.KEYS[:-1]},
-            {**expected, "UnexpectedType": True},
-            {**expected, evidence.KEYS[0]: False},
+            {"world": expected["world"]},
+            {**expected, "unexpected": {}},
+            {
+                **expected,
+                "unit_handoff": {
+                    **expected["unit_handoff"],
+                    "Effect": False,
+                },
+            },
         )
-        for admission in attacks:
-            with self.subTest(admission=admission):
-                rejected = validate(admission)
+        for contracts in attacks:
+            with self.subTest(contracts=contracts):
+                rejected = validate(contracts)
                 self.assertNotEqual(rejected.returncode, 0, rejected.stderr)
 
     def test_task7_launcher_derives_unique_defaults_and_preserves_explicit_identity(self):

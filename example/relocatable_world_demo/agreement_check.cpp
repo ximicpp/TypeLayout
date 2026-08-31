@@ -63,22 +63,37 @@ std::string_view agreement_reason(
     std::span<const matrix::producer_record> producers,
     matrix::node_id left,
     matrix::node_id right,
+    matrix::scenario_id scenario,
     matrix::key_id key) {
     const auto* left_record = matrix::unique_producer(producers, left);
     const auto* right_record = matrix::unique_producer(producers, right);
-    const auto key_index = static_cast<std::size_t>(key);
+    const auto* left_contract = left_record == nullptr
+        ? nullptr : matrix::contract_for(*left_record, scenario);
+    const auto* right_contract = right_record == nullptr
+        ? nullptr : matrix::contract_for(*right_record, scenario);
+    std::size_t key_index = matrix::key_count;
+    const auto scenario_index = static_cast<std::size_t>(scenario);
+    if (scenario_index < matrix::scenario_count) {
+        for (std::size_t index = 0; index < matrix::key_count; ++index) {
+            if (matrix::scenario_key_ids[scenario_index][index] == key) {
+                key_index = index;
+            }
+        }
+    }
     if (left_record == nullptr || right_record == nullptr ||
         !left_record->present || !right_record->present ||
-        left_record->signatures[key_index].empty() ||
-        right_record->signatures[key_index].empty()) {
+        left_contract == nullptr || right_contract == nullptr ||
+        key_index == matrix::key_count ||
+        left_contract->signatures[key_index].empty() ||
+        right_contract->signatures[key_index].empty()) {
         return "producer evidence incomplete";
     }
-    if (!left_record->admission[key_index] ||
-        !right_record->admission[key_index]) {
+    if (!left_contract->admission[key_index] ||
+        !right_contract->admission[key_index]) {
         return "Admission rejected";
     }
-    if (left_record->signatures[key_index] !=
-        right_record->signatures[key_index]) {
+    if (left_contract->signatures[key_index] !=
+        right_contract->signatures[key_index]) {
         return "layout signature differs";
     }
     return "Admission and signature agree";
@@ -91,7 +106,7 @@ void write_agreements(std::ostream& output) {
 
     output << "{\n  ";
     write_key(output, "schema");
-    output << "1,\n  ";
+    output << "2,\n  ";
     write_key(output, "profile");
     write_string(output, profile_name(generated::profile));
     output << ",\n  ";
@@ -127,29 +142,39 @@ void write_agreements(std::ostream& output) {
             write_key(output, "right");
             write_string(output, matrix::name(right));
             output << ",\n      ";
-            write_key(output, "decisions");
-            output << "[\n";
-            for (std::size_t key_index = 0;
-                 key_index < matrix::key_ids.size(); ++key_index) {
-                const auto key = matrix::key_ids[key_index];
-                const auto status = matrix::compute_agreement(
-                    producers, left, right, key);
-                output << "        {";
-                write_key(output, "key");
-                write_string(output, matrix::name(key));
-                output << ", ";
-                write_key(output, "status");
-                write_string(output, matrix::name(status));
-                output << ", ";
-                write_key(output, "reason");
-                write_string(output,
-                             agreement_reason(producers, left, right, key));
-                output << "}"
-                       << (key_index + 1 == matrix::key_ids.size()
-                               ? "\n"
-                               : ",\n");
+            write_key(output, "scenarios");
+            output << "{\n";
+            for (std::size_t scenario_index = 0;
+                 scenario_index < matrix::scenario_count; ++scenario_index) {
+                const auto scenario = matrix::scenario_ids[scenario_index];
+                output << "        ";
+                write_key(output, matrix::name(scenario));
+                output << "[\n";
+                for (std::size_t key_index = 0;
+                     key_index < matrix::key_count; ++key_index) {
+                    const auto key =
+                        matrix::scenario_key_ids[scenario_index][key_index];
+                    const auto status = matrix::compute_agreement(
+                        producers, left, right, scenario, key);
+                    output << "          {";
+                    write_key(output, "key");
+                    write_string(output, matrix::name(key));
+                    output << ", ";
+                    write_key(output, "status");
+                    write_string(output, matrix::name(status));
+                    output << ", ";
+                    write_key(output, "reason");
+                    write_string(output, agreement_reason(
+                        producers, left, right, scenario, key));
+                    output << "}"
+                           << (key_index + 1 == matrix::key_count
+                                   ? "\n" : ",\n");
+                }
+                output << "        ]"
+                       << (scenario_index + 1 == matrix::scenario_count
+                               ? "\n" : ",\n");
             }
-            output << "      ]\n    }";
+            output << "      }\n    }";
             ++pair_index;
             output << (pair_index == pair_count ? "\n" : ",\n");
         }

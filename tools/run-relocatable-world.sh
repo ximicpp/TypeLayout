@@ -535,17 +535,26 @@ expected_probe = {
     "memcpy_object_lifetime": True,
     "memcpy_array_lifetime": True,
 }
-expected_admission = {
-    "WorldSnapshot": True,
-    "Entity": True,
-    "EntityRelativePtr": True,
-    "EntityIndexEntry": True,
+expected_contracts = {
+    "world": {
+        "WorldSnapshot": True,
+        "Entity": True,
+        "EntityRelativePtr": True,
+        "EntityIndexEntry": True,
+    },
+    "unit_handoff": {
+        "UnitSnapshot": True,
+        "Effect": True,
+        "EffectRelativePtr": True,
+        "AttributeEntry": True,
+    },
 }
 if record.get("node") != os.environ["TYPELAYOUT_SMOKE_NODE"]:
     raise SystemExit("amd64 smoke node identity mismatch")
 if (
     record.get("probe") != expected_probe
-    or record.get("admission") != expected_admission
+    or record.get("schema") != 2
+    or record.get("contracts") != expected_contracts
 ):
     raise SystemExit("optimized amd64 platform probe failed")
 compiler = record.get("compiler", {})

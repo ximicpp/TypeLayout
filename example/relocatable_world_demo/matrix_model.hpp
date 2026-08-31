@@ -28,11 +28,20 @@ enum class node_id : std::uint8_t {
     x86_64_macos_clang,
 };
 
+enum class scenario_id : std::uint8_t {
+    world,
+    unit_handoff,
+};
+
 enum class key_id : std::uint8_t {
     world_snapshot,
     entity,
     entity_relative_ptr,
     entity_index_entry,
+    unit_snapshot,
+    effect,
+    effect_relative_ptr,
+    attribute_entry,
 };
 
 enum class agreement_status : std::uint8_t {
@@ -56,6 +65,7 @@ enum class closure_status : std::uint8_t {
     incomplete,
 };
 
+inline constexpr std::size_t scenario_count = 2;
 inline constexpr std::size_t key_count = 4;
 
 inline constexpr std::array<node_id, 6> authoritative_node_ids = {
@@ -75,11 +85,22 @@ inline constexpr std::array<node_id, 5> local_node_ids = {
     node_id::arm64_macos_clang,
 };
 
-inline constexpr std::array<key_id, key_count> key_ids = {
-    key_id::world_snapshot,
-    key_id::entity,
-    key_id::entity_relative_ptr,
-    key_id::entity_index_entry,
+inline constexpr std::array<scenario_id, scenario_count> scenario_ids = {
+    scenario_id::world,
+    scenario_id::unit_handoff,
+};
+
+inline constexpr std::array<std::array<key_id, key_count>, scenario_count>
+    scenario_key_ids = {{
+        {key_id::world_snapshot, key_id::entity,
+         key_id::entity_relative_ptr, key_id::entity_index_entry},
+        {key_id::unit_snapshot, key_id::effect,
+         key_id::effect_relative_ptr, key_id::attribute_entry},
+    }};
+
+inline constexpr std::array<std::string_view, scenario_count> scenario_names = {
+    "world",
+    "unit_handoff",
 };
 
 inline constexpr std::array<std::string_view, 6> node_names = {
@@ -91,16 +112,27 @@ inline constexpr std::array<std::string_view, 6> node_names = {
     "x86_64_macos_clang",
 };
 
-inline constexpr std::array<std::string_view, key_count> key_names = {
+inline constexpr std::array<std::string_view, scenario_count * key_count>
+    key_names = {
     "WorldSnapshot",
     "Entity",
     "EntityRelativePtr",
     "EntityIndexEntry",
+    "UnitSnapshot",
+    "Effect",
+    "EffectRelativePtr",
+    "AttributeEntry",
 };
 
 constexpr std::string_view name(node_id value) noexcept {
     const auto index = static_cast<std::size_t>(value);
     return index < node_names.size() ? node_names[index] : std::string_view{};
+}
+
+constexpr std::string_view name(scenario_id value) noexcept {
+    const auto index = static_cast<std::size_t>(value);
+    return index < scenario_names.size() ? scenario_names[index]
+                                         : std::string_view{};
 }
 
 constexpr std::string_view name(key_id value) noexcept {
@@ -182,6 +214,15 @@ constexpr bool operator==(const run_identity& left,
         left.outputs_sha256 == right.outputs_sha256;
 }
 
+struct scenario_contract_record {
+    scenario_id scenario{};
+    std::array<bool, key_count> admission{};
+    std::array<std::string_view, key_count> signatures{};
+    bool region_present{};
+    std::string_view region_filename;
+    std::string_view region_sha256;
+};
+
 struct producer_record {
     node_id node{};
     bool present{};
@@ -189,11 +230,7 @@ struct producer_record {
     std::string_view provenance_sha256;
     run_identity run{};
     bool authoritative_eligible{};
-    std::array<bool, key_count> admission{};
-    std::array<std::string_view, key_count> signatures{};
-    bool region_present{};
-    std::string_view region_filename;
-    std::string_view region_sha256;
+    std::array<scenario_contract_record, scenario_count> contracts{};
 };
 
 struct provenance_binding {
@@ -207,10 +244,15 @@ struct named_decision {
     agreement_status status{agreement_status::incomplete};
 };
 
+struct scenario_decisions {
+    scenario_id scenario{};
+    std::array<named_decision, key_count> decisions{};
+};
+
 struct pair_record {
     node_id left{};
     node_id right{};
-    std::array<named_decision, key_count> decisions{};
+    std::array<scenario_decisions, scenario_count> scenarios{};
 };
 
 struct consumer_record {
@@ -241,10 +283,15 @@ struct consumer_build_record {
     bool authoritative_eligible{};
 };
 
+struct scenario_transfer_record {
+    scenario_id scenario{};
+    transfer_status status{transfer_status::incomplete};
+};
+
 struct transfer_record {
     node_id consumer{};
     node_id producer{};
-    transfer_status status{transfer_status::incomplete};
+    std::array<scenario_transfer_record, scenario_count> scenarios{};
 };
 
 struct matrix_view {
@@ -259,12 +306,15 @@ struct matrix_view {
 
 struct closure_counts {
     std::size_t nodes{};
-    std::size_t pairs{};
-    std::size_t named_decisions{};
-    std::size_t named_permits{};
     std::size_t consumers{};
-    std::size_t transfers{};
-    std::size_t passes{};
+    struct scenario_counts {
+        std::size_t pairs{};
+        std::size_t named_decisions{};
+        std::size_t named_permits{};
+        std::size_t transfers{};
+        std::size_t passes{};
+    };
+    std::array<scenario_counts, scenario_count> scenarios{};
 };
 
 struct closure_result {
@@ -298,24 +348,57 @@ constexpr const producer_record* unique_producer(
     return result;
 }
 
+constexpr const scenario_contract_record* contract_for(
+    const producer_record& producer, scenario_id scenario) noexcept {
+    const scenario_contract_record* result = nullptr;
+    for (const auto& contract : producer.contracts) {
+        if (contract.scenario != scenario) {
+            continue;
+        }
+        if (result != nullptr) {
+            return nullptr;
+        }
+        result = &contract;
+    }
+    return result;
+}
+
 constexpr agreement_status compute_agreement(
     std::span<const producer_record> producers,
     node_id left,
     node_id right,
+    scenario_id scenario,
     key_id key) noexcept {
-    const auto key_index = static_cast<std::size_t>(key);
     const auto* left_record = unique_producer(producers, left);
     const auto* right_record = unique_producer(producers, right);
-    if (key_index >= key_count || left_record == nullptr ||
-        right_record == nullptr || !left_record->present ||
-        !right_record->present || left_record->signatures[key_index].empty() ||
-        right_record->signatures[key_index].empty()) {
+    if (left_record == nullptr || right_record == nullptr ||
+        !left_record->present || !right_record->present) {
         return agreement_status::incomplete;
     }
-    if (!left_record->admission[key_index] ||
-        !right_record->admission[key_index] ||
-        left_record->signatures[key_index] !=
-            right_record->signatures[key_index]) {
+    const auto* left_contract = contract_for(*left_record, scenario);
+    const auto* right_contract = contract_for(*right_record, scenario);
+    if (left_contract == nullptr || right_contract == nullptr) {
+        return agreement_status::incomplete;
+    }
+    std::size_t key_index = key_count;
+    const auto scenario_index = static_cast<std::size_t>(scenario);
+    if (scenario_index >= scenario_count) {
+        return agreement_status::incomplete;
+    }
+    for (std::size_t index = 0; index < key_count; ++index) {
+        if (scenario_key_ids[scenario_index][index] == key) {
+            key_index = index;
+        }
+    }
+    if (key_index == key_count ||
+        left_contract->signatures[key_index].empty() ||
+        right_contract->signatures[key_index].empty()) {
+        return agreement_status::incomplete;
+    }
+    if (!left_contract->admission[key_index] ||
+        !right_contract->admission[key_index] ||
+        left_contract->signatures[key_index] !=
+            right_contract->signatures[key_index]) {
         return agreement_status::reject;
     }
     return agreement_status::permit;
@@ -325,11 +408,8 @@ template <typename Loader>
 constexpr transfer_status load_after_typelayout_gate(
     const std::array<bool, key_count>& consumer_admission,
     const std::array<std::string_view, key_count>& consumer_signatures,
-    const producer_record& producer,
+    const scenario_contract_record& producer,
     Loader&& loader) {
-    if (!producer.present) {
-        return transfer_status::incomplete;
-    }
     for (std::size_t key = 0; key < key_count; ++key) {
         if (!consumer_admission[key] || !producer.admission[key] ||
             consumer_signatures[key].empty() ||
@@ -406,31 +486,66 @@ constexpr const provenance_binding* unique_binding(
 }
 
 constexpr bool valid_decision_keys(const pair_record& pair) noexcept {
-    for (const auto expected : key_ids) {
-        std::size_t count = 0;
-        for (const auto& decision : pair.decisions) {
-            if (decision.key == expected) {
-                ++count;
+    for (const auto scenario : scenario_ids) {
+        const scenario_decisions* scenario_record = nullptr;
+        for (const auto& candidate : pair.scenarios) {
+            if (candidate.scenario == scenario) {
+                if (scenario_record != nullptr) {
+                    return false;
+                }
+                scenario_record = &candidate;
             }
         }
-        if (count != 1) {
+        if (scenario_record == nullptr) {
             return false;
+        }
+        const auto scenario_index = static_cast<std::size_t>(scenario);
+        for (const auto expected : scenario_key_ids[scenario_index]) {
+            std::size_t count = 0;
+            for (const auto& decision : scenario_record->decisions) {
+                if (decision.key == expected) {
+                    ++count;
+                }
+            }
+            if (count != 1) {
+                return false;
+            }
         }
     }
     return true;
 }
 
 constexpr const named_decision* decision_for(const pair_record& pair,
+                                             scenario_id scenario,
                                              key_id key) noexcept {
     const named_decision* result = nullptr;
-    for (const auto& decision : pair.decisions) {
-        if (decision.key != key) {
+    for (const auto& scenario_record : pair.scenarios) {
+        if (scenario_record.scenario == scenario) {
+            for (const auto& decision : scenario_record.decisions) {
+                if (decision.key != key) {
+                    continue;
+                }
+                if (result != nullptr) {
+                    return nullptr;
+                }
+                result = &decision;
+            }
+        }
+    }
+    return result;
+}
+
+constexpr const scenario_transfer_record* transfer_for(
+    const transfer_record& transfer, scenario_id scenario) noexcept {
+    const scenario_transfer_record* result = nullptr;
+    for (const auto& candidate : transfer.scenarios) {
+        if (candidate.scenario != scenario) {
             continue;
         }
         if (result != nullptr) {
             return nullptr;
         }
-        result = &decision;
+        result = &candidate;
     }
     return result;
 }
@@ -492,6 +607,11 @@ constexpr closure_result close_matrix(const matrix_view& input) noexcept {
             if (!(producer->run == input.expected_run)) {
                 incomplete = true;
             }
+            for (const auto scenario : scenario_ids) {
+                if (contract_for(*producer, scenario) == nullptr) {
+                    incomplete = true;
+                }
+            }
             authoritative_eligible = authoritative_eligible &&
                 producer->authoritative_eligible;
         }
@@ -552,24 +672,30 @@ constexpr closure_result close_matrix(const matrix_view& input) noexcept {
                 incomplete = true;
                 continue;
             }
-            ++result.counts.pairs;
-            for (const auto key : key_ids) {
-                const auto* decision = detail::decision_for(*pair, key);
-                if (decision == nullptr) {
-                    incomplete = true;
-                    continue;
-                }
-                ++result.counts.named_decisions;
-                if (decision->status == agreement_status::permit) {
-                    ++result.counts.named_permits;
-                } else if (decision->status == agreement_status::incomplete) {
-                    incomplete = true;
-                } else {
-                    rejected = true;
-                }
-                if (decision->status != compute_agreement(
-                        input.producers, left, right, key)) {
-                    incomplete = true;
+            for (const auto scenario : scenario_ids) {
+                const auto scenario_index = static_cast<std::size_t>(scenario);
+                auto& counts = result.counts.scenarios[scenario_index];
+                ++counts.pairs;
+                for (const auto key : scenario_key_ids[scenario_index]) {
+                    const auto* decision = detail::decision_for(
+                        *pair, scenario, key);
+                    if (decision == nullptr) {
+                        incomplete = true;
+                        continue;
+                    }
+                    ++counts.named_decisions;
+                    if (decision->status == agreement_status::permit) {
+                        ++counts.named_permits;
+                    } else if (
+                        decision->status == agreement_status::incomplete) {
+                        incomplete = true;
+                    } else {
+                        rejected = true;
+                    }
+                    if (decision->status != compute_agreement(
+                            input.producers, left, right, scenario, key)) {
+                        incomplete = true;
+                    }
                 }
             }
         }
@@ -593,13 +719,22 @@ constexpr closure_result close_matrix(const matrix_view& input) noexcept {
                 incomplete = true;
                 continue;
             }
-            ++result.counts.transfers;
-            if (transfer->status == transfer_status::pass) {
-                ++result.counts.passes;
-            } else if (transfer->status == transfer_status::incomplete) {
-                incomplete = true;
-            } else {
-                rejected = true;
+            for (const auto scenario : scenario_ids) {
+                const auto scenario_index = static_cast<std::size_t>(scenario);
+                auto& counts = result.counts.scenarios[scenario_index];
+                const auto* outcome = detail::transfer_for(*transfer, scenario);
+                if (outcome == nullptr) {
+                    incomplete = true;
+                    continue;
+                }
+                ++counts.transfers;
+                if (outcome->status == transfer_status::pass) {
+                    ++counts.passes;
+                } else if (outcome->status == transfer_status::incomplete) {
+                    incomplete = true;
+                } else {
+                    rejected = true;
+                }
             }
         }
     }

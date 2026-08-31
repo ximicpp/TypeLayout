@@ -81,22 +81,32 @@ std::size_t consumer_occurrences(const matrix::matrix_view& input,
 
 std::size_t pair_occurrences(const matrix::matrix_view& input,
                              matrix::node_id left,
-                             matrix::node_id right) {
+                             matrix::node_id right,
+                             matrix::scenario_id scenario) {
     std::size_t count = 0;
     for (const auto& record : input.agreements) {
-        count += record.left == left && record.right == right ? 1U : 0U;
+        if (record.left != left || record.right != right) {
+            continue;
+        }
+        for (const auto& scenario_record : record.scenarios) {
+            count += scenario_record.scenario == scenario ? 1U : 0U;
+        }
     }
     return count;
 }
 
 std::size_t transfer_occurrences(const matrix::matrix_view& input,
                                  matrix::node_id consumer,
-                                 matrix::node_id producer) {
+                                 matrix::node_id producer,
+                                 matrix::scenario_id scenario) {
     std::size_t count = 0;
     for (const auto& record : input.transfers) {
-        count += record.consumer == consumer && record.producer == producer
-            ? 1U
-            : 0U;
+        if (record.consumer != consumer || record.producer != producer) {
+            continue;
+        }
+        for (const auto& scenario_record : record.scenarios) {
+            count += scenario_record.scenario == scenario ? 1U : 0U;
+        }
     }
     return count;
 }
@@ -104,14 +114,20 @@ std::size_t transfer_occurrences(const matrix::matrix_view& input,
 std::size_t decision_occurrences(const matrix::matrix_view& input,
                                  matrix::node_id left,
                                  matrix::node_id right,
+                                 matrix::scenario_id scenario,
                                  matrix::key_id key) {
     std::size_t count = 0;
     for (const auto& pair : input.agreements) {
         if (pair.left != left || pair.right != right) {
             continue;
         }
-        for (const auto& decision : pair.decisions) {
-            count += decision.key == key ? 1U : 0U;
+        for (const auto& scenario_record : pair.scenarios) {
+            if (scenario_record.scenario != scenario) {
+                continue;
+            }
+            for (const auto& decision : scenario_record.decisions) {
+                count += decision.key == key ? 1U : 0U;
+            }
         }
     }
     return count;
@@ -119,19 +135,24 @@ std::size_t decision_occurrences(const matrix::matrix_view& input,
 
 void write_pair_identity(std::ostream& output,
                          matrix::node_id left,
-                         matrix::node_id right) {
+                         matrix::node_id right,
+                         matrix::scenario_id scenario) {
     output << "{";
     write_key(output, "left");
     write_string(output, matrix::name(left));
     output << ", ";
     write_key(output, "right");
     write_string(output, matrix::name(right));
+    output << ", ";
+    write_key(output, "scenario");
+    write_string(output, matrix::name(scenario));
     output << "}";
 }
 
 void write_decision_identity(std::ostream& output,
                              matrix::node_id left,
                              matrix::node_id right,
+                             matrix::scenario_id scenario,
                              matrix::key_id key) {
     output << "{";
     write_key(output, "left");
@@ -140,6 +161,9 @@ void write_decision_identity(std::ostream& output,
     write_key(output, "right");
     write_string(output, matrix::name(right));
     output << ", ";
+    write_key(output, "scenario");
+    write_string(output, matrix::name(scenario));
+    output << ", ";
     write_key(output, "key");
     write_string(output, matrix::name(key));
     output << "}";
@@ -147,13 +171,17 @@ void write_decision_identity(std::ostream& output,
 
 void write_transfer_identity(std::ostream& output,
                              matrix::node_id consumer,
-                             matrix::node_id producer) {
+                             matrix::node_id producer,
+                             matrix::scenario_id scenario) {
     output << "{";
     write_key(output, "consumer");
     write_string(output, matrix::name(consumer));
     output << ", ";
     write_key(output, "producer");
     write_string(output, matrix::name(producer));
+    output << ", ";
+    write_key(output, "scenario");
+    write_string(output, matrix::name(scenario));
     output << "}";
 }
 
@@ -170,25 +198,32 @@ void write_expected(std::ostream& output, matrix::profile_id profile) {
     write_key(output, "pairs");
     output << "[";
     std::size_t pair_index = 0;
-    for (std::size_t left = 0; left < nodes.size(); ++left) {
-        for (std::size_t right = left + 1; right < nodes.size(); ++right) {
-            if (pair_index++ != 0) {
-                output << ", ";
+    for (const auto scenario : matrix::scenario_ids) {
+        for (std::size_t left = 0; left < nodes.size(); ++left) {
+            for (std::size_t right = left + 1; right < nodes.size(); ++right) {
+                if (pair_index++ != 0) {
+                    output << ", ";
+                }
+                write_pair_identity(
+                    output, nodes[left], nodes[right], scenario);
             }
-            write_pair_identity(output, nodes[left], nodes[right]);
         }
     }
     output << "],\n      ";
     write_key(output, "named_decisions");
     output << "[";
     std::size_t decision_index = 0;
-    for (std::size_t left = 0; left < nodes.size(); ++left) {
-        for (std::size_t right = left + 1; right < nodes.size(); ++right) {
-            for (const auto key : matrix::key_ids) {
-                if (decision_index++ != 0) {
-                    output << ", ";
+    for (const auto scenario : matrix::scenario_ids) {
+        const auto scenario_index = static_cast<std::size_t>(scenario);
+        for (std::size_t left = 0; left < nodes.size(); ++left) {
+            for (std::size_t right = left + 1; right < nodes.size(); ++right) {
+                for (const auto key : matrix::scenario_key_ids[scenario_index]) {
+                    if (decision_index++ != 0) {
+                        output << ", ";
+                    }
+                    write_decision_identity(
+                        output, nodes[left], nodes[right], scenario, key);
                 }
-                write_decision_identity(output, nodes[left], nodes[right], key);
             }
         }
     }
@@ -203,15 +238,17 @@ void write_expected(std::ostream& output, matrix::profile_id profile) {
     write_key(output, "transfers");
     output << "[";
     std::size_t transfer_index = 0;
-    for (const auto consumer : nodes) {
-        for (const auto producer : nodes) {
-            if (consumer == producer) {
-                continue;
+    for (const auto scenario : matrix::scenario_ids) {
+        for (const auto consumer : nodes) {
+            for (const auto producer : nodes) {
+                if (consumer == producer) {
+                    continue;
+                }
+                if (transfer_index++ != 0) {
+                    output << ", ";
+                }
+                write_transfer_identity(output, consumer, producer, scenario);
             }
-            if (transfer_index++ != 0) {
-                output << ", ";
-            }
-            write_transfer_identity(output, consumer, producer);
         }
     }
     output << "]\n    }";
@@ -244,34 +281,42 @@ void write_identity_diagnostics(std::ostream& output,
     write_key(output, "pairs");
     output << "[";
     first = true;
-    for (std::size_t left = 0; left < nodes.size(); ++left) {
-        for (std::size_t right = left + 1; right < nodes.size(); ++right) {
-            if (!selected(pair_occurrences(input, nodes[left], nodes[right]))) {
-                continue;
-            }
-            if (!first) {
-                output << ", ";
-            }
-            first = false;
-            write_pair_identity(output, nodes[left], nodes[right]);
-        }
-    }
-    output << "],\n      ";
-    write_key(output, "named_decisions");
-    output << "[";
-    first = true;
-    for (std::size_t left = 0; left < nodes.size(); ++left) {
-        for (std::size_t right = left + 1; right < nodes.size(); ++right) {
-            for (const auto key : matrix::key_ids) {
-                if (!selected(decision_occurrences(
-                        input, nodes[left], nodes[right], key))) {
+    for (const auto scenario : matrix::scenario_ids) {
+        for (std::size_t left = 0; left < nodes.size(); ++left) {
+            for (std::size_t right = left + 1; right < nodes.size(); ++right) {
+                if (!selected(pair_occurrences(
+                        input, nodes[left], nodes[right], scenario))) {
                     continue;
                 }
                 if (!first) {
                     output << ", ";
                 }
                 first = false;
-                write_decision_identity(output, nodes[left], nodes[right], key);
+                write_pair_identity(
+                    output, nodes[left], nodes[right], scenario);
+            }
+        }
+    }
+    output << "],\n      ";
+    write_key(output, "named_decisions");
+    output << "[";
+    first = true;
+    for (const auto scenario : matrix::scenario_ids) {
+        const auto scenario_index = static_cast<std::size_t>(scenario);
+        for (std::size_t left = 0; left < nodes.size(); ++left) {
+            for (std::size_t right = left + 1; right < nodes.size(); ++right) {
+                for (const auto key : matrix::scenario_key_ids[scenario_index]) {
+                    if (!selected(decision_occurrences(
+                            input, nodes[left], nodes[right], scenario, key))) {
+                        continue;
+                    }
+                    if (!first) {
+                        output << ", ";
+                    }
+                    first = false;
+                    write_decision_identity(
+                        output, nodes[left], nodes[right], scenario, key);
+                }
             }
         }
     }
@@ -302,17 +347,20 @@ void write_identity_diagnostics(std::ostream& output,
     write_key(output, "transfers");
     output << "[";
     first = true;
-    for (const auto consumer : nodes) {
-        for (const auto producer : nodes) {
-            if (consumer == producer ||
-                !selected(transfer_occurrences(input, consumer, producer))) {
-                continue;
+    for (const auto scenario : matrix::scenario_ids) {
+        for (const auto consumer : nodes) {
+            for (const auto producer : nodes) {
+                if (consumer == producer ||
+                    !selected(transfer_occurrences(
+                        input, consumer, producer, scenario))) {
+                    continue;
+                }
+                if (!first) {
+                    output << ", ";
+                }
+                first = false;
+                write_transfer_identity(output, consumer, producer, scenario);
             }
-            if (!first) {
-                output << ", ";
-            }
-            first = false;
-            write_transfer_identity(output, consumer, producer);
         }
     }
     output << "]\n    }";
@@ -324,7 +372,7 @@ void write_closure(std::ostream& output,
     const auto result = matrix::close_matrix(input);
     output << "{\n  ";
     write_key(output, "schema");
-    output << "1,\n  ";
+    output << "2,\n  ";
     write_key(output, "profile");
     write_string(output, profile_name(input.profile));
     output << ",\n  ";
@@ -354,18 +402,31 @@ void write_closure(std::ostream& output,
     output << "{\n    ";
     write_key(output, "nodes");
     output << result.counts.nodes << ",\n    ";
-    write_key(output, "pairs");
-    output << result.counts.pairs << ",\n    ";
-    write_key(output, "named_decisions");
-    output << result.counts.named_decisions << ",\n    ";
-    write_key(output, "named_permits");
-    output << result.counts.named_permits << ",\n    ";
     write_key(output, "consumers");
     output << result.counts.consumers << ",\n    ";
-    write_key(output, "transfers");
-    output << result.counts.transfers << ",\n    ";
-    write_key(output, "passes");
-    output << result.counts.passes << "\n  },\n  ";
+    write_key(output, "scenarios");
+    output << "{\n";
+    for (std::size_t scenario_index = 0;
+         scenario_index < matrix::scenario_count; ++scenario_index) {
+        const auto scenario = matrix::scenario_ids[scenario_index];
+        const auto& counts = result.counts.scenarios[scenario_index];
+        output << "      ";
+        write_key(output, matrix::name(scenario));
+        output << "{\n        ";
+        write_key(output, "pairs");
+        output << counts.pairs << ",\n        ";
+        write_key(output, "named_decisions");
+        output << counts.named_decisions << ",\n        ";
+        write_key(output, "named_permits");
+        output << counts.named_permits << ",\n        ";
+        write_key(output, "transfers");
+        output << counts.transfers << ",\n        ";
+        write_key(output, "passes");
+        output << counts.passes << "\n      }"
+               << (scenario_index + 1 == matrix::scenario_count
+                       ? "\n" : ",\n");
+    }
+    output << "    }\n  },\n  ";
     write_key(output, "missing");
     write_identity_diagnostics(output, input, false);
     output << ",\n  ";
@@ -418,9 +479,15 @@ self_test_fixture make_self_test_fixture(matrix::profile_id profile) {
         result.producers[index] = {
             nodes[index], true, {},
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            result.run, true, {true, true, true, true}, signatures, true,
-            "node.region",
-            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"};
+            result.run, true,
+            {{
+                {matrix::scenario_id::world, {true, true, true, true},
+                 signatures, true, "node.world.region",
+                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+                {matrix::scenario_id::unit_handoff, {true, true, true, true},
+                 signatures, true, "node.unit.region",
+                 "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+            }}};
         result.bindings[index] = {
             nodes[index], true, result.producers[index].provenance_sha256};
         result.consumers[index] = {nodes[index], true, result.run, true};
@@ -431,10 +498,15 @@ self_test_fixture make_self_test_fixture(matrix::profile_id profile) {
             auto& pair = result.agreements[pair_index++];
             pair.left = nodes[left];
             pair.right = nodes[right];
-            for (std::size_t key = 0; key < matrix::key_count; ++key) {
-                pair.decisions[key] = {
-                    static_cast<matrix::key_id>(key),
-                    matrix::agreement_status::permit};
+            for (std::size_t scenario_index = 0;
+                 scenario_index < matrix::scenario_count; ++scenario_index) {
+                pair.scenarios[scenario_index].scenario =
+                    matrix::scenario_ids[scenario_index];
+                for (std::size_t key = 0; key < matrix::key_count; ++key) {
+                    pair.scenarios[scenario_index].decisions[key] = {
+                        matrix::scenario_key_ids[scenario_index][key],
+                        matrix::agreement_status::permit};
+                }
             }
         }
     }
@@ -443,7 +515,11 @@ self_test_fixture make_self_test_fixture(matrix::profile_id profile) {
         for (const auto producer : nodes) {
             if (consumer != producer) {
                 result.transfers[edge++] = {
-                    consumer, producer, matrix::transfer_status::pass};
+                    consumer, producer,
+                    {{{matrix::scenario_id::world,
+                       matrix::transfer_status::pass},
+                      {matrix::scenario_id::unit_handoff,
+                       matrix::transfer_status::pass}}}};
             }
         }
     }
@@ -471,17 +547,24 @@ void run_self_tests() {
             "missing node did not make closure incomplete");
 
     auto rejected = complete;
-    rejected.producers[0].admission[0] = false;
+    rejected.producers[0].contracts[1].admission[0] = false;
     for (std::size_t index = 0; index < rejected.pairs; ++index) {
         if (rejected.agreements[index].left == rejected.producers[0].node ||
             rejected.agreements[index].right == rejected.producers[0].node) {
-            rejected.agreements[index].decisions[0].status =
+            rejected.agreements[index].scenarios[1].decisions[0].status =
                 matrix::agreement_status::reject;
         }
     }
     require(matrix::close_matrix(rejected.view()).status ==
                 matrix::closure_status::reject,
-            "Agreement rejection did not reject closure");
+            "Unit Agreement rejection did not reject closure");
+
+    auto missing_unit = complete;
+    missing_unit.producers[0].contracts[1].scenario =
+        matrix::scenario_id::world;
+    require(matrix::close_matrix(missing_unit.view()).status ==
+                matrix::closure_status::incomplete,
+            "missing Unit scenario did not make closure incomplete");
 
     auto reject_and_missing = rejected;
     reject_and_missing.consumers[0].present = false;
@@ -521,12 +604,12 @@ void run_self_tests() {
             "complete local fixture did not pass non-authoritatively");
 
     auto mismatched_producer = complete.producers[1];
-    mismatched_producer.signatures[0] = "different signature";
+    mismatched_producer.contracts[1].signatures[0] = "different signature";
     int corrupt_region_loader_calls = 0;
     const auto gate_status = matrix::load_after_typelayout_gate(
-        complete.producers[0].admission,
-        complete.producers[0].signatures,
-        mismatched_producer,
+        complete.producers[0].contracts[1].admission,
+        complete.producers[0].contracts[1].signatures,
+        mismatched_producer.contracts[1],
         [&] {
             ++corrupt_region_loader_calls;
             return matrix::transfer_status::reject_region;
@@ -536,8 +619,9 @@ void run_self_tests() {
             corrupt_region_loader_calls == 0,
         "signature mismatch reached corrupt region loader");
 
-    std::cout << "SELFTEST PASS: nodes=6 agreements=15 named=60 transfers=30\n"
-                 "SELFTEST PASS: local_nodes=5 agreements=10 named=40 "
+    std::cout << "SELFTEST PASS: world nodes=6 agreements=15 named=60 transfers=30\n"
+                 "SELFTEST PASS: unit nodes=6 agreements=15 named=60 transfers=30\n"
+                 "SELFTEST PASS: local scenarios=2 agreements=10 named=40 "
                  "transfers=20 authoritative=false\n"
                  "SELFTEST PASS: incomplete/reject/pass precedence\n";
 }
@@ -581,12 +665,20 @@ int main(int argc, char** argv) {
         destination.commit();
         const auto result = matrix::close_matrix(input);
         if (result.status == matrix::closure_status::pass) {
-            std::cout << "WORKFLOW PASS: nodes=" << result.counts.nodes
-                      << "; agreement_pairs=" << result.counts.pairs
-                      << "; named_permits=" << result.counts.named_permits
-                      << '/' << result.counts.named_decisions
-                      << "; directed_loads=" << result.counts.passes
-                      << '/' << result.counts.transfers << '\n';
+            const auto& world = result.counts.scenarios[0];
+            const auto& unit = result.counts.scenarios[1];
+            std::cout << "WORLD: Agreement " << world.named_permits << '/'
+                      << world.named_decisions << "; directed loads "
+                      << world.passes << '/' << world.transfers << '\n'
+                      << "UNIT: Agreement " << unit.named_permits << '/'
+                      << unit.named_decisions << "; directed handoffs "
+                      << unit.passes << '/' << unit.transfers << '\n'
+                      << "COMBINED: Agreement "
+                      << world.named_permits + unit.named_permits << '/'
+                      << world.named_decisions + unit.named_decisions
+                      << "; directed transfers "
+                      << world.passes + unit.passes << '/'
+                      << world.transfers + unit.transfers << '\n';
         }
         return 0;
     } catch (const std::exception& error) {
