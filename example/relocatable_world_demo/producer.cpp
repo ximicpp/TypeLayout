@@ -217,14 +217,9 @@ int main(int argc, char** argv) {
             output_directory /
                 (std::string(node) + ".producer-facts.json"),
             node);
+        remove_stale_payloads(output_directory, node);
 
-        if constexpr (!relocatable_world_demo::world_contract_admitted_v ||
-                      !relocatable_unit_handoff_demo::unit_contract_admitted_v) {
-            remove_stale_payloads(output_directory, node);
-            std::cout << "PRODUCER REJECT node=" << node
-                      << " payload omitted\n";
-            return 0;
-        } else {
+        if constexpr (relocatable_world_demo::world_contract_admitted_v) {
             const auto checkpoint = relocatable_world_demo::save_checkpoint(
                 relocatable_world_demo::build_canonical_world());
             const auto loaded = relocatable_world_demo::load_checkpoint(
@@ -238,6 +233,9 @@ int main(int argc, char** argv) {
             write_region(
                 output_directory / (std::string(node) + ".world.region"),
                 checkpoint);
+        }
+        if constexpr (
+            relocatable_unit_handoff_demo::unit_contract_admitted_v) {
             const auto unit_checkpoint =
                 relocatable_unit_handoff_demo::save_unit_checkpoint(
                     relocatable_unit_handoff_demo::
@@ -253,11 +251,21 @@ int main(int argc, char** argv) {
             write_region(
                 output_directory / (std::string(node) + ".unit.region"),
                 unit_checkpoint);
+        }
+
+        if constexpr (relocatable_world_demo::world_contract_admitted_v &&
+                      relocatable_unit_handoff_demo::unit_contract_admitted_v) {
             std::cout << "PRODUCER READY node=" << node
                       << " admission=8/8 world=" << node
                       << ".world.region unit=" << node << ".unit.region\n";
-            return 0;
+        } else {
+            constexpr auto admitted =
+                (relocatable_world_demo::world_contract_admitted_v ? 4 : 0) +
+                (relocatable_unit_handoff_demo::unit_contract_admitted_v ? 4 : 0);
+            std::cout << "PRODUCER REJECT node=" << node
+                      << " admission=" << admitted << "/8\n";
         }
+        return 0;
     } catch (const std::exception& error) {
         std::cerr << "producer error: " << error.what() << '\n';
         return 1;

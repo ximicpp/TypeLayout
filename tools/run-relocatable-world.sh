@@ -857,14 +857,12 @@ seal_producer_bundle() {
         --toolchain-artifact-sha256 "${artifact_sha256}"
         --output "${output_directory}/${node}.provenance.json"
     )
-    if [[ -f "${output_directory}/${node}.world.region" &&
-          -f "${output_directory}/${node}.unit.region" ]]; then
-        seal+=(
-            --signature "${output_directory}/${node}.sig.hpp"
-            --world-region "${output_directory}/${node}.world.region"
-            --unit-region "${output_directory}/${node}.unit.region"
-        )
-    fi
+    [[ ! -f "${output_directory}/${node}.sig.hpp" ]] ||
+        seal+=(--signature "${output_directory}/${node}.sig.hpp")
+    [[ ! -f "${output_directory}/${node}.world.region" ]] ||
+        seal+=(--world-region "${output_directory}/${node}.world.region")
+    [[ ! -f "${output_directory}/${node}.unit.region" ]] ||
+        seal+=(--unit-region "${output_directory}/${node}.unit.region")
     "${seal[@]}"
     rm -f -- "${probe}" "${facts}"
     python3 "${EVIDENCE_TOOL}" validate-provenance \

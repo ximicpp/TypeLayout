@@ -217,12 +217,12 @@ jobs:
             --workflow-run "${WORKFLOW_RUN}"
             --toolchain-artifact-sha256 "${ARTIFACT_SHA256}"
             --output "${BUNDLE}/${NODE}.provenance.json")
-          if test -f "${BUNDLE}/${NODE}.world.region" && \
-              test -f "${BUNDLE}/${NODE}.unit.region"; then
-            seal+=(--signature "${BUNDLE}/${NODE}.sig.hpp"
-                   --world-region "${BUNDLE}/${NODE}.world.region"
-                   --unit-region "${BUNDLE}/${NODE}.unit.region")
-          fi
+          test ! -f "${BUNDLE}/${NODE}.sig.hpp" || \
+            seal+=(--signature "${BUNDLE}/${NODE}.sig.hpp")
+          test ! -f "${BUNDLE}/${NODE}.world.region" || \
+            seal+=(--world-region "${BUNDLE}/${NODE}.world.region")
+          test ! -f "${BUNDLE}/${NODE}.unit.region" || \
+            seal+=(--unit-region "${BUNDLE}/${NODE}.unit.region")
           "${seal[@]}"
 
       - name: Upload producer diagnostics
@@ -384,12 +384,12 @@ jobs:
             --workflow-run "${WORKFLOW_RUN}"
             --toolchain-artifact-sha256 "${ARTIFACT_SHA256}"
             --output "${BUNDLE}/${NODE}.provenance.json")
-          if test -f "${BUNDLE}/${NODE}.world.region" && \
-              test -f "${BUNDLE}/${NODE}.unit.region"; then
-            seal+=(--signature "${BUNDLE}/${NODE}.sig.hpp"
-                   --world-region "${BUNDLE}/${NODE}.world.region"
-                   --unit-region "${BUNDLE}/${NODE}.unit.region")
-          fi
+          test ! -f "${BUNDLE}/${NODE}.sig.hpp" || \
+            seal+=(--signature "${BUNDLE}/${NODE}.sig.hpp")
+          test ! -f "${BUNDLE}/${NODE}.world.region" || \
+            seal+=(--world-region "${BUNDLE}/${NODE}.world.region")
+          test ! -f "${BUNDLE}/${NODE}.unit.region" || \
+            seal+=(--unit-region "${BUNDLE}/${NODE}.unit.region")
           "${seal[@]}"
 
       - name: Upload producer diagnostics
