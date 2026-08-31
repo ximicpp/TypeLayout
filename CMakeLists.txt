@@ -221,7 +221,7 @@ endif()
 add_executable(relocatable_world_producer
     example/relocatable_world_demo/producer.cpp)
 target_link_libraries(relocatable_world_producer PRIVATE
-    relocatable_world_support)
+    relocatable_world_support relocatable_unit_handoff_support)
 
 set(TYPELAYOUT_PROBE_NODE "")
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
@@ -467,7 +467,7 @@ if(Python3_Interpreter_FOUND)
         example/relocatable_world_demo/consumer.cpp
         "${_relocatable_world_consumer_header}")
     target_link_libraries(relocatable_world_consumer PRIVATE
-        relocatable_world_support)
+        relocatable_world_support relocatable_unit_handoff_support)
     target_include_directories(relocatable_world_consumer PRIVATE
         "${_relocatable_world_generated_dir}")
     add_dependencies(relocatable_world_consumer

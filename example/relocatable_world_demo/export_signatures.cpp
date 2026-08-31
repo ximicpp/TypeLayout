@@ -1,4 +1,5 @@
 #include "world.hpp"
+#include "../relocatable_unit_handoff_demo/unit.hpp"
 
 #include <boost/typelayout/tools/sig_export.hpp>
 
@@ -57,6 +58,15 @@ int main(int argc, char** argv) {
                 T, boost::typelayout::TransferProfile::whole_region_relocation>);
             exporter.add_relocatable<T>(std::string(key));
         });
+    if (argc == 3) {
+        relocatable_unit_handoff_demo::for_each_unit_contract_type(
+            [&]<typename T>(std::string_view key) {
+                static_assert(boost::typelayout::is_admitted_v<
+                    T,
+                    boost::typelayout::TransferProfile::whole_region_relocation>);
+                exporter.add_relocatable<T>(std::string(key));
+            });
+    }
 
     const auto output = std::filesystem::path(argv[1]) /
         (platform_id + ".sig.hpp");

@@ -1,4 +1,5 @@
 #include "evidence_json.hpp"
+#include "../relocatable_unit_handoff_demo/unit.hpp"
 #include "world.hpp"
 
 #include <array>
@@ -280,7 +281,7 @@ bool write_probe_json(const arguments& args, lifetime_results lifetime) {
 
     output << "{\n  ";
     write_key(output, "schema");
-    output << "1,\n  ";
+    output << "2,\n  ";
     write_key(output, "node");
     write_string(output, args.node);
     output << ",\n  ";
@@ -304,19 +305,34 @@ bool write_probe_json(const arguments& args, lifetime_results lifetime) {
     write_boolean(output, lifetime.array);
     output << "\n  },\n  ";
 
-    write_key(output, "admission");
+    write_key(output, "contracts");
+    output << "{\n    ";
+    write_key(output, "world");
     output << "{\n";
     std::size_t admission_index = 0;
     relocatable_world_demo::for_each_contract_type(
         [&]<typename T>(std::string_view key) {
-            output << "    ";
+            output << "      ";
             write_key(output, key);
             write_boolean(output, boost::typelayout::is_admitted_v<
                 T, relocatable_world_demo::whole_region_profile>);
             ++admission_index;
             output << (admission_index == 4 ? "\n" : ",\n");
         });
-    output << "  },\n  ";
+    output << "    },\n    ";
+    write_key(output, "unit_handoff");
+    output << "{\n";
+    admission_index = 0;
+    relocatable_unit_handoff_demo::for_each_unit_contract_type(
+        [&]<typename T>(std::string_view key) {
+            output << "      ";
+            write_key(output, key);
+            write_boolean(output, boost::typelayout::is_admitted_v<
+                T, relocatable_unit_handoff_demo::whole_region_profile>);
+            ++admission_index;
+            output << (admission_index == 4 ? "\n" : ",\n");
+        });
+    output << "    }\n  },\n  ";
 
     write_key(output, "compiler");
     output << "{\n    ";

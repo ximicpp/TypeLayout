@@ -9,7 +9,9 @@
 #include "relocatable_world_consumer_input.hpp"
 #include "world.hpp"
 #include "world_runtime.hpp"
+#include "../relocatable_unit_handoff_demo/unit_checkpoint.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <filesystem>
@@ -70,34 +72,52 @@ constexpr std::string_view profile_name(matrix::profile_id profile) noexcept {
         : "local-arm64-macos";
 }
 
-struct current_contract {
-    std::array<bool, matrix::key_count> admission{};
-    std::array<std::string_view, matrix::key_count> signatures{};
-};
+using current_contracts =
+    std::array<matrix::scenario_contract_record, matrix::scenario_count>;
 
-current_contract current_contract_facts() {
-    current_contract result{};
-    std::size_t index = 0;
-    relocatable_world_demo::for_each_contract_type(
-        [&]<typename T>(std::string_view) {
+current_contracts current_contract_facts() {
+    current_contracts result{};
+    const auto collect = [&]<typename ForEach>(std::size_t scenario_index,
+                                                matrix::scenario_id scenario,
+                                                ForEach for_each) {
+        auto& contract = result[scenario_index];
+        contract.scenario = scenario;
+        std::size_t index = 0;
+        for_each([&]<typename T>(std::string_view) {
             const auto& signature = current_signature_storage<T>;
-            result.admission[index] = boost::typelayout::is_admitted_v<
+            contract.admission[index] = boost::typelayout::is_admitted_v<
                 T, relocatable_world_demo::whole_region_profile>;
-            result.signatures[index] = {
+            contract.signatures[index] = {
                 signature.value, signature.length()};
             ++index;
         });
+    };
+    collect(0, matrix::scenario_id::world,
+            []<typename Visitor>(Visitor&& visitor) {
+                relocatable_world_demo::for_each_contract_type(
+                    std::forward<Visitor>(visitor));
+            });
+    collect(1, matrix::scenario_id::unit_handoff,
+            []<typename Visitor>(Visitor&& visitor) {
+                relocatable_unit_handoff_demo::for_each_unit_contract_type(
+                    std::forward<Visitor>(visitor));
+            });
     return result;
 }
 
-struct transfer_result {
-    matrix::node_id producer{};
+struct scenario_result {
+    matrix::scenario_id scenario{};
     matrix::transfer_status status{matrix::transfer_status::incomplete};
     std::string_view reason;
-    bool provenance_digest_present{};
-    std::string_view provenance_sha256;
     bool region_digest_present{};
     std::string_view region_sha256;
+};
+
+struct transfer_result {
+    matrix::node_id producer{};
+    bool provenance_digest_present{};
+    std::string_view provenance_sha256;
+    std::array<scenario_result, matrix::scenario_count> scenarios{};
 };
 
 std::vector<std::byte> read_region(const fs::path& path) {
@@ -133,6 +153,19 @@ matrix::transfer_status map_rejection(
     return matrix::transfer_status::incomplete;
 }
 
+matrix::transfer_status map_rejection(
+    relocatable_unit_handoff_demo::unit_rejection_layer layer) {
+    switch (layer) {
+    case relocatable_unit_handoff_demo::unit_rejection_layer::envelope:
+        return matrix::transfer_status::reject_envelope;
+    case relocatable_unit_handoff_demo::unit_rejection_layer::region:
+        return matrix::transfer_status::reject_region;
+    case relocatable_unit_handoff_demo::unit_rejection_layer::graph:
+        return matrix::transfer_status::reject_graph;
+    }
+    return matrix::transfer_status::incomplete;
+}
+
 std::string_view rejection_reason(matrix::transfer_status status) {
     switch (status) {
     case matrix::transfer_status::reject_envelope:
@@ -146,32 +179,105 @@ std::string_view rejection_reason(matrix::transfer_status status) {
     }
 }
 
-transfer_result evaluate_transfer(
-    const matrix::producer_record& producer,
-    const current_contract& current,
+matrix::transfer_status load_world(std::span<const std::byte> bytes,
+                                   std::string_view& reason) {
+    try {
+        const auto loaded = relocatable_world_demo::load_checkpoint(bytes);
+        if (!relocatable_world_demo::canonical_graph_matches(loaded) ||
+            relocatable_world_demo::world_root(loaded).tick != 42 ||
+            relocatable_world_demo::party_total_hp(loaded) != 420) {
+            reason = "canonical world graph or business state differs";
+            return matrix::transfer_status::reject_graph;
+        }
+        reason = "checkpoint loaded and canonical world validated";
+        return matrix::transfer_status::pass;
+    } catch (const relocatable_world_demo::checkpoint_error& error) {
+        const auto status = map_rejection(error.layer());
+        reason = rejection_reason(status);
+        return status;
+    }
+}
+
+matrix::transfer_status load_unit(std::span<const std::byte> bytes,
+                                  std::string_view& reason) {
+    try {
+        const auto decoded =
+            relocatable_unit_handoff_demo::decode_unit_checkpoint_envelope(bytes);
+        auto expected =
+            relocatable_unit_handoff_demo::build_canonical_migrating_unit();
+        const auto expected_offsets =
+            relocatable_unit_handoff_demo::capture_unit_offsets(expected);
+        auto loaded =
+            relocatable_unit_handoff_demo::load_unit_checkpoint(bytes);
+        if (!std::equal(decoded.payload.begin(), decoded.payload.end(),
+                        loaded.used_bytes().begin(), loaded.used_bytes().end()) ||
+            relocatable_unit_handoff_demo::capture_unit_offsets(loaded) !=
+                expected_offsets ||
+            !relocatable_unit_handoff_demo::canonical_migrating_unit_matches(
+                loaded, 300)) {
+            reason = "unit bytes, offsets, graph, or business state differs";
+            return matrix::transfer_status::reject_graph;
+        }
+
+        relocatable_unit_handoff_demo::UnitRegistry registry;
+        registry.attach(
+            relocatable_unit_handoff_demo::owner_unit_id,
+            relocatable_unit_handoff_demo::build_canonical_owner_unit());
+        registry.attach(
+            relocatable_unit_handoff_demo::migrating_unit_id,
+            std::move(loaded));
+        const auto* migrating = registry.resolve(
+            relocatable_unit_handoff_demo::migrating_unit_id);
+        const auto* owner = registry.resolve(
+            relocatable_unit_handoff_demo::owner_unit_id);
+        if (migrating == nullptr || owner == nullptr ||
+            registry.resolve(relocatable_unit_handoff_demo::
+                                 unresolved_target_id) != nullptr ||
+            owner->hp != 500) {
+            reason = "unit registry resolution differs";
+            return matrix::transfer_status::reject_graph;
+        }
+        registry.set_hp(
+            relocatable_unit_handoff_demo::migrating_unit_id, 250);
+        if (registry.resolve(
+                relocatable_unit_handoff_demo::migrating_unit_id)->hp
+                != 250 ||
+            registry.resolve(
+                relocatable_unit_handoff_demo::owner_unit_id)->hp
+                != 500) {
+            reason = "unit mutation was not isolated";
+            return matrix::transfer_status::reject_graph;
+        }
+        reason = "unit bytes loaded, offsets preserved, and registry attached";
+        return matrix::transfer_status::pass;
+    } catch (const relocatable_unit_handoff_demo::unit_checkpoint_error& error) {
+        const auto status = map_rejection(error.layer());
+        reason = rejection_reason(status);
+        return status;
+    }
+}
+
+scenario_result evaluate_scenario(
+    matrix::scenario_id scenario,
+    const matrix::scenario_contract_record& current,
+    const matrix::scenario_contract_record* producer,
     const fs::path& evidence_root) {
-    transfer_result result{};
-    result.producer = producer.node;
-    if (!producer.present) {
-        result.reason = producer.error.empty()
-            ? std::string_view{"producer evidence incomplete"}
-            : producer.error;
+    scenario_result result{};
+    result.scenario = scenario;
+    if (producer == nullptr) {
+        result.reason = "producer scenario evidence incomplete";
         return result;
     }
-
-    result.provenance_digest_present = true;
-    result.provenance_sha256 = producer.provenance_sha256;
     result.status = matrix::load_after_typelayout_gate(
-        current.admission, current.signatures, producer, [&] {
-            if (!producer.region_present) {
+        current.admission, current.signatures, *producer, [&] {
+            if (!producer->region_present) {
                 result.reason = "permitted producer has no region artifact";
                 return matrix::transfer_status::incomplete;
             }
             result.region_digest_present = true;
-            result.region_sha256 = producer.region_sha256;
-
+            result.region_sha256 = producer->region_sha256;
             try {
-                const fs::path filename(producer.region_filename);
+                const fs::path filename(producer->region_filename);
                 if (filename.empty() || filename.is_absolute() ||
                     filename.filename() != filename) {
                     throw std::runtime_error("region filename is not canonical");
@@ -181,20 +287,9 @@ transfer_result evaluate_transfer(
                     throw std::runtime_error("region file escapes evidence root");
                 }
                 const auto bytes = read_region(region_path);
-                const auto loaded = relocatable_world_demo::load_checkpoint(bytes);
-                if (!relocatable_world_demo::canonical_graph_matches(loaded) ||
-                    relocatable_world_demo::world_root(loaded).tick != 42 ||
-                    relocatable_world_demo::party_total_hp(loaded) != 420) {
-                    result.reason = "canonical graph or business state differs";
-                    return matrix::transfer_status::reject_graph;
-                }
-                result.reason =
-                    "checkpoint loaded and canonical world validated";
-                return matrix::transfer_status::pass;
-            } catch (const relocatable_world_demo::checkpoint_error& error) {
-                const auto status = map_rejection(error.layer());
-                result.reason = rejection_reason(status);
-                return status;
+                return scenario == matrix::scenario_id::world
+                    ? load_world(bytes, result.reason)
+                    : load_unit(bytes, result.reason);
             } catch (const std::exception&) {
                 result.reason = "region artifact unavailable or invalid";
                 return matrix::transfer_status::incomplete;
@@ -202,10 +297,35 @@ transfer_result evaluate_transfer(
         });
     if (result.status == matrix::transfer_status::skipped_typelayout_reject) {
         result.reason = "TypeLayout Admission or Agreement rejected";
-        if (producer.region_present) {
+        if (producer->region_present) {
             result.region_digest_present = true;
-            result.region_sha256 = producer.region_sha256;
+            result.region_sha256 = producer->region_sha256;
         }
+    }
+    return result;
+}
+
+transfer_result evaluate_transfer(
+    const matrix::producer_record& producer,
+    const current_contracts& current,
+    const fs::path& evidence_root) {
+    transfer_result result{};
+    result.producer = producer.node;
+    for (std::size_t index = 0; index < matrix::scenario_count; ++index) {
+        result.scenarios[index].scenario = matrix::scenario_ids[index];
+        result.scenarios[index].reason = producer.error.empty()
+            ? std::string_view{"producer evidence incomplete"} : producer.error;
+    }
+    if (!producer.present) {
+        return result;
+    }
+    result.provenance_digest_present = true;
+    result.provenance_sha256 = producer.provenance_sha256;
+    for (std::size_t index = 0; index < matrix::scenario_count; ++index) {
+        const auto scenario = matrix::scenario_ids[index];
+        result.scenarios[index] = evaluate_scenario(
+            scenario, current[index], matrix::contract_for(producer, scenario),
+            evidence_root);
     }
     return result;
 }
@@ -288,7 +408,7 @@ void write_results(std::ostream& output,
                    std::span<const transfer_result> transfers) {
     output << "{\n  ";
     write_key(output, "schema");
-    output << "1,\n  ";
+    output << "2,\n  ";
     write_key(output, "profile");
     write_string(output, profile_name(generated::profile));
     output << ",\n  ";
@@ -309,19 +429,31 @@ void write_results(std::ostream& output,
         write_key(output, "producer");
         write_string(output, matrix::name(transfer.producer));
         output << ", ";
-        write_key(output, "status");
-        write_string(output, matrix::name(transfer.status));
-        output << ", ";
-        write_key(output, "reason");
-        write_string(output, transfer.reason);
-        output << ", ";
         write_key(output, "producer_provenance_sha256");
         write_nullable_string(output, transfer.provenance_digest_present,
                               transfer.provenance_sha256);
         output << ", ";
-        write_key(output, "region_sha256");
-        write_nullable_string(output, transfer.region_digest_present,
-                              transfer.region_sha256);
+        write_key(output, "scenarios");
+        output << "{";
+        for (std::size_t scenario_index = 0;
+             scenario_index < transfer.scenarios.size(); ++scenario_index) {
+            const auto& scenario = transfer.scenarios[scenario_index];
+            write_key(output, matrix::name(scenario.scenario));
+            output << "{";
+            write_key(output, "status");
+            write_string(output, matrix::name(scenario.status));
+            output << ", ";
+            write_key(output, "reason");
+            write_string(output, scenario.reason);
+            output << ", ";
+            write_key(output, "region_sha256");
+            write_nullable_string(output, scenario.region_digest_present,
+                                  scenario.region_sha256);
+            output << "}"
+                   << (scenario_index + 1 == transfer.scenarios.size()
+                           ? "" : ", ");
+        }
+        output << "}";
         output << "}" << (index + 1 == transfers.size() ? "\n" : ",\n");
     }
     output << "  ]\n}\n";
@@ -382,7 +514,12 @@ int main(int argc, char** argv) {
             if (producer == nullptr) {
                 transfer_result missing{};
                 missing.producer = node;
-                missing.reason = "producer slot missing or duplicated";
+                for (std::size_t index = 0;
+                     index < matrix::scenario_count; ++index) {
+                    missing.scenarios[index].scenario = matrix::scenario_ids[index];
+                    missing.scenarios[index].reason =
+                        "producer slot missing or duplicated";
+                }
                 storage[transfer_count++] = missing;
                 continue;
             }

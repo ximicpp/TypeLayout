@@ -7,6 +7,7 @@
 #include "evidence_json.hpp"
 #include "world.hpp"
 #include "world_runtime.hpp"
+#include "../relocatable_unit_handoff_demo/unit_checkpoint.hpp"
 
 #include <boost/typelayout.hpp>
 
@@ -92,47 +93,68 @@ void write_facts(const fs::path& destination, std::string_view node) {
     output << "{\n";
     output << "  ";
     write_key(output, "schema");
-    output << "1,\n";
+    output << "2,\n";
     output << "  ";
     write_key(output, "node");
     write_string(output, node);
     output << ",\n";
     output << "  ";
-    write_key(output, "admission");
+    write_key(output, "contracts");
     output << "{\n";
-    bool first = true;
-    relocatable_world_demo::for_each_contract_type(
-        [&]<typename T>(std::string_view key) {
+    const auto write_contract = [&]<typename ForEach>(
+                                    std::string_view scenario,
+                                    ForEach for_each,
+                                    bool last) {
+        output << "    ";
+        write_key(output, scenario);
+        output << "{\n      ";
+        write_key(output, "admission");
+        output << "{\n";
+        bool first = true;
+        for_each([&]<typename T>(std::string_view key) {
             if (!first) {
                 output << ",\n";
             }
-            output << "    ";
+            output << "        ";
             write_key(output, key);
             output << (boost::typelayout::is_admitted_v<
                            T, relocatable_world_demo::whole_region_profile>
-                           ? "true"
-                           : "false");
+                           ? "true" : "false");
             first = false;
         });
-    output << "\n  },\n";
-    output << "  ";
-    write_key(output, "signatures");
-    output << "{\n";
-    first = true;
-    relocatable_world_demo::for_each_contract_type(
-        [&]<typename T>(std::string_view key) {
+        output << "\n      },\n      ";
+        write_key(output, "signatures");
+        output << "{\n";
+        first = true;
+        for_each([&]<typename T>(std::string_view key) {
             constexpr auto signature =
                 boost::typelayout::get_layout_signature<T>();
             if (!first) {
                 output << ",\n";
             }
-            output << "    ";
+            output << "        ";
             write_key(output, key);
             write_string(output,
                          std::string_view(signature.value, signature.size));
             first = false;
         });
-    output << "\n  }\n";
+        output << "\n      }\n    }" << (last ? "\n" : ",\n");
+    };
+    write_contract(
+        "world",
+        []<typename Visitor>(Visitor&& visitor) {
+            relocatable_world_demo::for_each_contract_type(
+                std::forward<Visitor>(visitor));
+        },
+        false);
+    write_contract(
+        "unit_handoff",
+        []<typename Visitor>(Visitor&& visitor) {
+            relocatable_unit_handoff_demo::for_each_unit_contract_type(
+                std::forward<Visitor>(visitor));
+        },
+        true);
+    output << "  }\n";
     output << "}\n";
     output.close();
     if (!output) {
@@ -161,7 +183,8 @@ void write_region(const fs::path& destination,
 void remove_stale_payloads(const fs::path& directory,
                            std::string_view node) {
     for (const auto suffix : {std::string_view{".sig.hpp"},
-                              std::string_view{".region"}}) {
+                              std::string_view{".world.region"},
+                              std::string_view{".unit.region"}}) {
         std::error_code error;
         fs::remove(directory /
                        (std::string(node) + std::string(suffix)),
@@ -195,7 +218,8 @@ int main(int argc, char** argv) {
                 (std::string(node) + ".producer-facts.json"),
             node);
 
-        if constexpr (!relocatable_world_demo::world_contract_admitted_v) {
+        if constexpr (!relocatable_world_demo::world_contract_admitted_v ||
+                      !relocatable_unit_handoff_demo::unit_contract_admitted_v) {
             remove_stale_payloads(output_directory, node);
             std::cout << "PRODUCER REJECT node=" << node
                       << " payload omitted\n";
@@ -212,10 +236,26 @@ int main(int argc, char** argv) {
                     "generated region failed canonical loader validation");
             }
             write_region(
-                output_directory / (std::string(node) + ".region"),
+                output_directory / (std::string(node) + ".world.region"),
                 checkpoint);
+            const auto unit_checkpoint =
+                relocatable_unit_handoff_demo::save_unit_checkpoint(
+                    relocatable_unit_handoff_demo::
+                        build_canonical_migrating_unit());
+            const auto loaded_unit =
+                relocatable_unit_handoff_demo::load_unit_checkpoint(
+                    unit_checkpoint);
+            if (!relocatable_unit_handoff_demo::canonical_migrating_unit_matches(
+                    loaded_unit, 300)) {
+                throw std::runtime_error(
+                    "generated unit failed canonical loader validation");
+            }
+            write_region(
+                output_directory / (std::string(node) + ".unit.region"),
+                unit_checkpoint);
             std::cout << "PRODUCER READY node=" << node
-                      << " admission=4/4 region=" << node << ".region\n";
+                      << " admission=8/8 world=" << node
+                      << ".world.region unit=" << node << ".unit.region\n";
             return 0;
         }
     } catch (const std::exception& error) {
