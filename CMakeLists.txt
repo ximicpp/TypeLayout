@@ -127,6 +127,51 @@ add_test(NAME test_relocatable_unit_checkpoint
 set_tests_properties(test_relocatable_unit_checkpoint PROPERTIES
     LABELS "typelayout;example;relocatable-unit")
 
+add_executable(relocatable_unit_export_ok EXCLUDE_FROM_ALL
+    example/relocatable_unit_handoff_demo/export_signatures.cpp)
+target_link_libraries(relocatable_unit_export_ok PRIVATE typelayout)
+target_include_directories(relocatable_unit_export_ok PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/example/relocatable_unit_handoff_demo)
+
+add_executable(relocatable_unit_export_packed EXCLUDE_FROM_ALL
+    example/relocatable_unit_handoff_demo/export_signatures.cpp)
+target_link_libraries(relocatable_unit_export_packed PRIVATE typelayout)
+target_include_directories(relocatable_unit_export_packed PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/example/relocatable_unit_handoff_demo)
+target_compile_definitions(relocatable_unit_export_packed PRIVATE
+    TYPELAYOUT_RELOCATABLE_UNIT_PACKED_EFFECT=1)
+
+add_executable(test_relocatable_unit_agreement
+    test/test_relocatable_unit_agreement.cpp)
+target_link_libraries(test_relocatable_unit_agreement PRIVATE typelayout)
+target_include_directories(test_relocatable_unit_agreement PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/example/relocatable_unit_handoff_demo)
+add_test(NAME test_relocatable_unit_agreement
+    COMMAND test_relocatable_unit_agreement)
+set_tests_properties(test_relocatable_unit_agreement PROPERTIES
+    LABELS "typelayout;example;relocatable-unit")
+
+add_executable(relocatable_unit_handoff_demo
+    example/relocatable_unit_handoff_demo/demo.cpp)
+target_link_libraries(relocatable_unit_handoff_demo PRIVATE
+    relocatable_unit_handoff_support)
+add_test(NAME relocatable_unit_handoff_demo
+    COMMAND relocatable_unit_handoff_demo)
+set_tests_properties(relocatable_unit_handoff_demo PROPERTIES
+    LABELS "typelayout;example;relocatable-unit"
+    PASS_REGULAR_EXPRESSION [=[^Unit contract: Admission PASS 4/4, Agreement MATCH
+Transfer: source base != destination base, raw offsets unchanged
+Containers: string=yes vector=yes flat_map=yes
+Pointers: nullable=yes shared=yes cycle=yes pointer_vector=yes
+Registry: owner 9001 RESOLVED, target 2001 UNRESOLVED
+Business: unit 1001 attached, hp 300 -> 250
+
+Negative\[native pointer\]: Admission FAIL
+Negative\[packed Effect\]: Agreement DIFFER
+Negative\[foreign handle\]: builder REJECT
+Negative\[corrupt Effect::next\]: graph REJECT before dereference
+$]=])
+
 add_library(relocatable_world_support STATIC
     example/relocatable_world_demo/world_runtime.cpp
     example/relocatable_world_demo/checkpoint.cpp)
