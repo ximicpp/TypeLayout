@@ -206,8 +206,8 @@ concept exposes_mutable_at = requires(
 };
 
 template <typename Builder>
-concept accepts_wrong_root = requires(
-    Builder& builder, region_handle<std::uint64_t> handle) {
+concept accepts_generic_root = requires(
+    Builder& builder, region_handle<RegionFixture> handle) {
     std::move(builder).finish(handle);
 };
 
@@ -397,7 +397,7 @@ concept directly_binds_stack_map = requires(
 
 static_assert(!exposes_mutable_get<RegionBuilder>);
 static_assert(!exposes_mutable_at<RegionBuilder>);
-static_assert(!accepts_wrong_root<RegionBuilder>);
+static_assert(accepts_generic_root<RegionBuilder>);
 static_assert(accepts_world_root<RegionBuilder>);
 static_assert(!ordinarily_sets_descriptor<RegionBuilder>);
 static_assert(!ordinarily_sets_native_pointer<RegionBuilder>);
@@ -920,6 +920,19 @@ void test_finish_rejects_invalid_world_roots() {
     });
 }
 
+void test_finish_accepts_generic_root() {
+    RegionBuilder builder;
+    const auto root = builder.make_object<RegionFixture>();
+    builder.set(root, &RegionFixture::scalar, std::uint32_t{73});
+
+    auto buffer = std::move(builder).finish(root);
+    expect(!buffer.is_validated());
+    expect(read_u32(buffer.used_bytes(), root.raw_offset_plus_one() - 1) == 73);
+    expect_throws<std::logic_error>([&] {
+        static_cast<void>(buffer.view());
+    });
+}
+
 } // namespace
 
 int main() {
@@ -932,4 +945,5 @@ int main() {
     test_null_member_pointer_rejection();
     test_finish_closes_builder();
     test_finish_rejects_invalid_world_roots();
+    test_finish_accepts_generic_root();
 }

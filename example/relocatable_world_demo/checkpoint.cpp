@@ -8,211 +8,51 @@
 #include "region_storage.hpp"
 #include "world_runtime.hpp"
 
-#include <algorithm>
-#include <limits>
+#include <utility>
 
 namespace relocatable_world_demo {
-
-struct CheckpointRegionAccess {
-    static std::uint32_t root_offset(const RegionBuffer& buffer) {
-        return buffer.root_offset_;
-    }
-
-    static RegionBuffer copied_buffer(const decoded_checkpoint& decoded) {
-        RegionBuffer buffer;
-        // P0593: this distinct-source copy creates the suitable schema objects
-        // in the destination; validation gates every subsequent typed access.
-        std::memcpy(buffer.storage_->bytes, decoded.payload.data(),
-                    decoded.payload.size());
-        buffer.used_bytes_ = static_cast<std::uint32_t>(decoded.payload.size());
-        buffer.root_offset_ = decoded.root_offset;
-        buffer.state_ = RegionBuffer::state::copied_bytes_unvalidated;
-        return buffer;
-    }
-};
-
 namespace {
 
-constexpr std::size_t version_offset = 8;
-constexpr std::size_t header_size_offset = 10;
-constexpr std::size_t format_offset = 12;
-constexpr std::size_t payload_size_offset = 16;
-constexpr std::size_t root_offset_offset = 20;
-constexpr std::size_t flags_offset = 24;
-constexpr std::size_t reserved_offset = 28;
-constexpr std::size_t schema_offset = 32;
-
-[[noreturn]] void reject_envelope(const char* message) {
-    throw checkpoint_error(rejection_layer::envelope, message);
-}
-
-std::size_t checked_size(std::uint16_t value) {
-    if (static_cast<std::uintmax_t>(value) >
-        static_cast<std::uintmax_t>(std::numeric_limits<std::size_t>::max())) {
-        reject_envelope("checkpoint integer is not representable");
+template <typename Function>
+decltype(auto) translate_envelope_error(Function&& function) {
+    try {
+        return std::forward<Function>(function)();
+    } catch (const relocatable_region_support::checkpoint_envelope_error&
+                 error) {
+        throw checkpoint_error(rejection_layer::envelope, error.what());
     }
-    return static_cast<std::size_t>(value);
-}
-
-std::size_t checked_size(std::uint32_t value) {
-    if (static_cast<std::uintmax_t>(value) >
-        static_cast<std::uintmax_t>(std::numeric_limits<std::size_t>::max())) {
-        reject_envelope("checkpoint integer is not representable");
-    }
-    return static_cast<std::size_t>(value);
-}
-
-std::uint16_t read_u16_le(std::span<const std::byte> bytes,
-                          std::size_t offset) {
-    return static_cast<std::uint16_t>(
-        std::to_integer<unsigned char>(bytes[offset])) |
-        static_cast<std::uint16_t>(
-            std::to_integer<unsigned char>(bytes[offset + 1])) << 8;
-}
-
-std::uint32_t read_u32_le(std::span<const std::byte> bytes,
-                          std::size_t offset) {
-    return static_cast<std::uint32_t>(
-        std::to_integer<unsigned char>(bytes[offset])) |
-        static_cast<std::uint32_t>(
-            std::to_integer<unsigned char>(bytes[offset + 1])) << 8 |
-        static_cast<std::uint32_t>(
-            std::to_integer<unsigned char>(bytes[offset + 2])) << 16 |
-        static_cast<std::uint32_t>(
-            std::to_integer<unsigned char>(bytes[offset + 3])) << 24;
-}
-
-void write_u16_le(std::span<std::byte> bytes,
-                  std::size_t offset,
-                  std::uint16_t value) {
-    bytes[offset] = std::byte{static_cast<unsigned char>(value)};
-    bytes[offset + 1] = std::byte{static_cast<unsigned char>(value >> 8)};
-}
-
-void write_u32_le(std::span<std::byte> bytes,
-                  std::size_t offset,
-                  std::uint32_t value) {
-    bytes[offset] = std::byte{static_cast<unsigned char>(value)};
-    bytes[offset + 1] = std::byte{static_cast<unsigned char>(value >> 8)};
-    bytes[offset + 2] = std::byte{static_cast<unsigned char>(value >> 16)};
-    bytes[offset + 3] = std::byte{static_cast<unsigned char>(value >> 24)};
-}
-
-bool has_bytes(std::span<const std::byte> bytes,
-               std::size_t offset,
-               std::size_t count) {
-    return offset <= bytes.size() && count <= bytes.size() - offset;
-}
-
-template <std::size_t N>
-bool has_field(std::span<const std::byte> artifact,
-               std::size_t offset,
-               const std::array<std::byte, N>& expected) {
-    return has_bytes(artifact, offset, expected.size()) &&
-        std::equal(expected.begin(), expected.end(), artifact.begin() + offset);
 }
 
 } // namespace
 
 std::vector<std::byte> encode_checkpoint(std::span<const std::byte> payload,
                                          std::uint32_t root_offset) {
-    if (payload.size() > region_capacity) {
-        reject_envelope("checkpoint payload exceeds region capacity");
-    }
-    if (payload.size() > std::numeric_limits<std::uint32_t>::max()) {
-        reject_envelope("checkpoint payload size is not representable");
-    }
-
-    const auto encoded_payload_size = static_cast<std::uint32_t>(payload.size());
-    const auto root = checked_size(root_offset);
-    if (root >= payload.size()) {
-        reject_envelope("checkpoint root is outside the used payload");
-    }
-    if (payload.size() >
-        std::numeric_limits<std::size_t>::max() - checkpoint_header_size) {
-        reject_envelope("checkpoint artifact size overflows");
-    }
-
-    std::vector<std::byte> artifact(checkpoint_header_size + payload.size());
-    std::copy(checkpoint_magic.begin(), checkpoint_magic.end(), artifact.begin());
-    write_u16_le(artifact, version_offset, 1);
-    write_u16_le(artifact, header_size_offset,
-                 static_cast<std::uint16_t>(checkpoint_header_size));
-    std::copy(checkpoint_format.begin(), checkpoint_format.end(),
-              artifact.begin() + format_offset);
-    write_u32_le(artifact, payload_size_offset, encoded_payload_size);
-    write_u32_le(artifact, root_offset_offset, root_offset);
-    write_u32_le(artifact, flags_offset, 0);
-    write_u32_le(artifact, reserved_offset, 0);
-    std::copy(checkpoint_schema.begin(), checkpoint_schema.end(),
-              artifact.begin() + schema_offset);
-    std::copy(payload.begin(), payload.end(),
-              artifact.begin() + checkpoint_header_size);
-    return artifact;
+    return translate_envelope_error([&] {
+        return relocatable_region_support::encode_checkpoint_envelope(
+            payload, root_offset, world_checkpoint_envelope, region_capacity);
+    });
 }
 
 decoded_checkpoint decode_checkpoint_envelope(
     std::span<const std::byte> artifact) {
-    if (artifact.size() < checkpoint_header_size) {
-        reject_envelope("checkpoint is shorter than its header");
-    }
-    if (!has_field(artifact, 0, checkpoint_magic)) {
-        reject_envelope("checkpoint magic does not match");
-    }
-    if (checked_size(read_u16_le(artifact, version_offset)) != 1) {
-        reject_envelope("checkpoint version does not match");
-    }
-    if (checked_size(read_u16_le(artifact, header_size_offset)) !=
-        checkpoint_header_size) {
-        reject_envelope("checkpoint header size does not match");
-    }
-    if (!has_field(artifact, format_offset, checkpoint_format)) {
-        reject_envelope("checkpoint format does not match");
-    }
-
-    const auto payload_size = checked_size(
-        read_u32_le(artifact, payload_size_offset));
-    const auto root = checked_size(read_u32_le(artifact, root_offset_offset));
-    if (checked_size(read_u32_le(artifact, flags_offset)) != 0) {
-        reject_envelope("checkpoint flags are not zero");
-    }
-    if (checked_size(read_u32_le(artifact, reserved_offset)) != 0) {
-        reject_envelope("checkpoint reserved field is not zero");
-    }
-    if (!has_field(artifact, schema_offset, checkpoint_schema)) {
-        reject_envelope("checkpoint schema does not match");
-    }
-    if (payload_size > region_capacity) {
-        reject_envelope("checkpoint payload exceeds region capacity");
-    }
-    if (payload_size >
-        std::numeric_limits<std::size_t>::max() - checkpoint_header_size) {
-        reject_envelope("checkpoint artifact size overflows");
-    }
-    if (artifact.size() != checkpoint_header_size + payload_size) {
-        reject_envelope("checkpoint artifact length does not match payload");
-    }
-    if (root >= payload_size) {
-        reject_envelope("checkpoint root is outside the used payload");
-    }
-
-    return {
-        artifact.subspan(checkpoint_header_size, payload_size),
-        static_cast<std::uint32_t>(root)
-    };
+    return translate_envelope_error([&] {
+        return relocatable_region_support::decode_checkpoint_envelope(
+            artifact, world_checkpoint_envelope, region_capacity);
+    });
 }
 
 std::vector<std::byte> save_checkpoint(const RegionBuffer& buffer) {
     if (!buffer.is_validated()) {
         throw std::logic_error("cannot save an unvalidated region buffer");
     }
-    return encode_checkpoint(buffer.used_bytes(),
-                             CheckpointRegionAccess::root_offset(buffer));
+    return encode_checkpoint(
+        buffer.used_bytes(), RegionValidationAccess::root_offset(buffer));
 }
 
 RegionBuffer load_checkpoint(std::span<const std::byte> artifact) {
     const auto decoded = decode_checkpoint_envelope(artifact);
-    auto buffer = CheckpointRegionAccess::copied_buffer(decoded);
+    auto buffer = RegionValidationAccess::copied_buffer(
+        decoded.payload, decoded.root_offset);
     validate_and_freeze_world(buffer);
     return buffer;
 }

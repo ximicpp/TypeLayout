@@ -92,10 +92,17 @@ add_test(NAME test_relocatable_region COMMAND test_relocatable_region)
 set_tests_properties(test_relocatable_region PROPERTIES
     LABELS "typelayout;example;relocatable-world")
 
+add_library(relocatable_region_support STATIC
+    example/relocatable_region_support/checkpoint_envelope.cpp)
+target_link_libraries(relocatable_region_support PUBLIC typelayout)
+target_include_directories(relocatable_region_support PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/example/relocatable_region_support)
+
 add_library(relocatable_world_support STATIC
     example/relocatable_world_demo/world_runtime.cpp
     example/relocatable_world_demo/checkpoint.cpp)
-target_link_libraries(relocatable_world_support PUBLIC typelayout)
+target_link_libraries(relocatable_world_support PUBLIC
+    relocatable_region_support)
 target_include_directories(relocatable_world_support PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/example/relocatable_world_demo)
 
