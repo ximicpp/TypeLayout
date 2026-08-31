@@ -108,7 +108,8 @@ target_include_directories(relocatable_region_support PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/example/relocatable_region_support)
 
 add_library(relocatable_unit_handoff_support STATIC
-    example/relocatable_unit_handoff_demo/unit_runtime.cpp)
+    example/relocatable_unit_handoff_demo/unit_runtime.cpp
+    example/relocatable_unit_handoff_demo/unit_checkpoint.cpp)
 target_link_libraries(relocatable_unit_handoff_support PUBLIC
     relocatable_region_support)
 target_include_directories(relocatable_unit_handoff_support PUBLIC
@@ -116,6 +117,15 @@ target_include_directories(relocatable_unit_handoff_support PUBLIC
 
 target_link_libraries(test_relocatable_unit PRIVATE
     relocatable_unit_handoff_support)
+
+add_executable(test_relocatable_unit_checkpoint
+    test/test_relocatable_unit_checkpoint.cpp)
+target_link_libraries(test_relocatable_unit_checkpoint PRIVATE
+    relocatable_unit_handoff_support)
+add_test(NAME test_relocatable_unit_checkpoint
+    COMMAND test_relocatable_unit_checkpoint)
+set_tests_properties(test_relocatable_unit_checkpoint PROPERTIES
+    LABELS "typelayout;example;relocatable-unit")
 
 add_library(relocatable_world_support STATIC
     example/relocatable_world_demo/world_runtime.cpp
