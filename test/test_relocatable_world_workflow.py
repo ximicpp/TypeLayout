@@ -103,7 +103,7 @@ class RelocatableWorldWorkflowTests(unittest.TestCase):
         self.assertIn("workflow_dispatch", events)
         push = events["push"]
         self.assertEqual(
-            set(push["branches"]), {"main", "codex/cppcon2026-deck"}
+            set(push["branches"]), {"main", "cppcon2026demo"}
         )
         required = {
             ".gitattributes",

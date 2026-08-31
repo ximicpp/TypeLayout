@@ -616,7 +616,7 @@ The remote dispatcher can run only a committed workflow. Once the workflow bytes
 python3 .github/scripts/validate-toolchain-locks.py --sources .github/docker/toolchain-sources.lock --recipe-root .
 git add -- .github/workflows/toolchain-images.yml .github/docker/toolchain-sources.lock test/test_relocatable_world_evidence.py
 git commit -m "ci: build native P2996 toolchain candidates"
-git push -u origin codex/cppcon2026-deck
+git push -u origin cppcon2026demo
 ```
 
 - [ ] **Step 4: Run candidate publication**
@@ -625,13 +625,13 @@ git push -u origin codex/cppcon2026-deck
 head_sha="$(git rev-parse HEAD)"
 run_state_dir="$(mktemp -d)"
 trap 'rm -rf "$run_state_dir"' EXIT
-gh run list --workflow toolchain-images.yml --branch codex/cppcon2026-deck --commit "$head_sha" --event workflow_dispatch --limit 100 --json databaseId --jq '.[].databaseId' | sort -n > "$run_state_dir/before.ids"
-gh workflow run toolchain-images.yml --ref codex/cppcon2026-deck
+gh run list --workflow toolchain-images.yml --branch cppcon2026demo --commit "$head_sha" --event workflow_dispatch --limit 100 --json databaseId --jq '.[].databaseId' | sort -n > "$run_state_dir/before.ids"
+gh workflow run toolchain-images.yml --ref cppcon2026demo
 run_id=""
 attempt=0
 while test "$attempt" -lt 60; do
   attempt=$((attempt + 1))
-  gh run list --workflow toolchain-images.yml --branch codex/cppcon2026-deck --commit "$head_sha" --event workflow_dispatch --limit 100 --json databaseId --jq '.[].databaseId' | sort -n > "$run_state_dir/after.ids"
+  gh run list --workflow toolchain-images.yml --branch cppcon2026demo --commit "$head_sha" --event workflow_dispatch --limit 100 --json databaseId --jq '.[].databaseId' | sort -n > "$run_state_dir/after.ids"
   comm -13 "$run_state_dir/before.ids" "$run_state_dir/after.ids" > "$run_state_dir/new.ids"
   new_count="$(wc -l < "$run_state_dir/new.ids")"
   if test "$new_count" -eq 1; then
@@ -693,7 +693,7 @@ Do not manually edit a digest, URL, checksum, or generated identity.
 
 - [ ] **Step 1: Add workflow-schema tests**
 
-Add a Python test that parses the workflow text/YAML-safe structure and requires all six node IDs, all four runner labels, `fail-fast: false`, `if: always()` on consumers/Agreement/closure, artifact upload before final failure, a `workflow_dispatch` trigger, and a push trigger for `codex/cppcon2026-deck` (needed because this new workflow is not yet present on the default branch). Its path set covers `.gitattributes`, `CMakeLists.txt`, `cmake/**`, `include/**`, `example/relocatable_world_demo/**`, `tools/relocatable_world_evidence.py`, `tools/run-relocatable-world.sh`, both lock files, and the workflow itself so the final post-launcher commit necessarily receives fresh authoritative evidence. Require top-level `contents: read` only. Only the Linux producer and Linux consumer job definitions override with the exact pair `contents: read` plus `packages: read`; macOS, Agreement, and closure jobs receive no package permission, and no job has write or package-visibility permission. Also require exact `${{ github.sha }}`/`${{ github.run_id }}.${{ github.run_attempt }}`, explicit node `toolchain_artifact_sha256`, and committed-lock inputs on every seal/consumer preparation path; a fresh platform probe on all six consumers; the complete consumer compiler family/revision/version/target/stdlib/flags fields derived from that job's locked configuration; and `verify-p2996-toolchain.sh --require-locked-sdk` on both producer and both consumer macOS paths. Static tests require its emitted sysroot, deployment, bundled-libc++ include/link/rpath flags to configure those builds and require `otool` plus `DYLD_PRINT_LIBRARIES` verification of the final producer and consumer executables. No path may use `--fixture-context`, `:latest`, an XOffset path, submodule initialization, or a runner-image equality gate.
+Add a Python test that parses the workflow text/YAML-safe structure and requires all six node IDs, all four runner labels, `fail-fast: false`, `if: always()` on consumers/Agreement/closure, artifact upload before final failure, a `workflow_dispatch` trigger, and a push trigger for `cppcon2026demo` (needed because this new workflow is not yet present on the default branch). Its path set covers `.gitattributes`, `CMakeLists.txt`, `cmake/**`, `include/**`, `example/relocatable_world_demo/**`, `tools/relocatable_world_evidence.py`, `tools/run-relocatable-world.sh`, both lock files, and the workflow itself so the final post-launcher commit necessarily receives fresh authoritative evidence. Require top-level `contents: read` only. Only the Linux producer and Linux consumer job definitions override with the exact pair `contents: read` plus `packages: read`; macOS, Agreement, and closure jobs receive no package permission, and no job has write or package-visibility permission. Also require exact `${{ github.sha }}`/`${{ github.run_id }}.${{ github.run_attempt }}`, explicit node `toolchain_artifact_sha256`, and committed-lock inputs on every seal/consumer preparation path; a fresh platform probe on all six consumers; the complete consumer compiler family/revision/version/target/stdlib/flags fields derived from that job's locked configuration; and `verify-p2996-toolchain.sh --require-locked-sdk` on both producer and both consumer macOS paths. Static tests require its emitted sysroot, deployment, bundled-libc++ include/link/rpath flags to configure those builds and require `otool` plus `DYLD_PRINT_LIBRARIES` verification of the final producer and consumer executables. No path may use `--fixture-context`, `:latest`, an XOffset path, submodule initialization, or a runner-image equality gate.
 
 - [ ] **Step 2: Implement six producer jobs from the sealed lock**
 
@@ -740,7 +740,7 @@ run_id=""
 attempt=0
 while test "$attempt" -lt 60; do
   attempt=$((attempt + 1))
-  gh run list --workflow relocatable-world-matrix.yml --branch codex/cppcon2026-deck --commit "$head_sha" --event push --limit 100 --json databaseId,headSha,event --jq ".[] | select(.headSha == \"$head_sha\" and .event == \"push\") | .databaseId" | sort -n > "$run_state_dir/matches.ids"
+  gh run list --workflow relocatable-world-matrix.yml --branch cppcon2026demo --commit "$head_sha" --event push --limit 100 --json databaseId,headSha,event --jq ".[] | select(.headSha == \"$head_sha\" and .event == \"push\") | .databaseId" | sort -n > "$run_state_dir/matches.ids"
   run_count="$(wc -l < "$run_state_dir/matches.ids")"
   if test "$run_count" -eq 1; then
     run_id="$(tr -d '[:space:]' < "$run_state_dir/matches.ids")"
@@ -880,7 +880,7 @@ run_id=""
 attempt=0
 while test "$attempt" -lt 60; do
   attempt=$((attempt + 1))
-  gh run list --workflow relocatable-world-matrix.yml --branch codex/cppcon2026-deck --commit "$implementation_sha" --event push --limit 100 --json databaseId,headSha,event --jq ".[] | select(.headSha == \"$implementation_sha\" and .event == \"push\") | .databaseId" | sort -n > "$run_state_dir/matches.ids"
+  gh run list --workflow relocatable-world-matrix.yml --branch cppcon2026demo --commit "$implementation_sha" --event push --limit 100 --json databaseId,headSha,event --jq ".[] | select(.headSha == \"$implementation_sha\" and .event == \"push\") | .databaseId" | sort -n > "$run_state_dir/matches.ids"
   run_count="$(wc -l < "$run_state_dir/matches.ids")"
   if test "$run_count" -eq 1; then
     run_id="$(tr -d '[:space:]' < "$run_state_dir/matches.ids")"

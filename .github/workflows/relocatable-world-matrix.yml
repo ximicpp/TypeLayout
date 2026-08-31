@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - main
-      - codex/cppcon2026-deck
+      - cppcon2026demo
     paths:
       - .gitattributes
       - CMakeLists.txt
