@@ -1643,21 +1643,6 @@ rollback_alias() {
         self.assertEqual(permissive.returncode, 0)
         self.assertNotEqual(strict.returncode, 0)
 
-    def test_toolchain_probes_gate_both_relocation_scenarios(self):
-        verifier = (
-            ROOT / ".github/scripts/verify-p2996-toolchain.sh"
-        ).read_text(encoding="utf-8")
-        validators = self.workflow + verifier
-        self.assertNotIn('probe["admission"]', validators)
-        self.assertEqual(
-            validators.count('probe["contracts"][scenario]'),
-            5,
-        )
-        self.assertEqual(
-            validators.count("candidate must admit all eight contract types"),
-            5,
-        )
-
     def test_workflow_yaml_bash_and_embedded_python_are_syntactically_valid(self):
         for path in (TOOLCHAIN_WORKFLOW, CI_WORKFLOW, COMPAT_WORKFLOW):
             workflow = yaml.safe_load(path.read_text(encoding="utf-8"))

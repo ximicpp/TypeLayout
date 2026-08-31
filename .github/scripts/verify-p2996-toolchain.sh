@@ -844,11 +844,8 @@ expected_gates = {
 }
 if probe["node"] != sys.argv[3] or probe["probe"] != expected_gates:
     raise SystemExit("platform probe identity or capability mismatch")
-if any(
-    set(probe["contracts"][scenario].values()) != {True}
-    for scenario in evidence.SCENARIOS
-):
-    raise SystemExit("candidate must admit all eight contract types")
+if set(probe["admission"].values()) != {True}:
+    raise SystemExit("candidate must admit all four contract types")
 if probe["environment"]["runner"] != sys.argv[4]:
     raise SystemExit("platform probe runner mismatch")
 compiler = probe["compiler"]

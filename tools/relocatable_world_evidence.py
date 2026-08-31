@@ -502,6 +502,15 @@ def validate_probe(path):
     _expect_nonempty_string(
         environment["runner_image"], "environment.runner_image"
     )
+    # The sealed macOS verifier and toolchain publication workflows are part of
+    # the immutable toolchain recipe. Preserve their mapping lookup without
+    # weakening the schema-2 file shape: this projection exists only in memory
+    # after strict validation and contains all eight scenario contract gates.
+    record["admission"] = {
+        key: contracts[scenario][key]
+        for scenario in SCENARIOS
+        for key in SCENARIO_KEYS[scenario]
+    }
     return record
 
 

@@ -1515,6 +1515,19 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(evidence.EvidenceError, "xcode_build"):
             self.seal(bundle)
 
+    def test_probe_exposes_all_scenario_admissions_to_sealed_validators(self):
+        bundle = self.make_ready_bundle()
+        raw = json.loads(bundle["probe"].read_text(encoding="utf-8"))
+        validated = evidence.validate_probe(bundle["probe"])
+        expected = {
+            key: raw["contracts"][scenario][key]
+            for scenario in evidence.SCENARIOS
+            for key in evidence.SCENARIO_KEYS[scenario]
+        }
+        self.assertNotIn("admission", raw)
+        self.assertEqual(validated["admission"], expected)
+        self.assertEqual(len(validated["admission"]), 8)
+
     def test_probe_rejects_obsolete_merged_apple_fields(self):
         bundle = self.make_ready_bundle()
         probe = json.loads(bundle["probe"].read_text(encoding="utf-8"))
