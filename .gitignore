@@ -5,6 +5,11 @@ build_*/
 build-*/
 bin/
 
+# Local AI tool settings and temporary workspaces
+/.claude/
+/.codex-*/
+/.tmp-*/
+
 # IDE files
 .vscode/
 .idea/
