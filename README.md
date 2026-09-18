@@ -93,7 +93,7 @@ cmake --build build -j$(nproc)
 ctest --test-dir build --output-on-failure
 ```
 
-See [CLAUDE.md](CLAUDE.md) for WSL and Docker build instructions.
+See the [quickstart](docs/quickstart.md) for compilation and Docker usage examples.
 
 ## Requirements
 

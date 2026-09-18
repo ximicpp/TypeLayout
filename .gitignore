@@ -6,6 +6,9 @@ build-*/
 bin/
 
 # Local AI tool settings and temporary workspaces
+/.codemaker/
+CLAUDE.md
+AGENTS.md
 /.claude/
 /.codex-*/
 /.tmp-*/
