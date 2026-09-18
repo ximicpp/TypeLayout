@@ -1,6 +1,14 @@
 # Build directory
 build/
 
+# Local AI tool settings and temporary workspaces
+/.claude/
+/.codex-*/
+/.tmp-*/
+/.codemaker/
+CLAUDE.md
+AGENTS.md
+
 # IDE files
 .vscode/
 .idea/
