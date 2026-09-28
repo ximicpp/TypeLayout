@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "0.1", "mode": "regression", "policy": "value-fields-v1", "scope": "value",
+  "cases": [
+    { "id": "sample", "left": "sample", "right": "sample" },
+    { "id": "packed", "left": "packed", "right": "packed" },
+    { "id": "reordered", "left": "reordered", "right": "reordered" },
+    { "id": "nested", "left": "nested", "right": "nested" },
+    { "id": "array", "left": "array", "right": "array" },
+    { "id": "enum", "left": "enum", "right": "enum" }
+  ]
+}

@@ -1,0 +1,1103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ximicpp.github.io/TypeLayout/layout-observer/0.1/snapshot.schema.json",
+  "title": "Layout Observer snapshot 0.1",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "0.1"
+    },
+    "snapshotId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "producer": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "capabilities"
+      ],
+      "additionalProperties": false
+    },
+    "build": {
+      "type": "object",
+      "properties": {
+        "buildId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "configuration": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceRevision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceDigest": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifactDigest": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceDirty": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "compiler": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "name",
+            "version"
+          ]
+        },
+        "runtime": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "name",
+            "version"
+          ]
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "os": {
+              "type": "string",
+              "minLength": 1
+            },
+            "architecture": {
+              "type": "string",
+              "minLength": 1
+            },
+            "abi": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pointerBits": {
+              "enum": [
+                32,
+                64
+              ]
+            },
+            "bitsPerByte": {
+              "const": 8
+            },
+            "endian": {
+              "enum": [
+                "little",
+                "big"
+              ]
+            }
+          },
+          "required": [
+            "os",
+            "architecture",
+            "abi",
+            "pointerBits",
+            "bitsPerByte",
+            "endian"
+          ],
+          "additionalProperties": false
+        },
+        "flags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "dependencies": {
+          "type": "object"
+        },
+        "requestedProfile": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "buildId",
+        "runId",
+        "configuration",
+        "sourceRevision",
+        "sourceDigest",
+        "artifactDigest",
+        "sourceDirty",
+        "compiler",
+        "runtime",
+        "target",
+        "flags",
+        "dependencies"
+      ],
+      "additionalProperties": false
+    },
+    "typeDescriptors": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/typeDescriptor"
+      }
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/observation"
+      },
+      "minItems": 1
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          },
+          "observationId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "snapshotId",
+    "producer",
+    "build",
+    "typeDescriptors",
+    "observations",
+    "diagnostics",
+    "limitations"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "compiler",
+            "runtime",
+            "derived",
+            "fixture"
+          ]
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "method",
+        "version",
+        "inputs"
+      ],
+      "additionalProperties": false
+    },
+    "integerFact": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "integer",
+              "minimum": -9223372036854775808,
+              "maximum": 9223372036854775807
+            },
+            "evidence": {
+              "$ref": "#/$defs/evidence"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "enum": [
+                "unknown",
+                "not-applicable"
+              ]
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "state",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "sizeFact": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "evidence": {
+              "$ref": "#/$defs/evidence"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "enum": [
+                "unknown",
+                "not-applicable"
+              ]
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "state",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "positiveFact": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "evidence": {
+              "$ref": "#/$defs/evidence"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "enum": [
+                "unknown",
+                "not-applicable"
+              ]
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "state",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "stringFact": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1
+            },
+            "evidence": {
+              "$ref": "#/$defs/evidence"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "enum": [
+                "unknown",
+                "not-applicable"
+              ]
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "state",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "rangeFact": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "startBit": {
+                    "type": "integer",
+                    "minimum": -9223372036854775808,
+                    "maximum": 9223372036854775807
+                  },
+                  "lengthBits": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9223372036854775807
+                  }
+                },
+                "required": [
+                  "startBit",
+                  "lengthBits"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "evidence": {
+              "$ref": "#/$defs/evidence"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "enum": [
+                "unknown",
+                "not-applicable"
+              ]
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "state",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "typeDescriptor": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "scalar",
+            "enum",
+            "record",
+            "union",
+            "array",
+            "reference",
+            "opaque"
+          ]
+        },
+        "representation": {
+          "type": "object",
+          "properties": {
+            "category": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "const": "known"
+                    },
+                    "value": {
+                      "enum": [
+                        "integer",
+                        "float",
+                        "boolean",
+                        "character",
+                        "byte"
+                      ]
+                    },
+                    "evidence": {
+                      "$ref": "#/$defs/evidence"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "value",
+                    "evidence"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "enum": [
+                        "unknown",
+                        "not-applicable"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "reason"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "signedness": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "const": "known"
+                    },
+                    "value": {
+                      "enum": [
+                        "signed",
+                        "unsigned",
+                        "not-applicable"
+                      ]
+                    },
+                    "evidence": {
+                      "$ref": "#/$defs/evidence"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "value",
+                    "evidence"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "enum": [
+                        "unknown",
+                        "not-applicable"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "reason"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "encoding": {
+              "$ref": "#/$defs/stringFact"
+            },
+            "floatingFormat": {
+              "$ref": "#/$defs/stringFact"
+            },
+            "widthBits": {
+              "$ref": "#/$defs/positiveFact"
+            }
+          },
+          "required": [
+            "widthBits"
+          ],
+          "additionalProperties": false
+        },
+        "enumUnderlyingTypeRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "elementTypeRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fixedCount": {
+          "$ref": "#/$defs/sizeFact"
+        },
+        "referenceKind": {
+          "enum": [
+            "native-pointer",
+            "native-reference",
+            "GC-reference",
+            "function-pointer",
+            "member-pointer"
+          ]
+        },
+        "targetTypeRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "opaqueTag": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "displayName",
+        "kind"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "scalar"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "representation"
+            ],
+            "properties": {
+              "representation": {
+                "required": [
+                  "category",
+                  "signedness",
+                  "encoding",
+                  "floatingFormat",
+                  "widthBits"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "enum"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "enumUnderlyingTypeRef"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "array"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "elementTypeRef",
+              "fixedCount"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "reference"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "referenceKind",
+              "representation"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "opaque"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "opaqueTag"
+            ]
+          }
+        }
+      ]
+    },
+    "member": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "declarationOrder": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "role": {
+          "enum": [
+            "field",
+            "base"
+          ]
+        },
+        "typeRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "offsetBits": {
+          "$ref": "#/$defs/integerFact"
+        },
+        "bitWidth": {
+          "$ref": "#/$defs/sizeFact"
+        },
+        "declaredTypeSizeBits": {
+          "$ref": "#/$defs/sizeFact"
+        },
+        "occupiedRanges": {
+          "$ref": "#/$defs/rangeFact"
+        },
+        "overlapGroup": {
+          "type": "string",
+          "minLength": 1
+        },
+        "childObservationId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "displayName",
+        "declarationOrder",
+        "role",
+        "typeRef",
+        "offsetBits",
+        "bitWidth",
+        "declaredTypeSizeBits",
+        "occupiedRanges"
+      ],
+      "additionalProperties": false
+    },
+    "observation": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "typeId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "unsupported"
+          ]
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "view": {
+          "enum": [
+            "native",
+            "managed",
+            "marshaled"
+          ]
+        },
+        "context": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "enum": [
+                "complete-value",
+                "embedded-value",
+                "array-element",
+                "heap-object",
+                "boxed-value"
+              ]
+            },
+            "hostObservationId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "hostMemberId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "elementIndex": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        "origin": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "enum": [
+                "value-start",
+                "object-reference",
+                "instance-data",
+                "anchor-field"
+              ]
+            },
+            "extentStartBit": {
+              "type": "integer",
+              "minimum": -9223372036854775808,
+              "maximum": 9223372036854775807
+            },
+            "conversionEvidence": {
+              "$ref": "#/$defs/evidence"
+            }
+          },
+          "required": [
+            "kind",
+            "extentStartBit"
+          ],
+          "additionalProperties": false
+        },
+        "metrics": {
+          "type": "object",
+          "properties": {
+            "valueSizeBytes": {
+              "$ref": "#/$defs/sizeFact"
+            },
+            "standaloneSizeBytes": {
+              "$ref": "#/$defs/sizeFact"
+            },
+            "referenceSlotBytes": {
+              "$ref": "#/$defs/sizeFact"
+            },
+            "arrayStrideBytes": {
+              "$ref": "#/$defs/sizeFact"
+            },
+            "runtimeReportedObjectBytes": {
+              "$ref": "#/$defs/sizeFact"
+            },
+            "alignmentBytes": {
+              "$ref": "#/$defs/sizeFact"
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/member"
+          }
+        },
+        "runtimeRegions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "role": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ranges": {
+                "$ref": "#/$defs/rangeFact"
+              }
+            },
+            "required": [
+              "role",
+              "ranges"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "coverage": {
+          "type": "object",
+          "properties": {
+            "fieldEnumeration": {
+              "enum": [
+                "complete",
+                "partial",
+                "unknown",
+                "not-applicable"
+              ]
+            },
+            "extent": {
+              "enum": [
+                "complete",
+                "partial",
+                "unknown",
+                "not-applicable"
+              ]
+            },
+            "occupiedRanges": {
+              "enum": [
+                "complete",
+                "partial",
+                "unknown",
+                "not-applicable"
+              ]
+            },
+            "hiddenRegions": {
+              "enum": [
+                "complete",
+                "partial",
+                "unknown",
+                "not-applicable"
+              ]
+            }
+          },
+          "required": [
+            "fieldEnumeration",
+            "extent",
+            "occupiedRanges",
+            "hiddenRegions"
+          ],
+          "additionalProperties": false
+        },
+        "instanceShape": {
+          "type": "object",
+          "properties": {
+            "length": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "dimensions": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              }
+            }
+          },
+          "required": [
+            "length",
+            "dimensions"
+          ],
+          "additionalProperties": false
+        },
+        "marshallingProfile": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "mechanism": {
+              "type": "string",
+              "minLength": 1
+            },
+            "configuration": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "id",
+            "mechanism",
+            "configuration"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "typeId",
+        "displayName",
+        "status",
+        "limitations",
+        "view",
+        "context",
+        "origin",
+        "metrics",
+        "members",
+        "runtimeRegions",
+        "coverage"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "view": {
+                "const": "marshaled"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "marshallingProfile"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

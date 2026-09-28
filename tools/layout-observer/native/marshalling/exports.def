@@ -1,0 +1,6 @@
+EXPORTS
+    typelayout_marshal_size
+    typelayout_marshal_offset
+    typelayout_marshal_validate_default
+    typelayout_marshal_validate_byte
+    typelayout_marshal_validate_array

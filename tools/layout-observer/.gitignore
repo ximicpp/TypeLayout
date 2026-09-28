@@ -1,0 +1,9 @@
+**/bin/
+**/obj/
+.tools/
+artifacts/
+build*/
+*.dmp
+*.pdb
+*.exe
+*.dll

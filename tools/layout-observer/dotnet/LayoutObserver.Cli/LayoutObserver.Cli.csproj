@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../LayoutObserver.Core/LayoutObserver.Core.csproj" />
+    <ProjectReference Include="../LayoutObserver.Report/LayoutObserver.Report.csproj" />
+  </ItemGroup>
+</Project>

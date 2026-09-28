@@ -1,6 +1,6 @@
 # 跨语言、跨构建布局观测器
 
-日期：2026-09-28。状态：经过方案审查的开发设计，尚未实现或完成后端可行性验证。
+日期：2026-09-28。状态：设计审查后已实现独立工具和 D1–D5 后端闭环；具体已执行矩阵与保留边界见[实现记录](../../tools/layout-observer/STATUS.md)，使用入口见[Layout Observer](../../tools/layout-observer/README.md)。本文保留设计决策，实际机器契约以[协议 0.1](../../tools/layout-observer/contracts/PROTOCOL.md)为准。
 
 开发分支：`codex/cross-language-layout`。代码审查基线：`76304981d38be218b0514507907d756c12dfd39b`。本工具属于 TypeLayout，独立于任何教程。审查发现及处置见[审查记录](cross-language-layout-review.md)。
 
@@ -219,7 +219,7 @@ manifest 初期只使用 JSON，避免同时维护 YAML 和 JSON 两套契约。
 
 ## 9. 实施顺序与阶段验收
 
-下列是后续开发顺序。本次 D0 仅完成设计及审查，不声称 D1–D5 已执行。
+下列为分阶段交付及验收要求。D0 完成后按此顺序实施；当前实际验证范围、未执行平台和限制见[实现记录](../../tools/layout-observer/STATUS.md)，不能将一个平台的通过扩展到所有环境。
 
 | 阶段 | 交付 | 必须通过的验收 |
 | --- | --- | --- |

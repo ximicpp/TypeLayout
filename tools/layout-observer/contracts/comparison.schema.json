@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ximicpp.github.io/TypeLayout/layout-observer/0.1/comparison.schema.json",
+  "title": "Layout Observer comparison 0.1",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "0.1"
+    },
+    "mode": {
+      "enum": [
+        "regression",
+        "representation",
+        "marshaled-layout"
+      ]
+    },
+    "scope": {
+      "enum": [
+        "value",
+        "array",
+        "object"
+      ]
+    },
+    "policy": {
+      "enum": [
+        "value-fields-v1",
+        "value-alignment-v1"
+      ]
+    },
+    "leftSnapshotId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rightSnapshotId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "exitCode": {
+      "enum": [
+        0,
+        1,
+        2
+      ]
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "left": {
+            "type": "string",
+            "minLength": 1
+          },
+          "right": {
+            "type": "string",
+            "minLength": 1
+          },
+          "verdict": {
+            "enum": [
+              "same",
+              "different",
+              "incomplete",
+              "not-comparable"
+            ]
+          },
+          "coverage": {
+            "enum": [
+              "complete",
+              "partial",
+              "unknown"
+            ]
+          },
+          "differences": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "kind": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "left": {},
+                "right": {},
+                "message": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "path",
+                "kind",
+                "left",
+                "right",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "unknowns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "kind": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "left": {},
+                "right": {},
+                "message": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "path",
+                "kind",
+                "left",
+                "right",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "required": [
+          "id",
+          "left",
+          "right",
+          "verdict",
+          "coverage",
+          "differences",
+          "unknowns",
+          "diagnostics"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "mode",
+    "scope",
+    "policy",
+    "leftSnapshotId",
+    "rightSnapshotId",
+    "exitCode",
+    "cases"
+  ],
+  "additionalProperties": false
+}

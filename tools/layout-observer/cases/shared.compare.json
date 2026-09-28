@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "0.1",
+  "mode": "representation",
+  "policy": "value-fields-v1",
+  "scope": "value",
+  "cases": [
+    { "id": "sample", "left": "sample", "right": "sample", "fields": [
+      { "id": "tag", "left": "tag", "right": "tag" },
+      { "id": "count", "left": "count", "right": "count" },
+      { "id": "code", "left": "code", "right": "code" }
+    ] },
+    { "id": "packed", "left": "packed", "right": "packed", "fields": [
+      { "id": "tag", "left": "tag", "right": "tag" },
+      { "id": "count", "left": "count", "right": "count" },
+      { "id": "code", "left": "code", "right": "code" }
+    ] },
+    { "id": "reordered", "left": "reordered", "right": "reordered", "fields": [
+      { "id": "tag", "left": "tag", "right": "tag" },
+      { "id": "count", "left": "count", "right": "count" },
+      { "id": "code", "left": "code", "right": "code" }
+    ] },
+    { "id": "nested", "left": "nested", "right": "nested", "fields": [
+      { "id": "payload", "left": "payload", "right": "payload" },
+      { "id": "extra", "left": "extra", "right": "extra" }
+    ] },
+    { "id": "array", "left": "array", "right": "array", "fields": [
+      { "id": "values", "left": "values", "right": "values" }
+    ] },
+    { "id": "enum", "left": "enum", "right": "enum", "fields": [
+      { "id": "value", "left": "value", "right": "value" }
+    ] }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "0.1",
+  "mode": "marshaled-layout",
+  "policy": "value-fields-v1",
+  "scope": "value",
+  "cases": [
+    {"id":"default-bool-char","left":"marshal-default","right":"marshal-default","fields":[{"id":"enabled","left":"enabled","right":"enabled"},{"id":"letter","left":"letter","right":"letter"},{"id":"count","left":"count","right":"count"}]},
+    {"id":"byte-bool-char","left":"marshal-byte","right":"marshal-byte","fields":[{"id":"enabled","left":"enabled","right":"enabled"},{"id":"letter","left":"letter","right":"letter"},{"id":"count","left":"count","right":"count"}]},
+    {"id":"inline-array","left":"marshal-array","right":"marshal-array","fields":[{"id":"values","left":"values","right":"values"},{"id":"code","left":"code","right":"code"}]}
+  ]
+}

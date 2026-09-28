@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="ConsumerSmoke/**/*.cs" />
+    <CompilerVisibleProperty Include="Configuration" />
+    <ProjectReference Include="../LayoutObserver.Managed/LayoutObserver.Managed.csproj" />
+    <ProjectReference Include="../LayoutObserver.Core/LayoutObserver.Core.csproj" />
+    <ProjectReference Include="../LayoutObserver.Generator/LayoutObserver.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="PublishAot;RuntimeIdentifier;SelfContained" />
+  </ItemGroup>
+</Project>

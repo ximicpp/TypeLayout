@@ -1,0 +1,4 @@
+{
+  "schemaVersion": "0.1", "mode": "regression", "policy": "value-fields-v1", "scope": "value",
+  "cases": [{ "id": "pack4-to-pack1", "left": "sample", "right": "packed" }]
+}
