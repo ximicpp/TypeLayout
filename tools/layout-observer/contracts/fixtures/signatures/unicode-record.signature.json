@@ -1,0 +1,145 @@
+{
+  "schemaVersion": "0.1",
+  "signatureFormat": "layout-signature-v1",
+  "scope": "value",
+  "policy": "value-fields-v1",
+  "source": {
+    "snapshotId": "golden-unicode-record-fixture",
+    "build": {
+      "buildId": "golden-unicode-record-build",
+      "runId": "golden-unicode-record-run",
+      "configuration": "fixture",
+      "sourceRevision": "unknown",
+      "sourceDirty": null,
+      "sourceDigest": "unknown",
+      "artifactDigest": "unknown",
+      "compiler": {
+        "name": "hand-specified-fixture",
+        "version": "1"
+      },
+      "runtime": {
+        "name": "none",
+        "version": "none"
+      },
+      "languages": [
+        "fixture"
+      ],
+      "target": {
+        "os": "fixture",
+        "architecture": "x64",
+        "abi": "fixture",
+        "pointerBits": 64,
+        "bitsPerByte": 8,
+        "endian": "little"
+      },
+      "flags": [],
+      "dependencies": {}
+    }
+  },
+  "cases": [
+    {
+      "id": "record",
+      "state": "complete",
+      "payload": {
+        "signatureFormat": "layout-signature-v1",
+        "scope": "value",
+        "policy": "value-fields-v1",
+        "endian": "little",
+        "layout": {
+          "type": {
+            "kind": "record"
+          },
+          "extentStartBit": 0,
+          "metrics": {
+            "valueSizeBytes": {
+              "state": "known",
+              "value": 1
+            }
+          },
+          "members": [
+            {
+              "key": {
+                "kind": "explicit",
+                "id": "字/😀\t"
+              },
+              "presence": "present",
+              "role": "field",
+              "offsetBits": {
+                "state": "known",
+                "value": 0
+              },
+              "bitWidth": {
+                "state": "known",
+                "value": 8
+              },
+              "occupiedRanges": {
+                "state": "known",
+                "value": [
+                  {
+                    "startBit": 0,
+                    "lengthBits": 8
+                  }
+                ]
+              },
+              "type": {
+                "kind": "scalar",
+                "representation": {
+                  "widthBits": {
+                    "state": "known",
+                    "value": 8
+                  },
+                  "category": {
+                    "state": "known",
+                    "value": "integer"
+                  },
+                  "signedness": {
+                    "state": "known",
+                    "value": "unsigned"
+                  },
+                  "encoding": {
+                    "state": "known",
+                    "value": "binary-integer"
+                  },
+                  "floatingFormat": {
+                    "state": "not-applicable"
+                  }
+                }
+              }
+            }
+          ],
+          "runtimeRegions": []
+        }
+      },
+      "prerequisites": {
+        "view": "native",
+        "contextKind": "complete-value",
+        "originKind": "value-start",
+        "calibrated": false,
+        "status": "ok",
+        "coverage": {
+          "fieldEnumeration": "complete",
+          "extent": "complete",
+          "occupiedRanges": "complete",
+          "hiddenRegions": "not-applicable"
+        },
+        "explicitFields": true,
+        "unmappedFields": [],
+        "members": [
+          {
+            "key": {
+              "kind": "explicit",
+              "id": "字/😀\t"
+            },
+            "childrenRequested": false
+          }
+        ]
+      },
+      "unknowns": [],
+      "digest": {
+        "algorithm": "sha256",
+        "value": "1220e737777f689f368177eedf7cde5c74d5a3b5fd759115f76ec29e03e64c36"
+      }
+    }
+  ],
+  "exitCode": 0
+}

@@ -1,0 +1,74 @@
+{
+  "input": {
+    "signatureFormat": "layout-signature-v1",
+    "scope": "value",
+    "policy": "value-fields-v1",
+    "endian": "little",
+    "layout": {
+      "type": {
+        "kind": "record"
+      },
+      "extentStartBit": 0,
+      "metrics": {
+        "valueSizeBytes": {
+          "state": "known",
+          "value": 1
+        }
+      },
+      "members": [
+        {
+          "key": {
+            "kind": "explicit",
+            "id": "字/😀\t"
+          },
+          "presence": "present",
+          "role": "field",
+          "offsetBits": {
+            "state": "known",
+            "value": 0
+          },
+          "bitWidth": {
+            "state": "known",
+            "value": 8
+          },
+          "occupiedRanges": {
+            "state": "known",
+            "value": [
+              {
+                "startBit": 0,
+                "lengthBits": 8
+              }
+            ]
+          },
+          "type": {
+            "kind": "scalar",
+            "representation": {
+              "widthBits": {
+                "state": "known",
+                "value": 8
+              },
+              "category": {
+                "state": "known",
+                "value": "integer"
+              },
+              "signedness": {
+                "state": "known",
+                "value": "unsigned"
+              },
+              "encoding": {
+                "state": "known",
+                "value": "binary-integer"
+              },
+              "floatingFormat": {
+                "state": "not-applicable"
+              }
+            }
+          }
+        }
+      ],
+      "runtimeRegions": []
+    }
+  },
+  "canonical": "{\"endian\":\"little\",\"layout\":{\"extentStartBit\":0,\"members\":[{\"bitWidth\":{\"state\":\"known\",\"value\":8},\"key\":{\"id\":\"\\u5b57/\\ud83d\\ude00\\u0009\",\"kind\":\"explicit\"},\"occupiedRanges\":{\"state\":\"known\",\"value\":[{\"lengthBits\":8,\"startBit\":0}]},\"offsetBits\":{\"state\":\"known\",\"value\":0},\"presence\":\"present\",\"role\":\"field\",\"type\":{\"kind\":\"scalar\",\"representation\":{\"category\":{\"state\":\"known\",\"value\":\"integer\"},\"encoding\":{\"state\":\"known\",\"value\":\"binary-integer\"},\"floatingFormat\":{\"state\":\"not-applicable\"},\"signedness\":{\"state\":\"known\",\"value\":\"unsigned\"},\"widthBits\":{\"state\":\"known\",\"value\":8}}}}],\"metrics\":{\"valueSizeBytes\":{\"state\":\"known\",\"value\":1}},\"runtimeRegions\":[],\"type\":{\"kind\":\"record\"}},\"policy\":\"value-fields-v1\",\"scope\":\"value\",\"signatureFormat\":\"layout-signature-v1\"}",
+  "sha256": "1220e737777f689f368177eedf7cde5c74d5a3b5fd759115f76ec29e03e64c36"
+}

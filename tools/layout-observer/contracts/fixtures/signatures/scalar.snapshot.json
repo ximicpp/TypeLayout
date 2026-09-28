@@ -1,0 +1,135 @@
+{
+  "schemaVersion": "0.1",
+  "snapshotId": "golden-scalar-fixture",
+  "producer": {
+    "id": "independent-conformance-fixture",
+    "version": "1",
+    "capabilities": [
+      "hand-specified-test-storage"
+    ]
+  },
+  "build": {
+    "buildId": "golden-scalar-build",
+    "runId": "golden-scalar-run",
+    "configuration": "fixture",
+    "sourceRevision": "unknown",
+    "sourceDirty": null,
+    "sourceDigest": "unknown",
+    "artifactDigest": "unknown",
+    "compiler": {
+      "name": "hand-specified-fixture",
+      "version": "1"
+    },
+    "runtime": {
+      "name": "none",
+      "version": "none"
+    },
+    "languages": [
+      "fixture"
+    ],
+    "target": {
+      "os": "fixture",
+      "architecture": "x64",
+      "abi": "fixture",
+      "pointerBits": 64,
+      "bitsPerByte": 8,
+      "endian": "little"
+    },
+    "flags": [],
+    "dependencies": {}
+  },
+  "typeDescriptors": [
+    {
+      "id": "local::signed32",
+      "displayName": "fixture signed32",
+      "kind": "scalar",
+      "representation": {
+        "widthBits": {
+          "state": "known",
+          "value": 32,
+          "evidence": {
+            "kind": "fixture",
+            "method": "hand-specified-conformance-storage",
+            "version": "1",
+            "inputs": []
+          }
+        },
+        "category": {
+          "state": "known",
+          "value": "integer",
+          "evidence": {
+            "kind": "fixture",
+            "method": "hand-specified-conformance-storage",
+            "version": "1",
+            "inputs": []
+          }
+        },
+        "signedness": {
+          "state": "known",
+          "value": "signed",
+          "evidence": {
+            "kind": "fixture",
+            "method": "hand-specified-conformance-storage",
+            "version": "1",
+            "inputs": []
+          }
+        },
+        "encoding": {
+          "state": "known",
+          "value": "binary-integer",
+          "evidence": {
+            "kind": "fixture",
+            "method": "hand-specified-conformance-storage",
+            "version": "1",
+            "inputs": []
+          }
+        },
+        "floatingFormat": {
+          "state": "not-applicable",
+          "reason": "integer-is-not-floating-point"
+        }
+      }
+    }
+  ],
+  "observations": [
+    {
+      "id": "scalar",
+      "typeId": "local::signed32",
+      "displayName": "fixture scalar",
+      "status": "ok",
+      "view": "native",
+      "context": {
+        "kind": "complete-value"
+      },
+      "origin": {
+        "kind": "value-start",
+        "extentStartBit": 0
+      },
+      "metrics": {
+        "valueSizeBytes": {
+          "state": "known",
+          "value": 4,
+          "evidence": {
+            "kind": "fixture",
+            "method": "hand-specified-conformance-storage",
+            "version": "1",
+            "inputs": []
+          }
+        }
+      },
+      "members": [],
+      "runtimeRegions": [],
+      "coverage": {
+        "fieldEnumeration": "complete",
+        "extent": "complete",
+        "occupiedRanges": "complete",
+        "hiddenRegions": "not-applicable"
+      },
+      "limitations": []
+    }
+  ],
+  "diagnostics": [],
+  "limitations": [
+    "Hand-specified conformance input; not a runtime capture."
+  ]
+}

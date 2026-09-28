@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "0.1",
+  "scope": "value",
+  "policy": "value-fields-v1",
+  "cases": [
+    {
+      "id": "scalar",
+      "observation": "scalar",
+      "fields": []
+    }
+  ]
+}

@@ -1,6 +1,8 @@
 # Layout Compare wire protocol 0.1
 
-Implementation contract for independent collectors and comparison. JSON property names are case-sensitive. Snapshot schemaVersion is `0.1`. Objects below use camelCase. No absolute addresses or instance values are required. All collectors emit the same shape; JSON Schema and the Core semantic validator enforce it. Strict input parsing rejects duplicate keys, files over 64 MiB and nesting beyond 96 levels; export serializers allow 256 levels to accommodate comparison/context wrappers without truncating accepted metadata.
+Implementation contract for independent collectors and comparison. JSON property names are case-sensitive. Snapshot schemaVersion is `0.1`. Objects below use camelCase. No absolute addresses or instance values are required. All collectors emit the same shape; JSON Schema and the Core semantic validator enforce it. Strict snapshot/pair/project/run input parsing rejects duplicate keys, files over 64 MiB and nesting beyond 96 levels; export serializers allow 512 levels to accommodate signature trees and comparison/context wrappers without truncating accepted metadata. Signature input and its selection manifest have a separate 512-level bound; observation inline graphs and signature mappings remain limited to 64 levels.
+
+Language extension uses this contract, not a language switch in the comparison engine. Independently exported, mapped layout signatures and their canonical encoding are specified in [SIGNATURE.md](SIGNATURE.md). Snapshot 0.1 remains the collector input; signature versioning is separate, and the original C++ TypeLayout signature string is not a wire-compatible substitute.
 
 ## Facts
 

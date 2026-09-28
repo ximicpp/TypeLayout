@@ -2,6 +2,25 @@
 
 2026-09-28，开发分支 `codex/cross-language-layout`。原始签名库与 admission 未修改；新实现位于本目录。D0 设计审查之后，D1–D5 已形成可运行后端与共同协议，支持范围按下表的实际执行环境确定。
 
+## 第三轮：协议与独立规范化签名
+
+语言扩展收敛到共同协议。新增 `signature`、`validate-signature`、`compare-signatures`：各构建按单侧逻辑映射独立导出 `layout-signature-v1`，在另一进程中导入并比较。签名包含可解释的规范化布局与独立的比较前提，完整时才附带 SHA-256；Core 共享字段解析、策略指标、类型表示、数组形状和区间并集规则，签名比较复用现有比较器。
+
+规范编码保留精确 Int64，明确 UTF-16 键排序与逐 code unit ASCII 转义。来源、证据文案与实际字段名不污染映射后的布局摘要；视图、上下文、对象校准和封送门槛仍须通过。数组声明作为条件事实保留，以免单侧缺少子观察时丢失已知差异。导入重新校验类型、范围、完整性与摘要；unknown、opaque、无效 selector 不能因摘要相同变成 `same`。
+
+独立审查修复了可忽略的 null/非对象子布局、缺失 build.target 导致未处理异常、区间并集长度溢出和深层签名无法往返等问题。旧快照仍按 96 JSON 层读取；签名及其选择 manifest 允许 512 JSON 层、语义树 64 层、文件 64 MiB。新增 Windows/Linux 协议 CI；本机执行的是 Windows .NET 与 WSL Python 校验，远端 CI 结果另行确认。
+
+本轮实际验证：
+
+- CoreChecks **81/81**，所有合法比较同步核对签名路径的 verdict、coverage 和退出码；SignatureChecks **56/56**，含公共黄金向量、Unicode/Int64、策略/模式、未知信息、恶意导入和 60 层观察图往返。
+- 签名 CLI **48/48**；复用此前真实采集的 C++/C# Debug/Release 快照、CoreCLR 结构体数组对象和 runtime-marshalling 快照验证独立导出、文件往返与比较。此次未重新构建采集后端。
+- 订单业务类型分别导出 native/managed/packed 三份签名，跨语言 same/complete，packing 差异 different/complete；使用实际不同物理字段名的共同逻辑映射。
+- ReportChecks **23/23**、比较项目导入/重放 **20/20**；CLI Release 构建 **0 警告、0 错误**。
+- **8** 份公共 schema、**9** 份手工黄金向量通过独立 Python 检查；**14** 份真实导出签名、**14** 份选择 manifest、**16** 份 diff 通过对应 schema。Python 编码器独立复算 CLI 输出摘要。
+- 独立审查复验 **6** 个恶意签名导入全部受控退出 3；额外 **763** 次属性变异未出现未处理异常。审查结束无剩余阻塞问题。
+
+协议、字节编码和新适配器接入要求见 [SIGNATURE.md](contracts/SIGNATURE.md)，设计见[布局协议与规范化签名](../../docs/design/layout-signature-protocol.md)。没有把 C++/C# 以外的语言采集器标为已实现；满足协议即可扩展，采集真实性仍须各后端独立验证。
+
 ## 第二轮：比较项目与可信结论
 
 公开入口调整为 **Layout Compare**。新 `project` 命令导入多构建快照、复用逻辑类型/字段映射、执行显式比较组合，保存可重放离线包。representation 不再硬编码为 C++ native ↔ C# managed；原 pair/run 接口保留。

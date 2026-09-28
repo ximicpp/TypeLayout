@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "0.1",
+  "scope": "value",
+  "policy": "value-fields-v1",
+  "cases": [
+    {
+      "id": "record",
+      "observation": "record",
+      "fields": [
+        {
+          "id": "字/😀\t",
+          "member": "physical-tag"
+        }
+      ]
+    }
+  ]
+}

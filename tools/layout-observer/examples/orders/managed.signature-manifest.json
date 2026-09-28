@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "0.1",
+  "scope": "value",
+  "policy": "value-fields-v1",
+  "cases": [{
+    "id": "order",
+    "observation": "orders.managed",
+    "fields": [
+      {"id": "status", "member": "status"},
+      {"id": "identity", "member": "orderid"},
+      {"id": "quantity", "member": "quantity"}
+    ]
+  }]
+}

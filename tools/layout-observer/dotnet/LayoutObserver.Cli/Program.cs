@@ -7,7 +7,7 @@ try
     if (args.Length == 1 && args[0] == "internal-child") return await BoundedProcess.RunChildAsync();
     if (args.Length == 0 || args[0] is "--help" or "help")
     {
-        Console.WriteLine("Layout Compare 0.1\nvalidate --input SNAPSHOT\ncompare --left SNAPSHOT --right SNAPSHOT --manifest MAPPING [--out DIFF] [--html REPORT]\nproject --manifest PROJECT --out-dir NEW-DIRECTORY\nrun --manifest RUN-MANIFEST --out-dir NEW-DIRECTORY\nOutputs are never overwritten. Exit codes: 0 same, 1 different, 2 incomplete, 3 error.");
+        Console.WriteLine("Layout Compare 0.1\nvalidate --input SNAPSHOT\ncompare --left SNAPSHOT --right SNAPSHOT --manifest MAPPING [--out DIFF] [--html REPORT]\nsignature --input SNAPSHOT --manifest SIGNATURE-MANIFEST [--out SIGNATURE]\nvalidate-signature --input SIGNATURE\ncompare-signatures --left SIGNATURE --right SIGNATURE --mode MODE [--out DIFF]\nproject --manifest PROJECT --out-dir NEW-DIRECTORY\nrun --manifest RUN-MANIFEST --out-dir NEW-DIRECTORY\nOutputs are never overwritten. Comparison exit codes: 0 same, 1 different, 2 incomplete, 3 error. Signature generation: 0 complete, 2 incomplete, 3 error.");
         return 0;
     }
     var options = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -41,6 +41,28 @@ try
             }
             PrintSummary(comparison);
             return comparison["exitCode"]!.GetValue<int>();
+        case "signature":
+            Allow("--input", "--manifest", "--out");
+            var signature = LayoutSignature.Generate(JsonIO.Read(Required("--input")), JsonIO.Read(Required("--manifest"), maxDepth: 512));
+            if (options.TryGetValue("--out", out var signaturePath))
+            {
+                JsonIO.Write(signaturePath, signature);
+                Console.WriteLine("Signature written to " + signaturePath + "; exitCode=" + signature["exitCode"]);
+            }
+            else Console.WriteLine(signature.ToJsonString(JsonIO.Options));
+            return signature["exitCode"]!.GetValue<int>();
+        case "validate-signature":
+            Allow("--input");
+            var importedSignature = JsonIO.Read(Required("--input"), maxDepth: 512);
+            LayoutSignature.Validate(importedSignature);
+            Console.WriteLine("PASS signature contract (validation does not establish layout equality)");
+            return 0;
+        case "compare-signatures":
+            Allow("--left", "--right", "--mode", "--out");
+            var signatureComparison = LayoutSignature.Compare(JsonIO.Read(Required("--left"), maxDepth: 512), JsonIO.Read(Required("--right"), maxDepth: 512), Required("--mode"));
+            if (options.TryGetValue("--out", out var signatureDiffPath)) JsonIO.Write(signatureDiffPath, signatureComparison);
+            PrintSummary(signatureComparison);
+            return signatureComparison["exitCode"]!.GetValue<int>();
         case "project":
             Allow("--manifest", "--out-dir");
             var project = ProjectCoordinator.Run(Required("--manifest"), Required("--out-dir"));

@@ -8,6 +8,12 @@ public static class LayoutComparer
     public static JsonObject Compare(JsonObject left, JsonObject right, JsonObject manifest)
     {
         SnapshotValidator.Validate(left); SnapshotValidator.Validate(right);
+        return CompareValidated(left, right, manifest);
+    }
+
+    // Signature projections have already been validated, and intentionally omit source-only facts.
+    internal static JsonObject CompareValidated(JsonObject left, JsonObject right, JsonObject manifest)
+    {
         ValidateManifest(manifest);
         var leftObservations = Index(Arr(left["observations"], "observations"), "observations");
         var rightObservations = Index(Arr(right["observations"], "observations"), "observations");
@@ -77,7 +83,6 @@ public static class LayoutComparer
         public JsonArray Unknowns { get; } = [];
         public JsonArray Diagnostics { get; } = [];
         public bool NotComparable { get; private set; }
-        private readonly HashSet<(string, string)> activeTypePairs = [];
 
         public void Run(JsonObject left, JsonObject right, JsonArray? maps)
         {
@@ -148,7 +153,7 @@ public static class LayoutComparer
 
         private void Coverage(JsonObject left, JsonObject right, string path)
         {
-            foreach (var key in new[] { "fieldEnumeration", "extent", "occupiedRanges", "hiddenRegions" })
+            foreach (var key in LayoutNormalization.CoverageKeys)
             {
                 var l = left["coverage"]![key]!.GetValue<string>(); var r = right["coverage"]![key]!.GetValue<string>();
                 if ((l is not ("complete" or "not-applicable")) || (r is not ("complete" or "not-applicable")))
@@ -182,12 +187,9 @@ public static class LayoutComparer
             }
             Coverage(left, right, path);
             Equal(path + ".extentStartBit", "offset", left["origin"]!["extentStartBit"], right["origin"]!["extentStartBit"]);
-            var sizeKey = objectExtent ? "runtimeReportedObjectBytes" : "valueSizeBytes";
-            Fact(path + "." + sizeKey, "size", left["metrics"]![sizeKey], right["metrics"]![sizeKey]);
-            if (policy == "value-alignment-v1") Fact(path + ".alignmentBytes", "alignment", left["metrics"]!["alignmentBytes"], right["metrics"]!["alignmentBytes"]);
+            foreach (var (key, kind) in LayoutNormalization.Metrics(scope, policy, depth, objectExtent))
+                Fact(path + "." + key, kind, left["metrics"]![key], right["metrics"]![key]);
             var observedArrays = leftTypes[left.S("typeId")].S("kind") == "array" && rightTypes[right.S("typeId")].S("kind") == "array";
-            if (scope == "array" && depth == 0)
-                Fact(path + ".arrayStrideBytes", "stride", left["metrics"]!["arrayStrideBytes"], right["metrics"]!["arrayStrideBytes"]);
             if (observedArrays) CompareArrayShape(left, right, path);
             else if (objectExtent)
             {
@@ -200,15 +202,13 @@ public static class LayoutComparer
 
         private void CompareArrayShape(JsonObject left, JsonObject right, string path)
         {
-            static long? Count(JsonObject observation, JsonObject type) => observation["instanceShape"] is JsonObject shape
-                ? Number(shape["length"], "instanceShape.length") : Numeric(type["fixedCount"]);
             var lt = leftTypes[left.S("typeId")]; var rt = rightTypes[right.S("typeId")];
-            var lc = Count(left, lt); var rc = Count(right, rt);
+            var ls = LayoutNormalization.ArrayShape(left, lt); var rs = LayoutNormalization.ArrayShape(right, rt);
+            var lc = Numeric(ls["count"]); var rc = Numeric(rs["count"]);
             if (lc is not null && rc is not null)
             {
                 Equal(path + ".elementCount", "size", JsonValue.Create(lc.Value), JsonValue.Create(rc.Value));
-                var ld = left["instanceShape"]?["dimensions"] ?? new JsonArray(JsonValue.Create(lc.Value));
-                var rd = right["instanceShape"]?["dimensions"] ?? new JsonArray(JsonValue.Create(rc.Value));
+                var ld = Value(ls["dimensions"]); var rd = Value(rs["dimensions"]);
                 Equal(path + ".dimensions", "size", ld, rd);
             }
             else Unknown(path + ".elementCount", "size", left["instanceShape"], right["instanceShape"], "Array cardinality requires an observed instance length or a known declared fixed count.");
@@ -218,24 +218,7 @@ public static class LayoutComparer
 
         private void CompareRuntimeRegions(JsonObject left, JsonObject right, string path)
         {
-            // Runtime regions have explicit roles; overlapping fields do not overwrite them.
-            static Dictionary<string, JsonNode> Regions(JsonObject observation)
-            {
-                var result = new Dictionary<string, JsonNode>();
-                foreach (var group in Arr(observation["runtimeRegions"], "regions").OfType<JsonObject>().GroupBy(x => x.S("role")))
-                {
-                    var unavailable = group.FirstOrDefault(x => !IsKnown(x["ranges"]));
-                    if (unavailable is not null) result.Add(group.Key, unavailable["ranges"]!.DeepClone());
-                    else
-                    {
-                        var fact = Obj(group.First()["ranges"]!.DeepClone(), "ranges");
-                        fact["value"] = new JsonArray(group.SelectMany(x => Arr(Value(x["ranges"]), "ranges")).Select(x => x!.DeepClone()).ToArray());
-                        result.Add(group.Key, fact);
-                    }
-                }
-                return result;
-            }
-            var l = Regions(left); var r = Regions(right);
+            var l = LayoutNormalization.Regions(left); var r = LayoutNormalization.Regions(right);
             foreach (var role in l.Keys.Union(r.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal))
             {
                 if (!l.ContainsKey(role) || !r.ContainsKey(role))
@@ -252,26 +235,17 @@ public static class LayoutComparer
 
         private void CompareMembers(JsonObject left, JsonObject right, string path, JsonArray? maps, int depth)
         {
-            var lm = Index(Arr(left["members"], "members"), "members"); var rm = Index(Arr(right["members"], "members"), "members");
-            var usedL = new HashSet<string>(); var usedR = new HashSet<string>();
+            var lSelections = LayoutNormalization.Members(left, maps, "left").ToDictionary(x => x.Key);
+            var rSelections = LayoutNormalization.Members(right, maps, "right").ToDictionary(x => x.Key);
+            if (maps is not null && mode != "regression" && (lSelections.Keys.Any(x => x.Kind == "identity") || rSelections.Keys.Any(x => x.Kind == "identity")))
+                throw new ProtocolException(path + ": explicit mapping does not account for all observed fields.");
             var pairs = new List<(string Logical, JsonObject? L, JsonObject? R, JsonArray? Children)>();
-            if (maps is not null)
+            foreach (var key in lSelections.Keys.Union(rSelections.Keys).OrderBy(x => x.Kind, StringComparer.Ordinal).ThenBy(x => x.Id, StringComparer.Ordinal))
             {
-                foreach (var map in maps.OfType<JsonObject>())
-                {
-                    var lid = map.S("left"); var rid = map.S("right"); usedL.Add(lid); usedR.Add(rid);
-                    lm.TryGetValue(lid, out var l); rm.TryGetValue(rid, out var r);
-                    if (l is null && r is null && IsComplete(left) && IsComplete(right)) throw new ProtocolException("Mapping selects absent fields on both sides: " + map.S("id"));
-                    pairs.Add((map.S("id"), l, r, map["children"] as JsonArray));
-                }
-                if (mode != "regression" && (lm.Keys.Except(usedL).Any() || rm.Keys.Except(usedR).Any()))
-                    throw new ProtocolException(path + ": explicit mapping does not account for all observed fields.");
-            }
-            foreach (var id in lm.Keys.Except(usedL).Union(rm.Keys.Except(usedR), StringComparer.Ordinal).Order(StringComparer.Ordinal))
-            {
-                var l = !usedL.Contains(id) ? lm.GetValueOrDefault(id) : null;
-                var r = !usedR.Contains(id) ? rm.GetValueOrDefault(id) : null;
-                pairs.Add((id, l, r, null));
+                var l = lSelections.GetValueOrDefault(key); var r = rSelections.GetValueOrDefault(key);
+                if (key.Kind == "explicit" && l?.Member is null && r?.Member is null && IsComplete(left) && IsComplete(right))
+                    throw new ProtocolException("Mapping selects absent fields on both sides: " + key.Id);
+                pairs.Add((key.Id, l?.Member, r?.Member, (l?.Mapping ?? r?.Mapping)?["children"] as JsonArray));
             }
             foreach (var (logical, l, r, children) in pairs)
             {
@@ -319,57 +293,38 @@ public static class LayoutComparer
         private void CompareRanges(string path, JsonNode? left, JsonNode? right)
         {
             if (!IsKnown(left) || !IsKnown(right)) { Fact(path, "overlap", left, right); return; }
-            static JsonArray Canonical(JsonNode? fact)
-            {
-                var result = new JsonArray();
-                long? start = null; long end = 0;
-                foreach (var range in Arr(Value(fact), "ranges").OfType<JsonObject>().OrderBy(r => Number(r["startBit"], "startBit")))
-                {
-                    var nextStart = Number(range["startBit"], "startBit"); var length = Number(range["lengthBits"], "lengthBits");
-                    if (length == 0) continue;
-                    var nextEnd = checked(nextStart + length);
-                    if (start is null) { start = nextStart; end = nextEnd; }
-                    else if (nextStart <= end) end = Math.Max(end, nextEnd);
-                    else { result.Add(new JsonObject { ["startBit"] = start.Value, ["lengthBits"] = checked(end - start.Value) }); start = nextStart; end = nextEnd; }
-                }
-                if (start is not null) result.Add(new JsonObject { ["startBit"] = start.Value, ["lengthBits"] = checked(end - start.Value) });
-                return result;
-            }
-            Equal(path, "overlap", Canonical(left), Canonical(right));
+            Equal(path, "overlap", LayoutNormalization.Ranges(left), LayoutNormalization.Ranges(right));
         }
 
         private void CompareType(string leftId, string rightId, string path, int depth, bool observedArray = false)
+            => CompareTypeShape(LayoutNormalization.Type(leftId, leftTypes, observedArray), LayoutNormalization.Type(rightId, rightTypes, observedArray), path, depth);
+
+        private void CompareTypeShape(JsonObject left, JsonObject right, string path, int depth)
         {
             if (depth > 64) throw new ProtocolException("Type nesting exceeds 64.");
-            if (!activeTypePairs.Add((leftId, rightId))) return;
-            try
+            var lk = left.S("kind"); var rk = right.S("kind");
+            if (lk == "opaque" || rk == "opaque") { Unknown(path, "representation", left, right, "Opaque internals cannot prove representation equality."); return; }
+            Equal(path + ".kind", "representation", left["kind"], right["kind"]);
+            if (lk != rk) return;
+            switch (lk)
             {
-                var left = leftTypes[leftId]; var right = rightTypes[rightId];
-                var lk = left.S("kind"); var rk = right.S("kind");
-                if (lk == "opaque" || rk == "opaque") { Unknown(path, "representation", left, right, "Opaque internals cannot prove representation equality."); return; }
-                Equal(path + ".kind", "representation", left["kind"], right["kind"]);
-                if (lk != rk) return;
-                switch (lk)
-                {
-                    case "scalar":
-                        foreach (var key in new[] { "widthBits", "category", "signedness", "encoding" }) Fact(path + "." + key, "representation", left["representation"]![key], right["representation"]![key]);
+                case "scalar":
+                    foreach (var key in LayoutNormalization.ScalarFacts)
+                    {
                         var lc = Value(left["representation"]!["category"])?.GetValue<string>();
                         var rc = Value(right["representation"]!["category"])?.GetValue<string>();
-                        Fact(path + ".floatingFormat", "representation", left["representation"]!["floatingFormat"], right["representation"]!["floatingFormat"], lc is not null && rc is not null && lc != "float" && rc != "float");
-                        break;
-                    case "reference":
-                        Equal(path + ".referenceKind", "representation", left["referenceKind"], right["referenceKind"]);
-                        Fact(path + ".widthBits", "representation", left["representation"]!["widthBits"], right["representation"]!["widthBits"]);
-                        break;
-                    case "enum": CompareType(left.S("enumUnderlyingTypeRef"), right.S("enumUnderlyingTypeRef"), path + ".underlying", depth + 1); break;
-                    case "array":
-                        if (!observedArray) Fact(path + ".fixedCount", "representation", left["fixedCount"], right["fixedCount"]);
-                        CompareType(left.S("elementTypeRef"), right.S("elementTypeRef"), path + ".element", depth + 1, observedArray);
-                        break;
-                    // Records/unions are compared through contextual member observations.
-                }
+                        Fact(path + "." + key, "representation", left["representation"]![key], right["representation"]![key], key == "floatingFormat" && lc is not null && rc is not null && lc != "float" && rc != "float");
+                    }
+                    break;
+                case "reference":
+                    Equal(path + ".referenceKind", "representation", left["referenceKind"], right["referenceKind"]);
+                    Fact(path + ".widthBits", "representation", left["representation"]!["widthBits"], right["representation"]!["widthBits"]);
+                    break;
+                case "enum": CompareTypeShape(Obj(left["underlying"], "underlying"), Obj(right["underlying"], "underlying"), path + ".underlying", depth + 1); break;
+                case "array":
+                    if (left.ContainsKey("fixedCount") || right.ContainsKey("fixedCount")) Fact(path + ".fixedCount", "representation", left["fixedCount"], right["fixedCount"]);
+                    CompareTypeShape(Obj(left["element"], "element"), Obj(right["element"], "element"), path + ".element", depth + 1); break;
             }
-            finally { activeTypePairs.Remove((leftId, rightId)); }
         }
     }
 }

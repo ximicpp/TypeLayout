@@ -5,6 +5,19 @@ namespace LayoutObserver.Core;
 
 public static class SnapshotValidator
 {
+    // A signature is a policy projection: nominal type identity and a selected
+    // root's enclosing placement are deliberately absent. All remaining facts
+    // still obey the snapshot bounds and representation rules.
+    internal static void ValidateProjection(JsonObject snapshot, string rootId)
+    {
+        ValidateBuild(Obj(snapshot["build"], "build"));
+        var types = Index(Arr(snapshot["typeDescriptors"], "types"), "types");
+        var observations = Index(Arr(snapshot["observations"], "observations"), "observations");
+        foreach (var type in types.Values) ValidateType(type, types);
+        ValidateTypeCycles(types);
+        foreach (var observation in observations.Values) ValidateObservation(observation, types);
+        foreach (var observation in observations.Values) ValidateRelations(observation, observations, types, observation.S("id") == rootId);
+    }
     public static void Validate(JsonObject snapshot)
     {
         Keys(snapshot, "schemaVersion snapshotId producer build typeDescriptors observations diagnostics limitations", "snapshot");
@@ -82,7 +95,7 @@ public static class SnapshotValidator
         evidence.S("method"); evidence.S("version"); Strings(evidence["inputs"], path + ".inputs");
     }
 
-    private static void ValidateBuild(JsonObject build)
+    internal static void ValidateBuild(JsonObject build)
     {
         Keys(build, "buildId runId configuration sourceRevision sourceDirty sourceDigest artifactDigest compiler runtime target flags dependencies requestedProfile languages collectorProvenance captureProvenance", "build");
         foreach (var key in new[] { "buildId", "runId", "configuration", "sourceRevision", "sourceDigest", "artifactDigest" }) build.S(key);
@@ -286,7 +299,7 @@ public static class SnapshotValidator
         if (cursor != expectedEnd) throw new ProtocolException(path + ": scalar occupied ranges do not cover offsetBits/bitWidth.");
     }
 
-    private static void ValidateRelations(JsonObject observation, Dictionary<string, JsonObject> observations, Dictionary<string, JsonObject> types)
+    private static void ValidateRelations(JsonObject observation, Dictionary<string, JsonObject> observations, Dictionary<string, JsonObject> types, bool detachedRoot = false)
     {
         var id = observation.S("id"); var context = Obj(observation["context"], "context");
         if (context.ContainsKey("hostObservationId"))
@@ -307,7 +320,7 @@ public static class SnapshotValidator
             }
         }
         else if (context.ContainsKey("hostMemberId")) throw new ProtocolException("hostMemberId without hostObservationId.");
-        else if (context.S("kind") is "embedded-value" or "array-element") throw new ProtocolException("Inline observation requires a host placement.");
+        else if (!detachedRoot && context.S("kind") is "embedded-value" or "array-element") throw new ProtocolException("Inline observation requires a host placement.");
         if (context.S("kind") != "array-element" && context.ContainsKey("elementIndex")) throw new ProtocolException("elementIndex is only applicable to array elements.");
         var elementIndices = new HashSet<long>();
         foreach (var member in Index(Arr(observation["members"], "members"), "members").Values)

@@ -1,0 +1,19 @@
+{
+  "input": {
+    "": "bmp-private",
+    "𐀀": "supplementary",
+    "z": [
+      null,
+      true,
+      false,
+      -9223372036854775808,
+      9223372036854775807,
+      9007199254740993
+    ],
+    "字/😀\t": "\u0000\b\t\n\r\f\"\\/",
+    "é": "decomposed",
+    "é": "precomposed"
+  },
+  "canonical": "{\"e\\u0301\":\"decomposed\",\"z\":[null,true,false,-9223372036854775808,9223372036854775807,9007199254740993],\"\\u00e9\":\"precomposed\",\"\\u5b57/\\ud83d\\ude00\\u0009\":\"\\u0000\\u0008\\u0009\\u000a\\u000d\\u000c\\\"\\\\/\",\"\\ud800\\udc00\":\"supplementary\",\"\\ue000\":\"bmp-private\"}",
+  "sha256": "88ba1dae305be89d3fa4669335cbb29cfd8ec8ea06d62dfcec4cba7468ffcd4c"
+}

@@ -4,7 +4,29 @@
 
 它独立于 TypeLayout 的 header-only 签名库，原有构建、签名和 byte-copy admission 不变。`same` 仅表示在报告所列 scope/policy 下已知事实一致，不授予调用 ABI、序列化、所有权或任意内存复制的兼容保证。
 
-当前实现与真实验证环境见 [STATUS.md](STATUS.md)，比较项目设计见 [设计文档](../../docs/design/layout-compare-project.md)，机器契约见 [PROTOCOL.md](contracts/PROTOCOL.md)。目录与程序集仍保留 LayoutObserver 名称。
+当前实现与真实验证环境见 [STATUS.md](STATUS.md)，比较项目设计见 [设计文档](../../docs/design/layout-compare-project.md)，机器契约见 [PROTOCOL.md](contracts/PROTOCOL.md) 和 [签名协议](contracts/SIGNATURE.md)。目录与程序集仍保留 LayoutObserver 名称。
+
+## 通过协议接入与独立签名
+
+新增语言适配器只需输出公开快照协议并通过其声明能力的采集验证；公共内核完成语义校验、逻辑映射、签名生成与比较。无需改动比较器或报告。签名使用版本化结构化内容，完整时附带 SHA-256；摘要不能绕过完整性、原点、视图和封送规则检查。设计边界见[协议设计](../../docs/design/layout-signature-protocol.md)。
+
+不同构建可在各自流水线独立生成签名。单侧 manifest 指定 `scope`、`policy` 与逻辑 case/字段映射，稍后按逻辑 case ID 配对。以订单示例为例，在本目录运行：
+
+```sh
+dotnet run --project dotnet/LayoutObserver.Cli -c Release -- signature \
+  --input artifacts/orders-001/report/snapshots/native-release.json \
+  --manifest examples/orders/native.signature-manifest.json --out artifacts/native.signature.json
+dotnet run --project dotnet/LayoutObserver.Cli -c Release -- signature \
+  --input artifacts/orders-001/report/snapshots/managed-release.json \
+  --manifest examples/orders/managed.signature-manifest.json --out artifacts/managed.signature.json
+dotnet run --project dotnet/LayoutObserver.Cli -c Release -- compare-signatures \
+  --left artifacts/native.signature.json --right artifacts/managed.signature.json \
+  --mode representation --out artifacts/signature.diff.json
+```
+
+生成退出 0 表示选定规则下信息完整，2 表示部分信息未知，3 表示输入或配置错误；比较仍使用下表退出码。未知观察保留可解释内容，不能通过相同的 unknown 摘要变成 `same`。`validate-signature --input FILE` 校验签名内容与摘要，其成功不代表布局相等。所有输出均拒绝覆盖。
+
+共同映射必须使用同一逻辑绑定方式；显式映射字段与自动按原 ID 匹配的字段是不同命名空间，避免自动字段覆盖显式逻辑字段。签名是选定 scope/policy 的布局表示，不能与旧 `get_layout_signature<T>()` 字符串混用。
 
 ## 比较自己的类型与多个构建
 
@@ -93,6 +115,7 @@ dotnet run --project dotnet/LayoutObserver.Cli -c Release -- run --manifest my-m
 
 ```sh
 dotnet run --project dotnet/LayoutObserver.CoreChecks -c Release
+dotnet run --project dotnet/LayoutObserver.SignatureChecks -c Release
 dotnet run --project dotnet/LayoutObserver.ReportChecks -c Release
 dotnet run --project dotnet/LayoutObserver.ProcessChecks -c Release
 dotnet run --project dotnet/LayoutObserver.ManagedChecks -c Release

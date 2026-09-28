@@ -1,0 +1,45 @@
+{
+  "input": {
+    "signatureFormat": "layout-signature-v1",
+    "scope": "value",
+    "policy": "value-fields-v1",
+    "endian": "little",
+    "layout": {
+      "type": {
+        "kind": "scalar",
+        "representation": {
+          "widthBits": {
+            "state": "known",
+            "value": 32
+          },
+          "category": {
+            "state": "known",
+            "value": "integer"
+          },
+          "signedness": {
+            "state": "known",
+            "value": "signed"
+          },
+          "encoding": {
+            "state": "known",
+            "value": "binary-integer"
+          },
+          "floatingFormat": {
+            "state": "not-applicable"
+          }
+        }
+      },
+      "extentStartBit": 0,
+      "metrics": {
+        "valueSizeBytes": {
+          "state": "known",
+          "value": 4
+        }
+      },
+      "members": [],
+      "runtimeRegions": []
+    }
+  },
+  "canonical": "{\"endian\":\"little\",\"layout\":{\"extentStartBit\":0,\"members\":[],\"metrics\":{\"valueSizeBytes\":{\"state\":\"known\",\"value\":4}},\"runtimeRegions\":[],\"type\":{\"kind\":\"scalar\",\"representation\":{\"category\":{\"state\":\"known\",\"value\":\"integer\"},\"encoding\":{\"state\":\"known\",\"value\":\"binary-integer\"},\"floatingFormat\":{\"state\":\"not-applicable\"},\"signedness\":{\"state\":\"known\",\"value\":\"signed\"},\"widthBits\":{\"state\":\"known\",\"value\":32}}}},\"policy\":\"value-fields-v1\",\"scope\":\"value\",\"signatureFormat\":\"layout-signature-v1\"}",
+  "sha256": "aadce31f77077b2180baa9d5e8f34887dc287a03646d713ad740ab86dd3e3c9e"
+}

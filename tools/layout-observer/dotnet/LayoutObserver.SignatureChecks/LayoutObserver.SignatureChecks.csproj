@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../LayoutObserver.Core/LayoutObserver.Core.csproj" /></ItemGroup>
+  <ItemGroup>
+    <None Include="../../contracts/fixtures/signatures/*.json" Link="golden/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

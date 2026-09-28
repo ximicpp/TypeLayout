@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ximicpp.github.io/TypeLayout/layout-observer/0.1/signature-manifest.schema.json",
+  "title": "Layout Compare signature-manifest 0.1",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "0.1"
+    },
+    "scope": {
+      "enum": [
+        "value",
+        "array",
+        "object"
+      ]
+    },
+    "policy": {
+      "enum": [
+        "value-fields-v1",
+        "value-alignment-v1"
+      ]
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "observation": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/logicalField"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "observation"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "scope",
+    "policy",
+    "cases"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "logicalField": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "member": {
+          "type": "string",
+          "minLength": 1
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/logicalField"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "member"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,193 @@
+{
+  "schemaVersion": "0.1",
+  "snapshotId": "golden-unicode-record-fixture",
+  "producer": {
+    "id": "independent-conformance-fixture",
+    "version": "1",
+    "capabilities": [
+      "hand-specified-test-storage"
+    ]
+  },
+  "build": {
+    "buildId": "golden-unicode-record-build",
+    "runId": "golden-unicode-record-run",
+    "configuration": "fixture",
+    "sourceRevision": "unknown",
+    "sourceDirty": null,
+    "sourceDigest": "unknown",
+    "artifactDigest": "unknown",
+    "compiler": {
+      "name": "hand-specified-fixture",
+      "version": "1"
+    },
+    "runtime": {
+      "name": "none",
+      "version": "none"
+    },
+    "languages": [
+      "fixture"
+    ],
+    "target": {
+      "os": "fixture",
+      "architecture": "x64",
+      "abi": "fixture",
+      "pointerBits": 64,
+      "bitsPerByte": 8,
+      "endian": "little"
+    },
+    "flags": [],
+    "dependencies": {}
+  },
+  "typeDescriptors": [
+    {
+      "id": "local::one-byte",
+      "displayName": "fixture record",
+      "kind": "record"
+    },
+    {
+      "id": "local::u8",
+      "displayName": "fixture unsigned8",
+      "kind": "scalar",
+      "representation": {
+        "widthBits": {
+          "state": "known",
+          "value": 8,
+          "evidence": {
+            "kind": "fixture",
+            "method": "hand-specified-conformance-storage",
+            "version": "1",
+            "inputs": []
+          }
+        },
+        "category": {
+          "state": "known",
+          "value": "integer",
+          "evidence": {
+            "kind": "fixture",
+            "method": "hand-specified-conformance-storage",
+            "version": "1",
+            "inputs": []
+          }
+        },
+        "signedness": {
+          "state": "known",
+          "value": "unsigned",
+          "evidence": {
+            "kind": "fixture",
+            "method": "hand-specified-conformance-storage",
+            "version": "1",
+            "inputs": []
+          }
+        },
+        "encoding": {
+          "state": "known",
+          "value": "binary-integer",
+          "evidence": {
+            "kind": "fixture",
+            "method": "hand-specified-conformance-storage",
+            "version": "1",
+            "inputs": []
+          }
+        },
+        "floatingFormat": {
+          "state": "not-applicable",
+          "reason": "integer-is-not-floating-point"
+        }
+      }
+    }
+  ],
+  "observations": [
+    {
+      "id": "record",
+      "typeId": "local::one-byte",
+      "displayName": "fixture one-byte record",
+      "status": "ok",
+      "view": "native",
+      "context": {
+        "kind": "complete-value"
+      },
+      "origin": {
+        "kind": "value-start",
+        "extentStartBit": 0
+      },
+      "metrics": {
+        "valueSizeBytes": {
+          "state": "known",
+          "value": 1,
+          "evidence": {
+            "kind": "fixture",
+            "method": "hand-specified-conformance-storage",
+            "version": "1",
+            "inputs": []
+          }
+        }
+      },
+      "members": [
+        {
+          "id": "physical-tag",
+          "displayName": "local tag",
+          "declarationOrder": 0,
+          "role": "field",
+          "typeRef": "local::u8",
+          "offsetBits": {
+            "state": "known",
+            "value": 0,
+            "evidence": {
+              "kind": "fixture",
+              "method": "hand-specified-conformance-storage",
+              "version": "1",
+              "inputs": []
+            }
+          },
+          "bitWidth": {
+            "state": "known",
+            "value": 8,
+            "evidence": {
+              "kind": "fixture",
+              "method": "hand-specified-conformance-storage",
+              "version": "1",
+              "inputs": []
+            }
+          },
+          "declaredTypeSizeBits": {
+            "state": "known",
+            "value": 8,
+            "evidence": {
+              "kind": "fixture",
+              "method": "hand-specified-conformance-storage",
+              "version": "1",
+              "inputs": []
+            }
+          },
+          "occupiedRanges": {
+            "state": "known",
+            "value": [
+              {
+                "startBit": 0,
+                "lengthBits": 8
+              }
+            ],
+            "evidence": {
+              "kind": "fixture",
+              "method": "hand-specified-conformance-storage",
+              "version": "1",
+              "inputs": []
+            }
+          }
+        }
+      ],
+      "runtimeRegions": [],
+      "coverage": {
+        "fieldEnumeration": "complete",
+        "extent": "complete",
+        "occupiedRanges": "complete",
+        "hiddenRegions": "not-applicable"
+      },
+      "limitations": []
+    }
+  ],
+  "diagnostics": [],
+  "limitations": [
+    "Hand-specified conformance input; not a runtime capture."
+  ]
+}

@@ -9,22 +9,22 @@ public static class JsonIO
 {
     // Inputs are bounded to 96 levels. Reports wrap validated facts/build metadata
     // in comparison context, so their serialization needs room for those wrappers.
-    public static readonly JsonSerializerOptions Options = new() { WriteIndented = true, MaxDepth = 256 };
+    public static readonly JsonSerializerOptions Options = new() { WriteIndented = true, MaxDepth = 512 };
 
-    public static JsonObject Read(string path)
+    public static JsonObject Read(string path, int maxDepth = 96)
     {
         if (new FileInfo(path).Length > 64 * 1024 * 1024)
             throw new ProtocolException("JSON input exceeds 64 MiB limit.");
-        return Parse(File.ReadAllText(path));
+        return Parse(File.ReadAllText(path), maxDepth);
     }
 
-    public static JsonObject Parse(string text)
+    public static JsonObject Parse(string text, int maxDepth = 96)
     {
         try
         {
-            using var document = JsonDocument.Parse(text, new JsonDocumentOptions { MaxDepth = 96 });
-            CheckDuplicateKeys(document.RootElement, "$", 0);
-            return JsonNode.Parse(text, documentOptions: new JsonDocumentOptions { MaxDepth = 96 }) as JsonObject
+            using var document = JsonDocument.Parse(text, new JsonDocumentOptions { MaxDepth = maxDepth });
+            CheckDuplicateKeys(document.RootElement, "$", 0, maxDepth);
+            return JsonNode.Parse(text, documentOptions: new JsonDocumentOptions { MaxDepth = maxDepth }) as JsonObject
                 ?? throw new ProtocolException("Root must be an object.");
         }
         catch (JsonException ex) { throw new ProtocolException("Invalid JSON: " + ex.Message); }
@@ -38,20 +38,20 @@ public static class JsonIO
         JsonSerializer.Serialize(stream, value, Options);
     }
 
-    private static void CheckDuplicateKeys(JsonElement node, string path, int depth)
+    private static void CheckDuplicateKeys(JsonElement node, string path, int depth, int maxDepth)
     {
-        if (depth > 96) throw new ProtocolException("Maximum nesting exceeded.");
+        if (depth > maxDepth) throw new ProtocolException("Maximum nesting exceeded.");
         if (node.ValueKind == JsonValueKind.Object)
         {
             var names = new HashSet<string>(StringComparer.Ordinal);
             foreach (var property in node.EnumerateObject())
             {
                 if (!names.Add(property.Name)) throw new ProtocolException($"{path}: duplicate property '{property.Name}'.");
-                CheckDuplicateKeys(property.Value, path + "." + property.Name, depth + 1);
+                CheckDuplicateKeys(property.Value, path + "." + property.Name, depth + 1, maxDepth);
             }
         }
         else if (node.ValueKind == JsonValueKind.Array)
-            foreach (var item in node.EnumerateArray()) CheckDuplicateKeys(item, path + "[]", depth + 1);
+            foreach (var item in node.EnumerateArray()) CheckDuplicateKeys(item, path + "[]", depth + 1, maxDepth);
     }
 }
 

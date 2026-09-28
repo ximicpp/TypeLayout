@@ -125,9 +125,69 @@ for result, ok_fields in [(project_variant_result, ["snapshotId", "snapshot"]), 
 project_result = obj({"schemaVersion": {"const": "0.1"}, "projectId": S, "exitCode": enum(0, 1, 2, 3),
     "variants": {**arr(project_variant_result), "minItems": 1}, "comparisons": {**arr(project_pair_result), "minItems": 1}})
 
-for name, schema, definitions in [("snapshot", snapshot, DEFS), ("compare-manifest", compare, {"fieldMap": field_map}), ("run-manifest", run, {}), ("comparison", comparison, {}), ("project-manifest", project, {"logicalField": logical_field}), ("project-result", project_result, {})]:
+signature_manifest = obj({"schemaVersion": {"const": "0.1"},
+    "scope": enum("value", "array", "object"), "policy": enum("value-fields-v1", "value-alignment-v1"),
+    "cases": {**arr(obj({"id": S, "observation": S, "fields": arr(ref("logicalField"))}, ["id", "observation"])), "minItems": 1}})
+
+def normalized_fact(value):
+    return {"oneOf": [obj({"state": {"const": "known"}, "value": value}), obj({"state": enum("unknown", "not-applicable")})]}
+
+
+signature_defs = {
+    "integerFact": normalized_fact(I), "sizeFact": normalized_fact(N),
+    "positiveFact": normalized_fact(P), "stringFact": normalized_fact(S),
+    "rangeFact": normalized_fact(arr(obj({"startBit": I, "lengthBits": N}))),
+    "key": obj({"kind": enum("explicit", "identity"), "id": S}),
+}
+normalized_repr = {key: ref("stringFact") for key in ("category", "signedness", "encoding", "floatingFormat")}
+normalized_repr["category"] = normalized_fact(enum("integer", "float", "boolean", "character", "byte"))
+normalized_repr["signedness"] = normalized_fact(enum("signed", "unsigned", "not-applicable"))
+normalized_repr["widthBits"] = ref("positiveFact")
+normalized_type = obj({"kind": enum("scalar", "enum", "record", "union", "array", "reference", "opaque"),
+    "representation": obj(normalized_repr, ["widthBits"]), "referenceKind": type_props["referenceKind"],
+    "underlying": ref("type"), "element": ref("type"), "fixedCount": ref("sizeFact")}, ["kind"])
+normalized_type["allOf"] = []
+for kind, required in [("scalar", ["representation"]), ("reference", ["referenceKind", "representation"]), ("enum", ["underlying"]), ("array", ["element"])]:
+    then = {"required": required}
+    if kind == "scalar":
+        then["properties"] = {"representation": {"required": list(normalized_repr)}}
+    normalized_type["allOf"].append({"if": {"properties": {"kind": {"const": kind}}}, "then": then})
+signature_defs["type"] = normalized_type
+normalized_member = obj({"key": ref("key"), "presence": enum("present", "absent", "unknown"),
+    "role": enum("field", "base"), "offsetBits": ref("integerFact"), "bitWidth": ref("sizeFact"),
+    "occupiedRanges": ref("rangeFact"), "type": ref("type"), "value": ref("layout")}, ["key", "presence"])
+present_fields = ["role", "offsetBits", "bitWidth", "occupiedRanges", "type"]
+normalized_member["allOf"] = [{"if": {"properties": {"presence": {"const": "present"}}},
+    "then": {"required": present_fields}, "else": {"not": {"anyOf": [{"required": [key]} for key in present_fields + ["value"]]}}}]
+signature_defs["member"] = normalized_member
+signature_defs["layout"] = obj({"type": ref("type"), "extentStartBit": I,
+    "metrics": obj({key: ref("sizeFact") for key in ("valueSizeBytes", "runtimeReportedObjectBytes", "alignmentBytes", "arrayStrideBytes")}, []),
+    "members": arr(ref("member")), "runtimeRegions": arr(obj({"role": S, "ranges": ref("rangeFact")})),
+    "arrayShape": obj({"count": ref("sizeFact"), "dimensions": normalized_fact(arr(N))}),
+    "instanceShape": obs_props["instanceShape"]}, ["type", "extentStartBit", "metrics", "members", "runtimeRegions"])
+signature_defs["prerequisites"] = obj({"view": obs_props["view"], "contextKind": obs_props["context"]["properties"]["kind"],
+    "originKind": obs_props["origin"]["properties"]["kind"], "elementIndex": N, "calibrated": {"type": "boolean"}, "status": obs_props["status"],
+    "coverage": obs_props["coverage"], "explicitFields": {"type": "boolean"}, "unmappedFields": arr(S),
+    "marshallingProfile": obs_props["marshallingProfile"], "declaredType": ref("type"),
+    "members": arr(obj({"key": ref("key"), "childrenRequested": {"type": "boolean"}, "declaredType": ref("type"), "value": ref("prerequisites")}, ["key", "childrenRequested"]))},
+    ["view", "contextKind", "originKind", "calibrated", "status", "coverage", "explicitFields", "unmappedFields", "members"])
+signature_payload = obj({"signatureFormat": {"const": "layout-signature-v1"}, "scope": signature_manifest["properties"]["scope"],
+    "policy": signature_manifest["properties"]["policy"], "endian": enum("little", "big"), "layout": ref("layout")})
+signature_case = obj({"id": S, "state": enum("complete", "partial"), "payload": signature_payload,
+    "prerequisites": ref("prerequisites"), "unknowns": arr(obj({"path": S, "kind": S, "message": S})),
+    "digest": obj({"algorithm": {"const": "sha256"}, "value": {"type": "string", "pattern": "^[0-9a-f]{64}$"}})},
+    ["id", "state", "payload", "prerequisites", "unknowns"])
+signature_case["allOf"] = [{"if": {"properties": {"state": {"const": "complete"}}},
+    "then": {"required": ["digest"], "properties": {"unknowns": {"maxItems": 0}}},
+    "else": {"not": {"required": ["digest"]}, "properties": {"unknowns": {"minItems": 1}}}}]
+signature = obj({"schemaVersion": {"const": "0.1"}, "signatureFormat": {"const": "layout-signature-v1"},
+    "scope": signature_manifest["properties"]["scope"], "policy": signature_manifest["properties"]["policy"],
+    "source": context_side, "cases": {**arr(signature_case), "minItems": 1}, "exitCode": enum(0, 2)})
+
+contracts = [("snapshot", snapshot, DEFS), ("compare-manifest", compare, {"fieldMap": field_map}), ("run-manifest", run, {}), ("comparison", comparison, {}), ("project-manifest", project, {"logicalField": logical_field}), ("project-result", project_result, {}), ("signature-manifest", signature_manifest, {"logicalField": logical_field}), ("signature", signature, signature_defs)]
+for name, schema, definitions in contracts:
     output = {"$schema": "https://json-schema.org/draft/2020-12/schema", "$id": f"https://ximicpp.github.io/TypeLayout/layout-observer/0.1/{name}.schema.json", "title": f"Layout Compare {name} 0.1", **schema}
     if definitions:
         output["$defs"] = definitions
     (ROOT / f"{name}.schema.json").write_text(json.dumps(output, indent=2) + "\n", encoding="utf-8")
-print("Generated 6 public JSON schemas")
+print(f"Generated {len(contracts)} public JSON schemas")

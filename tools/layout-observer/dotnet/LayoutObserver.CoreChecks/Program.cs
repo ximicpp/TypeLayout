@@ -59,22 +59,65 @@ JsonObject Manifest(string mode = "regression", string policy = "value-fields-v1
 JsonObject O(JsonObject s) => (JsonObject)s["observations"]![0]!;
 int Code(JsonObject result) => result["exitCode"]!.GetValue<int>();
 string Verdict(JsonObject result) => result["cases"]![0]!["verdict"]!.GetValue<string>();
-Check("identical independent snapshot", () => Assert(Code(LayoutComparer.Compare(Fixture(), Fixture(), Manifest())) == 0, "not same"));
-Check("different compiler/build IDs are not layout differences", () => { var r = Fixture(); r["build"]!["runId"] = "another"; r["build"]!["compiler"]!["version"] = "2"; Assert(Code(LayoutComparer.Compare(Fixture(), r, Manifest())) == 0, "environment leaked into equality"); });
-Check("cross-language explicit mapping", () => { var r = Fixture(); O(r)["view"] = "managed"; Assert(Code(LayoutComparer.Compare(Fixture(), r, Manifest("representation"))) == 0, "native/managed not same"); });
-Check("known size change", () => { var r = Fixture(); O(r)["metrics"]!["valueSizeBytes"]!["value"] = 16; Assert(Code(LayoutComparer.Compare(Fixture(), r, Manifest())) == 1, "size ignored"); });
-Check("packing offset change", () => { var r = Fixture(); var member = O(r)["members"]![1]!; member["offsetBits"]!["value"] = 8; member["occupiedRanges"]!["value"] = new JsonArray(Range(8, 32)); Assert(Code(LayoutComparer.Compare(Fixture(), r, Manifest())) == 1, "offset ignored"); });
-Check("unknown alignment is optional by default", () => { var r = Fixture(); O(r)["metrics"]!["alignmentBytes"] = Unknown(); Assert(Code(LayoutComparer.Compare(Fixture(), r, Manifest())) == 0, "optional alignment blocked"); });
-Check("strict alignment requires evidence", () => { var r = Fixture(); O(r)["metrics"]!["alignmentBytes"] = Unknown(); Assert(Code(LayoutComparer.Compare(Fixture(), r, Manifest(policy: "value-alignment-v1"))) == 2, "unknown considered equal"); });
-Check("two unknowns do not equal", () => { var l = Fixture(); O(l)["members"]![0]!["offsetBits"] = Unknown(); Assert(Verdict(LayoutComparer.Compare(l, Copy(l), Manifest())) == "incomplete", "unknowns equal"); });
-Check("difference preserved alongside unknown", () => { var r = Fixture(); O(r)["metrics"]!["valueSizeBytes"]!["value"] = 16; O(r)["members"]![0]!["offsetBits"] = Unknown(); var result = LayoutComparer.Compare(Fixture(), r, Manifest()); Assert(Verdict(result) == "different" && Code(result) == 2, "difference or coverage lost"); });
-Check("complete field removal is a difference", () => { var r = Fixture(); ((JsonArray)O(r)["members"]!).RemoveAt(1); Assert(Code(LayoutComparer.Compare(Fixture(), r, Manifest())) == 1, "removal ignored"); });
-Check("partial missing field not a confirmed removal", () => { var r = Fixture(); ((JsonArray)O(r)["members"]!).RemoveAt(1); O(r)["coverage"]!["fieldEnumeration"] = "partial"; Assert(Verdict(LayoutComparer.Compare(Fixture(), r, Manifest())) == "incomplete", "partial read called removal"); });
-Check("view mismatch is not-comparable", () => { var r = Fixture(); O(r)["view"] = "managed"; Assert(Verdict(LayoutComparer.Compare(Fixture(), r, Manifest())) == "not-comparable", "view ignored"); });
-Check("origin mismatch is not-comparable", () => { var r = Fixture(); O(r)["origin"]!["kind"] = "instance-data"; Assert(Verdict(LayoutComparer.Compare(Fixture(), r, Manifest())) == "not-comparable", "origin ignored"); });
-Check("opaque is never fully equal", () => { var l = Fixture(); ((JsonArray)l["typeDescriptors"]!).Add(new JsonObject { ["id"] = "opaque", ["kind"] = "opaque", ["displayName"] = "Secret", ["opaqueTag"] = "secret" }); O(l)["members"]![1]!["typeRef"] = "opaque"; Assert(Code(LayoutComparer.Compare(l, Copy(l), Manifest())) == 2, "opaque equal"); });
-Check("signedness is representation", () => { var r = Fixture(); r["typeDescriptors"]![1]!["representation"]!["signedness"]!["value"] = "unsigned"; Assert(Code(LayoutComparer.Compare(Fixture(), r, Manifest())) == 1, "signedness ignored"); });
-Check("unsupported case remains inconclusive", () => { var r = Fixture(); O(r)["status"] = "unsupported"; Assert(Code(LayoutComparer.Compare(Fixture(), r, Manifest())) == 2, "unsupported passed"); });
+JsonObject CompareWithSignatureParity(JsonObject left, JsonObject right, JsonObject manifest)
+{
+    // Preserve the original check's oracle and input-error behavior. Every successful comparison
+    // must also be expressible through the public single-side signature protocol.
+    var expected = LayoutComparer.Compare(left, right, manifest);
+    var leftSignature = LayoutSignature.Generate(left, Project("left"));
+    var rightSignature = LayoutSignature.Generate(right, Project("right"));
+    LayoutSignature.Validate(leftSignature); LayoutSignature.Validate(rightSignature);
+    var actual = LayoutSignature.Compare(leftSignature, rightSignature, manifest["mode"]!.GetValue<string>());
+    Assert(Code(actual) == Code(expected), "Signature/direct comparison exit codes disagree.");
+    var actualCases = actual["cases"]!.AsArray().OfType<JsonObject>().ToDictionary(c => c["id"]!.GetValue<string>(), StringComparer.Ordinal);
+    Assert(actualCases.Count == expected["cases"]!.AsArray().Count, "Signature comparison lost a requested case.");
+    foreach (var item in expected["cases"]!.AsArray().OfType<JsonObject>())
+    {
+        Assert(actualCases.TryGetValue(item["id"]!.GetValue<string>(), out var counterpart), "Signature comparison lost a logical case ID.");
+        Assert(JsonNode.DeepEquals(item["verdict"], counterpart!["verdict"]) && JsonNode.DeepEquals(item["coverage"], counterpart["coverage"]),
+            "Signature/direct case result mismatch: expected " + item.ToJsonString() + "; actual " + counterpart.ToJsonString());
+    }
+    return expected;
+
+    JsonObject Project(string side)
+    {
+        var cases = new JsonArray();
+        foreach (var item in manifest["cases"]!.AsArray().OfType<JsonObject>())
+        {
+            var selected = new JsonObject { ["id"] = item["id"]!.DeepClone(), ["observation"] = item[side]!.DeepClone() };
+            if (item["fields"] is JsonArray fields) selected["fields"] = Fields(fields, side);
+            cases.Add(selected);
+        }
+        return new JsonObject { ["schemaVersion"] = "0.1", ["scope"] = manifest["scope"]!.DeepClone(), ["policy"] = manifest["policy"]!.DeepClone(), ["cases"] = cases };
+    }
+    static JsonArray Fields(JsonArray fields, string side)
+    {
+        var result = new JsonArray();
+        foreach (var field in fields.OfType<JsonObject>())
+        {
+            var selected = new JsonObject { ["id"] = field["id"]!.DeepClone(), ["member"] = field[side]!.DeepClone() };
+            if (field["children"] is JsonArray children) selected["children"] = Fields(children, side);
+            result.Add(selected);
+        }
+        return result;
+    }
+}
+Check("identical independent snapshot", () => Assert(Code(CompareWithSignatureParity(Fixture(), Fixture(), Manifest())) == 0, "not same"));
+Check("different compiler/build IDs are not layout differences", () => { var r = Fixture(); r["build"]!["runId"] = "another"; r["build"]!["compiler"]!["version"] = "2"; Assert(Code(CompareWithSignatureParity(Fixture(), r, Manifest())) == 0, "environment leaked into equality"); });
+Check("cross-language explicit mapping", () => { var r = Fixture(); O(r)["view"] = "managed"; Assert(Code(CompareWithSignatureParity(Fixture(), r, Manifest("representation"))) == 0, "native/managed not same"); });
+Check("known size change", () => { var r = Fixture(); O(r)["metrics"]!["valueSizeBytes"]!["value"] = 16; Assert(Code(CompareWithSignatureParity(Fixture(), r, Manifest())) == 1, "size ignored"); });
+Check("packing offset change", () => { var r = Fixture(); var member = O(r)["members"]![1]!; member["offsetBits"]!["value"] = 8; member["occupiedRanges"]!["value"] = new JsonArray(Range(8, 32)); Assert(Code(CompareWithSignatureParity(Fixture(), r, Manifest())) == 1, "offset ignored"); });
+Check("unknown alignment is optional by default", () => { var r = Fixture(); O(r)["metrics"]!["alignmentBytes"] = Unknown(); Assert(Code(CompareWithSignatureParity(Fixture(), r, Manifest())) == 0, "optional alignment blocked"); });
+Check("strict alignment requires evidence", () => { var r = Fixture(); O(r)["metrics"]!["alignmentBytes"] = Unknown(); Assert(Code(CompareWithSignatureParity(Fixture(), r, Manifest(policy: "value-alignment-v1"))) == 2, "unknown considered equal"); });
+Check("two unknowns do not equal", () => { var l = Fixture(); O(l)["members"]![0]!["offsetBits"] = Unknown(); Assert(Verdict(CompareWithSignatureParity(l, Copy(l), Manifest())) == "incomplete", "unknowns equal"); });
+Check("difference preserved alongside unknown", () => { var r = Fixture(); O(r)["metrics"]!["valueSizeBytes"]!["value"] = 16; O(r)["members"]![0]!["offsetBits"] = Unknown(); var result = CompareWithSignatureParity(Fixture(), r, Manifest()); Assert(Verdict(result) == "different" && Code(result) == 2, "difference or coverage lost"); });
+Check("complete field removal is a difference", () => { var r = Fixture(); ((JsonArray)O(r)["members"]!).RemoveAt(1); Assert(Code(CompareWithSignatureParity(Fixture(), r, Manifest())) == 1, "removal ignored"); });
+Check("partial missing field not a confirmed removal", () => { var r = Fixture(); ((JsonArray)O(r)["members"]!).RemoveAt(1); O(r)["coverage"]!["fieldEnumeration"] = "partial"; Assert(Verdict(CompareWithSignatureParity(Fixture(), r, Manifest())) == "incomplete", "partial read called removal"); });
+Check("view mismatch is not-comparable", () => { var r = Fixture(); O(r)["view"] = "managed"; Assert(Verdict(CompareWithSignatureParity(Fixture(), r, Manifest())) == "not-comparable", "view ignored"); });
+Check("origin mismatch is not-comparable", () => { var r = Fixture(); O(r)["origin"]!["kind"] = "instance-data"; Assert(Verdict(CompareWithSignatureParity(Fixture(), r, Manifest())) == "not-comparable", "origin ignored"); });
+Check("opaque is never fully equal", () => { var l = Fixture(); ((JsonArray)l["typeDescriptors"]!).Add(new JsonObject { ["id"] = "opaque", ["kind"] = "opaque", ["displayName"] = "Secret", ["opaqueTag"] = "secret" }); O(l)["members"]![1]!["typeRef"] = "opaque"; Assert(Code(CompareWithSignatureParity(l, Copy(l), Manifest())) == 2, "opaque equal"); });
+Check("signedness is representation", () => { var r = Fixture(); r["typeDescriptors"]![1]!["representation"]!["signedness"]!["value"] = "unsigned"; Assert(Code(CompareWithSignatureParity(Fixture(), r, Manifest())) == 1, "signedness ignored"); });
+Check("unsupported case remains inconclusive", () => { var r = Fixture(); O(r)["status"] = "unsupported"; Assert(Code(CompareWithSignatureParity(Fixture(), r, Manifest())) == 2, "unsupported passed"); });
 Check("strict JSON duplicate keys", () => Reject(() => JsonIO.Parse("{\"a\":1,\"a\":2}")));
 Check("unknown schema version", () => { var s = Fixture(); s["schemaVersion"] = "future"; Reject(() => SnapshotValidator.Validate(s)); });
 Check("duplicate observation IDs", () => { var s = Fixture(); ((JsonArray)s["observations"]!).Add(O(s).DeepClone()); Reject(() => SnapshotValidator.Validate(s)); });
@@ -83,15 +126,15 @@ Check("dangling type reference", () => { var s = Fixture(); O(s)["members"]![0]!
 Check("unknown with invented zero", () => { var s = Fixture(); O(s)["metrics"]!["alignmentBytes"] = new JsonObject { ["state"] = "unknown", ["reason"] = "missing", ["value"] = 0 }; Reject(() => SnapshotValidator.Validate(s)); });
 Check("range outside extent", () => { var s = Fixture(); O(s)["members"]![0]!["occupiedRanges"]!["value"] = new JsonArray(Range(64, 8)); Reject(() => SnapshotValidator.Validate(s)); });
 Check("range arithmetic overflow", () => { var s = Fixture(); O(s)["members"]![0]!["occupiedRanges"]!["value"] = new JsonArray(Range(long.MaxValue, 8)); Reject(() => SnapshotValidator.Validate(s)); });
-Check("unmapped cross-language fields", () => { var r = Fixture(); O(r)["view"] = "managed"; var m = Manifest("representation"); ((JsonArray)m["cases"]![0]!["fields"]!).RemoveAt(1); Reject(() => LayoutComparer.Compare(Fixture(), r, m)); });
+Check("unmapped cross-language fields", () => { var r = Fixture(); O(r)["view"] = "managed"; var m = Manifest("representation"); ((JsonArray)m["cases"]![0]!["fields"]!).RemoveAt(1); Reject(() => CompareWithSignatureParity(Fixture(), r, m)); });
 Check("duplicate source mapping", () => { var m = Manifest("representation"); m["cases"]![0]!["fields"]![1]!["left"] = "tag"; Reject(() => LayoutComparer.ValidateManifest(m)); });
-Check("empty case list cannot pass", () => { var m = Manifest(); m["cases"] = new JsonArray(); Reject(() => LayoutComparer.Compare(Fixture(), Fixture(), m)); });
+Check("empty case list cannot pass", () => { var m = Manifest(); m["cases"] = new JsonArray(); Reject(() => CompareWithSignatureParity(Fixture(), Fixture(), m)); });
 Check("invalid inline relation", () => { var s = Fixture(); O(s)["members"]![0]!["childObservationId"] = "sample"; Reject(() => SnapshotValidator.Validate(s)); });
-Check("strict reparse retains facts", () => { var s = JsonIO.Parse(Fixture().ToJsonString()); Assert(Code(LayoutComparer.Compare(s, s, Manifest())) == 0, "serialize drift"); });
+Check("strict reparse retains facts", () => { var s = JsonIO.Parse(Fixture().ToJsonString()); Assert(Code(CompareWithSignatureParity(s, s, Manifest())) == 0, "serialize drift"); });
 Check("aggregate cannot bypass coverage with not-applicable", () => { var s = Fixture(); O(s)["members"] = new JsonArray(); O(s)["coverage"]!["fieldEnumeration"] = "not-applicable"; Reject(() => SnapshotValidator.Validate(s)); });
 Check("enum self cycle is invalid", () => { var s = Fixture(); ((JsonArray)s["typeDescriptors"]!).Add(new JsonObject { ["id"] = "cycle", ["kind"] = "enum", ["displayName"] = "Cycle", ["enumUnderlyingTypeRef"] = "cycle" }); Reject(() => SnapshotValidator.Validate(s)); });
 Check("array type cycle is invalid", () => { var s = Fixture(); ((JsonArray)s["typeDescriptors"]!).Add(new JsonObject { ["id"] = "cycle", ["kind"] = "array", ["displayName"] = "Cycle", ["elementTypeRef"] = "cycle", ["fixedCount"] = Known(JsonValue.Create(1)!) }); Reject(() => SnapshotValidator.Validate(s)); });
-Check("array of unobserved records cannot compare same", () => { var s = Fixture(); ((JsonArray)s["typeDescriptors"]!).Add(new JsonObject { ["id"] = "records", ["kind"] = "array", ["displayName"] = "Records", ["elementTypeRef"] = "record", ["fixedCount"] = Known(JsonValue.Create(1)!) }); O(s)["members"]![1]!["typeRef"] = "records"; Assert(Code(LayoutComparer.Compare(s, Copy(s), Manifest())) == 2, "unobserved array element representation passed"); });
+Check("array of unobserved records cannot compare same", () => { var s = Fixture(); ((JsonArray)s["typeDescriptors"]!).Add(new JsonObject { ["id"] = "records", ["kind"] = "array", ["displayName"] = "Records", ["elementTypeRef"] = "record", ["fixedCount"] = Known(JsonValue.Create(1)!) }); O(s)["members"]![1]!["typeRef"] = "records"; Assert(Code(CompareWithSignatureParity(s, Copy(s), Manifest())) == 2, "unobserved array element representation passed"); });
 JsonObject NestedFixture()
 {
     var s = Fixture(); var child = Copy(O(s)); child["id"] = "child";
@@ -100,21 +143,21 @@ JsonObject NestedFixture()
     O(s)["typeId"] = "outer"; var field = Member("payload", 0, 64, "record", 0); field["childObservationId"] = "child";
     O(s)["members"] = new JsonArray(field); ((JsonArray)s["observations"]!).Add(child); return s;
 }
-Check("valid nested placements", () => { var s = NestedFixture(); Assert(Code(LayoutComparer.Compare(s, Copy(s), Manifest())) == 0, "valid nested mismatch"); });
-Check("nested origin participates in compatibility", () => { var l = NestedFixture(); var r = Copy(l); r["observations"]![1]!["origin"]!["kind"] = "instance-data"; Assert(Code(LayoutComparer.Compare(l, r, Manifest())) == 2, "nested origin bypass"); });
-Check("nested view participates in compatibility", () => { var l = NestedFixture(); var r = Copy(l); r["observations"]![1]!["view"] = "managed"; Assert(Code(LayoutComparer.Compare(l, r, Manifest())) == 2, "nested view bypass"); });
-Check("equivalent occupied range partitions", () => { var r = Fixture(); O(r)["members"]![1]!["occupiedRanges"]!["value"] = new JsonArray(Range(32, 16), Range(48, 16)); Assert(Code(LayoutComparer.Compare(Fixture(), r, Manifest())) == 0, "partition changed occupancy"); });
+Check("valid nested placements", () => { var s = NestedFixture(); Assert(Code(CompareWithSignatureParity(s, Copy(s), Manifest())) == 0, "valid nested mismatch"); });
+Check("nested origin participates in compatibility", () => { var l = NestedFixture(); var r = Copy(l); r["observations"]![1]!["origin"]!["kind"] = "instance-data"; Assert(Code(CompareWithSignatureParity(l, r, Manifest())) == 2, "nested origin bypass"); });
+Check("nested view participates in compatibility", () => { var l = NestedFixture(); var r = Copy(l); r["observations"]![1]!["view"] = "managed"; Assert(Code(CompareWithSignatureParity(l, r, Manifest())) == 2, "nested view bypass"); });
+Check("equivalent occupied range partitions", () => { var r = Fixture(); O(r)["members"]![1]!["occupiedRanges"]!["value"] = new JsonArray(Range(32, 16), Range(48, 16)); Assert(Code(CompareWithSignatureParity(Fixture(), r, Manifest())) == 0, "partition changed occupancy"); });
 Check("native reserved region changes are compared", () =>
 {
     var l = Fixture(); var r = Fixture();
     O(l)["runtimeRegions"] = new JsonArray(new JsonObject { ["role"] = "abi-reserved", ["ranges"] = Known(new JsonArray(Range(8, 8))) });
     O(r)["runtimeRegions"] = new JsonArray(new JsonObject { ["role"] = "abi-reserved", ["ranges"] = Known(new JsonArray(Range(16, 8))) });
-    Assert(Code(LayoutComparer.Compare(l, r, Manifest())) == 1, "native hidden region ignored");
+    Assert(Code(CompareWithSignatureParity(l, r, Manifest())) == 1, "native hidden region ignored");
 });
 Check("unknown native reserved region remains incomplete", () =>
 {
     var s = Fixture(); O(s)["runtimeRegions"] = new JsonArray(new JsonObject { ["role"] = "abi-reserved", ["ranges"] = Unknown() });
-    Assert(Code(LayoutComparer.Compare(s, Copy(s), Manifest())) == 2, "unknown hidden region equal");
+    Assert(Code(CompareWithSignatureParity(s, Copy(s), Manifest())) == 2, "unknown hidden region equal");
 });
 Check("null origin calibration is invalid", () => { var s = Fixture(); O(s)["origin"]!["conversionEvidence"] = null; Reject(() => SnapshotValidator.Validate(s)); });
 Check("incomplete origin calibration is invalid", () => { var s = Fixture(); O(s)["origin"]!["conversionEvidence"] = new JsonObject { ["kind"] = "runtime" }; Reject(() => SnapshotValidator.Validate(s)); });
@@ -122,7 +165,7 @@ Check("object extent requires calibration", () =>
 {
     var s = Fixture(); O(s)["context"]!["kind"] = "heap-object"; O(s)["metrics"]!["runtimeReportedObjectBytes"] = Known(JsonValue.Create(8)!);
     var m = Manifest(); m["scope"] = "object";
-    Assert(Verdict(LayoutComparer.Compare(s, Copy(s), m)) == "not-comparable", "uncalibrated object equal");
+    Assert(Verdict(CompareWithSignatureParity(s, Copy(s), m)) == "not-comparable", "uncalibrated object equal");
 });
 Check("unknown checkout state is explicit", () => { var s = Fixture(); s["build"]!["sourceDirty"] = null; SnapshotValidator.Validate(s); });
 Check("missing checkout state is invalid", () => { var s = Fixture(); s["build"]!.AsObject().Remove("sourceDirty"); Reject(() => SnapshotValidator.Validate(s)); });
@@ -139,14 +182,14 @@ Check("nested marshalling profile cannot bypass adapter", () =>
         o["view"] = "marshaled"; o["marshallingProfile"] = new JsonObject { ["id"] = "profile", ["mechanism"] = "runtime-marshalling", ["configuration"] = new JsonObject() };
     }
     var r = Copy(l); r["observations"]![1]!["marshallingProfile"]!["mechanism"] = "custom-marshalling";
-    Assert(Code(LayoutComparer.Compare(l, r, Manifest())) == 2, "nested profile ignored");
+    Assert(Code(CompareWithSignatureParity(l, r, Manifest())) == 2, "nested profile ignored");
 });
 Check("runtime role range partition is not representation", () =>
 {
     var l = Fixture(); var r = Fixture();
     O(l)["runtimeRegions"] = new JsonArray(new JsonObject { ["role"] = "reserved", ["ranges"] = Known(new JsonArray(Range(8, 16))) });
     O(r)["runtimeRegions"] = new JsonArray(new JsonObject { ["role"] = "reserved", ["ranges"] = Known(new JsonArray(Range(8, 8))) }, new JsonObject { ["role"] = "reserved", ["ranges"] = Known(new JsonArray(Range(16, 8))) });
-    Assert(Code(LayoutComparer.Compare(l, r, Manifest())) == 0, "region partition changed representation");
+    Assert(Code(CompareWithSignatureParity(l, r, Manifest())) == 0, "region partition changed representation");
 });
 Check("float format cannot claim not-applicable", () =>
 {
@@ -157,7 +200,7 @@ Check("unknown float format is incomplete", () =>
 {
     var s = Fixture(); var repr = s["typeDescriptors"]![1]!["representation"]!;
     repr["category"]!["value"] = "float"; repr["signedness"]!["value"] = "not-applicable"; repr["encoding"]!["value"] = "ieee754"; repr["floatingFormat"] = Unknown();
-    Assert(Code(LayoutComparer.Compare(s, Copy(s), Manifest())) == 2, "unknown floating format considered equal");
+    Assert(Code(CompareWithSignatureParity(s, Copy(s), Manifest())) == 2, "unknown floating format considered equal");
 });
 Check("unrecognized known scalar category is invalid", () => { var s = Fixture(); s["typeDescriptors"]![1]!["representation"]!["category"]!["value"] = "typo"; Reject(() => SnapshotValidator.Validate(s)); });
 Check("malformed optional field map is not ignored", () => { var m = Manifest(); m["cases"]![0]!["fields"] = "bad-map"; Reject(() => LayoutComparer.ValidateManifest(m)); });
@@ -167,7 +210,7 @@ Check("C++ bool-based enum is an integral representation", () =>
     var s = Fixture(); s["typeDescriptors"]![0]!["representation"]!["category"]!["value"] = "boolean";
     ((JsonArray)s["typeDescriptors"]!).Add(new JsonObject { ["id"] = "bool-enum", ["displayName"] = "enum:bool", ["kind"] = "enum", ["enumUnderlyingTypeRef"] = "u8" });
     O(s)["members"]![0]!["typeRef"] = "bool-enum";
-    Assert(Code(LayoutComparer.Compare(s, Copy(s), Manifest())) == 0, "valid C++ enum rejected");
+    Assert(Code(CompareWithSignatureParity(s, Copy(s), Manifest())) == 0, "valid C++ enum rejected");
 });
 Check("runtime regions stay inside the declared extent", () =>
 {
@@ -207,48 +250,48 @@ JsonObject ArrayElementFixture()
 Check("mapped native representations support different language frontends", () =>
 {
     var l = Fixture(); var r = Fixture(); l["build"]!["languages"] = new JsonArray("c++"); r["build"]!["languages"] = new JsonArray("rust");
-    Assert(Code(LayoutComparer.Compare(l, r, Manifest("representation"))) == 0, "native/native mapping rejected");
+    Assert(Code(CompareWithSignatureParity(l, r, Manifest("representation"))) == 0, "native/native mapping rejected");
 });
 Check("mapped managed representations share the same comparison path", () =>
 {
     var l = Fixture(); O(l)["view"] = "managed";
-    Assert(Code(LayoutComparer.Compare(l, Copy(l), Manifest("representation"))) == 0, "managed/managed mapping rejected");
+    Assert(Code(CompareWithSignatureParity(l, Copy(l), Manifest("representation"))) == 0, "managed/managed mapping rejected");
 });
 Check("representation mode does not bypass marshalling profiles", () =>
 {
     var r = Fixture(); O(r)["view"] = "marshaled"; O(r)["marshallingProfile"] = new JsonObject { ["id"] = "profile", ["mechanism"] = "runtime-marshalling", ["configuration"] = new JsonObject() };
-    Assert(Verdict(LayoutComparer.Compare(Fixture(), r, Manifest("representation"))) == "not-comparable", "marshaled view bypassed dedicated adapter");
+    Assert(Verdict(CompareWithSignatureParity(Fixture(), r, Manifest("representation"))) == "not-comparable", "marshaled view bypassed dedicated adapter");
 });
 Check("fully observed runtime arrays are comparable instances", () =>
 {
     var s = ArrayFixture(heapObject: true); var m = Manifest(); m["scope"] = "object";
-    Assert(Code(LayoutComparer.Compare(s, Copy(s), m)) == 0, "runtime type count obscured observed instance count");
+    Assert(Code(CompareWithSignatureParity(s, Copy(s), m)) == 0, "runtime type count obscured observed instance count");
 });
 Check("array declaration cardinality is not substituted for instance evidence", () =>
 {
     var l = ArrayFixture(false); O(l).Remove("instanceShape"); var r = ArrayFixture();
-    var result = LayoutComparer.Compare(l, r, Manifest());
+    var result = CompareWithSignatureParity(l, r, Manifest());
     Assert(Code(result) == 0 && result["cases"]![0]!["diagnostics"]!.AsArray().Count > 0, "instance/declaration comparison lost its scope distinction");
 });
 Check("runtime array length changes are observed", () =>
 {
     var l = ArrayFixture(); var r = Copy(l); O(r)["instanceShape"] = new JsonObject { ["length"] = 1, ["dimensions"] = new JsonArray(1) }; O(r)["members"]!.AsArray().RemoveAt(1);
-    Assert(Code(LayoutComparer.Compare(l, r, Manifest())) == 1, "runtime instance count change ignored");
+    Assert(Code(CompareWithSignatureParity(l, r, Manifest())) == 1, "runtime instance count change ignored");
 });
 Check("array unknown length without instance evidence remains incomplete", () =>
 {
     var s = ArrayFixture(); O(s).Remove("instanceShape"); O(s)["coverage"]!["fieldEnumeration"] = "partial";
-    Assert(Code(LayoutComparer.Compare(s, Copy(s), Manifest())) == 2, "unobserved cardinality passed");
+    Assert(Code(CompareWithSignatureParity(s, Copy(s), Manifest())) == 2, "unobserved cardinality passed");
 });
 Check("array placement scope requires the root stride", () =>
 {
     var l = Fixture(); var r = Copy(l); O(r)["metrics"]!["arrayStrideBytes"] = Known(JsonValue.Create(16)!); var m = Manifest(); m["scope"] = "array";
-    Assert(Code(LayoutComparer.Compare(l, r, m)) == 1, "array placement scope ignored root stride");
+    Assert(Code(CompareWithSignatureParity(l, r, m)) == 1, "array placement scope ignored root stride");
 });
 Check("array rank dimensions participate outside object scope", () =>
 {
     var l = ArrayFixture(); var r = Copy(l); O(l)["instanceShape"]!["dimensions"] = new JsonArray(1, 2); O(r)["instanceShape"]!["dimensions"] = new JsonArray(2, 1);
-    Assert(Code(LayoutComparer.Compare(l, r, Manifest())) == 1, "array dimensions ignored");
+    Assert(Code(CompareWithSignatureParity(l, r, Manifest())) == 1, "array dimensions ignored");
 });
 Check("fixed array count must agree with instance count", () => { var s = ArrayFixture(false); O(s)["instanceShape"] = new JsonObject { ["length"] = 3, ["dimensions"] = new JsonArray(3) }; Reject(() => SnapshotValidator.Validate(s)); });
 Check("instance length must match dimensions product", () => { var s = ArrayFixture(); O(s)["instanceShape"]!["dimensions"] = new JsonArray(1, 3); Reject(() => SnapshotValidator.Validate(s)); });
@@ -277,7 +320,7 @@ Check("calibrated object extent start is a difference within a shared origin", (
     foreach (var o in new[] { O(l), O(r) }) { o["origin"]!["kind"] = "object-reference"; o["metrics"]!["runtimeReportedObjectBytes"] = Known(JsonValue.Create(16)!); }
     O(l)["origin"]!["extentStartBit"] = -32; O(r)["origin"]!["extentStartBit"] = -64;
     var m = Manifest(); m["scope"] = "object";
-    Assert(Code(LayoutComparer.Compare(l, r, m)) == 1, "extent origin coordinate confused with region start");
+    Assert(Code(CompareWithSignatureParity(l, r, m)) == 1, "extent origin coordinate confused with region start");
 });
 Check("language identities cannot silently repeat", () => { var s = Fixture(); s["build"]!["languages"] = new JsonArray("c++", "c++"); Reject(() => SnapshotValidator.Validate(s)); });
 Check("provenance requires all observation claims", () => { var s = Fixture(); s["build"]!["captureProvenance"] = new JsonObject { ["sourceBinding"] = "profile" }; Reject(() => SnapshotValidator.Validate(s)); });
@@ -291,26 +334,26 @@ Check("nested selectors on leaf fields cannot be silently ignored", () =>
         if (kind == "enum") { type.Clear(); type["id"] = "u8"; type["displayName"] = "Enum"; type["kind"] = "enum"; type["enumUnderlyingTypeRef"] = "i32"; }
         if (kind == "reference") { type.Clear(); type["id"] = "u8"; type["displayName"] = "Reference"; type["kind"] = "reference"; type["referenceKind"] = "native-pointer"; type["representation"] = new JsonObject { ["widthBits"] = Known(JsonValue.Create(8)!) }; }
         var m = Manifest("representation"); m["cases"]![0]!["fields"]![0]!["children"] = new JsonArray(new JsonObject { ["id"] = "required", ["left"] = "missing", ["right"] = "missing" });
-        Reject(() => LayoutComparer.Compare(s, Copy(s), m));
+        Reject(() => CompareWithSignatureParity(s, Copy(s), m));
     }
 });
 Check("unobserved record mapping remains incomplete with an explicit diagnostic", () =>
 {
     var s = NestedFixture(); O(s)["members"]![0]!.AsObject().Remove("childObservationId"); s["observations"]!.AsArray().RemoveAt(1);
     var m = Manifest("representation"); m["cases"]![0]!["fields"] = new JsonArray(new JsonObject { ["id"] = "payload", ["left"] = "payload", ["right"] = "payload", ["children"] = new JsonArray(new JsonObject { ["id"] = "tag", ["left"] = "tag", ["right"] = "tag" }) });
-    var result = LayoutComparer.Compare(s, Copy(s), m);
+    var result = CompareWithSignatureParity(s, Copy(s), m);
     Assert(Code(result) == 2 && result["cases"]![0]!["diagnostics"]!.AsArray().Any(d => d!.GetValue<string>().Contains("mapping was not evaluated")), "missing record observations hid an unevaluated selector");
 });
 Check("selector absent on both complete sides is a configuration error", () =>
 {
     var m = Manifest("representation"); m["cases"]![0]!["fields"]!.AsArray().Add(new JsonObject { ["id"] = "absent", ["left"] = "absent", ["right"] = "absent" });
-    Reject(() => LayoutComparer.Compare(Fixture(), Fixture(), m));
+    Reject(() => CompareWithSignatureParity(Fixture(), Fixture(), m));
 });
 Check("unresolved selector does not invent a change from incomplete enumeration", () =>
 {
     var l = Fixture(); var r = Fixture(); O(r)["coverage"]!["fieldEnumeration"] = "partial";
     var m = Manifest("representation"); m["cases"]![0]!["fields"]!.AsArray().Add(new JsonObject { ["id"] = "absent", ["left"] = "absent", ["right"] = "absent" });
-    var result = LayoutComparer.Compare(l, r, m);
+    var result = CompareWithSignatureParity(l, r, m);
     Assert(Verdict(result) == "incomplete" && result["cases"]![0]!["differences"]!.AsArray().Count == 0, "no observed field was misreported as an addition/removal");
 });
 
