@@ -39,6 +39,7 @@ public struct ReferenceValue
     public int Count;
 }
 public struct PlainValue { public byte Tag; public int Count; public short Code; }
+public struct NestedValue { public byte Prefix; public PlainValue Payload; public ReferenceValue Reference; public long Extra; }
 
 internal static class Program
 {
@@ -68,6 +69,9 @@ internal static class Program
                 new("int-array-1", new int[1]),
                 new("int-array-3", new int[3]),
                 new("reference-array-2", new object[] { new(), new() }),
+                new("plain-array-2", new PlainValue[2]),
+                new("nested-array-2", new NestedValue[2]),
+                new("boxed-nested", new NestedValue()),
                 new("string-1", new string('x', 1)),
                 new("string-2", new string('x', 2)),
                 new("string-5", new string('x', 5))

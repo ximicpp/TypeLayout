@@ -102,7 +102,7 @@ int wmain(int argc, wchar_t** argv) {
                 break;
             }
         }
-        Json build = Json::object({{"buildId", "pe-pdb:" + dia_observer::guid_text(image.guid) + ':' + std::to_string(image.age)},
+        Json build = Json::object({{"languages", Json::array({"cpp"})}, {"buildId", "pe-pdb:" + dia_observer::guid_text(image.guid) + ':' + std::to_string(image.age)},
             {"runId", run_id}, {"configuration", actual_configuration}, {"sourceRevision", "unknown"}, {"sourceDirty", Json{}},
             {"sourceDigest", "unknown"}, {"artifactDigest", "unknown"},
             {"compiler", Json::object({{"name", "MSVC"}, {"version", compiler_version}})},

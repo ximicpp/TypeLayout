@@ -1,6 +1,10 @@
-#include "fixtures.hpp"
 #include "observer.hpp"
 #include "build_metadata.hpp"
+#ifdef TYPELAYOUT_OBSERVER_REGISTRATION_HEADER
+#include TYPELAYOUT_OBSERVER_REGISTRATION_HEADER
+#else
+#include "fixtures.hpp"
+#endif
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -11,12 +15,14 @@
 #include <gnu/libc-version.h>
 #endif
 
+#ifndef TYPELAYOUT_OBSERVER_REGISTRATION_HEADER
 namespace observer {
 template<> struct opaque_registration<fixtures::Opaque> {
     static constexpr bool value = true;
     static constexpr const char* tag = "fixtures.Opaque";
 };
 } // namespace observer
+#endif
 
 namespace {
 std::string architecture() {
@@ -74,7 +80,7 @@ int main(int argc, char** argv) {
         }
         if (configuration != TYPELAYOUT_OBSERVER_CONFIGURATION)
             throw std::runtime_error("requested configuration " + configuration + " does not match actual binary " + TYPELAYOUT_OBSERVER_CONFIGURATION);
-        Json build = Json::object({{"buildId", "native:" + configuration + ":" + TYPELAYOUT_OBSERVER_REVISION},
+        Json build = Json::object({{"languages", Json::array({"cpp"})}, {"buildId", "native:" + configuration + ":" + TYPELAYOUT_OBSERVER_REVISION},
             {"runId", run_id}, {"configuration", configuration}, {"sourceRevision", TYPELAYOUT_OBSERVER_REVISION},
             {"sourceDirty", TYPELAYOUT_OBSERVER_DIRTY != 0}, {"sourceDigest", "unknown"}, {"artifactDigest", "unknown"},
             {"compiler", Json::object({{"name", "Clang P2996"}, {"version", __clang_version__}})},
@@ -86,6 +92,9 @@ int main(int argc, char** argv) {
             {"dependencies", Json::object({{"libc++", std::to_string(_LIBCPP_VERSION)},
                 {"bitfieldConvention", "P2996 byte offset plus least-significant bit offset; little-endian fixture calibrated"}})}});
         observer::Collector collector;
+#ifdef TYPELAYOUT_OBSERVER_REGISTRATION_HEADER
+        register_layouts(collector);
+#else
         collector.collect<fixtures::Sample>("sample");
         collector.collect<fixtures::Packed>("packed");
         collector.collect<fixtures::Reordered>("reordered");
@@ -107,6 +116,7 @@ int main(int argc, char** argv) {
         collector.collect<fixtures::Pointer>("pointer");
         collector.collect<fixtures::Boolean>("boolean");
         collector.collect<fixtures::Utf16>("char16");
+#endif
         auto snapshot = collector.finish(std::move(build), run_id);
         if (output.empty() || output == "-") {
             snapshot.write(std::cout); std::cout << '\n';

@@ -5,7 +5,7 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 
 parser = argparse.ArgumentParser()
-parser.add_argument("kind", choices=["snapshot", "compare-manifest", "run-manifest", "comparison"])
+parser.add_argument("kind", choices=["snapshot", "compare-manifest", "run-manifest", "comparison", "project-manifest", "project-result"])
 parser.add_argument("files", nargs="+")
 args = parser.parse_args()
 contracts = Path(__file__).resolve().parents[1] / "contracts"

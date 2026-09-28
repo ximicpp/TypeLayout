@@ -54,7 +54,8 @@ assert field("bitfields", "first")["bitWidth"]["value"] == 3
 assert field("bitfields", "second")["offsetBits"]["value"] == 3
 assert field("bitfields", "second")["bitWidth"]["value"] == 5
 assert field("union", "integer")["offsetBits"]["value"] == field("union", "real")["offsetBits"]["value"] == 0
-assert metric("array/values", "arrayStrideBytes") == 4
+assert metric("array/values", "arrayStrideBytes") == 12
+assert metric("array/values/0", "arrayStrideBytes") == 4
 assert [f["offsetBits"]["value"] for f in observations["array/values"]["members"]] == [0, 32, 64]
 assert types[field("array", "values")["typeRef"]]["fixedCount"]["value"] == 3
 assert types[field("enum", "value")["typeRef"]]["kind"] == "enum"

@@ -80,10 +80,13 @@ identity = {"type": "object", "properties": {"name": S, "version": S}, "required
 target = obj({"os": S, "architecture": S, "abi": S, "pointerBits": enum(32, 64), "bitsPerByte": {"const": 8}, "endian": enum("little", "big")})
 build_props = {k: S for k in ("buildId", "runId", "configuration", "sourceRevision", "sourceDigest", "artifactDigest")}
 build_props.update({"sourceDirty": {"type": ["boolean", "null"]}, "compiler": identity, "runtime": identity, "target": target, "flags": arr(S), "dependencies": {"type": "object"}, "requestedProfile": {"type": "object"}})
+build_props.update({"languages": {**arr(S), "minItems": 1, "uniqueItems": True}, "collectorProvenance": {"type": "object"},
+                    "captureProvenance": obj({"sourceBinding": enum("profile", "run-default"), "sourceDigestScope": S,
+                                              "artifactVerifiedStable": {"type": "boolean"}, "sourceRelation": enum("built-in-run", "unverified")})})
 snapshot = obj({
     "schemaVersion": {"const": "0.1"}, "snapshotId": S,
     "producer": obj({"id": S, "version": S, "capabilities": arr(S)}),
-    "build": obj(build_props, [k for k in build_props if k != "requestedProfile"]),
+    "build": obj(build_props, [k for k in build_props if k not in ("requestedProfile", "languages", "collectorProvenance", "captureProvenance")]),
     "typeDescriptors": arr(ref("typeDescriptor")), "observations": {**arr(ref("observation")), "minItems": 1},
     "diagnostics": arr(obj({"code": S, "message": S, "observationId": S}, ["code", "message"])), "limitations": arr(S),
 })
@@ -96,19 +99,35 @@ compare = obj({
 })
 compare["allOf"] = [{"if": {"properties": {"mode": enum("representation", "marshaled-layout")}}, "then": {"properties": {"cases": {"items": {"required": ["fields"]}}}}}]
 step_props = {"executable": S, "arguments": arr(S), "workingDirectory": S, "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 3600}}
-profile_props = {**step_props, "id": S, "configuration": S, "target": obj({"os": S, "architecture": S}), "outputArgument": S, "requiredCapabilities": arr(S), "artifact": S, "buildSteps": arr(obj(step_props))}
+profile_props = {**step_props, "id": S, "configuration": S, "target": obj({"os": S, "architecture": S}), "outputArgument": S, "requiredCapabilities": arr(S), "artifact": S, "buildSteps": arr(obj(step_props)), "sourceRoot": S}
 run = obj({"schemaVersion": {"const": "0.1"}, "sourceRoot": S,
-           "profiles": {**arr(obj(profile_props, [k for k in profile_props if k != "buildSteps"])), "minItems": 1},
+           "profiles": {**arr(obj(profile_props, [k for k in profile_props if k not in ("buildSteps", "sourceRoot")])), "minItems": 1},
            "comparisons": {**arr(obj({"id": S, "left": S, "right": S, "compareManifest": S})), "minItems": 1}}, ["schemaVersion", "profiles", "comparisons"])
 entry = obj({"path": S, "kind": S, "left": {}, "right": {}, "message": S})
 comparison = obj({"schemaVersion": {"const": "0.1"}, "mode": enum("regression", "representation", "marshaled-layout"), "scope": enum("value", "array", "object"), "policy": enum("value-fields-v1", "value-alignment-v1"), "leftSnapshotId": S, "rightSnapshotId": S,
                   "exitCode": enum(0, 1, 2), "cases": {**arr(obj({"id": S, "left": S, "right": S,
                   "verdict": enum("same", "different", "incomplete", "not-comparable"), "coverage": enum("complete", "partial", "unknown"),
                   "differences": arr(entry), "unknowns": arr(entry), "diagnostics": arr(S)})), "minItems": 1}})
+context_side = obj({"snapshotId": S, "build": snapshot["properties"]["build"]})
+comparison["properties"]["context"] = obj({"left": context_side, "right": context_side,
+    "changes": arr(obj({"path": S, "kind": enum("identity", "provenance", "environment"), "left": {}, "right": {}})), "interpretation": S})
+# Additive 0.1 field: older diff files without context remain readable.
+logical_field = obj({"id": S, "member": S, "children": arr(ref("logicalField"))}, ["id", "member"])
+project = obj({"schemaVersion": {"const": "0.1"}, "projectId": S,
+    "variants": {**arr(obj({"id": S, "snapshot": S, "mapping": S})), "minItems": 1},
+    "mappings": {**arr(obj({"id": S, "cases": {**arr(obj({"id": S, "observation": S, "fields": arr(ref("logicalField"))})), "minItems": 1}})), "minItems": 1},
+    "comparisons": {**arr(obj({"id": S, "left": S, "right": S, "mode": enum("regression", "representation", "marshaled-layout"),
+        "scope": enum("value", "array", "object"), "policy": enum("value-fields-v1", "value-alignment-v1"), "cases": {**arr(S), "minItems": 1, "uniqueItems": True}})), "minItems": 1}})
+project_variant_result = obj({"id": S, "status": enum("ok", "error"), "snapshotId": S, "snapshot": S, "error": S}, ["id", "status"])
+project_pair_result = obj({"id": S, "left": S, "right": S, "status": enum("ok", "error"), "exitCode": enum(0, 1, 2), "diff": S, "html": S, "error": S}, ["id", "left", "right", "status"])
+for result, ok_fields in [(project_variant_result, ["snapshotId", "snapshot"]), (project_pair_result, ["exitCode", "diff", "html"])]:
+    result["allOf"] = [{"if": {"properties": {"status": {"const": "ok"}}}, "then": {"required": ok_fields}, "else": {"required": ["error"]}}]
+project_result = obj({"schemaVersion": {"const": "0.1"}, "projectId": S, "exitCode": enum(0, 1, 2, 3),
+    "variants": {**arr(project_variant_result), "minItems": 1}, "comparisons": {**arr(project_pair_result), "minItems": 1}})
 
-for name, schema, definitions in [("snapshot", snapshot, DEFS), ("compare-manifest", compare, {"fieldMap": field_map}), ("run-manifest", run, {}), ("comparison", comparison, {})]:
-    output = {"$schema": "https://json-schema.org/draft/2020-12/schema", "$id": f"https://ximicpp.github.io/TypeLayout/layout-observer/0.1/{name}.schema.json", "title": f"Layout Observer {name} 0.1", **schema}
+for name, schema, definitions in [("snapshot", snapshot, DEFS), ("compare-manifest", compare, {"fieldMap": field_map}), ("run-manifest", run, {}), ("comparison", comparison, {}), ("project-manifest", project, {"logicalField": logical_field}), ("project-result", project_result, {})]:
+    output = {"$schema": "https://json-schema.org/draft/2020-12/schema", "$id": f"https://ximicpp.github.io/TypeLayout/layout-observer/0.1/{name}.schema.json", "title": f"Layout Compare {name} 0.1", **schema}
     if definitions:
         output["$defs"] = definitions
     (ROOT / f"{name}.schema.json").write_text(json.dumps(output, indent=2) + "\n", encoding="utf-8")
-print("Generated 4 public JSON schemas")
+print("Generated 6 public JSON schemas")

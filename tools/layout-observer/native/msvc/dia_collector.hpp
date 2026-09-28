@@ -267,7 +267,7 @@ public:
                 coverage["fieldEnumeration"] = "unknown"; coverage["occupiedRanges"] = "unknown";
                 observation["limitations"].array_items().push_back("DIA-array-shape-unavailable");
             } else {
-                metrics["arrayStrideBytes"] = numeric(*element_size, "DIA array element type length");
+                metrics["arrayStrideBytes"] = size_fact;
                 observation["instanceShape"] = Json::object({{"length", static_cast<std::int64_t>(count)}, {"dimensions", Json::array({static_cast<std::int64_t>(count)})}});
                 if (count > 100000) throw std::runtime_error("array-expansion-limit: explicitly register a bounded fixture");
                 for (DWORD i = 0; i < count; ++i) {
@@ -383,7 +383,7 @@ public:
 
     Json finish(Json build, const std::string& run_id) {
         return Json::object({{"schemaVersion", "0.1"}, {"snapshotId", "msvc-dia:" + run_id},
-            {"producer", Json::object({{"id", "typelayout-msvc-dia"}, {"version", "0.1"},
+            {"producer", Json::object({{"id", "typelayout-msvc-dia"}, {"version", "0.1.1"},
                 {"capabilities", Json::array({"native-values", "native-fields", "nested", "arrays", "enums", "bitfields", "bases", "private-fields", "pdb-identity-validation", "unsupported-diagnostics"})}})},
             {"build", std::move(build)}, {"typeDescriptors", types_}, {"observations", observations_}, {"diagnostics", diagnostics_},
             {"limitations", Json::array({"alignment is not supplied by DIA", "source/artifact digests require orchestration enrichment before accepting a reproducible baseline", "DIA describes emitted PDB type data; compiler options not embedded by the build remain unavailable"})}});

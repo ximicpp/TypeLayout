@@ -5,6 +5,10 @@ using LayoutObserver.Report;
 var checks = new (string Name, Action Run)[]
 {
     ("case verdict, scope and evidence are visible", Summary),
+    ("case mappings pair reversed snapshots by observation ID", ReorderedPairs),
+    ("case subsets exclude unrequested layouts and overlap filters", CaseSubset),
+    ("build changes remain separate from layout verdicts", EnvironmentChanges),
+    ("missing case observation does not fall back to another layout", MissingCaseObservation),
     ("untrusted names cannot create script or markup", Escaping),
     ("complete ranges produce only proved padding", Padding),
     ("hidden regions prevent padding inference", HiddenRegion),
@@ -56,6 +60,93 @@ static void Summary()
     Contains(html, WebUtility.HtmlEncode("unknown · managed-alignment-not-reported"));
     Contains(html, "左侧构建");
     Contains(html, "右侧构建");
+    Contains(html, "<h1>Layout Compare</h1>");
+    Absent(html, "LAYOUT OBSERVER");
+}
+
+static void ReorderedPairs()
+{
+    var left = Snapshot("left-build");
+    var right = Snapshot("right-build");
+    var leftFirst = First(left); leftFirst["id"] = "left-a"; leftFirst["displayName"] = "Left A";
+    var leftSecond = (JsonObject)leftFirst.DeepClone(); leftSecond["id"] = "left-b"; leftSecond["displayName"] = "Left B";
+    left["observations"]!.AsArray().Add(leftSecond);
+    var rightFirst = First(right); rightFirst["id"] = "right-b"; rightFirst["displayName"] = "Right B";
+    var rightSecond = (JsonObject)rightFirst.DeepClone(); rightSecond["id"] = "right-a"; rightSecond["displayName"] = "Right A";
+    right["observations"]!.AsArray().Add(rightSecond);
+    var comparison = Comparison();
+    var firstCase = comparison["cases"]![0]!.AsObject();
+    firstCase["id"] = "pair-b"; firstCase["left"] = "left-b"; firstCase["right"] = "right-b";
+    firstCase["verdict"] = "different";
+    firstCase["differences"] = new JsonArray(new JsonObject
+    {
+        ["path"] = "$.members[count].offsetBits", ["kind"] = "offset", ["left"] = 32, ["right"] = 64, ["message"] = "Only pair B changed"
+    });
+    var secondCase = (JsonObject)firstCase.DeepClone(); secondCase["id"] = "pair-a";
+    secondCase["left"] = "left-a"; secondCase["right"] = "right-a"; secondCase["verdict"] = "same";
+    secondCase["differences"] = new JsonArray(); comparison["cases"]!.AsArray().Add(secondCase);
+    var html = HtmlReport.Render(left, right, comparison);
+    var firstStart = html.IndexOf("<section class=\"panel comparison-case\" id=\"case-0\"", StringComparison.Ordinal);
+    var secondStart = html.IndexOf("<section class=\"panel comparison-case\" id=\"case-1\"", StringComparison.Ordinal);
+    if (firstStart < 0 || secondStart <= firstStart) throw new Exception("Case sections do not follow comparison order");
+    var firstPair = html[firstStart..secondStart];
+    Contains(firstPair, "<h3>Left B</h3>"); Contains(firstPair, "<h3>Right B</h3>");
+    Contains(firstPair, "data-observation-id=\"left-b\""); Contains(firstPair, "data-observation-id=\"right-b\"");
+    Contains(firstPair, "Only pair B changed"); Contains(firstPair, "class=\"verdict different\">different");
+    Absent(firstPair, "<h3>Left A</h3>"); Absent(firstPair, "<h3>Right A</h3>");
+    var secondPair = html[secondStart..html.IndexOf("</main>", secondStart, StringComparison.Ordinal)];
+    Contains(secondPair, "<h3>Left A</h3>"); Contains(secondPair, "<h3>Right A</h3>");
+    Absent(secondPair, "Only pair B changed"); Contains(secondPair, "class=\"verdict same\">same");
+    Equal(Count(html, "class=\"observation case-side\""), 4, "Exactly two sides per requested case");
+}
+
+static void CaseSubset()
+{
+    var snapshot = Snapshot();
+    for (var index = 0; index < 22; index++)
+    {
+        var extra = (JsonObject)First(snapshot).DeepClone(); extra["id"] = "unused-" + index;
+        extra["displayName"] = "UNREQUESTED LAYOUT " + index;
+        extra["members"]![0]!["overlapGroup"] = "unrequested-overlap";
+        snapshot["observations"]!.AsArray().Add(extra);
+    }
+    var html = Render(snapshot);
+    Equal(Count(html, "class=\"panel comparison-case\""), 1, "Only requested case appears");
+    Equal(Count(html, "class=\"observation case-side\""), 2, "Only requested left and right layouts appear");
+    Absent(html, "UNREQUESTED LAYOUT"); Absent(html, "unrequested-overlap");
+    var emptyComparison = Comparison(); emptyComparison["cases"] = new JsonArray();
+    var empty = Render(snapshot, emptyComparison);
+    Equal(Count(empty, "class=\"observation case-side\""), 0, "No implicit cases when none requested");
+    Contains(empty, "未请求比较案例");
+}
+
+static void EnvironmentChanges()
+{
+    var left = Snapshot("before"); var right = Snapshot("after"); var comparison = Comparison();
+    right["build"]!["configuration"] = "Release";
+    right["build"]!["target"]!["architecture"] = "x86";
+    right["build"]!["runtime"] = new JsonObject { ["name"] = "CoreCLR", ["version"] = "10.0.12" };
+    right["build"]!["sourceDirty"] = null;
+    var original = comparison.ToJsonString();
+    var html = HtmlReport.Render(left, right, comparison);
+    Contains(html, "<table class=\"environment-table\">");
+    Contains(html, "class=\"environment-change\" data-context-path=\"build.configuration\"");
+    Contains(html, "<td>Debug</td><td>Release</td>");
+    Contains(html, "data-context-path=\"build.target.architecture\"");
+    Contains(html, "<td>x64</td><td>x86</td>");
+    Contains(html, "<td>false</td><td>null</td>");
+    Contains(html, "不会改变下面各案例的布局结论");
+    Equal(Count(html, "class=\"verdict same\">same"), 2, "Environment changes preserve summary and case verdicts");
+    Absent(html, "class=\"verdict different\"");
+    if (comparison.ToJsonString() != original) throw new Exception("Build changes mutated the comparison result");
+}
+
+static void MissingCaseObservation()
+{
+    var comparison = Comparison(); comparison["cases"]![0]!["right"] = "missing-id";
+    var html = Render(Snapshot(), comparison);
+    Contains(html, "请求的 observation 不存在或 ID 不唯一：missing-id");
+    Equal(Count(html, "<h3>Sample</h3>"), 1, "Missing right observation cannot select by array position");
 }
 
 static void Escaping()
@@ -69,6 +160,12 @@ static void Escaping()
     snapshot["build"]!["compiler"]!["name"] = payload;
     var comparison = Comparison();
     comparison["cases"]![0]!["id"] = payload;
+    comparison["cases"]![0]!["differences"] = new JsonArray(new JsonObject
+    {
+        ["path"] = payload, ["kind"] = payload, ["left"] = payload, ["right"] = payload, ["message"] = payload
+    });
+    comparison["context"] = new JsonObject { ["interpretation"] = payload };
+    snapshot["build"]![payload] = payload;
     var html = Render(snapshot, comparison);
     Equal(Count(html, "<script>"), 1, "Exactly one static script");
     Equal(Count(html, "</script>"), 1, "Exactly one static script close");
@@ -143,6 +240,8 @@ static void Nested()
     var html = Render(snapshot);
     Contains(html, "<details class=\"nested\"><summary>内嵌布局：payload</summary>");
     Contains(html, "嵌入 Sample");
+    Equal(Count(html, "<h3>嵌入 Sample</h3>"), 2, "Nested child appears once per selected side, never as an extra case");
+    Equal(Count(html, "class=\"panel comparison-case\""), 1, "Embedded child does not create a case");
     Contains(html, "details.member-details, details.nested");
 }
 

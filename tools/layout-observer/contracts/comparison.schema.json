@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ximicpp.github.io/TypeLayout/layout-observer/0.1/comparison.schema.json",
-  "title": "Layout Observer comparison 0.1",
+  "title": "Layout Compare comparison 0.1",
   "type": "object",
   "properties": {
     "schemaVersion": {
@@ -155,6 +155,440 @@
         "additionalProperties": false
       },
       "minItems": 1
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "left": {
+          "type": "object",
+          "properties": {
+            "snapshotId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "build": {
+              "type": "object",
+              "properties": {
+                "buildId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "runId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "configuration": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sourceRevision": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sourceDigest": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "artifactDigest": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sourceDirty": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "compiler": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "version": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "version"
+                  ]
+                },
+                "runtime": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "version": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "version"
+                  ]
+                },
+                "target": {
+                  "type": "object",
+                  "properties": {
+                    "os": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "architecture": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "abi": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "pointerBits": {
+                      "enum": [
+                        32,
+                        64
+                      ]
+                    },
+                    "bitsPerByte": {
+                      "const": 8
+                    },
+                    "endian": {
+                      "enum": [
+                        "little",
+                        "big"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "os",
+                    "architecture",
+                    "abi",
+                    "pointerBits",
+                    "bitsPerByte",
+                    "endian"
+                  ],
+                  "additionalProperties": false
+                },
+                "flags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "dependencies": {
+                  "type": "object"
+                },
+                "requestedProfile": {
+                  "type": "object"
+                },
+                "languages": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "minItems": 1,
+                  "uniqueItems": true
+                },
+                "collectorProvenance": {
+                  "type": "object"
+                },
+                "captureProvenance": {
+                  "type": "object",
+                  "properties": {
+                    "sourceBinding": {
+                      "enum": [
+                        "profile",
+                        "run-default"
+                      ]
+                    },
+                    "sourceDigestScope": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "artifactVerifiedStable": {
+                      "type": "boolean"
+                    },
+                    "sourceRelation": {
+                      "enum": [
+                        "built-in-run",
+                        "unverified"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "sourceBinding",
+                    "sourceDigestScope",
+                    "artifactVerifiedStable",
+                    "sourceRelation"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "buildId",
+                "runId",
+                "configuration",
+                "sourceRevision",
+                "sourceDigest",
+                "artifactDigest",
+                "sourceDirty",
+                "compiler",
+                "runtime",
+                "target",
+                "flags",
+                "dependencies"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "snapshotId",
+            "build"
+          ],
+          "additionalProperties": false
+        },
+        "right": {
+          "type": "object",
+          "properties": {
+            "snapshotId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "build": {
+              "type": "object",
+              "properties": {
+                "buildId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "runId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "configuration": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sourceRevision": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sourceDigest": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "artifactDigest": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sourceDirty": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "compiler": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "version": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "version"
+                  ]
+                },
+                "runtime": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "version": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "version"
+                  ]
+                },
+                "target": {
+                  "type": "object",
+                  "properties": {
+                    "os": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "architecture": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "abi": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "pointerBits": {
+                      "enum": [
+                        32,
+                        64
+                      ]
+                    },
+                    "bitsPerByte": {
+                      "const": 8
+                    },
+                    "endian": {
+                      "enum": [
+                        "little",
+                        "big"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "os",
+                    "architecture",
+                    "abi",
+                    "pointerBits",
+                    "bitsPerByte",
+                    "endian"
+                  ],
+                  "additionalProperties": false
+                },
+                "flags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "dependencies": {
+                  "type": "object"
+                },
+                "requestedProfile": {
+                  "type": "object"
+                },
+                "languages": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "minItems": 1,
+                  "uniqueItems": true
+                },
+                "collectorProvenance": {
+                  "type": "object"
+                },
+                "captureProvenance": {
+                  "type": "object",
+                  "properties": {
+                    "sourceBinding": {
+                      "enum": [
+                        "profile",
+                        "run-default"
+                      ]
+                    },
+                    "sourceDigestScope": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "artifactVerifiedStable": {
+                      "type": "boolean"
+                    },
+                    "sourceRelation": {
+                      "enum": [
+                        "built-in-run",
+                        "unverified"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "sourceBinding",
+                    "sourceDigestScope",
+                    "artifactVerifiedStable",
+                    "sourceRelation"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "buildId",
+                "runId",
+                "configuration",
+                "sourceRevision",
+                "sourceDigest",
+                "artifactDigest",
+                "sourceDirty",
+                "compiler",
+                "runtime",
+                "target",
+                "flags",
+                "dependencies"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "snapshotId",
+            "build"
+          ],
+          "additionalProperties": false
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "enum": [
+                  "identity",
+                  "provenance",
+                  "environment"
+                ]
+              },
+              "left": {},
+              "right": {}
+            },
+            "required": [
+              "path",
+              "kind",
+              "left",
+              "right"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "interpretation": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "left",
+        "right",
+        "changes",
+        "interpretation"
+      ],
+      "additionalProperties": false
     }
   },
   "required": [

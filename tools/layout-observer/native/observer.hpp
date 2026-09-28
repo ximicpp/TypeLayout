@@ -199,7 +199,7 @@ public:
             observation["limitations"].array_items().push_back("opaque-internals-not-observed");
         } else if constexpr (std::is_array_v<T>) {
             using Element = std::remove_extent_t<T>;
-            metrics["arrayStrideBytes"] = number(sizeof(Element), "sizeof(array element)");
+            metrics["arrayStrideBytes"] = number(sizeof(T), "sizeof(observed array value in an outer array)");
             observation["instanceShape"] = Json::object({{"length", static_cast<std::int64_t>(std::extent_v<T>)},
                 {"dimensions", Json::array({static_cast<std::int64_t>(std::extent_v<T>)})}});
             for (std::size_t i = 0; i < std::extent_v<T>; ++i) {
@@ -241,7 +241,7 @@ public:
     Json finish(Json build, const std::string& run_id) {
         static_assert(CHAR_BIT == 8, "observer protocol 0.1 requires 8-bit bytes");
         return Json::object({{"schemaVersion", "0.1"}, {"snapshotId", "native:" + run_id},
-            {"producer", Json::object({{"id", "typelayout-native-p2996"}, {"version", "0.1"},
+            {"producer", Json::object({{"id", "typelayout-native-p2996"}, {"version", "0.1.1"},
                 {"capabilities", Json::array({"native-values", "native-fields", "nested", "arrays", "enums", "bitfields", "bases", "opaque", "nontrivial", "unsupported-diagnostics"})}})},
             {"build", std::move(build)}, {"typeDescriptors", descriptors_}, {"observations", observations_},
             {"diagnostics", diagnostics_}, {"limitations", Json::array({"source/artifact digests require orchestration enrichment before accepting a reproducible baseline"})}});

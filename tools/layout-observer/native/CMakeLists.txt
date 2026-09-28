@@ -49,8 +49,17 @@ target_include_directories(typelayout-native PRIVATE "${CMAKE_CURRENT_BINARY_DIR
 target_compile_options(typelayout-native PRIVATE ${OBSERVER_NATIVE_FLAGS})
 target_link_options(typelayout-native PRIVATE -stdlib=libc++)
 
+set(TYPELAYOUT_OBSERVER_REGISTRATION_HEADER "" CACHE FILEPATH "Consumer header defining register_layouts(observer::Collector&)")
+if(TYPELAYOUT_OBSERVER_REGISTRATION_HEADER)
+    get_filename_component(OBSERVER_REGISTRATION_HEADER "${TYPELAYOUT_OBSERVER_REGISTRATION_HEADER}" ABSOLUTE)
+    if(NOT EXISTS "${OBSERVER_REGISTRATION_HEADER}" OR IS_DIRECTORY "${OBSERVER_REGISTRATION_HEADER}")
+        message(FATAL_ERROR "Consumer registration header does not exist: ${OBSERVER_REGISTRATION_HEADER}")
+    endif()
+    target_compile_definitions(typelayout-native PRIVATE TYPELAYOUT_OBSERVER_REGISTRATION_HEADER="${OBSERVER_REGISTRATION_HEADER}")
+endif()
+
 include(CTest)
-if(BUILD_TESTING)
+if(BUILD_TESTING AND NOT TYPELAYOUT_OBSERVER_REGISTRATION_HEADER)
     add_executable(native-layout-oracle test_oracle.cpp)
     target_compile_options(native-layout-oracle PRIVATE ${OBSERVER_NATIVE_FLAGS})
     target_link_options(native-layout-oracle PRIVATE -stdlib=libc++)

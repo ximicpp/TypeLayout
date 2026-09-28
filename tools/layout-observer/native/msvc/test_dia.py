@@ -56,7 +56,8 @@ assert observations["virtual"]["status"] == "unsupported"
 assert observations["polymorphic"]["coverage"]["hiddenRegions"] == "unknown"
 assert member("msvc-overlap", "empty")["occupiedRanges"]["state"] == "unknown"
 assert observations["msvc-overlap/empty"]["metrics"]["valueSizeBytes"]["state"] == "unknown"
-assert fact("array/values", "arrayStrideBytes") == 4
+assert fact("array/values", "arrayStrideBytes") == 12
+assert fact("array/values/0", "arrayStrideBytes") == 4
 assert [m["offsetBits"]["value"] for m in observations["array/values"]["members"]] == [0, 32, 64]
 assert len(observations) == len(snapshot["observations"])
 assert len(types) == len(snapshot["typeDescriptors"])

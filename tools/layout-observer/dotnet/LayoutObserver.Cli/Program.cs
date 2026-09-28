@@ -7,7 +7,7 @@ try
     if (args.Length == 1 && args[0] == "internal-child") return await BoundedProcess.RunChildAsync();
     if (args.Length == 0 || args[0] is "--help" or "help")
     {
-        Console.WriteLine("Layout Observer 0.1\nvalidate --input SNAPSHOT\ncompare --left SNAPSHOT --right SNAPSHOT --manifest MAPPING [--out DIFF] [--html REPORT]\nrun --manifest RUN-MANIFEST --out-dir NEW-DIRECTORY\nOutputs are never overwritten. Exit codes: 0 same, 1 different, 2 incomplete, 3 error.");
+        Console.WriteLine("Layout Compare 0.1\nvalidate --input SNAPSHOT\ncompare --left SNAPSHOT --right SNAPSHOT --manifest MAPPING [--out DIFF] [--html REPORT]\nproject --manifest PROJECT --out-dir NEW-DIRECTORY\nrun --manifest RUN-MANIFEST --out-dir NEW-DIRECTORY\nOutputs are never overwritten. Exit codes: 0 same, 1 different, 2 incomplete, 3 error.");
         return 0;
     }
     var options = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -41,6 +41,11 @@ try
             }
             PrintSummary(comparison);
             return comparison["exitCode"]!.GetValue<int>();
+        case "project":
+            Allow("--manifest", "--out-dir");
+            var project = ProjectCoordinator.Run(Required("--manifest"), Required("--out-dir"));
+            Console.WriteLine(project.ToJsonString(JsonIO.Options));
+            return project["exitCode"]!.GetValue<int>();
         case "run":
             Allow("--manifest", "--out-dir");
             var run = await RunCoordinator.RunAsync(Required("--manifest"), Required("--out-dir"));

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ximicpp.github.io/TypeLayout/layout-observer/0.1/compare-manifest.schema.json",
-  "title": "Layout Observer compare-manifest 0.1",
+  "title": "Layout Compare compare-manifest 0.1",
   "type": "object",
   "properties": {
     "schemaVersion": {

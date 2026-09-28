@@ -16,7 +16,9 @@ for root, expected in [("marshal-default", 12), ("marshal-byte", 8), ("marshal-a
 assert [f["offsetBits"]["value"] for f in observations["marshal-default"]["members"]] == [0, 32, 64]
 assert [f["offsetBits"]["value"] for f in observations["marshal-byte"]["members"]] == [0, 16, 32]
 assert [f["offsetBits"]["value"] for f in observations["marshal-array"]["members"]] == [0, 96]
-assert observations["marshal-array/values"]["metrics"]["arrayStrideBytes"]["value"] == 4
+assert observations["marshal-array/values"]["metrics"]["arrayStrideBytes"]["value"] == 12
+for index in range(3):
+    assert observations[f"marshal-array/values/{index}"]["metrics"]["arrayStrideBytes"]["value"] == 4
 for observation in observations.values():
     for member in observation["members"]:
         if "childObservationId" in member:

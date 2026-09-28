@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "0.1",
+  "projectId": "orders",
+  "variants": [
+    {"id":"native-debug","snapshot":"snapshots/native-debug.json","mapping":"cpp"},
+    {"id":"native-release","snapshot":"snapshots/native-release.json","mapping":"cpp"},
+    {"id":"native-packed","snapshot":"snapshots/native-packed.json","mapping":"cpp"},
+    {"id":"managed-debug","snapshot":"snapshots/managed-debug.json","mapping":"csharp"},
+    {"id":"managed-release","snapshot":"snapshots/managed-release.json","mapping":"csharp"}
+  ],
+  "mappings": [
+    {"id":"cpp","cases":[{"id":"order","observation":"orders.native","fields":[{"id":"status","member":"kind"},{"id":"identity","member":"id"},{"id":"quantity","member":"units"}]}]},
+    {"id":"csharp","cases":[{"id":"order","observation":"orders.managed","fields":[{"id":"status","member":"status"},{"id":"identity","member":"orderid"},{"id":"quantity","member":"quantity"}]}]}
+  ],
+  "comparisons": [
+    {"id":"native-builds","left":"native-debug","right":"native-release","mode":"regression","scope":"value","policy":"value-fields-v1","cases":["order"]},
+    {"id":"managed-builds","left":"managed-debug","right":"managed-release","mode":"regression","scope":"value","policy":"value-fields-v1","cases":["order"]},
+    {"id":"cross-debug","left":"native-debug","right":"managed-debug","mode":"representation","scope":"value","policy":"value-fields-v1","cases":["order"]},
+    {"id":"cross-release","left":"native-release","right":"managed-release","mode":"representation","scope":"value","policy":"value-fields-v1","cases":["order"]},
+    {"id":"packing-change","left":"native-release","right":"native-packed","mode":"regression","scope":"value","policy":"value-fields-v1","cases":["order"]}
+  ]
+}

@@ -29,7 +29,7 @@ CMake 在 configure 时编译最小能力程序，验证字段偏移、位域宽
 - opaque 的内部覆盖未知；虚继承输出稳定的 unsupported 原因并继续其他案例。
 - 无论 admission 是否允许复制，都能记录已支持对象的几何事实；不输出“可复制/互传”的新结论。
 
-`observer.hpp` 的 `Collector::collect<T>(id)` 可注册其他闭合类型；本 CLI 明确运行 `fixtures.hpp` 中的受控案例。`opaque_registration<T>` 是本观察器的独立注册点，不借用旧库的 relocation 保证。私有字段通过 unchecked 反射枚举，并不访问字段值。
+`observer.hpp` 的 `Collector::collect<T>(id)` 可注册其他闭合类型。默认 CLI 运行 `fixtures.hpp` 中的受控案例；配置 `-DTYPELAYOUT_OBSERVER_REGISTRATION_HEADER=/path/to/register.hpp` 后，CLI 改为调用该头文件中的 `register_layouts(observer::Collector&)`，只采集业务注册。反射能力探针仍必须通过，内置 fixture CTest 不适用于自定义注册；业务 oracle 示例见 [orders](../examples/orders/README.md)。`opaque_registration<T>` 是本观察器的独立注册点，不借用旧库的 relocation 保证。私有字段通过 unchecked 反射枚举，并不访问字段值。
 
 ## 验证和证据
 

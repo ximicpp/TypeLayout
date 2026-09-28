@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ximicpp.github.io/TypeLayout/layout-observer/0.1/run-manifest.schema.json",
-  "title": "Layout Observer run-manifest 0.1",
+  "title": "Layout Compare run-manifest 0.1",
   "type": "object",
   "properties": {
     "schemaVersion": {
@@ -111,6 +111,10 @@
               ],
               "additionalProperties": false
             }
+          },
+          "sourceRoot": {
+            "type": "string",
+            "minLength": 1
           }
         },
         "required": [

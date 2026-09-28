@@ -7,7 +7,9 @@ public sealed class ProtocolException(string message) : Exception(message);
 
 public static class JsonIO
 {
-    public static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
+    // Inputs are bounded to 96 levels. Reports wrap validated facts/build metadata
+    // in comparison context, so their serialization needs room for those wrappers.
+    public static readonly JsonSerializerOptions Options = new() { WriteIndented = true, MaxDepth = 256 };
 
     public static JsonObject Read(string path)
     {

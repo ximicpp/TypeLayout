@@ -1,6 +1,6 @@
 # 跨语言、跨构建布局观测器
 
-日期：2026-09-28。状态：设计审查后已实现独立工具和 D1–D5 后端闭环；具体已执行矩阵与保留边界见[实现记录](../../tools/layout-observer/STATUS.md)，使用入口见[Layout Observer](../../tools/layout-observer/README.md)。本文保留设计决策，实际机器契约以[协议 0.1](../../tools/layout-observer/contracts/PROTOCOL.md)为准。
+日期：2026-09-28。状态：设计审查后已实现独立工具和 D1–D5 后端闭环，并完成以比较为中心的[第二轮项目设计与实现](layout-compare-project.md)；具体已执行矩阵与保留边界见[实现记录](../../tools/layout-observer/STATUS.md)，使用入口见[Layout Compare](../../tools/layout-observer/README.md)。本文保留第一轮设计决策，实际机器契约以[协议 0.1](../../tools/layout-observer/contracts/PROTOCOL.md)为准。
 
 开发分支：`codex/cross-language-layout`。代码审查基线：`76304981d38be218b0514507907d756c12dfd39b`。本工具属于 TypeLayout，独立于任何教程。审查发现及处置见[审查记录](cross-language-layout-review.md)。
 

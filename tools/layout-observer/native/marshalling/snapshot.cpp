@@ -83,7 +83,7 @@ Json capture(const std::string& run_id) {
     }
     auto array_observation = observation("marshal-array/values", "i32[3]", sizeof(InlineInts::values), alignof(std::int32_t[3]), elements,
         Json::object({{"kind", "embedded-value"}, {"hostObservationId", "marshal-array"}, {"hostMemberId", "values"}}));
-    array_observation["metrics"]["arrayStrideBytes"] = observer::number(sizeof(std::int32_t), "sizeof(C++ array element)");
+    array_observation["metrics"]["arrayStrideBytes"] = observer::number(sizeof(InlineInts::values), "sizeof(C++ array value): stride between adjacent int32_t[3] values");
     array_observation["instanceShape"] = Json::object({{"length", 3}, {"dimensions", Json::array({3})}});
     observations.push_back(std::move(array_observation));
 #if defined(_WIN32)
@@ -108,9 +108,9 @@ Json capture(const std::string& run_id) {
     const auto compiler = "GCC";
 #endif
     return Json::object({{"schemaVersion", "0.1"}, {"snapshotId", "native-marshalling:" + run_id},
-        {"producer", Json::object({{"id", "typelayout-native-marshalling-fixtures"}, {"version", "0.1"},
+        {"producer", Json::object({{"id", "typelayout-native-marshalling-fixtures"}, {"version", "0.1.1"},
             {"capabilities", Json::array({"native-values", "native-fields", "arrays", "runtime-marshalling-oracle"})}})},
-        {"build", Json::object({{"buildId", "native-marshalling:" TYPELAYOUT_MARSHAL_CONFIGURATION}, {"runId", run_id},
+        {"build", Json::object({{"languages", Json::array({"cpp"})}, {"buildId", "native-marshalling:" TYPELAYOUT_MARSHAL_CONFIGURATION}, {"runId", run_id},
             {"configuration", TYPELAYOUT_MARSHAL_CONFIGURATION}, {"sourceRevision", "unknown"}, {"sourceDirty", Json{}},
             {"sourceDigest", "unknown"}, {"artifactDigest", "unknown"},
             {"compiler", Json::object({{"name", compiler}, {"version", observer::compiler_version()}})},

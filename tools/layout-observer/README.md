@@ -1,10 +1,29 @@
-# Layout Observer
+# Layout Compare
 
-跨语言、跨构建的内存布局观测与比较工具。输入实际采集的 C++ / C# 快照和显式类型、字段映射，输出逐字段 JSON diff、终端结论和离线 HTML。
+跨语言、跨构建的内存布局比较工具。将不同语言实现、源码版本、构建配置和运行环境的实际快照绑定到同一组逻辑类型，输出字段差异、覆盖率和独立的环境变化。目前提供 C++ / C# 采集器；比较内核通过公开协议接收其他采集器的数据。
 
 它独立于 TypeLayout 的 header-only 签名库，原有构建、签名和 byte-copy admission 不变。`same` 仅表示在报告所列 scope/policy 下已知事实一致，不授予调用 ABI、序列化、所有权或任意内存复制的兼容保证。
 
-当前实现与真实验证环境见 [STATUS.md](STATUS.md)，总体设计见 [设计文档](../../docs/design/cross-language-layout.md)，机器契约见 [PROTOCOL.md](contracts/PROTOCOL.md)。
+当前实现与真实验证环境见 [STATUS.md](STATUS.md)，比较项目设计见 [设计文档](../../docs/design/layout-compare-project.md)，机器契约见 [PROTOCOL.md](contracts/PROTOCOL.md)。目录与程序集仍保留 LayoutObserver 名称。
+
+## 比较自己的类型与多个构建
+
+[订单示例](examples/orders/README.md) 提供两个独立 consumer 项目、复用的类型/字段映射和五组真实构建。它展示 C++ / C# Debug/Release 的一致布局，以及修改 packing 后的确定差异。在已配置 P2996 的 Linux x64 环境中，从本目录执行：
+
+```sh
+python3 examples/orders/run.py --compiler clang++ --output artifacts/orders-001
+```
+
+如果快照已来自各自的构建流水线，直接编写 [project manifest](examples/orders/project.json)，运行：
+
+```sh
+dotnet run --project dotnet/LayoutObserver.Cli -c Release -- project \
+  --manifest my-project.json --out-dir artifacts/comparison-001
+```
+
+项目的 `variants` 引用各构建快照，`mappings` 描述逻辑类型/字段到实际 observation/member 的映射，`comparisons` 明确指定比较组合、case 子集和策略。多个构建可复用一份 mapping；缺少输入或映射会失败。结果目录含 index.html、result.json、逐对 JSON/HTML，以及导入完整时可离线重放的 project.json。比较命令不需要构建器或原始代码。
+
+每条报告按显式 case 配对布局，不依赖快照数组顺序。diff.context 单独记录语言、编译器、运行时、配置和来源变化；这些变化不自动改变布局结论，也不证明差异由某个编译选项导致。
 
 ## 快速使用
 
@@ -62,13 +81,13 @@ python3 scripts/run-value-matrix.py --compiler clang++ --output artifacts/linux-
 
 脚本保留生成的 run manifest、四组独立构建、stdout/stderr、原始/补充环境信息的快照、四份 diff/HTML 和 `run.json`。可用 `--dotnet`、`--cmake` 和 `--linker-flags` 指定局部工具链。能力探针失败、缺 runner、架构错误都会失败，不会替换工具链或忽略矩阵单元。
 
-其他矩阵使用 [run-manifest schema](contracts/run-manifest.schema.json) 配置：每个 profile 声明 executable、arguments、workingDirectory、artifact、实际目标、配置、能力和 buildSteps；每个 comparison 引用两个 profile 和一个 compare manifest。运行：
+其他矩阵使用 [run-manifest schema](contracts/run-manifest.schema.json) 配置：每个 profile 声明 executable、arguments、workingDirectory、artifact、实际目标、配置、能力和 buildSteps，可通过自己的 sourceRoot 绑定独立仓库/版本；每个 comparison 引用两个 profile 和一个 compare manifest。运行：
 
 ```sh
 dotnet run --project dotnet/LayoutObserver.Cli -c Release -- run --manifest my-matrix.json --out-dir artifacts/run-002
 ```
 
-生成目录应位于 Git 忽略目录或仓库外。源码在整个运行期间必须保持稳定。对已有产物只计算 hash 不会证明其来自当前源码；需要记录实际 buildSteps。原始 collector 的来源声明会保留，未知来源不会被标为 clean。
+生成目录应位于 Git 忽略目录或仓库外。源码在整个运行期间必须保持稳定，摘要覆盖 Git HEAD、index、工作树文件和递归子模块；未初始化子模块会失败。产物摘要在采集前后核对。原始 build 保存在 collectorProvenance，captureProvenance 记录核验范围。built-in-run 只说明执行了声明的 buildSteps；已有产物标为 unverified，hash 不证明源码与产物对应，仓库外依赖也需另行固定。
 
 ## 验证
 

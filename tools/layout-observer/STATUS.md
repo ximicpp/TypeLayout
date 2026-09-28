@@ -2,6 +2,26 @@
 
 2026-09-28，开发分支 `codex/cross-language-layout`。原始签名库与 admission 未修改；新实现位于本目录。D0 设计审查之后，D1–D5 已形成可运行后端与共同协议，支持范围按下表的实际执行环境确定。
 
+## 第二轮：比较项目与可信结论
+
+公开入口调整为 **Layout Compare**。新 `project` 命令导入多构建快照、复用逻辑类型/字段映射、执行显式比较组合，保存可重放离线包。representation 不再硬编码为 C++ native ↔ C# managed；原 pair/run 接口保留。
+
+三条独立审查线覆盖比较核心、构建来源和报告/项目流程，修复了同视图拒绝、动态数组误判、struct[] 空字段假完整、对象 extent 起点误判、无效 inline 关系、标量占用矛盾、未执行嵌套选择器、单源码根覆盖不同仓库身份、采集期间产物变化、遗漏递归子模块，以及报告按无关顺序配对等问题。复查发现的快照复制事务/JSON 深度问题和订单示例 member ID 错误也已修复。
+
+本轮已执行：CoreChecks **81** 项，ReportChecks **23** 项，项目导入/重放/失败路径 **20** 项；来源集成基础回归 Windows **20** 项、Linux 最终 **26** 项（新增 SHA-256 格式兼容与拒绝检查，Windows 也定向验证通过）；Windows 进程树 **4** 项；ManagedChecks、真实 ClrMd 递归 struct 数组/typed-byref 独立 oracle/重复捕获/7 类失败路径通过。MSVC x64/x86 × Debug/Release 各 **2/2** CTest；Windows marshalling **2/2** CTest 与真实 P/Invoke 正反哨兵检查通过。
+
+独立订单 consumer 已在 Linux x64 实际构建五个变体：C++ Debug/Release/Release Pack1、C# Debug/Release。四对正常布局 same/complete，packing 变化 different/complete，大小 **12→7 字节**。原生结果由独立 `sizeof/offsetof` oracle 核对；项目包实际重放后逐份 diff 字节一致。没有把内置 fixture 混入业务观察。
+
+新版 Linux P2996/C# Debug/Release 四单元通过 run 重新构建采集，四组比较的 6 个共享案例全部 same/complete；CLI 集成 **16** 项通过。六份新版值/封送快照的数组父/元素步长校验通过，跨语言、跨构建与封送的 **5** 组 `scope=array` 比较全部 same/complete，并通过公共 schema。六份 schema 定义与项目、run、diff、实际快照的结构校验均通过。
+
+真实 CoreCLR 对象采集还通过 run 完成产物摘要核验、来源补充和普通/嵌套结构体数组的 object-scope 比较，结果 same/complete。旧 collector 的裸 SHA-256 与标准 `sha256:` 格式兼容，已知摘要冲突或非法格式仍失败，原始 claim 保留。
+
+数组 `arrayStrideBytes` 统一表示观察值 T 在 T[] 中的步长：`int[3]` 父值 12、int 元素 4；heap-array 父对象不声称 inline 步长。采集器版本升为 **0.1.1**，协议保持 0.1；旧 native 0.1/runtime-marshalling 0.1.0 的父数组步长应重新采集后用于 array scope。语言 metadata 缺失仍未知。比较内核可接收其他语言的符合协议快照，本轮没有宣称实际验证 Rust/Java 采集器。
+
+本机 WSL 的 Windows worktree `.git` 路径无法由 Linux Git直接读取。来源核验现在隔离全局 `GIT_DIR/GIT_WORK_TREE`，因此 Linux 构建验证在从当前工作树文件创建的独立 Linux Git checkout 中完成，输出保留其实际来源。系统工具链未降级，输出仍保存在 ignored artifacts。
+
+## 第一轮后端验证基线
+
 | 阶段 | 当前实现与验证 |
 | --- | --- |
 | D1 值类型闭环 | Linux x64 P2996/C# Debug/Release 四单元实际执行；6 个共享案例跨语言与跨配置比较；schema/Core/CLI 与错误路径验证 |
@@ -24,6 +44,6 @@ ClrMD 固定为 4.1.745802，Roslyn generator package 为 4.14.0；NuGet transit
 - CoreCLR 对象适配器仅声明已校准的 CoreCLR 10；其他 runtime/任意业务进程/自定义实例工厂需补适配和证据。
 - MSVC/DIA 未提供的类型 alignment、无法证明的虚基类/隐藏区域、重叠子对象独占范围仍然 unknown 或 unsupported。
 - 自定义封送、源生成 marshaller、NativeAOT 的封送表示不套用 runtime-marshalling profile。
-- HTML 已通过离线结构、编码、未知区域与几何测试；当前浏览器工具的访问限制使目视验收未执行，不能宣称浏览器视觉验收通过。
+- HTML 的回归验收依据是离线结构、编码、未知区域与几何检查。
 
 测试产物、SDK、编译器、DAC/PDB、dump 和个人运行日志留在 ignored build/bin/artifacts 目录，不提交为跨机器基准。基准需要用户显式选择目标环境、scope/policy 和输入快照。

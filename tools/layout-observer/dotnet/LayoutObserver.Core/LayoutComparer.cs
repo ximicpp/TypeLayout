@@ -36,7 +36,8 @@ public static class LayoutComparer
         return new JsonObject
         {
             ["schemaVersion"] = "0.1", ["mode"] = manifest.S("mode"), ["scope"] = manifest.S("scope"), ["policy"] = manifest.S("policy"),
-            ["leftSnapshotId"] = left.S("snapshotId"), ["rightSnapshotId"] = right.S("snapshotId"), ["exitCode"] = exitCode, ["cases"] = results
+            ["leftSnapshotId"] = left.S("snapshotId"), ["rightSnapshotId"] = right.S("snapshotId"), ["exitCode"] = exitCode, ["cases"] = results,
+            ["context"] = ComparisonContext.Create(left, right)
         };
     }
 
@@ -96,7 +97,7 @@ public static class LayoutComparer
                 Reject("Marshaled regression requires the same explicit marshalling profile."); return;
             }
             var lo = Obj(left["origin"], "origin"); var ro = Obj(right["origin"], "origin");
-            if (lo.S("kind") != ro.S("kind") || Number(lo["extentStartBit"], "origin") != Number(ro["extentStartBit"], "origin") || lo.S("kind") == "anchor-field")
+            if (lo.S("kind") != ro.S("kind") || lo.S("kind") == "anchor-field")
             {
                 Reject("Origins have no established common coordinate system."); return;
             }
@@ -119,7 +120,7 @@ public static class LayoutComparer
         private bool CompatibleViews(string left, string right) => mode switch
         {
             "regression" => left == right,
-            "representation" => (left == "native" && right == "managed") || (left == "managed" && right == "native"),
+            "representation" => (left is "native" or "managed") && (right is "native" or "managed"),
             "marshaled-layout" => (left == "native" && right == "marshaled") || (left == "marshaled" && right == "native"),
             _ => false
         };
@@ -163,8 +164,7 @@ public static class LayoutComparer
                 var lo = Obj(left["origin"], "origin"); var ro = Obj(right["origin"], "origin");
                 if (!CompatibleViews(left.S("view"), right.S("view")) ||
                     left["context"]!["kind"]!.GetValue<string>() != right["context"]!["kind"]!.GetValue<string>() ||
-                    lo.S("kind") != ro.S("kind") || lo.S("kind") == "anchor-field" ||
-                    Number(lo["extentStartBit"], "origin") != Number(ro["extentStartBit"], "origin"))
+                    lo.S("kind") != ro.S("kind") || lo.S("kind") == "anchor-field")
                 {
                     Unknown(path + ".context", "context", left["origin"], right["origin"], "Nested observations do not share a proven coordinate system and representation context.");
                     return;
@@ -181,17 +181,39 @@ public static class LayoutComparer
                 Unknown(path + ".status", "coverage", left["status"], right["status"], "A requested observation is unsupported."); return;
             }
             Coverage(left, right, path);
+            Equal(path + ".extentStartBit", "offset", left["origin"]!["extentStartBit"], right["origin"]!["extentStartBit"]);
             var sizeKey = objectExtent ? "runtimeReportedObjectBytes" : "valueSizeBytes";
             Fact(path + "." + sizeKey, "size", left["metrics"]![sizeKey], right["metrics"]![sizeKey]);
             if (policy == "value-alignment-v1") Fact(path + ".alignmentBytes", "alignment", left["metrics"]!["alignmentBytes"], right["metrics"]!["alignmentBytes"]);
-            if (scope == "array" && depth == 0) Fact(path + ".arrayStrideBytes", "stride", left["metrics"]!["arrayStrideBytes"], right["metrics"]!["arrayStrideBytes"]);
-            if (objectExtent)
+            var observedArrays = leftTypes[left.S("typeId")].S("kind") == "array" && rightTypes[right.S("typeId")].S("kind") == "array";
+            if (scope == "array" && depth == 0)
+                Fact(path + ".arrayStrideBytes", "stride", left["metrics"]!["arrayStrideBytes"], right["metrics"]!["arrayStrideBytes"]);
+            if (observedArrays) CompareArrayShape(left, right, path);
+            else if (objectExtent)
             {
                 Equal(path + ".instanceShape", "size", left["instanceShape"], right["instanceShape"]);
             }
             CompareRuntimeRegions(left, right, path);
-            CompareType(left.S("typeId"), right.S("typeId"), path + ".type", 0);
+            CompareType(left.S("typeId"), right.S("typeId"), path + ".type", 0, observedArrays);
             CompareMembers(left, right, path, maps, depth);
+        }
+
+        private void CompareArrayShape(JsonObject left, JsonObject right, string path)
+        {
+            static long? Count(JsonObject observation, JsonObject type) => observation["instanceShape"] is JsonObject shape
+                ? Number(shape["length"], "instanceShape.length") : Numeric(type["fixedCount"]);
+            var lt = leftTypes[left.S("typeId")]; var rt = rightTypes[right.S("typeId")];
+            var lc = Count(left, lt); var rc = Count(right, rt);
+            if (lc is not null && rc is not null)
+            {
+                Equal(path + ".elementCount", "size", JsonValue.Create(lc.Value), JsonValue.Create(rc.Value));
+                var ld = left["instanceShape"]?["dimensions"] ?? new JsonArray(JsonValue.Create(lc.Value));
+                var rd = right["instanceShape"]?["dimensions"] ?? new JsonArray(JsonValue.Create(rc.Value));
+                Equal(path + ".dimensions", "size", ld, rd);
+            }
+            else Unknown(path + ".elementCount", "size", left["instanceShape"], right["instanceShape"], "Array cardinality requires an observed instance length or a known declared fixed count.");
+            if (!IsKnown(lt["fixedCount"]) || !IsKnown(rt["fixedCount"]))
+                Diagnostics.Add(path + ": array comparison uses observed instance cardinality; it does not assert equivalent fixed-length type declarations.");
         }
 
         private void CompareRuntimeRegions(JsonObject left, JsonObject right, string path)
@@ -254,6 +276,11 @@ public static class LayoutComparer
             foreach (var (logical, l, r, children) in pairs)
             {
                 var p = path + ".members[" + logical + "]";
+                if (l is null && r is null)
+                {
+                    Unknown(p, "coverage", null, null, "The requested field mapping could not be resolved on either side; incomplete enumeration does not establish a field change.");
+                    continue;
+                }
                 if (l is null || r is null)
                 {
                     if (IsComplete(l is null ? left : right)) Differences.Add(Entry(p, l is null ? "added" : "removed", l, r, "Field membership changed under complete enumeration."));
@@ -264,13 +291,20 @@ public static class LayoutComparer
                 Fact(p + ".offsetBits", "offset", l["offsetBits"], r["offsetBits"]);
                 Fact(p + ".bitWidth", "size", l["bitWidth"], r["bitWidth"]);
                 CompareRanges(p + ".occupiedRanges", l["occupiedRanges"], r["occupiedRanges"]);
-                CompareType(l.S("typeRef"), r.S("typeRef"), p + ".type", 0);
                 var lt = leftTypes[l.S("typeRef")]; var rt = rightTypes[r.S("typeRef")];
                 var lc = l["childObservationId"]?.GetValue<string>(); var rc = r["childObservationId"]?.GetValue<string>();
+                if (children is { Count: > 0 } &&
+                    ((lc is null && lt.S("kind") is "scalar" or "enum" or "reference") ||
+                     (rc is null && rt.S("kind") is "scalar" or "enum" or "reference")))
+                    throw new ProtocolException(p + ": children mapping selects fields inside a leaf value with no child observation.");
+                CompareType(l.S("typeRef"), r.S("typeRef"), p + ".type", 0, lc is not null && rc is not null);
                 if (lc is not null && rc is not null)
                     CompareObservation(leftObservations[lc], rightObservations[rc], p + ".value", children, depth + 1);
                 else if (lc is not null || rc is not null || lt.S("kind") == "array" || rt.S("kind") == "array" || ContainsRecord(lt, leftTypes) || ContainsRecord(rt, rightTypes))
+                {
                     Unknown(p + ".value", "coverage", l["childObservationId"], r["childObservationId"], "Nested record placement is not fully observed on both sides.");
+                    if (children is { Count: > 0 }) Diagnostics.Add(p + ": requested children mapping was not evaluated because a nested observation is unavailable.");
+                }
             }
         }
 
@@ -304,7 +338,7 @@ public static class LayoutComparer
             Equal(path, "overlap", Canonical(left), Canonical(right));
         }
 
-        private void CompareType(string leftId, string rightId, string path, int depth)
+        private void CompareType(string leftId, string rightId, string path, int depth, bool observedArray = false)
         {
             if (depth > 64) throw new ProtocolException("Type nesting exceeds 64.");
             if (!activeTypePairs.Add((leftId, rightId))) return;
@@ -329,8 +363,8 @@ public static class LayoutComparer
                         break;
                     case "enum": CompareType(left.S("enumUnderlyingTypeRef"), right.S("enumUnderlyingTypeRef"), path + ".underlying", depth + 1); break;
                     case "array":
-                        Fact(path + ".fixedCount", "representation", left["fixedCount"], right["fixedCount"]);
-                        CompareType(left.S("elementTypeRef"), right.S("elementTypeRef"), path + ".element", depth + 1);
+                        if (!observedArray) Fact(path + ".fixedCount", "representation", left["fixedCount"], right["fixedCount"]);
+                        CompareType(left.S("elementTypeRef"), right.S("elementTypeRef"), path + ".element", depth + 1, observedArray);
                         break;
                     // Records/unions are compared through contextual member observations.
                 }

@@ -67,10 +67,10 @@ public static class MarshaledCapture
         var snapshot = new JsonObject
         {
             ["schemaVersion"] = "0.1", ["snapshotId"] = "marshaled-" + runId,
-            ["producer"] = new JsonObject { ["id"] = "runtime-marshalling", ["version"] = "0.1.0", ["capabilities"] = new JsonArray("marshaled-values", "runtime-marshalling-profiles", "byval-array") },
+            ["producer"] = new JsonObject { ["id"] = "runtime-marshalling", ["version"] = "0.1.1", ["capabilities"] = new JsonArray("marshaled-values", "runtime-marshalling-profiles", "byval-array") },
             ["build"] = new JsonObject
             {
-                ["buildId"] = "marshaling-" + Configuration, ["runId"] = runId, ["configuration"] = Configuration,
+                ["buildId"] = "marshaling-" + Configuration, ["runId"] = runId, ["configuration"] = Configuration, ["languages"] = new JsonArray("csharp"),
                 ["sourceRevision"] = "unknown", ["sourceDirty"] = null, ["sourceDigest"] = "unknown", ["artifactDigest"] = "unknown",
                 ["compiler"] = new JsonObject { ["name"] = "Roslyn", ["version"] = "unknown" },
                 ["runtime"] = new JsonObject { ["name"] = "CoreCLR", ["version"] = Version },
@@ -89,12 +89,19 @@ public static class MarshaledCapture
         var array = parent.DeepClone().AsObject();
         array["id"] = "marshal-array/values"; array["typeId"] = "i32x3"; array["displayName"] = "ByValArray int32[3]";
         array["context"] = new JsonObject { ["kind"] = "embedded-value", ["hostObservationId"] = "marshal-array", ["hostMemberId"] = "values" };
-        array["metrics"]!["valueSizeBytes"] = K(12, "ByValArray.SizeConst*I4-width");
-        array["metrics"]!["arrayStrideBytes"] = K(4, "ByValArray.I4-element-width");
+        var count = parent["marshallingProfile"]!["configuration"]!["SizeConst"]!.GetValue<int>();
+        var elementBytes = Marshal.SizeOf<int>();
+        // This profile defines one contiguous I4 buffer. The array value's stride
+        // spans the entire buffer; an element observation has its own I4 stride.
+        var wholeBuffer = K(checked(count * elementBytes), "ByValArray.SizeConst * Marshal.SizeOf<int>() for contiguous I4 buffer");
+        wholeBuffer["evidence"]!["kind"] = "derived";
+        wholeBuffer["evidence"]!["inputs"] = new JsonArray("typeDescriptors/i32x3/fixedCount", "typeDescriptors/i32/representation/widthBits");
+        array["metrics"]!["valueSizeBytes"] = wholeBuffer;
+        array["metrics"]!["arrayStrideBytes"] = wholeBuffer.DeepClone();
         var elements = new JsonArray(); array["members"] = elements;
         parent["members"]![0]!["childObservationId"] = "marshal-array/values";
         observations.Add(array);
-        for (var i = 0; i < 3; i++)
+        for (var i = 0; i < count; i++)
         {
             var id = i.ToString(System.Globalization.CultureInfo.InvariantCulture); var childId = "marshal-array/values/" + id;
             elements.Add(new JsonObject
@@ -105,7 +112,9 @@ public static class MarshaledCapture
             });
             var child = array.DeepClone().AsObject(); child["id"] = childId; child["typeId"] = "i32"; child["displayName"] = "int32";
             child["context"] = new JsonObject { ["kind"] = "array-element", ["hostObservationId"] = "marshal-array/values", ["hostMemberId"] = id, ["elementIndex"] = i };
-            child["metrics"]!["valueSizeBytes"] = K(4, "UnmanagedType.I4"); child["members"] = new JsonArray(); observations.Add(child);
+            child["metrics"]!["valueSizeBytes"] = K(elementBytes, "Marshal.SizeOf<int>() for UnmanagedType.I4");
+            child["metrics"]!["arrayStrideBytes"] = K(elementBytes, "ByValArray contiguous I4 element stride: Marshal.SizeOf<int>()");
+            child["members"] = new JsonArray(); observations.Add(child);
         }
     }
 
@@ -145,6 +154,17 @@ public static class MarshaledCapture
             var members = observation["members"]!.AsArray();
             for (var j = 0; j < members.Count; j++)
                 if (NativeOracle.Offset(i, j) * 8 != (ulong)members[j]!["offsetBits"]!["value"]!.GetValue<long>()) throw new ProtocolException("Native offsetof differs for " + members[j]!["id"]);
+        }
+        var inlineArray = observations.Single(o => o!["id"]!.GetValue<string>() == "marshal-array/values")!;
+        // The native trailing code field immediately follows the three int32 elements.
+        // Its independently reported offset verifies the complete buffer span here.
+        if ((ulong)inlineArray["metrics"]!["arrayStrideBytes"]!["value"]!.GetValue<long>() != NativeOracle.Offset(2, 1))
+            throw new ProtocolException("ByValArray whole-buffer stride differs from the native field span.");
+        for (var i = 0; i < 3; i++)
+        {
+            var element = observations.Single(o => o!["id"]!.GetValue<string>() == "marshal-array/values/" + i)!;
+            if (element["metrics"]!["arrayStrideBytes"]!["value"]!.GetValue<long>() != 4)
+                throw new ProtocolException("ByValArray element stride must remain the I4 width.");
         }
         var first = new DefaultBoolChar { enabled = true, letter = '\u4e2d', count = 0x12345678 };
         var second = new ByteBoolChar { enabled = true, letter = '\u4e2d', count = 0x12345678 };

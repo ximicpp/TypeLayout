@@ -8,5 +8,6 @@
   <ItemGroup>
     <ProjectReference Include="../LayoutObserver.ClrMd/LayoutObserver.ClrMd.csproj" />
     <ProjectReference Include="../LayoutObserver.Core/LayoutObserver.Core.csproj" />
+    <ProjectReference Include="../LayoutObserver.ObjectHost/LayoutObserver.ObjectHost.csproj" />
   </ItemGroup>
 </Project>

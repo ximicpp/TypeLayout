@@ -28,7 +28,7 @@ public static class SnapshotValidator
         foreach (var type in types.Values) ValidateType(type, types);
         ValidateTypeCycles(types);
         foreach (var observation in observations.Values) ValidateObservation(observation, types);
-        foreach (var observation in observations.Values) ValidateRelations(observation, observations);
+        foreach (var observation in observations.Values) ValidateRelations(observation, observations, types);
         var visiting = new HashSet<string>(); var visited = new HashSet<string>();
         void Visit(JsonObject observation, int depth = 0)
         {
@@ -84,7 +84,7 @@ public static class SnapshotValidator
 
     private static void ValidateBuild(JsonObject build)
     {
-        Keys(build, "buildId runId configuration sourceRevision sourceDirty sourceDigest artifactDigest compiler runtime target flags dependencies requestedProfile", "build");
+        Keys(build, "buildId runId configuration sourceRevision sourceDirty sourceDigest artifactDigest compiler runtime target flags dependencies requestedProfile languages collectorProvenance captureProvenance", "build");
         foreach (var key in new[] { "buildId", "runId", "configuration", "sourceRevision", "sourceDigest", "artifactDigest" }) build.S(key);
         if (!build.ContainsKey("sourceDirty") || (build["sourceDirty"] is not null && (build["sourceDirty"] is not JsonValue b || !b.TryGetValue<bool>(out _))))
             throw new ProtocolException("sourceDirty must be boolean or null (unknown).");
@@ -98,6 +98,23 @@ public static class SnapshotValidator
         if (Number(target["pointerBits"], "pointerBits") is not (32 or 64)) throw new ProtocolException("Supported pointer widths are 32/64.");
         if (Number(target["bitsPerByte"], "bitsPerByte") != 8) throw new ProtocolException("Only 8-bit bytes supported by protocol 0.1.");
         OneOf(target.S("endian"), "little big", "endian"); Strings(build["flags"], "flags"); Obj(build["dependencies"], "dependencies");
+        if (build.ContainsKey("languages"))
+        {
+            var languages = Arr(build["languages"], "build.languages"); Strings(languages, "build.languages");
+            if (languages.Count == 0 || languages.Select(n => Str(n, "language")).Distinct(StringComparer.Ordinal).Count() != languages.Count)
+                throw new ProtocolException("build.languages must contain nonempty, unique language identities.");
+        }
+        if (build.ContainsKey("collectorProvenance")) Obj(build["collectorProvenance"], "build.collectorProvenance");
+        if (build.ContainsKey("captureProvenance"))
+        {
+            var provenance = Obj(build["captureProvenance"], "build.captureProvenance");
+            Keys(provenance, "sourceBinding sourceDigestScope artifactVerifiedStable sourceRelation", "captureProvenance");
+            OneOf(provenance.S("sourceBinding"), "profile run-default", "captureProvenance.sourceBinding");
+            provenance.S("sourceDigestScope");
+            if (provenance["artifactVerifiedStable"] is not JsonValue stable || !stable.TryGetValue<bool>(out _))
+                throw new ProtocolException("captureProvenance.artifactVerifiedStable must be boolean.");
+            OneOf(provenance.S("sourceRelation"), "built-in-run unverified", "captureProvenance.sourceRelation");
+        }
     }
 
     private static void TypeRef(JsonObject node, string key, Dictionary<string, JsonObject> types)
@@ -183,6 +200,23 @@ public static class SnapshotValidator
         }
         var indexedMembers = Index(Arr(observation["members"], "members"), path + ".members");
         var observedType = types[observation.S("typeId")];
+        if (observation.ContainsKey("instanceShape"))
+        {
+            if (observedType.S("kind") != "array" && context.S("kind") is not ("heap-object" or "boxed-value"))
+                throw new ProtocolException("Instance shape is only applicable to arrays or variable-length objects.");
+            var shape = Obj(observation["instanceShape"], "instanceShape");
+            Keys(shape, "length dimensions", "instanceShape");
+            var length = Number(shape["length"], "length");
+            if (length < 0) throw new ProtocolException("Negative instance length.");
+            var dimensions = Arr(shape["dimensions"], "dimensions").Select(n => Number(n, "dimension")).ToArray();
+            if (dimensions.Length == 0 || dimensions.Any(n => n < 0)) throw new ProtocolException("Instance dimensions must be nonempty and nonnegative.");
+            long product = dimensions.Contains(0) ? 0 : 1;
+            try { if (product != 0) foreach (var dimension in dimensions) product = checked(product * dimension); }
+            catch (OverflowException) { throw new ProtocolException("Instance dimension product overflow."); }
+            if (length != product) throw new ProtocolException("Instance length differs from the product of its dimensions.");
+            if (observedType.S("kind") == "array" && Numeric(observedType["fixedCount"]) is long fixedCount && fixedCount != length)
+                throw new ProtocolException("Observed array length differs from its declared fixed count.");
+        }
         if (observedType.S("kind") == "array" && coverage.S("fieldEnumeration") == "complete")
         {
             var expected = Numeric(observedType["fixedCount"]);
@@ -198,6 +232,8 @@ public static class SnapshotValidator
             if (Number(member["declarationOrder"], "declarationOrder") < 0) throw new ProtocolException("Negative declarationOrder.");
             ValidateFact(member["offsetBits"], "offsetBits", "integer"); ValidateFact(member["bitWidth"], "bitWidth", "nonnegative");
             ValidateFact(member["declaredTypeSizeBits"], "declaredTypeSizeBits", "nonnegative"); ValidateFact(member["occupiedRanges"], "occupiedRanges", "ranges");
+            if (types[member.S("typeRef")].S("kind") is "scalar" or "enum" or "reference")
+                ValidateScalarRanges(member, path);
             var extentSize = Numeric(metrics[context.S("kind") is "heap-object" or "boxed-value" ? "runtimeReportedObjectBytes" : "valueSizeBytes"]);
             if (extentSize is not null && Value(member["occupiedRanges"]) is JsonArray ranges)
             {
@@ -223,13 +259,6 @@ public static class SnapshotValidator
                         throw new ProtocolException(path + ": runtime region outside extent.");
             }
         }
-        if (observation.ContainsKey("instanceShape"))
-        {
-            var shape = Obj(observation["instanceShape"], "instanceShape");
-            Keys(shape, "length dimensions", "instanceShape");
-            if (Number(shape["length"], "length") < 0) throw new ProtocolException("Negative instance length.");
-            foreach (var dimension in Arr(shape["dimensions"], "dimensions")) if (Number(dimension, "dimension") < 0) throw new ProtocolException("Negative dimension.");
-        }
         if (observation.S("view") == "marshaled" || observation.ContainsKey("marshallingProfile"))
         {
             var profile = Obj(observation["marshallingProfile"], "marshallingProfile");
@@ -237,17 +266,50 @@ public static class SnapshotValidator
         }
     }
 
-    private static void ValidateRelations(JsonObject observation, Dictionary<string, JsonObject> observations)
+    private static void ValidateScalarRanges(JsonObject member, string path)
+    {
+        var offset = Numeric(member["offsetBits"]); var width = Numeric(member["bitWidth"]);
+        if (offset is null || width is null || Value(member["occupiedRanges"]) is not JsonArray ranges) return;
+        long expectedEnd;
+        try { expectedEnd = checked(offset.Value + width.Value); }
+        catch (OverflowException) { throw new ProtocolException(path + ": scalar range overflow."); }
+        var cursor = offset.Value;
+        foreach (var range in ranges.OfType<JsonObject>().OrderBy(r => Number(r["startBit"], "startBit")))
+        {
+            var start = Number(range["startBit"], "startBit"); var length = Number(range["lengthBits"], "lengthBits");
+            if (length == 0) continue;
+            var end = checked(start + length);
+            if (start < offset || start > cursor || end > expectedEnd)
+                throw new ProtocolException(path + ": scalar occupied ranges disagree with offsetBits/bitWidth.");
+            cursor = Math.Max(cursor, end);
+        }
+        if (cursor != expectedEnd) throw new ProtocolException(path + ": scalar occupied ranges do not cover offsetBits/bitWidth.");
+    }
+
+    private static void ValidateRelations(JsonObject observation, Dictionary<string, JsonObject> observations, Dictionary<string, JsonObject> types)
     {
         var id = observation.S("id"); var context = Obj(observation["context"], "context");
         if (context.ContainsKey("hostObservationId"))
         {
+            if (context.S("kind") is not ("embedded-value" or "array-element"))
+                throw new ProtocolException("Only inline embedded values or array elements may have a host observation.");
             if (!observations.TryGetValue(context.S("hostObservationId"), out var host)) throw new ProtocolException("Missing host observation.");
             var members = Index(Arr(host["members"], "members"), "members");
             if (!members.TryGetValue(context.S("hostMemberId"), out var member) || member["childObservationId"]?.GetValue<string>() != id)
                 throw new ProtocolException("Child/host relation is not bidirectional.");
+            var hostIsArray = types[host.S("typeId")].S("kind") == "array";
+            if (hostIsArray != (context.S("kind") == "array-element")) throw new ProtocolException("Array element context must correspond to an array host.");
+            if (hostIsArray)
+            {
+                var index = Number(context["elementIndex"], "elementIndex");
+                var count = host["instanceShape"] is JsonObject shape ? Number(shape["length"], "length") : Numeric(types[host.S("typeId")]["fixedCount"]);
+                if (count is not null && index >= count) throw new ProtocolException("Array element index is outside the observed array.");
+            }
         }
         else if (context.ContainsKey("hostMemberId")) throw new ProtocolException("hostMemberId without hostObservationId.");
+        else if (context.S("kind") is "embedded-value" or "array-element") throw new ProtocolException("Inline observation requires a host placement.");
+        if (context.S("kind") != "array-element" && context.ContainsKey("elementIndex")) throw new ProtocolException("elementIndex is only applicable to array elements.");
+        var elementIndices = new HashSet<long>();
         foreach (var member in Index(Arr(observation["members"], "members"), "members").Values)
         {
             if (!member.ContainsKey("childObservationId")) continue;
@@ -255,6 +317,8 @@ public static class SnapshotValidator
             var childContext = Obj(child["context"], "child.context");
             if (childContext["hostObservationId"]?.GetValue<string>() != id || childContext["hostMemberId"]?.GetValue<string>() != member.S("id") || child.S("typeId") != member.S("typeRef"))
                 throw new ProtocolException("Invalid child/host placement or type.");
+            if (childContext.S("kind") == "array-element" && !elementIndices.Add(Number(childContext["elementIndex"], "elementIndex")))
+                throw new ProtocolException("Duplicate array element index.");
         }
     }
 

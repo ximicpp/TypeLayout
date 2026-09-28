@@ -174,4 +174,144 @@ Check("runtime regions stay inside the declared extent", () =>
     var s = Fixture(); O(s)["runtimeRegions"] = new JsonArray(new JsonObject { ["role"] = "reserved", ["ranges"] = Known(new JsonArray(Range(64, 8))) });
     Reject(() => SnapshotValidator.Validate(s));
 });
+
+JsonObject ArrayFixture(bool runtimeLength = true, bool heapObject = false)
+{
+    var s = Fixture();
+    ((JsonArray)s["typeDescriptors"]!).Add(new JsonObject { ["id"] = "array", ["kind"] = "array", ["displayName"] = "IntArray", ["elementTypeRef"] = "i32", ["fixedCount"] = runtimeLength ? Unknown() : Known(JsonValue.Create(2)!) });
+    var o = O(s); o["typeId"] = "array";
+    o["members"] = new JsonArray(Member("0", 0, 32, "i32", 0), Member("1", 32, 32, "i32", 1));
+    o["instanceShape"] = new JsonObject { ["length"] = 2, ["dimensions"] = new JsonArray(2) };
+    o["metrics"]!["arrayStrideBytes"] = Known(JsonValue.Create(4)!);
+    if (heapObject)
+    {
+        o["view"] = "managed"; o["context"]!["kind"] = "heap-object";
+        o["metrics"]!["runtimeReportedObjectBytes"] = Known(JsonValue.Create(8)!);
+        o["origin"]!["conversionEvidence"] = Known(JsonValue.Create(0)!)["evidence"]!.DeepClone();
+    }
+    return s;
+}
+JsonObject ArrayElementFixture()
+{
+    var s = ArrayFixture(false);
+    for (var i = 0; i < 2; i++)
+    {
+        var id = "element-" + i; O(s)["members"]![i]!["childObservationId"] = id;
+        var child = Copy(O(s)); child["id"] = id; child["typeId"] = "i32";
+        child["context"] = new JsonObject { ["kind"] = "array-element", ["hostObservationId"] = "sample", ["hostMemberId"] = i.ToString(), ["elementIndex"] = i };
+        child.Remove("instanceShape"); child["members"] = new JsonArray(); child["metrics"]!["valueSizeBytes"] = Known(JsonValue.Create(4)!);
+        s["observations"]!.AsArray().Add(child);
+    }
+    return s;
+}
+Check("mapped native representations support different language frontends", () =>
+{
+    var l = Fixture(); var r = Fixture(); l["build"]!["languages"] = new JsonArray("c++"); r["build"]!["languages"] = new JsonArray("rust");
+    Assert(Code(LayoutComparer.Compare(l, r, Manifest("representation"))) == 0, "native/native mapping rejected");
+});
+Check("mapped managed representations share the same comparison path", () =>
+{
+    var l = Fixture(); O(l)["view"] = "managed";
+    Assert(Code(LayoutComparer.Compare(l, Copy(l), Manifest("representation"))) == 0, "managed/managed mapping rejected");
+});
+Check("representation mode does not bypass marshalling profiles", () =>
+{
+    var r = Fixture(); O(r)["view"] = "marshaled"; O(r)["marshallingProfile"] = new JsonObject { ["id"] = "profile", ["mechanism"] = "runtime-marshalling", ["configuration"] = new JsonObject() };
+    Assert(Verdict(LayoutComparer.Compare(Fixture(), r, Manifest("representation"))) == "not-comparable", "marshaled view bypassed dedicated adapter");
+});
+Check("fully observed runtime arrays are comparable instances", () =>
+{
+    var s = ArrayFixture(heapObject: true); var m = Manifest(); m["scope"] = "object";
+    Assert(Code(LayoutComparer.Compare(s, Copy(s), m)) == 0, "runtime type count obscured observed instance count");
+});
+Check("array declaration cardinality is not substituted for instance evidence", () =>
+{
+    var l = ArrayFixture(false); O(l).Remove("instanceShape"); var r = ArrayFixture();
+    var result = LayoutComparer.Compare(l, r, Manifest());
+    Assert(Code(result) == 0 && result["cases"]![0]!["diagnostics"]!.AsArray().Count > 0, "instance/declaration comparison lost its scope distinction");
+});
+Check("runtime array length changes are observed", () =>
+{
+    var l = ArrayFixture(); var r = Copy(l); O(r)["instanceShape"] = new JsonObject { ["length"] = 1, ["dimensions"] = new JsonArray(1) }; O(r)["members"]!.AsArray().RemoveAt(1);
+    Assert(Code(LayoutComparer.Compare(l, r, Manifest())) == 1, "runtime instance count change ignored");
+});
+Check("array unknown length without instance evidence remains incomplete", () =>
+{
+    var s = ArrayFixture(); O(s).Remove("instanceShape"); O(s)["coverage"]!["fieldEnumeration"] = "partial";
+    Assert(Code(LayoutComparer.Compare(s, Copy(s), Manifest())) == 2, "unobserved cardinality passed");
+});
+Check("array placement scope requires the root stride", () =>
+{
+    var l = Fixture(); var r = Copy(l); O(r)["metrics"]!["arrayStrideBytes"] = Known(JsonValue.Create(16)!); var m = Manifest(); m["scope"] = "array";
+    Assert(Code(LayoutComparer.Compare(l, r, m)) == 1, "array placement scope ignored root stride");
+});
+Check("array rank dimensions participate outside object scope", () =>
+{
+    var l = ArrayFixture(); var r = Copy(l); O(l)["instanceShape"]!["dimensions"] = new JsonArray(1, 2); O(r)["instanceShape"]!["dimensions"] = new JsonArray(2, 1);
+    Assert(Code(LayoutComparer.Compare(l, r, Manifest())) == 1, "array dimensions ignored");
+});
+Check("fixed array count must agree with instance count", () => { var s = ArrayFixture(false); O(s)["instanceShape"] = new JsonObject { ["length"] = 3, ["dimensions"] = new JsonArray(3) }; Reject(() => SnapshotValidator.Validate(s)); });
+Check("instance length must match dimensions product", () => { var s = ArrayFixture(); O(s)["instanceShape"]!["dimensions"] = new JsonArray(1, 3); Reject(() => SnapshotValidator.Validate(s)); });
+Check("instance dimensions product cannot overflow", () => { var s = ArrayFixture(); O(s)["instanceShape"]!["dimensions"] = new JsonArray(long.MaxValue, 2L); Reject(() => SnapshotValidator.Validate(s)); });
+Check("plain value cannot claim unused instance shape", () => { var s = Fixture(); O(s)["instanceShape"] = new JsonObject { ["length"] = 2, ["dimensions"] = new JsonArray(2) }; Reject(() => SnapshotValidator.Validate(s)); });
+Check("non-inline child object is rejected", () =>
+{
+    var s = NestedFixture(); s["observations"]![1]!["context"]!["kind"] = "heap-object"; s["observations"]![1]!["metrics"]!["runtimeReportedObjectBytes"] = Known(JsonValue.Create(8)!);
+    Reject(() => SnapshotValidator.Validate(s));
+});
+Check("inline observation requires host relationship", () => { var s = Fixture(); O(s)["context"]!["kind"] = "embedded-value"; Reject(() => SnapshotValidator.Validate(s)); });
+Check("valid array element placements pass", () => SnapshotValidator.Validate(ArrayElementFixture()));
+Check("array element indices cannot repeat", () => { var s = ArrayElementFixture(); s["observations"]![2]!["context"]!["elementIndex"] = 0; Reject(() => SnapshotValidator.Validate(s)); });
+Check("array element index is bounded by observed count", () => { var s = ArrayElementFixture(); s["observations"]![2]!["context"]!["elementIndex"] = 2; Reject(() => SnapshotValidator.Validate(s)); });
+Check("known scalar occupancy must agree with its offset and width", () =>
+{
+    var s = Fixture(); O(s)["members"]![0]!["occupiedRanges"] = Known(new JsonArray(Range(32, 8))); Reject(() => SnapshotValidator.Validate(s));
+});
+Check("known scalar occupancy cannot omit interior bits", () =>
+{
+    var s = Fixture(); O(s)["members"]![1]!["occupiedRanges"] = Known(new JsonArray(Range(32, 8), Range(48, 16))); Reject(() => SnapshotValidator.Validate(s));
+});
+Check("calibrated object extent start is a difference within a shared origin", () =>
+{
+    var l = ArrayFixture(heapObject: true); var r = Copy(l);
+    foreach (var o in new[] { O(l), O(r) }) { o["origin"]!["kind"] = "object-reference"; o["metrics"]!["runtimeReportedObjectBytes"] = Known(JsonValue.Create(16)!); }
+    O(l)["origin"]!["extentStartBit"] = -32; O(r)["origin"]!["extentStartBit"] = -64;
+    var m = Manifest(); m["scope"] = "object";
+    Assert(Code(LayoutComparer.Compare(l, r, m)) == 1, "extent origin coordinate confused with region start");
+});
+Check("language identities cannot silently repeat", () => { var s = Fixture(); s["build"]!["languages"] = new JsonArray("c++", "c++"); Reject(() => SnapshotValidator.Validate(s)); });
+Check("provenance requires all observation claims", () => { var s = Fixture(); s["build"]!["captureProvenance"] = new JsonObject { ["sourceBinding"] = "profile" }; Reject(() => SnapshotValidator.Validate(s)); });
+
+
+Check("nested selectors on leaf fields cannot be silently ignored", () =>
+{
+    foreach (var kind in new[] { "scalar", "enum", "reference" })
+    {
+        var s = Fixture(); var type = s["typeDescriptors"]![0]!.AsObject();
+        if (kind == "enum") { type.Clear(); type["id"] = "u8"; type["displayName"] = "Enum"; type["kind"] = "enum"; type["enumUnderlyingTypeRef"] = "i32"; }
+        if (kind == "reference") { type.Clear(); type["id"] = "u8"; type["displayName"] = "Reference"; type["kind"] = "reference"; type["referenceKind"] = "native-pointer"; type["representation"] = new JsonObject { ["widthBits"] = Known(JsonValue.Create(8)!) }; }
+        var m = Manifest("representation"); m["cases"]![0]!["fields"]![0]!["children"] = new JsonArray(new JsonObject { ["id"] = "required", ["left"] = "missing", ["right"] = "missing" });
+        Reject(() => LayoutComparer.Compare(s, Copy(s), m));
+    }
+});
+Check("unobserved record mapping remains incomplete with an explicit diagnostic", () =>
+{
+    var s = NestedFixture(); O(s)["members"]![0]!.AsObject().Remove("childObservationId"); s["observations"]!.AsArray().RemoveAt(1);
+    var m = Manifest("representation"); m["cases"]![0]!["fields"] = new JsonArray(new JsonObject { ["id"] = "payload", ["left"] = "payload", ["right"] = "payload", ["children"] = new JsonArray(new JsonObject { ["id"] = "tag", ["left"] = "tag", ["right"] = "tag" }) });
+    var result = LayoutComparer.Compare(s, Copy(s), m);
+    Assert(Code(result) == 2 && result["cases"]![0]!["diagnostics"]!.AsArray().Any(d => d!.GetValue<string>().Contains("mapping was not evaluated")), "missing record observations hid an unevaluated selector");
+});
+Check("selector absent on both complete sides is a configuration error", () =>
+{
+    var m = Manifest("representation"); m["cases"]![0]!["fields"]!.AsArray().Add(new JsonObject { ["id"] = "absent", ["left"] = "absent", ["right"] = "absent" });
+    Reject(() => LayoutComparer.Compare(Fixture(), Fixture(), m));
+});
+Check("unresolved selector does not invent a change from incomplete enumeration", () =>
+{
+    var l = Fixture(); var r = Fixture(); O(r)["coverage"]!["fieldEnumeration"] = "partial";
+    var m = Manifest("representation"); m["cases"]![0]!["fields"]!.AsArray().Add(new JsonObject { ["id"] = "absent", ["left"] = "absent", ["right"] = "absent" });
+    var result = LayoutComparer.Compare(l, r, m);
+    Assert(Verdict(result) == "incomplete" && result["cases"]![0]!["differences"]!.AsArray().Count == 0, "no observed field was misreported as an addition/removal");
+});
+
 Console.WriteLine($"PASS: {count} core contract checks");

@@ -59,10 +59,10 @@ public static class ManagedCapture
             return new JsonObject
             {
                 ["schemaVersion"] = "0.1", ["snapshotId"] = "managed-" + runId,
-                ["producer"] = new JsonObject { ["id"] = "managed-static", ["version"] = "0.1.0", ["capabilities"] = Strings("managed-values", "typed-byref", "array-stride", "inline-array", "partial-private-fields", "closed-generics") },
+                ["producer"] = new JsonObject { ["id"] = "managed-static", ["version"] = "0.1.1", ["capabilities"] = Strings("managed-values", "typed-byref", "array-stride", "inline-array", "partial-private-fields", "closed-generics") },
                 ["build"] = new JsonObject
                 {
-                    ["buildId"] = "managed-" + buildConfiguration, ["runId"] = runId,
+                    ["buildId"] = "managed-" + buildConfiguration, ["runId"] = runId, ["languages"] = new JsonArray("csharp"),
                     ["configuration"] = buildConfiguration,
                     ["sourceRevision"] = "unknown", ["sourceDirty"] = null, ["sourceDigest"] = "unknown", ["artifactDigest"] = "unknown",
                     ["compiler"] = new JsonObject { ["name"] = "Roslyn", ["version"] = compilerVersion },
