@@ -85,11 +85,19 @@ namespace detail {
     consteval auto embedded_empty_signature() noexcept {
         static constexpr auto full = TypeSignature<T>::calculate();
         constexpr auto str = std::string_view(full);
-        constexpr auto s_pos = str.find("[s:");
+        // Index-based search: std::string_view::find goes through
+        // char_traits::find, whose null-pointer test GCC rejects in constant
+        // evaluation under -fsanitize=null / nonnull-attribute /
+        // returns-nonnull-attribute.
+        constexpr auto s_pos = full.find(FixedString{"[s:"});
         static_assert(s_pos != std::string_view::npos,
             "embedded_empty_signature: signature must contain '[s:' "
             "(format: TYPE[s:SIZE,a:ALIGN]{...})");
-        constexpr auto comma_pos = str.find(',', s_pos + 3);
+        constexpr auto comma_pos = [] {
+            for (std::size_t i = s_pos + 3; i < full.length(); ++i)
+                if (full.value[i] == ',') return i;
+            return std::string_view::npos;
+        }();
         static_assert(comma_pos != std::string_view::npos,
             "embedded_empty_signature: expected ',a:' after size "
             "(format: TYPE[s:SIZE,a:ALIGN]{...})");
